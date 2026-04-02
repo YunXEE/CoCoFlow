@@ -50,7 +50,7 @@ namespace CoCoFlow.Runtime.Core
             }
             else
             {
-                Debug.LogWarning($"[CoCoFrame] 状态 {stateType.Name} 重复注册，已忽略。");
+                Debug.LogWarning($"[CoCoFlow] 状态 {stateType.Name} 重复注册，已忽略。");
             }
         }
 
@@ -62,7 +62,7 @@ namespace CoCoFlow.Runtime.Core
             }
             else
             {
-                Debug.LogError($"[CoCoFrame] 致命错误：{gameObject.name} 未挂载/指定初始状态组件！");
+                Debug.LogError($"[CoCoFlow] 致命错误：{gameObject.name} 未挂载/指定初始状态组件！");
             }
         }
         
@@ -91,7 +91,7 @@ namespace CoCoFlow.Runtime.Core
             }
             else
             {
-                Debug.LogWarning($"[CoCoFrame] {gameObject.name} 尝试切换到未注册的状态: {newStateType.Name}。已忽略。");
+                Debug.LogWarning($"[CoCoFlow] {gameObject.name} 尝试切换到未注册的状态: {newStateType.Name}。已忽略。");
             }
         }
 

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine; 
 
-namespace CocoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence
 {
 
     [System.Serializable]

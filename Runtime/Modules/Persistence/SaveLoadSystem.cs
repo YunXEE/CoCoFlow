@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
-namespace CocoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence
 {
     public static class SaveLoadSystem
     {
@@ -22,7 +22,7 @@ namespace CocoFlow.Runtime.Modules.Persistence
         {
 #if UNITY_EDITOR
             // 测试文件夹
-            string path = Path.Combine(Application.dataPath, "CoCoFrame/Test/Saves");
+            string path = Path.Combine(Application.dataPath, "CoCoFlow/Test/Saves");
 #else
             // 正式运行：放在系统标准持久化目录
             string path = Application.persistentDataPath;

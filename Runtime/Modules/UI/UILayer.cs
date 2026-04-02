@@ -1,4 +1,4 @@
-namespace CocoFlow.Runtime.Modules.UI
+namespace CoCoFlow.Runtime.Modules.UI
 {
     public enum UILayer
     {

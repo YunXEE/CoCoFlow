@@ -1,5 +1,5 @@
 
-namespace CocoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence
 {
     public static class RuntimeStateManager
     {

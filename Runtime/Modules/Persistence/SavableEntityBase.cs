@@ -6,7 +6,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 
-namespace CocoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence
 {
     [ExecuteAlways]
     public abstract class SavableEntityBase : MonoBehaviour, 

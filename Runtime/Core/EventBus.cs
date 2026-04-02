@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CocoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.Core
 {
     public delegate void EventCallback<T>(ref T eventData);
 

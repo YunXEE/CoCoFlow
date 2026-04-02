@@ -1,14 +1,14 @@
 using UnityEngine;
 using UnityEditor;
 using System.IO;
-using CocoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence;
 
-namespace CocoFlow.Editor.Modules.Persistence
+namespace CoCoFlow.Editor.Modules.Persistence
 {
     public class SaveLoadEditor : EditorWindow
     {
         // 在 Unity 顶部菜单栏创建入口
-        [MenuItem("CoCoFrame/Persistence/SaveLoadEditor")]
+        [MenuItem("CoCoFlow/Persistence/SaveLoadEditor")]
         public static void ShowWindow()
         {
             // 弹出一个小窗口
@@ -48,7 +48,7 @@ namespace CocoFlow.Editor.Modules.Persistence
             // 4. 辅助功能：快捷打开文件夹
             if (GUILayout.Button("在系统文件管理器中打开存档目录"))
             {
-                string dir = Path.Combine(Application.dataPath, "CoCoFrame/Test/Saves");
+                string dir = Path.Combine(Application.dataPath, "CoCoFlow/Test/Saves");
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 EditorUtility.RevealInFinder(dir);
             }
@@ -56,7 +56,7 @@ namespace CocoFlow.Editor.Modules.Persistence
 
         private void ClearAllTestSaves()
         {
-            string dir = Path.Combine(Application.dataPath, "CoCoFrame/Test/Saves");
+            string dir = Path.Combine(Application.dataPath, "CoCoFlow/Test/Saves");
             
             if (!Directory.Exists(dir))
             {
@@ -81,7 +81,7 @@ namespace CocoFlow.Editor.Modules.Persistence
                 
                 // 刷新 AssetDatabase，让 Unity 和 Rider 知道文件已经被删了
                 AssetDatabase.Refresh();
-                Debug.Log($"[CoCoFrame] 成功清理了 {files.Length} 个测试存档！");
+                Debug.Log($"[CoCoFlow] 成功清理了 {files.Length} 个测试存档！");
             }
         }
     }

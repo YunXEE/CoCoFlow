@@ -3,10 +3,10 @@ using UnityEditor;
 using System.IO;
 using System.Linq;
 
-namespace CocoFlow.Editor.AssetPipeline
+namespace CoCoFlow.Editor.AssetPipeline
 {
     /// <summary>
-    /// CoCoFrame 资产管线：非破坏性资产清洗工具
+    /// CoCoFlow 资产管线：非破坏性资产清洗工具
     /// 专项针对 Nature Manufacture 等重型环境包
     /// </summary>
     public class AssetCloneAndStrip : EditorWindow
@@ -24,7 +24,7 @@ namespace CocoFlow.Editor.AssetPipeline
             typeof(Rigidbody)
         };
 
-        [MenuItem("CoCoFrame/AssetPipeline/一键克隆并清洗资产")]
+        [MenuItem("CoCoFlow/AssetPipeline/一键克隆并清洗资产")]
         public static void ShowWindow()
         {
             var window = GetWindow<AssetCloneAndStrip>("资产克隆清洗器");
@@ -34,7 +34,7 @@ namespace CocoFlow.Editor.AssetPipeline
         private void OnGUI()
         {
             EditorGUILayout.Space(10);
-            GUILayout.Label("CoCoFrame 资产清洗管线 (2.1 自然资源专项)", EditorStyles.boldLabel);
+            GUILayout.Label("CoCoFlow 资产清洗管线 (2.1 自然资源专项)", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox("该工具会克隆 Prefab 和 Material 到目标文件夹，并剔除所有冗余脚本。纹理将保留对原始路径的引用，不占用额外空间。", MessageType.Info);
             
             EditorGUILayout.Space(5);
@@ -81,7 +81,7 @@ namespace CocoFlow.Editor.AssetPipeline
                     string relativePath = srcPath.Substring(_sourcePath.Length);
                     string destPath = _targetPath + relativePath;
 
-                    EditorUtility.DisplayProgressBar("CoCoFrame 资产清洗", $"正在克隆资产: {Path.GetFileName(srcPath)}", (float)i / total);
+                    EditorUtility.DisplayProgressBar("CoCoFlow 资产清洗", $"正在克隆资产: {Path.GetFileName(srcPath)}", (float)i / total);
 
                     // 自动创建目录
                     string destDir = Path.GetDirectoryName(destPath);
@@ -101,7 +101,7 @@ namespace CocoFlow.Editor.AssetPipeline
                 for (int i = 0; i < newPrefabs.Length; i++)
                 {
                     string path = AssetDatabase.GUIDToAssetPath(newPrefabs[i]);
-                    EditorUtility.DisplayProgressBar("CoCoFrame 资产清洗", $"正在剥离组件与重定向材质: {Path.GetFileName(path)}", (float)i / newPrefabs.Length);
+                    EditorUtility.DisplayProgressBar("CoCoFlow 资产清洗", $"正在剥离组件与重定向材质: {Path.GetFileName(path)}", (float)i / newPrefabs.Length);
                     
                     ProcessNewPrefab(path);
                 }
@@ -111,7 +111,7 @@ namespace CocoFlow.Editor.AssetPipeline
                 EditorUtility.ClearProgressBar();
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
-                Debug.Log($"<color=green>[CoCoFrame]</color> 迁移清洗完成！逻辑资产已存放至: <b>{_targetPath}</b>");
+                Debug.Log($"<color=green>[CoCoFlow]</color> 迁移清洗完成！逻辑资产已存放至: <b>{_targetPath}</b>");
             }
         }
 

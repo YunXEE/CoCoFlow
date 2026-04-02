@@ -26,7 +26,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
         {
             if (freeLookCamera == null || inputReader == null)
             {
-                Debug.LogError("[CoCoFrame] CameraManager 缺少核心组件依赖！");
+                Debug.LogError("[CoCoFlow] CameraManager 缺少核心组件依赖！");
             }
         }
 

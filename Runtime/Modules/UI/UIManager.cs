@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CocoFlow.Runtime.Modules.UI
+namespace CoCoFlow.Runtime.Modules.UI
 {
     public class UIManager : MonoBehaviour
     {

@@ -2,7 +2,7 @@ using UnityEngine;
 using DG.Tweening;
 using System;
 
-namespace CocoFlow.Runtime.Modules.UI
+namespace CoCoFlow.Runtime.Modules.UI
 {
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UIPanelBase : MonoBehaviour
