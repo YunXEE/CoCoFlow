@@ -1,0 +1,2 @@
+需要安装DOTween才能正常使用
+Cinemachine必须使用3.0以上的版本
