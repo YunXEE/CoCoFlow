@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEditor;
 using System.IO;
 using CoCoFlow.Runtime.Modules.Persistence;
@@ -8,7 +8,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
     public class SaveLoadEditor : EditorWindow
     {
         // 在 Unity 顶部菜单栏创建入口
-        [MenuItem("CoCoFlow/Persistence/SaveLoadEditor")]
+        [MenuItem("CoCoFlow/Persistence/存档加载编辑器")]
         public static void ShowWindow()
         {
             // 弹出一个小窗口
