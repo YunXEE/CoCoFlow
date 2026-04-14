@@ -4,7 +4,11 @@
     "references": [
         "Unity.Cinemachine",
         "Unity.InputSystem",
-        "DOTween.Modules"
+        "DOTween.Modules",
+        "Unity.ResourceManager",
+        "UniTask.Addressables",
+        "Unity.Addressables",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
