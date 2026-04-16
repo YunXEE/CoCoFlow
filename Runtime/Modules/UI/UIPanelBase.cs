@@ -1,95 +1,96 @@
 using UnityEngine;
 using DG.Tweening;
-using System;
+using Cysharp.Threading.Tasks; // 引入 UniTask
+using CoCoFlow.Runtime.Core;
+using UnityEngine.Serialization; // 引入你的事件总线
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UIPanelBase : MonoBehaviour
     {
-        [Header("UI Routing")]
-        public string PanelId;
-        public UILayer Layer = UILayer.Panel;
-        [Tooltip("打开时是否暂停/隐藏下层的面板？")]
-        public bool HideLowerPanels = true;
+        [FormerlySerializedAs("PanelAddress")] [Header("UI Routing")]
+        public string panelAddress; // 替换 PanelId 为 Addressable 地址
+        public UILayer layer = UILayer.Panel;
+        public bool hideLowerPanels = true;
 
         [Header("DOTween Animation Config")]
         public float animDuration = 0.3f;
-        [Tooltip("入场动画贝塞尔曲线 (推荐使用过冲曲线实现弹性)")]
         public AnimationCurve showCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
-        [Tooltip("退场动画贝塞尔曲线")]
         public AnimationCurve hideCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
 
-        protected CanvasGroup canvasGroup;
-        protected RectTransform rectTransform;
+        protected CanvasGroup CanvasGroup;
+        protected RectTransform RectTransform;
+
+        // 核心注入：专属事件代理，面板销毁时自动退订！
+        protected EventAgent EventAgent = new EventAgent();
 
         protected virtual void Awake()
         {
-            canvasGroup = GetComponent<CanvasGroup>();
-            rectTransform = GetComponent<RectTransform>();
-            
-            // 初始化状态：隐藏并关闭交互
-            canvasGroup.alpha = 0f;
-            canvasGroup.interactable = false;
-            canvasGroup.blocksRaycasts = false;
+            CanvasGroup = GetComponent<CanvasGroup>();
+            RectTransform = GetComponent<RectTransform>();
+
+            CanvasGroup.alpha = 0f;
+            CanvasGroup.interactable = false;
+            CanvasGroup.blocksRaycasts = false;
         }
 
-        // ================== 生命周期 API ==================
+        // ================== 生命周期改写为 Async ==================
 
-        /// <summary>
-        /// 面板被压入栈，准备展示
-        /// </summary>
-        public virtual void Show(Action onComplete = null)
+        public virtual async UniTask ShowAsync()
         {
             gameObject.SetActive(true);
-            canvasGroup.blocksRaycasts = true;
+            CanvasGroup.blocksRaycasts = true;
 
-            // 你的自定义初始化逻辑 (比如清空列表，加载数据)
             OnBeforeShow();
 
-            // 停止之前的动画，防止冲突
             transform.DOKill();
-            canvasGroup.DOKill();
-
-            // DOTween 弹性入场范例：缩放 + 透明度渐变
+            CanvasGroup.DOKill();
             transform.localScale = Vector3.one * 0.8f;
-            
-            Sequence seq = DOTween.Sequence();
-            seq.Join(transform.DOScale(Vector3.one, animDuration).SetEase(showCurve));
-            seq.Join(canvasGroup.DOFade(1f, animDuration * 0.8f)); // 透明度比缩放稍快一点完成
-            
-            seq.OnComplete(() => 
-            {
-                canvasGroup.interactable = true;
-                onComplete?.Invoke();
-            });
+
+            // 使用 UniTask.WhenAll 并发等待 DOTween 动画结束，极其优雅
+            await UniTask.WhenAll(
+                transform.DOScale(Vector3.one, animDuration).SetEase(showCurve).ToUniTask(),
+                CanvasGroup.DOFade(1f, animDuration * 0.8f).ToUniTask()
+            );
+
+            CanvasGroup.interactable = true;
         }
 
-        /// <summary>
-        /// 面板被弹出栈，或者被上层面板遮挡
-        /// </summary>
-        public virtual void Hide(Action onComplete = null)
+        public virtual async UniTask HideAsync()
         {
-            canvasGroup.interactable = false;
-            canvasGroup.blocksRaycasts = false;
+            CanvasGroup.interactable = false;
+            CanvasGroup.blocksRaycasts = false;
 
             transform.DOKill();
-            canvasGroup.DOKill();
+            CanvasGroup.DOKill();
 
-            Sequence seq = DOTween.Sequence();
-            seq.Join(transform.DOScale(Vector3.one * 0.8f, animDuration).SetEase(hideCurve));
-            seq.Join(canvasGroup.DOFade(0f, animDuration));
-            
-            seq.OnComplete(() => 
-            {
-                OnAfterHide();
-                gameObject.SetActive(false);
-                onComplete?.Invoke();
-            });
+            await UniTask.WhenAll(
+                transform.DOScale(Vector3.one * 0.8f, animDuration).SetEase(hideCurve).ToUniTask(),
+                CanvasGroup.DOFade(0f, animDuration).ToUniTask()
+            );
+
+            OnAfterHide();
+            gameObject.SetActive(false);
         }
 
-        // 供子类重写的钩子函数
         protected virtual void OnBeforeShow() { }
         protected virtual void OnAfterHide() { }
+
+        // 终极保险：销毁时清理事件
+        protected virtual void OnDestroy()
+        {
+            EventAgent.UnsubscribeAll();
+        }
+        /// <summary>
+        /// 供外部（如 UIManager）动态控制面板的交互状态
+        /// </summary>
+        public void SetInteractable(bool isInteractable)
+        {
+            if (CanvasGroup != null)
+            {
+                CanvasGroup.interactable = isInteractable;
+            }
+        }
     }
 }

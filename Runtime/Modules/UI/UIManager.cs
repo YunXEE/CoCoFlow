@@ -1,86 +1,90 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
+using Cysharp.Threading.Tasks;
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
     public class UIManager : MonoBehaviour
     {
-        // 场景中预设的各层级挂载点
         [SerializeField] private Transform hudRoot;
         [SerializeField] private Transform panelRoot;
         [SerializeField] private Transform popupRoot;
 
-        // 面板注册表：存放所有 Prefab 或已实例化的面板
-        private Dictionary<string, UIPanelBase> panelRegistry = new Dictionary<string, UIPanelBase>();
-        
-        // 核心跳转容器：栈
-        private Stack<UIPanelBase> panelStack = new Stack<UIPanelBase>();
+        // 缓存池：记录已经从 Addressable 加载过的 Prefab
+        private readonly Dictionary<string, GameObject> _prefabCache = new Dictionary<string, GameObject>();
+        private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
 
-        public void RegisterPanel(UIPanelBase panel)
+        private bool _isTransitioning; // 防狂按锁
+
+        public async UniTask PushPanelAsync(string address)
         {
-            if (!panelRegistry.ContainsKey(panel.PanelId))
-            {
-                panelRegistry.Add(panel.PanelId, panel);
-            }
-        }
+            if (_isTransitioning) return;
+            _isTransitioning = true;
 
-        /// <summary>
-        /// 压栈：打开新面板
-        /// </summary>
-        public void PushPanel(string panelId)
-        {
-            if (!panelRegistry.TryGetValue(panelId, out UIPanelBase newPanel))
+            // 1. 处理底层面板掩藏逻辑 (利用 await 等待旧面板退场完毕)
+            if (_panelStack.Count > 0)
             {
-                Debug.LogError($"[UIManager] 找不到面板: {panelId}");
-                return;
-            }
-
-            // 处理当前栈顶面板
-            if (panelStack.Count > 0)
-            {
-                var topPanel = panelStack.Peek();
-                if (newPanel.HideLowerPanels)
+                var topPanel = _panelStack.Peek();
+                if (topPanel.hideLowerPanels)
                 {
-                    // 将它暂停/隐藏，但不销毁
-                    //topPanel.canvasGroup.interactable = false;
-                    // 这里可以调用一个不带动画的瞬隐，或者播放一个退到背景的动画
+                    topPanel.SetInteractable(false);
+                    // 如果需要，这里可以 await topPanel.PlayFadeOutAnimAsync();
                 }
             }
 
-            // 新面板入栈并展示
-            panelStack.Push(newPanel);
-            
-            // 自动挂载到对应的层级节点
-            Transform targetRoot = panelRoot;
-            if (newPanel.Layer == UILayer.HUD) targetRoot = hudRoot;
-            else if (newPanel.Layer == UILayer.Popup) targetRoot = popupRoot;
-            
-            newPanel.transform.SetParent(targetRoot, false);
-            newPanel.transform.SetAsLastSibling(); // 保证在最上层显示
-            
-            newPanel.Show();
+            // 2. 动态加载 Prefab (Addressables)
+            if (!_prefabCache.TryGetValue(address, out GameObject prefab))
+            {
+                prefab = await Addressables.LoadAssetAsync<GameObject>(address).ToUniTask();
+                _prefabCache.Add(address, prefab);
+            }
+
+            // 3. 实例化与挂载层级
+            GameObject panelObj = Instantiate(prefab);
+            UIPanelBase newPanel = panelObj.GetComponent<UIPanelBase>();
+
+            Transform targetRoot = newPanel.layer switch
+            {
+                UILayer.HUD => hudRoot,
+                UILayer.Popup => popupRoot,
+                _ => panelRoot
+            };
+
+            panelObj.transform.SetParent(targetRoot, false);
+            panelObj.transform.SetAsLastSibling();
+
+            // 4. 压栈并播放动画
+            _panelStack.Push(newPanel);
+            await newPanel.ShowAsync();
+
+            _isTransitioning = false;
         }
 
-        /// <summary>
-        /// 出栈：关闭当前面板，返回上一页
-        /// </summary>
-        public void PopPanel()
+        public async UniTask PopPanelAsync()
         {
-            if (panelStack.Count <= 0) return;
+            if (_isTransitioning || _panelStack.Count == 0) return;
+            _isTransitioning = true;
 
-            var currentPanel = panelStack.Pop();
-            currentPanel.Hide();
+            var currentPanel = _panelStack.Pop();
+
+            // 等待退出动画播完
+            await currentPanel.HideAsync();
+
+            // 彻底销毁实例
+            Destroy(currentPanel.gameObject);
 
             // 恢复下一层面板
-            if (panelStack.Count > 0)
+            if (_panelStack.Count > 0)
             {
-                var lowerPanel = panelStack.Peek();
-                if (currentPanel.HideLowerPanels)
+                var lowerPanel = _panelStack.Peek();
+                if (currentPanel.hideLowerPanels)
                 {
-                    // 恢复其交互和显示
-                    //lowerPanel.canvasGroup.interactable = true;
+                    lowerPanel.SetInteractable(true);
                 }
             }
+
+            _isTransitioning = false;
         }
     }
 }
