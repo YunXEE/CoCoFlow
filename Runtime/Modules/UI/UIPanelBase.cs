@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using DG.Tweening;
 using Cysharp.Threading.Tasks; // 引入 UniTask
@@ -6,13 +7,25 @@ using UnityEngine.Serialization; // 引入你的事件总线
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
+    [Flags]
+    public enum UIPanelConfig
+    {
+        None = 0,
+        PauseGame = 1 << 0,       // 呼出时是否暂停游戏时间
+        TakeInputFocus = 1 << 1,  // 是否剥夺玩家控制权，切换到 UI 输入 ActionMap
+        HideLowerPanels = 1 << 2, // 是否隐藏底层的面板（你原来的 hideLowerPanels）
+        ShowCursor = 1 << 3       // 呼出时是否解锁并显示鼠标（3D 冒险游戏刚需！）
+    }
+
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UIPanelBase : MonoBehaviour
     {
-        [FormerlySerializedAs("PanelAddress")] [Header("UI Routing")]
-        public string panelAddress; // 替换 PanelId 为 Addressable 地址
+        [Header("UI Routing & Config")]
+        public string panelAddress;
         public UILayer layer = UILayer.Panel;
-        public bool hideLowerPanels = true;
+
+        [Tooltip("在 Inspector 中自由组合这个面板的属性")]
+        public UIPanelConfig config = UIPanelConfig.TakeInputFocus | UIPanelConfig.HideLowerPanels | UIPanelConfig.ShowCursor;
 
         [Header("DOTween Animation Config")]
         public float animDuration = 0.3f;
@@ -21,8 +34,6 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         protected CanvasGroup CanvasGroup;
         protected RectTransform RectTransform;
-
-        // 核心注入：专属事件代理，面板销毁时自动退订！
         protected EventAgent EventAgent = new EventAgent();
 
         protected virtual void Awake()
@@ -35,8 +46,6 @@ namespace CoCoFlow.Runtime.Modules.UI
             CanvasGroup.blocksRaycasts = false;
         }
 
-        // ================== 生命周期改写为 Async ==================
-
         public virtual async UniTask ShowAsync()
         {
             gameObject.SetActive(true);
@@ -48,10 +57,10 @@ namespace CoCoFlow.Runtime.Modules.UI
             CanvasGroup.DOKill();
             transform.localScale = Vector3.one * 0.8f;
 
-            // 使用 UniTask.WhenAll 并发等待 DOTween 动画结束，极其优雅
+            // 完美的防卡死动画等待
             await UniTask.WhenAll(
-                transform.DOScale(Vector3.one, animDuration).SetEase(showCurve).ToUniTask(),
-                CanvasGroup.DOFade(1f, animDuration * 0.8f).ToUniTask()
+                transform.DOScale(Vector3.one, animDuration).SetEase(showCurve).SetUpdate(true).AwaitForComplete(),
+                CanvasGroup.DOFade(1f, animDuration * 0.8f).SetUpdate(true).AwaitForComplete()
             );
 
             CanvasGroup.interactable = true;
@@ -66,8 +75,8 @@ namespace CoCoFlow.Runtime.Modules.UI
             CanvasGroup.DOKill();
 
             await UniTask.WhenAll(
-                transform.DOScale(Vector3.one * 0.8f, animDuration).SetEase(hideCurve).ToUniTask(),
-                CanvasGroup.DOFade(0f, animDuration).ToUniTask()
+                transform.DOScale(Vector3.one * 0.8f, animDuration).SetEase(hideCurve).SetUpdate(true).AwaitForComplete(),
+                CanvasGroup.DOFade(0f, animDuration).SetUpdate(true).AwaitForComplete()
             );
 
             OnAfterHide();
@@ -77,20 +86,14 @@ namespace CoCoFlow.Runtime.Modules.UI
         protected virtual void OnBeforeShow() { }
         protected virtual void OnAfterHide() { }
 
-        // 终极保险：销毁时清理事件
         protected virtual void OnDestroy()
         {
             EventAgent.UnsubscribeAll();
         }
-        /// <summary>
-        /// 供外部（如 UIManager）动态控制面板的交互状态
-        /// </summary>
+
         public void SetInteractable(bool isInteractable)
         {
-            if (CanvasGroup != null)
-            {
-                CanvasGroup.interactable = isInteractable;
-            }
+            if (CanvasGroup != null) CanvasGroup.interactable = isInteractable;
         }
     }
 }
