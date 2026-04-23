@@ -1,2 +1,3 @@
-需要安装DOTween才能正常使用
-Cinemachine必须使用3.0以上的版本
+需要额外安装DOTween才能正常使用
+Unity 6下，安装Cinemachine 3后，Camera模块才会工作，2022版本下不工作
+Network模块仅在2022版本下工作
