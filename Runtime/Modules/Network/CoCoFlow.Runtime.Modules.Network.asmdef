@@ -1,0 +1,20 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Network",
+    "rootNamespace": "",
+    "references": [
+        "PhotonRealtime",
+        "PhotonUnityNetworking"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNITY_2022_2_OR_NEWER",
+        "!UNITY_6000_0_OR_NEWER"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
