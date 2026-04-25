@@ -1,4 +1,5 @@
 using System;
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -11,7 +12,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         UI,
         None
     }
-    
+
     public class PlayerInputReader : MonoBehaviour
     {
         private struct BufferedInput
@@ -31,15 +32,15 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return !string.IsNullOrEmpty(ActionName) && (currentTime - Timestamp) <= bufferWindow;
             }
         }
-        
+
         //Events
         public event Action<string> OnActionPerformed;
         public event Action<string> OnActionCanceled;
-        
+
         [Header("Input Configuration")]
         [Tooltip("Add Input Asset here")]
         public InputActionAsset inputAsset;
-        
+
         [Header("Input Buffering")]
         [Tooltip("Open Input Buffering")]
         [SerializeField]private bool isUsingInputBuffering = true;
@@ -47,13 +48,13 @@ namespace CoCoFlow.Runtime.Modules.Input
         [SerializeField]private float inputBufferTime = 0.2f;
 
         private BufferedInput _currentBuffer;
-        
-        [SerializeField]private InputMapType defaultMapType = InputMapType.Player; 
-        
+
+        [SerializeField]private InputMapType defaultMapType = InputMapType.Player;
+
         public Vector2 MoveInput { get; private set; }
         public Vector2 LookInput { get; private set; }
         public Vector2 ZoomInput { get; private set; }
-        
+
         private InputActionAsset _runtimeAsset;
         private InputActionMap _currentMap;
         private InputAction _moveAction;
@@ -69,7 +70,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
 
             _runtimeAsset = Instantiate(inputAsset);
-            
+
             SwitchActionMap(defaultMapType);
             _currentBuffer.Clear();
         }
@@ -79,39 +80,39 @@ namespace CoCoFlow.Runtime.Modules.Input
             if (_moveAction != null) MoveInput = _moveAction.ReadValue<Vector2>();
             if (_lookAction != null) LookInput = _lookAction.ReadValue<Vector2>();
             if (_zoomAction != null) ZoomInput = _zoomAction.ReadValue<Vector2>();
-            
-            if (isUsingInputBuffering && 
+
+            if (isUsingInputBuffering &&
                 !string.IsNullOrEmpty(_currentBuffer.ActionName) &&
                 !_currentBuffer.IsValid(Time.time, inputBufferTime))
             {
                 _currentBuffer.Clear();
             }
         }
-        
+
         public void SwitchActionMap(InputMapType newMapType)
         {
             if (_runtimeAsset == null) return;
-            
+
             var newMapTypeName = newMapType.ToString();
-            
+
             // 重复调用则跳过检查
             if (_currentMap != null && _currentMap.name == newMapTypeName)
             {
                 return;
             }
-            
+
             // 解绑Map
             if (_currentMap != null)
             {
                 UnbindCurrentMapActions();
                 _currentMap.Disable();
                 _currentBuffer.Clear();
-                
+
                 MoveInput = Vector2.zero;
                 LookInput = Vector2.zero;
                 ZoomInput = Vector2.zero;
             }
-            
+
             // 切断输入
             if (newMapType == InputMapType.None)
             {
@@ -135,12 +136,12 @@ namespace CoCoFlow.Runtime.Modules.Input
             {
                 _currentMap.Enable();
             }
-            
-            
-            
+
+
+            CoCoLog.Log($"成功切换到 Action Map: {newMapTypeName}");
             Debug.Log($"[InputReader] 成功切换到 Action Map: {newMapTypeName}");
         }
-        
+
         private void BindCurrentMapActions()
         {
             _moveAction = null;
@@ -172,10 +173,10 @@ namespace CoCoFlow.Runtime.Modules.Input
                 }
             }
         }
-        
+
         private void UnbindCurrentMapActions()
         {
-            if (_currentMap == null) return; 
+            if (_currentMap == null) return;
 
             foreach (var action in _currentMap.actions)
             {
@@ -186,40 +187,40 @@ namespace CoCoFlow.Runtime.Modules.Input
                 }
             }
         }
-        
+
         public bool TryConsumeBufferedAction(string targetActionName)
         {
             if (!isUsingInputBuffering) return false;
 
-            if (_currentBuffer.ActionName == targetActionName && 
+            if (_currentBuffer.ActionName == targetActionName &&
                 _currentBuffer.IsValid(Time.time, inputBufferTime))
             {
-                _currentBuffer.Clear(); 
+                _currentBuffer.Clear();
                 return true;
             }
             return false;
         }
-        
+
         // 手动清除Buffer
         public void ClearBuffer()
         {
             _currentBuffer.Clear();
         }
 
-        private void OnEnable() 
+        private void OnEnable()
         {
             _currentMap?.Enable();
         }
-        private void OnDisable() 
+        private void OnDisable()
         {
             _currentMap?.Disable();
             ClearBuffer();
-            
+
             MoveInput = Vector2.zero;
             LookInput = Vector2.zero;
             ZoomInput = Vector2.zero;
         }
-        
+
         private void HandleActionPerformed(InputAction.CallbackContext ctx)
         {
             var actionName = ctx.action.name;
@@ -235,19 +236,19 @@ namespace CoCoFlow.Runtime.Modules.Input
             OnActionPerformed?.Invoke(actionName);
         }
         private void HandleActionCanceled(InputAction.CallbackContext ctx) => OnActionCanceled?.Invoke(ctx.action.name);
-        
+
         private void OnDestroy()
         {
             if (_currentMap != null)
             {
                 UnbindCurrentMapActions();
             }
-            
+
             if (_runtimeAsset != null)
             {
                 Destroy(_runtimeAsset);
             }
-            
+
         }
     }
 }

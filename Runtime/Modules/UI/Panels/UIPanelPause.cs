@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using CoCoFlow.Runtime.Core;
+using UnityEngine;
 using TMPro;
 
 namespace CoCoFlow.Runtime.Modules.UI.Panels
@@ -40,6 +41,7 @@ namespace CoCoFlow.Runtime.Modules.UI.Panels
         public void QuitGame()
         {
             Debug.Log("[CoCoFrame] Application Quit Requested.");
+            CoCoLog.Log("非常好啊非常好");
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
 #else

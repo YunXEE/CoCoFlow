@@ -1,9 +1,10 @@
 {
     "name": "CoCoFlow.Runtime.Modules.Network",
-    "rootNamespace": "",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Network",
     "references": [
         "PhotonRealtime",
-        "PhotonUnityNetworking"
+        "PhotonUnityNetworking",
+        "CoCoFlow.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
