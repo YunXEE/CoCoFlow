@@ -1,0 +1,23 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.UI",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.UI",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "Unity.ResourceManager",
+        "Unity.Addressables",
+        "DOTween.Modules",
+        "UniTask",
+        "UniTask.Addressables",
+        "UniTask.DOTween",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Editor.Modules.Persistence",
+    "rootNamespace": "CoCoFlow.Editor.Modules.Persistence",
+    "references": [
+        "GUID:dc788f1e652d49c38cd59ca776d48ed8"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

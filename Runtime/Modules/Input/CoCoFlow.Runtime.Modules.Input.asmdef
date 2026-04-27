@@ -1,0 +1,17 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Input",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Input",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

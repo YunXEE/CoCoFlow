@@ -3,7 +3,7 @@
 namespace CoCoFlow.Editor.Modules.UI.Widgets
 {
     [CustomEditor(typeof(Runtime.Modules.UI.Widgets.UIWidgetButton))]
-    public class UIButtonWidgetEditor : UnityEditor.Editor
+    public class UIWidgetButtonEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {

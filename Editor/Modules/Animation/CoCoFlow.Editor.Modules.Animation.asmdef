@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Editor.Modules.Animation",
+    "rootNamespace": "CoCoFlow.Editor.Modules.Animation",
+    "references": [
+        "GUID:7c83763f49c24070b1851eb60db08251"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

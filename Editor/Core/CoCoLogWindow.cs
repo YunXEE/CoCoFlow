@@ -54,7 +54,7 @@ namespace CoCoFlow.Editor.Core
         private void OnEnable()
         {
             // 订阅事件总线
-            EventBus.Subscribe(this);
+            CoCoEventBus.Subscribe(this);
             // 预先注册配置表中的模块过滤状态
             foreach (var key in _moduleColors.Keys)
             {
@@ -66,7 +66,7 @@ namespace CoCoFlow.Editor.Core
         private void OnDisable()
         {
             // 窗口关闭时退订，防止内存泄漏
-            EventBus.Unsubscribe(this);
+            CoCoEventBus.Unsubscribe(this);
         }
 
         // ==========================================

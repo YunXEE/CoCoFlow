@@ -27,12 +27,12 @@ namespace CoCoFlow.Runtime.Modules.Map
         {
             foreach (var scene in scenesToLoadOnEnter)
             {
-                EventBus.Publish(new MapChunkLoadEvent { ChunkAddress = scene });
+                CoCoEventBus.Publish(new MapChunkLoadEvent { ChunkAddress = scene });
             }
 
             foreach (var scene in scenesToUnloadOnEnter)
             {
-                EventBus.Publish(new MapChunkUnloadEvent { ChunkAddress = scene });
+                CoCoEventBus.Publish(new MapChunkUnloadEvent { ChunkAddress = scene });
             }
         }
     }

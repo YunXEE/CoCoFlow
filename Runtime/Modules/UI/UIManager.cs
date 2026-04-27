@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using Cysharp.Threading.Tasks;
-using CoCoFlow.Runtime.Modules.Input;
+using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
@@ -17,7 +17,6 @@ namespace CoCoFlow.Runtime.Modules.UI
 
     public class UIManager : MonoBehaviour
     {
-        // --- 新增：单例模式，方便 Widget 路由和全局调用 ---
         public static UIManager Instance { get; private set; }
 
         [Header("Root Transforms")]
@@ -26,34 +25,40 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private Transform popupRoot;
 
         [Header("Input Integration")]
-        [SerializeField] private PlayerInputReader inputReader;
         public string pauseActionName = "Pause";
         public string cancelActionName = "Cancel";
         public string pausePanelAddress = "UI_PausePanel";
+
+        // 抽象引用（不再依赖具体的 PlayerInputReader）
+        private IInputEventSource _inputEvents;
+        private IInputModeController _inputMode;
 
         private readonly Dictionary<string, GameObject> _prefabCache = new Dictionary<string, GameObject>();
         private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
         private bool _isTransitioning;
 
-        // 当前记录的暂停锁数量（防止多面板冲突）
         private int _pauseLockCount = 0;
         private int _cursorLockCount = 0;
 
-        // --- 新增：初始化单例 ---
         private void Awake()
         {
             if (Instance == null) Instance = this;
-            else Destroy(gameObject);
+            else { Destroy(gameObject); return; }
+
+            // 异步取依赖，避免 Awake 顺序问题
+            CoCoServices.WaitFor<IInputEventSource>(svc =>
+            {
+                _inputEvents = svc;
+                _inputEvents.OnActionPerformed += HandleUIInput;
+            });
+
+            CoCoServices.WaitFor<IInputModeController>(svc => _inputMode = svc);
         }
 
-        private void OnEnable()
+        private void OnDestroy()
         {
-            if (inputReader != null) inputReader.OnActionPerformed += HandleUIInput;
-        }
-
-        private void OnDisable()
-        {
-            if (inputReader != null) inputReader.OnActionPerformed -= HandleUIInput;
+            if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
+            if (Instance == this) Instance = null;
         }
 
         private void HandleUIInput(string actionName)
@@ -73,11 +78,8 @@ namespace CoCoFlow.Runtime.Modules.UI
         // ================= 提供给 Inspector (如按钮 UnityEvent) 调用的同步包装器 =================
         public void OpenPanel(string address) => PushPanelAsync(address).Forget();
         public void CloseCurrentPanel() => PopPanelAsync().Forget();
-
-        // --- 新增：关闭所有面板（例如直接从多层子菜单返回游戏）---
         public void CloseAllPanels() => PopAllPanelsAsync().Forget();
 
-        // --- 新增：切换面板状态（如果当前最上层是它，就关掉；如果不是，就打开）---
         public void TogglePanel(string address)
         {
             if (_panelStack.Count > 0 && _panelStack.Peek().panelAddress == address)
@@ -116,10 +118,8 @@ namespace CoCoFlow.Runtime.Modules.UI
                 panelObj.transform.SetParent(targetRoot, false);
                 panelObj.transform.SetAsLastSibling();
 
-                // --- 1. 根据新面板的 Config 处理游戏状态 ---
                 ApplyPanelConfigOnPush(newPanel.config);
 
-                // --- 2. 处理栈逻辑 ---
                 if (_panelStack.Count > 0)
                 {
                     var topPanel = _panelStack.Peek();
@@ -132,7 +132,7 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
             finally
             {
-                _isTransitioning = false; // 无论如何，强制解锁
+                _isTransitioning = false;
             }
         }
 
@@ -147,14 +147,12 @@ namespace CoCoFlow.Runtime.Modules.UI
 
                 await currentPanel.HideAsync();
 
-                // 提取出它的 Config 用于恢复状态，然后销毁
                 var config = currentPanel.config;
                 if (currentPanel != null && currentPanel.gameObject != null)
                 {
                     Destroy(currentPanel.gameObject);
                 }
 
-                // --- 1. 恢复底层面板 ---
                 if (_panelStack.Count > 0)
                 {
                     var lowerPanel = _panelStack.Peek();
@@ -164,28 +162,24 @@ namespace CoCoFlow.Runtime.Modules.UI
                     }
                 }
 
-                // --- 2. 根据刚刚关掉的面板的 Config，恢复游戏状态 ---
                 ApplyPanelConfigOnPop(config);
             }
             finally
             {
-                _isTransitioning = false; // 强制解锁
+                _isTransitioning = false;
             }
         }
 
-        // --- 新增：内部异步退出所有面板的流 ---
         private async UniTask PopAllPanelsAsync()
         {
             if (_isTransitioning) return;
 
-            // 只要栈里还有面板，就一个个退栈。由于 PopPanelAsync 内部会正确处理 _pauseLockCount 和恢复底层面板，所以不会破坏状态。
             while (_panelStack.Count > 0)
             {
                 await PopPanelAsync();
             }
         }
 
-        // --- 状态处理分离，保持代码整洁 ---
         private void ApplyPanelConfigOnPush(UIPanelConfig config)
         {
             if (config.HasFlag(UIPanelConfig.PauseGame))
@@ -201,10 +195,9 @@ namespace CoCoFlow.Runtime.Modules.UI
                 Cursor.visible = true;
             }
 
-            // 只要不是 0，且新面板要求输入，就切给 UI
-            if (config.HasFlag(UIPanelConfig.TakeInputFocus) && inputReader != null)
+            if (config.HasFlag(UIPanelConfig.TakeInputFocus))
             {
-                inputReader.SwitchActionMap(InputMapType.UI);
+                _inputMode?.SwitchActionMap(InputMapNames.UI);
             }
         }
 
@@ -226,15 +219,14 @@ namespace CoCoFlow.Runtime.Modules.UI
                 if (_cursorLockCount <= 0)
                 {
                     _cursorLockCount = 0;
-                    Cursor.lockState = CursorLockMode.Locked; // 3D 游戏恢复隐藏鼠标
+                    Cursor.lockState = CursorLockMode.Locked;
                     Cursor.visible = false;
                 }
             }
 
-            // 如果栈空了，把操作还给玩家
-            if (_panelStack.Count == 0 && inputReader != null)
+            if (_panelStack.Count == 0)
             {
-                inputReader.SwitchActionMap(InputMapType.Player);
+                _inputMode?.SwitchActionMap(InputMapNames.Player);
             }
         }
     }
