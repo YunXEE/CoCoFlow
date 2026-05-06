@@ -17,34 +17,62 @@ namespace CoCoFlow.Runtime.Modules.UI
     public class UIWidgetContainer : MonoBehaviour
     {
         [Header("Mode & Rules")]
-        public WidgetContainerMode mode = WidgetContainerMode.Static;
+        [SerializeField] private WidgetContainerMode mode = WidgetContainerMode.Static;
+
+        public WidgetContainerMode Mode => mode;
 
         [Tooltip("仅在动态模式下生效，预先挖好的坑位数量")]
-        [Min(1)] public int placeholderCount = 5;
+        [Min(1)] [SerializeField] private int placeholderCount = 5;
 
         [Tooltip("显式受控的 Widget 列表。容器只会对列表内的元素进行排版。")]
-        public List<RectTransform> managedItems = new List<RectTransform>();
+        [SerializeField] private List<RectTransform> managedItems = new List<RectTransform>();
 
         [Header("Alignment Settings")]
-        public WidgetContainerLayout layoutType = WidgetContainerLayout.Column;
-        public WidgetContainerAnchor anchor = WidgetContainerAnchor.Center;
-        public Vector2 spacing = new Vector2(10, 10);
-        public Vector2 cellSize = new Vector2(100, 50);
-        [Min(1)] public int gridColumns = 3;
+        [SerializeField] private WidgetContainerLayout layoutType = WidgetContainerLayout.Column;
+        [SerializeField] private WidgetContainerAnchor anchor = WidgetContainerAnchor.Center;
+        [SerializeField] private Vector2 spacing = new Vector2(10, 10);
+        [SerializeField] private Vector2 cellSize = new Vector2(100, 50);
+        [Min(1)] [SerializeField] private int gridColumns = 3;
 
-        public bool showPreview = true;
+        [SerializeField] private bool showPreview = true;
 
         private RectTransform _rectTransform;
-        public RectTransform RectTransform => _rectTransform != null ? _rectTransform : (_rectTransform = GetComponent<RectTransform>());
+        private RectTransform RectTransform => _rectTransform != null ? _rectTransform : (_rectTransform = GetComponent<RectTransform>());
 
+        #region Public API
+        /// <summary>
+        /// 应用布局到受控的子物体
+        /// </summary>
+        public void ApplyLayout()
+        {
+            if (mode == WidgetContainerMode.Dynamic || managedItems == null) return;
+
+            var rects = CalculateLayoutRects();
+            int slotIndex = 0;
+
+            for (int i = 0; i < managedItems.Count; i++)
+            {
+                RectTransform targetWidget = managedItems[i];
+                if (targetWidget == null || !targetWidget.gameObject.activeSelf) continue;
+
+                if (slotIndex >= rects.Count) break;
+
+                Vector2 slotCenter = rects[slotIndex].center;
+                targetWidget.localPosition = new Vector3(slotCenter.x, slotCenter.y, targetWidget.localPosition.z);
+
+                slotIndex++;
+            }
+        }
+        #endregion
+
+        #region Internal Logic
         /// <summary>
         /// 获取当前参与排版的实际数量
         /// </summary>
-        public int GetLayoutCount()
+        private int GetLayoutCount()
         {
             if (mode == WidgetContainerMode.Dynamic) return placeholderCount;
 
-            // 静态模式下，只统计列表中不为空且处于激活状态的物体
             int count = 0;
             if (managedItems != null)
             {
@@ -56,7 +84,10 @@ namespace CoCoFlow.Runtime.Modules.UI
             return count;
         }
 
-        public List<Rect> CalculateLayoutRects()
+        /// <summary>
+        /// 计算所有坑位的布局矩形
+        /// </summary>
+        private List<Rect> CalculateLayoutRects()
         {
             List<Rect> rects = new List<Rect>();
             int elementCount = GetLayoutCount();
@@ -130,28 +161,6 @@ namespace CoCoFlow.Runtime.Modules.UI
             return rects;
         }
 
-        public void ApplyLayout()
-        {
-            if (mode == WidgetContainerMode.Dynamic || managedItems == null) return;
-
-            var rects = CalculateLayoutRects();
-            int slotIndex = 0;
-
-            // 仅对明确拖入列表且被激活的元素进行物理吸附
-            for (int i = 0; i < managedItems.Count; i++)
-            {
-                RectTransform targetWidget = managedItems[i];
-                if (targetWidget == null || !targetWidget.gameObject.activeSelf) continue;
-
-                if (slotIndex >= rects.Count) break;
-
-                Vector2 slotCenter = rects[slotIndex].center;
-                targetWidget.localPosition = new Vector3(slotCenter.x, slotCenter.y, targetWidget.localPosition.z);
-
-                slotIndex++;
-            }
-        }
-
 #if UNITY_EDITOR
         private void Update()
         {
@@ -182,5 +191,8 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
         }
 #endif
+        #endregion
     }
 }
+
+

@@ -10,16 +10,15 @@ namespace CoCoFlow.Runtime.Modules.UI
     [RequireComponent(typeof(CanvasGroup))]
     public abstract class UISceneBase : MonoBehaviour
     {
-        protected CanvasGroup CanvasGroup;
-        protected EventAgent EventAgent = new EventAgent();
+        private CanvasGroup _canvasGroup;
+        private readonly EventAgent _eventAgent = new EventAgent();
 
-        // 供 Editor 监控使用
         public string SceneUIName => gameObject.name;
         public bool IsActive => gameObject.activeInHierarchy;
 
         protected virtual void Awake()
         {
-            CanvasGroup = GetComponent<CanvasGroup>();
+            _canvasGroup = GetComponent<CanvasGroup>();
         }
 
         protected virtual void OnEnable()
@@ -29,18 +28,19 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         protected virtual void OnDisable()
         {
-            EventAgent.UnsubscribeAll();
+            _eventAgent.UnsubscribeAll();
         }
 
         protected virtual void OnDestroy()
         {
-            EventAgent.UnsubscribeAll();
+            _eventAgent.UnsubscribeAll();
         }
 
+        #region Internal Logic
         /// <summary>
-        /// 绑定该 World UI 关心的事件
+        /// 绑定该 World UI 关心的事件，由子类实现
         /// </summary>
         protected abstract void BindEvents();
-
+        #endregion
     }
 }

@@ -52,7 +52,7 @@ namespace CoCoFlow.Editor.Modules.UI
             // 动态寻找 UIManager
             if (_uiManager == null)
             {
-                _uiManager = FindObjectOfType<UIManager>();
+                _uiManager = FindFirstObjectByType<UIManager>();
             }
 
             if (_uiManager == null)
@@ -111,12 +111,11 @@ namespace CoCoFlow.Editor.Modules.UI
                         // 2. 动态拼装当前面板的 Config 状态标签
                         List<string> tags = new List<string>();
 
-                        if (panel.config.HasFlag(UIPanelConfig.HideLowerPanels)) tags.Add("HideLowers");
-                        else tags.Add("Overlay");
+                        tags.Add(panel.Config.HasFlag(UIPanelConfig.HideLowerPanels) ? "HideLowers" : "Overlay");
 
-                        if (panel.config.HasFlag(UIPanelConfig.PauseGame)) tags.Add("⏸️ Pause");
-                        if (panel.config.HasFlag(UIPanelConfig.TakeInputFocus)) tags.Add("🎮 Input");
-                        if (panel.config.HasFlag(UIPanelConfig.ShowCursor)) tags.Add("🖱️ Cursor");
+                        if (panel.Config.HasFlag(UIPanelConfig.PauseGame)) tags.Add("Pause");
+                        if (panel.Config.HasFlag(UIPanelConfig.TakeInputFocus)) tags.Add("Input");
+                        if (panel.Config.HasFlag(UIPanelConfig.ShowCursor)) tags.Add("Cursor");
 
                         string statusText = string.Join(" | ", tags);
 
@@ -147,7 +146,7 @@ namespace CoCoFlow.Editor.Modules.UI
             GUILayout.Label("🌍 世界 UI (Scene UI)", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            var sceneUIs = FindObjectsOfType<UISceneBase>();
+            var sceneUIs = FindObjectsByType<UISceneBase>(FindObjectsSortMode.None);
             if (sceneUIs.Length == 0)
             {
                 GUILayout.Label("  当前没有激活的 Scene UI", EditorStyles.label);
@@ -178,7 +177,7 @@ namespace CoCoFlow.Editor.Modules.UI
             GUILayout.Label("📊 指示器 (Indicators & HUD)", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            var indicators = FindObjectsOfType<UIIndicatorBase>();
+            var indicators = FindObjectsByType<UIIndicatorBase>(FindObjectsSortMode.None);
             if (indicators.Length == 0)
             {
                 GUILayout.Label("  当前没有激活的 Indicator", EditorStyles.label);

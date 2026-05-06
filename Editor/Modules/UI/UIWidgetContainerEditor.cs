@@ -19,15 +19,15 @@ namespace CoCoFlow.Editor.Modules.UI
 
         private void OnEnable()
         {
-            modeProp = serializedObject.FindProperty("mode");
-            placeholderCountProp = serializedObject.FindProperty("placeholderCount");
-            managedItemsProp = serializedObject.FindProperty("managedItems");
-            layoutTypeProp = serializedObject.FindProperty("layoutType");
-            anchorProp = serializedObject.FindProperty("anchor");
-            spacingProp = serializedObject.FindProperty("spacing");
-            cellSizeProp = serializedObject.FindProperty("cellSize");
-            gridColumnsProp = serializedObject.FindProperty("gridColumns");
-            showPreviewProp = serializedObject.FindProperty("showPreview");
+            modeProp = serializedObject.FindProperty("_mode");
+            placeholderCountProp = serializedObject.FindProperty("_placeholderCount");
+            managedItemsProp = serializedObject.FindProperty("_managedItems");
+            layoutTypeProp = serializedObject.FindProperty("_layoutType");
+            anchorProp = serializedObject.FindProperty("_anchor");
+            spacingProp = serializedObject.FindProperty("_spacing");
+            cellSizeProp = serializedObject.FindProperty("_cellSize");
+            gridColumnsProp = serializedObject.FindProperty("_gridColumns");
+            showPreviewProp = serializedObject.FindProperty("_showPreview");
         }
 
         public override void OnInspectorGUI()
@@ -97,7 +97,7 @@ namespace CoCoFlow.Editor.Modules.UI
             if (serializedObject.ApplyModifiedProperties())
             {
                 // 如果在 Inspector 中增删了数组元素或修改了参数，立即重新排版
-                if (!Application.isPlaying && container.mode == WidgetContainerMode.Static)
+                if (!Application.isPlaying && container.Mode == WidgetContainerMode.Static)
                 {
                     container.ApplyLayout();
                 }

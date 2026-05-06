@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.CompilerServices;
-using CoCoFlow.Runtime.Modules.Animation;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Animation

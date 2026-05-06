@@ -25,11 +25,10 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private Transform popupRoot;
 
         [Header("Input Integration")]
-        public string pauseActionName = "Pause";
-        public string cancelActionName = "Cancel";
-        public string pausePanelAddress = "UI_PausePanel";
+        [SerializeField] private string pauseActionName = "Pause";
+        [SerializeField] private string cancelActionName = "Cancel";
+        [SerializeField] private string pausePanelAddress = "UI_PausePanel";
 
-        // 抽象引用（不再依赖具体的 PlayerInputReader）
         private IInputEventSource _inputEvents;
         private IInputModeController _inputMode;
 
@@ -37,15 +36,21 @@ namespace CoCoFlow.Runtime.Modules.UI
         private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
         private bool _isTransitioning;
 
-        private int _pauseLockCount = 0;
-        private int _cursorLockCount = 0;
+        private int _pauseLockCount;
+        private int _cursorLockCount;
 
         private void Awake()
         {
-            if (Instance == null) Instance = this;
-            else { Destroy(gameObject); return; }
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else
+            {
+                Destroy(gameObject);
+                return;
+            }
 
-            // 异步取依赖，避免 Awake 顺序问题
             CoCoServices.WaitFor<IInputEventSource>(svc =>
             {
                 _inputEvents = svc;
@@ -61,28 +66,14 @@ namespace CoCoFlow.Runtime.Modules.UI
             if (Instance == this) Instance = null;
         }
 
-        private void HandleUIInput(string actionName)
-        {
-            if (_isTransitioning) return;
-
-            if (actionName == pauseActionName && _panelStack.Count == 0)
-            {
-                PushPanelAsync(pausePanelAddress).Forget();
-            }
-            else if (actionName == cancelActionName && _panelStack.Count > 0)
-            {
-                PopPanelAsync().Forget();
-            }
-        }
-
-        // ================= 提供给 Inspector (如按钮 UnityEvent) 调用的同步包装器 =================
+        #region Public API
         public void OpenPanel(string address) => PushPanelAsync(address).Forget();
         public void CloseCurrentPanel() => PopPanelAsync().Forget();
         public void CloseAllPanels() => PopAllPanelsAsync().Forget();
 
         public void TogglePanel(string address)
         {
-            if (_panelStack.Count > 0 && _panelStack.Peek().panelAddress == address)
+            if (_panelStack.Count > 0 && _panelStack.Peek().PanelAddress == address)
             {
                 CloseCurrentPanel();
             }
@@ -91,9 +82,12 @@ namespace CoCoFlow.Runtime.Modules.UI
                 OpenPanel(address);
             }
         }
-        // =========================================================================================
 
-        public async UniTask PushPanelAsync(string address)
+
+        #endregion
+
+        #region Internal Logic
+        private async UniTask PushPanelAsync(string address)
         {
             if (_isTransitioning) return;
             _isTransitioning = true;
@@ -106,24 +100,25 @@ namespace CoCoFlow.Runtime.Modules.UI
                     _prefabCache.Add(address, prefab);
                 }
 
-                GameObject panelObj = Instantiate(prefab);
-                UIPanelBase newPanel = panelObj.GetComponent<UIPanelBase>();
-
-                Transform targetRoot = newPanel.layer switch
+                // 从 prefab 读取 Layer 来确定目标根节点，避免 Instantiate 后再 SetParent
+                UIPanelBase prefabPanel = prefab.GetComponent<UIPanelBase>();
+                Transform targetRoot = prefabPanel.Layer switch
                 {
                     UILayer.HUD => hudRoot,
                     UILayer.Popup => popupRoot,
                     _ => panelRoot
                 };
-                panelObj.transform.SetParent(targetRoot, false);
+
+                GameObject panelObj = Instantiate(prefab, targetRoot, false);
+                UIPanelBase newPanel = panelObj.GetComponent<UIPanelBase>();
                 panelObj.transform.SetAsLastSibling();
 
-                ApplyPanelConfigOnPush(newPanel.config);
+                ApplyPanelConfigOnPush(newPanel.Config);
 
                 if (_panelStack.Count > 0)
                 {
                     var topPanel = _panelStack.Peek();
-                    if (newPanel.config.HasFlag(UIPanelConfig.HideLowerPanels))
+                    if (newPanel.Config.HasFlag(UIPanelConfig.HideLowerPanels))
                         topPanel.SetInteractable(false);
                 }
 
@@ -136,7 +131,7 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
         }
 
-        public async UniTask PopPanelAsync()
+        private async UniTask PopPanelAsync()
         {
             if (_isTransitioning || _panelStack.Count == 0) return;
             _isTransitioning = true;
@@ -144,10 +139,9 @@ namespace CoCoFlow.Runtime.Modules.UI
             try
             {
                 var currentPanel = _panelStack.Pop();
-
                 await currentPanel.HideAsync();
 
-                var config = currentPanel.config;
+                var config = currentPanel.Config;
                 if (currentPanel != null && currentPanel.gameObject != null)
                 {
                     Destroy(currentPanel.gameObject);
@@ -167,6 +161,20 @@ namespace CoCoFlow.Runtime.Modules.UI
             finally
             {
                 _isTransitioning = false;
+            }
+        }
+
+        private void HandleUIInput(string actionName)
+        {
+            if (_isTransitioning) return;
+
+            if (actionName == pauseActionName && _panelStack.Count == 0)
+            {
+                PushPanelAsync(pausePanelAddress).Forget();
+            }
+            else if (actionName == cancelActionName && _panelStack.Count > 0)
+            {
+                PopPanelAsync().Forget();
             }
         }
 
@@ -229,5 +237,6 @@ namespace CoCoFlow.Runtime.Modules.UI
                 _inputMode?.SwitchActionMap(InputMapNames.Player);
             }
         }
+        #endregion
     }
 }
