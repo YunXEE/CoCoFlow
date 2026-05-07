@@ -32,6 +32,10 @@ namespace CoCoFlow.Runtime.Core
         {
             if (impl == null) throw new ArgumentNullException(nameof(impl));
             var t = typeof(T);
+            if (Services.ContainsKey(t))
+            {
+                CoCoLog.Warning($"[CoCoServices] 服务 {t.Name} 已存在，正在被覆盖。");
+            }
             Services[t] = impl;
 
             // 通知所有正在等待该服务的对象
@@ -39,7 +43,7 @@ namespace CoCoFlow.Runtime.Core
             {
                 Waiters.Remove(t);
                 try { cb?.Invoke(impl); }
-                catch (Exception ex) { Debug.LogError($"[CoCoServices] WaitFor 回调异常: {ex}"); }
+                catch (Exception ex) { CoCoLog.Error($"[CoCoServices] WaitFor 回调异常: {ex}"); }
             }
         }
 

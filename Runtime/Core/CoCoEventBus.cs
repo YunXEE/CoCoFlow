@@ -200,7 +200,7 @@ namespace CoCoFlow.Runtime.Core
                         }
                         catch (Exception ex)
                         {
-                            UnityEngine.Debug.LogError($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
+                            CoCoLog.Error($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
                         }
                     }
                     else
@@ -252,7 +252,7 @@ namespace CoCoFlow.Runtime.Core
                         }
                         catch (Exception ex)
                         {
-                            UnityEngine.Debug.LogError($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
+                            CoCoLog.Error($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
                         }
 
                         // 接口方法调用无装箱开销；与 Publish 不同，这里需要提前退出
