@@ -1,86 +1,242 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
+using Cysharp.Threading.Tasks;
+using CoCoFlow.Runtime.Core;
 
-namespace CocoFlow.Runtime.Modules.UI
+namespace CoCoFlow.Runtime.Modules.UI
 {
+    public enum UILayer
+    {
+        Scene,      // 场景UI (如怪物血条，世界坐标转屏幕坐标)
+        HUD,        // 常驻界面 (玩家血条，快捷栏，摇杆，永远在底层)
+        Panel,      // 常规面板 (背包，设置，全屏/半屏，会遮挡HUD)
+        Popup,      // 弹窗 (确认框，警告框)
+        Top         // 顶层 (Loading界面，系统级断线提示)
+    }
+
     public class UIManager : MonoBehaviour
     {
-        // 场景中预设的各层级挂载点
+        public static UIManager Instance { get; private set; }
+
+        [Header("Root Transforms")]
         [SerializeField] private Transform hudRoot;
         [SerializeField] private Transform panelRoot;
         [SerializeField] private Transform popupRoot;
 
-        // 面板注册表：存放所有 Prefab 或已实例化的面板
-        private Dictionary<string, UIPanelBase> panelRegistry = new Dictionary<string, UIPanelBase>();
-        
-        // 核心跳转容器：栈
-        private Stack<UIPanelBase> panelStack = new Stack<UIPanelBase>();
+        [Header("Input Integration")]
+        [SerializeField] private string pauseActionName = "Pause";
+        [SerializeField] private string cancelActionName = "Cancel";
+        [SerializeField] private string pausePanelAddress = "UI_PausePanel";
 
-        public void RegisterPanel(UIPanelBase panel)
+        private IInputEventSource _inputEvents;
+        private IInputModeController _inputMode;
+
+        private readonly Dictionary<string, GameObject> _prefabCache = new Dictionary<string, GameObject>();
+        private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
+        private bool _isTransitioning;
+
+        private int _pauseLockCount;
+        private int _cursorLockCount;
+
+        private void Awake()
         {
-            if (!panelRegistry.ContainsKey(panel.PanelId))
+            if (Instance == null)
             {
-                panelRegistry.Add(panel.PanelId, panel);
+                Instance = this;
             }
-        }
-
-        /// <summary>
-        /// 压栈：打开新面板
-        /// </summary>
-        public void PushPanel(string panelId)
-        {
-            if (!panelRegistry.TryGetValue(panelId, out UIPanelBase newPanel))
+            else
             {
-                Debug.LogError($"[UIManager] 找不到面板: {panelId}");
+                Destroy(gameObject);
                 return;
             }
 
-            // 处理当前栈顶面板
-            if (panelStack.Count > 0)
+            CoCoServices.WaitFor<IInputEventSource>(svc =>
             {
-                var topPanel = panelStack.Peek();
-                if (newPanel.HideLowerPanels)
-                {
-                    // 将它暂停/隐藏，但不销毁
-                    //topPanel.canvasGroup.interactable = false;
-                    // 这里可以调用一个不带动画的瞬隐，或者播放一个退到背景的动画
-                }
-            }
+                _inputEvents = svc;
+                _inputEvents.OnActionPerformed += HandleUIInput;
+            });
 
-            // 新面板入栈并展示
-            panelStack.Push(newPanel);
-            
-            // 自动挂载到对应的层级节点
-            Transform targetRoot = panelRoot;
-            if (newPanel.Layer == UILayer.HUD) targetRoot = hudRoot;
-            else if (newPanel.Layer == UILayer.Popup) targetRoot = popupRoot;
-            
-            newPanel.transform.SetParent(targetRoot, false);
-            newPanel.transform.SetAsLastSibling(); // 保证在最上层显示
-            
-            newPanel.Show();
+            CoCoServices.WaitFor<IInputModeController>(svc => _inputMode = svc);
         }
 
-        /// <summary>
-        /// 出栈：关闭当前面板，返回上一页
-        /// </summary>
-        public void PopPanel()
+        private void OnDestroy()
         {
-            if (panelStack.Count <= 0) return;
+            if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
+            if (Instance == this) Instance = null;
+        }
 
-            var currentPanel = panelStack.Pop();
-            currentPanel.Hide();
+        #region Public API
+        public void OpenPanel(string address) => PushPanelAsync(address).Forget();
+        public void CloseCurrentPanel() => PopPanelAsync().Forget();
+        public void CloseAllPanels() => PopAllPanelsAsync().Forget();
 
-            // 恢复下一层面板
-            if (panelStack.Count > 0)
+        public void TogglePanel(string address)
+        {
+            if (_panelStack.Count > 0 && _panelStack.Peek().PanelAddress == address)
             {
-                var lowerPanel = panelStack.Peek();
-                if (currentPanel.HideLowerPanels)
-                {
-                    // 恢复其交互和显示
-                    //lowerPanel.canvasGroup.interactable = true;
-                }
+                CloseCurrentPanel();
+            }
+            else
+            {
+                OpenPanel(address);
             }
         }
+
+
+        #endregion
+
+        #region Internal Logic
+        private async UniTask PushPanelAsync(string address)
+        {
+            if (_isTransitioning) return;
+            _isTransitioning = true;
+
+            try
+            {
+                if (!_prefabCache.TryGetValue(address, out GameObject prefab))
+                {
+                    prefab = await Addressables.LoadAssetAsync<GameObject>(address).ToUniTask();
+                    _prefabCache.Add(address, prefab);
+                }
+
+                // 从 prefab 读取 Layer 来确定目标根节点，避免 Instantiate 后再 SetParent
+                UIPanelBase prefabPanel = prefab.GetComponent<UIPanelBase>();
+                Transform targetRoot = prefabPanel.Layer switch
+                {
+                    UILayer.HUD => hudRoot,
+                    UILayer.Popup => popupRoot,
+                    _ => panelRoot
+                };
+
+                GameObject panelObj = Instantiate(prefab, targetRoot, false);
+                UIPanelBase newPanel = panelObj.GetComponent<UIPanelBase>();
+                panelObj.transform.SetAsLastSibling();
+
+                ApplyPanelConfigOnPush(newPanel.Config);
+
+                if (_panelStack.Count > 0)
+                {
+                    var topPanel = _panelStack.Peek();
+                    if (newPanel.Config.HasFlag(UIPanelConfig.HideLowerPanels))
+                        topPanel.SetInteractable(false);
+                }
+
+                _panelStack.Push(newPanel);
+                await newPanel.ShowAsync();
+            }
+            finally
+            {
+                _isTransitioning = false;
+            }
+        }
+
+        private async UniTask PopPanelAsync()
+        {
+            if (_isTransitioning || _panelStack.Count == 0) return;
+            _isTransitioning = true;
+
+            try
+            {
+                var currentPanel = _panelStack.Pop();
+                await currentPanel.HideAsync();
+
+                var config = currentPanel.Config;
+                if (currentPanel != null && currentPanel.gameObject != null)
+                {
+                    Destroy(currentPanel.gameObject);
+                }
+
+                if (_panelStack.Count > 0)
+                {
+                    var lowerPanel = _panelStack.Peek();
+                    if (config.HasFlag(UIPanelConfig.HideLowerPanels) && lowerPanel != null)
+                    {
+                        lowerPanel.SetInteractable(true);
+                    }
+                }
+
+                ApplyPanelConfigOnPop(config);
+            }
+            finally
+            {
+                _isTransitioning = false;
+            }
+        }
+
+        private void HandleUIInput(string actionName)
+        {
+            if (_isTransitioning) return;
+
+            if (actionName == pauseActionName && _panelStack.Count == 0)
+            {
+                PushPanelAsync(pausePanelAddress).Forget();
+            }
+            else if (actionName == cancelActionName && _panelStack.Count > 0)
+            {
+                PopPanelAsync().Forget();
+            }
+        }
+
+        private async UniTask PopAllPanelsAsync()
+        {
+            if (_isTransitioning) return;
+
+            while (_panelStack.Count > 0)
+            {
+                await PopPanelAsync();
+            }
+        }
+
+        private void ApplyPanelConfigOnPush(UIPanelConfig config)
+        {
+            if (config.HasFlag(UIPanelConfig.PauseGame))
+            {
+                _pauseLockCount++;
+                Time.timeScale = 0f;
+            }
+
+            if (config.HasFlag(UIPanelConfig.ShowCursor))
+            {
+                _cursorLockCount++;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+
+            if (config.HasFlag(UIPanelConfig.TakeInputFocus))
+            {
+                _inputMode?.SwitchActionMap(InputMapNames.UI);
+            }
+        }
+
+        private void ApplyPanelConfigOnPop(UIPanelConfig config)
+        {
+            if (config.HasFlag(UIPanelConfig.PauseGame))
+            {
+                _pauseLockCount--;
+                if (_pauseLockCount <= 0)
+                {
+                    _pauseLockCount = 0;
+                    Time.timeScale = 1f;
+                }
+            }
+
+            if (config.HasFlag(UIPanelConfig.ShowCursor))
+            {
+                _cursorLockCount--;
+                if (_cursorLockCount <= 0)
+                {
+                    _cursorLockCount = 0;
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+            }
+
+            if (_panelStack.Count == 0)
+            {
+                _inputMode?.SwitchActionMap(InputMapNames.Player);
+            }
+        }
+        #endregion
     }
 }

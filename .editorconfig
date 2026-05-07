@@ -1,0 +1,17 @@
+﻿root = true
+
+# 针对所有文件的基础规范
+[*]
+indent_style = space
+indent_size = 4
+
+end_of_line = lf
+
+insert_final_newline = true
+
+trim_trailing_whitespace = true
+
+# 专门针对 C# 脚本的规范
+[*.cs]
+
+charset = utf-8-bom

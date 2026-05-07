@@ -1,16 +1,24 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "displayName": "CoCoFlow",
-  "description": "A lightweight codebase and state machine framework.",
-  "unity": "6000.0",
+  "description": "A modular Unity game development framework — Core (ServiceLocator / EventBus / StateMachine), Modules (Input / Camera / UI / Animation / Map / Rendering / Persistence / Network), Gameplay (Character), and Editor toolchain.",
+  "unity": "2022.3",
   "dependencies": {
-    "com.unity.cinemachine": "3.1.6",
-    "com.cysharp.unitask": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask",
+    "com.cysharp.unitask": "2.5.10",
     "com.unity.addressables": "2.9.1",
     "com.unity.inputsystem": "1.18.0"
   },
   "author": {
     "name": "YunXEE"
-  }
+  },
+  "keywords": [
+    "framework",
+    "modular",
+    "statemachine",
+    "eventbus",
+    "servicelocator",
+    "gameplay"
+  ],
+  "category": "Framework"
 }

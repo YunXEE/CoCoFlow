@@ -1,0 +1,14 @@
+{
+    "name": "CoCoFlow.Runtime.Core",
+    "rootNamespace": "CoCoFlow.Runtime.Core",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

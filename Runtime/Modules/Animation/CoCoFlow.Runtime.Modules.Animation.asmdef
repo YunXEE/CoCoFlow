@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Runtime.Animation",
+    "rootNamespace": "",
+    "references": [
+        "GUID:79ea9195d41d4b2492e4445155765e98"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
