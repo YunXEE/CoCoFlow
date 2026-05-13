@@ -18,6 +18,15 @@ namespace CoCoFlow.Runtime.Modules.Map
         public string ChunkAddress;
     }
 
+    /// <summary>
+    /// 地图区块加载完成事件 — 在 Addressables 场景加载成功后发布，
+    /// 用于触发 NavMesh 烘焙等后处理逻辑。
+    /// </summary>
+    public struct MapChunkLoadedEvent
+    {
+        public string ChunkAddress;
+    }
+
     public class MapResourceManager : MonoBehaviour
     {
         private readonly Dictionary<string, SceneInstance> _loadedChunks = new Dictionary<string, SceneInstance>();
@@ -52,6 +61,9 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             var sceneInstance = await Addressables.LoadSceneAsync(chunkAddress, LoadSceneMode.Additive).ToUniTask();
             _loadedChunks.Add(chunkAddress, sceneInstance);
+
+            var loadedEvent = new MapChunkLoadedEvent { ChunkAddress = chunkAddress };
+            CoCoEventBus.Publish(ref loadedEvent);
         }
 
         private async UniTask UnloadChunkAsync(string chunkAddress)

@@ -1,0 +1,9 @@
+{
+    "name": "CoCoFlow.Editor.Gameplay.Enemy",
+    "rootNamespace": "CoCoFlow.Editor.Gameplay.Enemy",
+    "references": [
+        "CoCoFlow.Runtime.Gameplay.Enemy",
+        "Unity.Splines",
+        "Unity.Mathematics"
+    ]
+}
