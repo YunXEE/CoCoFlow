@@ -1,9 +1,9 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "displayName": "CoCoFlow",
   "description": "A modular Unity game development framework — Core (ServiceLocator / EventBus / StateMachine), Modules (Input / Camera / UI / Animation / Map / Rendering / Persistence / Network), Gameplay (Character), and Editor toolchain.",
-  "unity": "2022.3",
+  "unity": "6000.0",
   "dependencies": {
     "com.cysharp.unitask": "2.5.10",
     "com.unity.addressables": "2.9.1",

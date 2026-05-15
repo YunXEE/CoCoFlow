@@ -2,9 +2,12 @@
     "name": "CoCoFlow.Runtime.Modules.Network",
     "rootNamespace": "CoCoFlow.Runtime.Modules.Network",
     "references": [
-        "PhotonRealtime",
-        "PhotonUnityNetworking",
-        "CoCoFlow.Runtime"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Gameplay.Character",
+        "CoCoFlow.Runtime.Gameplay.Enemy",
+        "CoCoFlow.Runtime.Modules.UI",
+        "Fusion.Runtime",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -13,8 +16,7 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "UNITY_2022_2_OR_NEWER",
-        "!UNITY_6000_0_OR_NEWER"
+        "UNITY_6000_0_OR_NEWER"
     ],
     "versionDefines": [],
     "noEngineReferences": false
