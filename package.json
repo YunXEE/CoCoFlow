@@ -2,7 +2,7 @@
   "name": "com.yunxee.cocoflow",
   "version": "0.3.1",
   "displayName": "CoCoFlow",
-  "description": "A modular Unity game development framework — Core (ServiceLocator / EventBus / StateMachine), Modules (Input / Camera / UI / Animation / Map / Rendering / Persistence / Network), Gameplay (Character), and Editor toolchain.",
+  "description": "A modular Unity game development framework — Core (ServiceLocator / EventBus / StateMachine), Modules (Input / Camera / UI / Animation / Map / Rendering / Persistence), Gameplay (Character), optional add-ons, and Editor toolchain.",
   "unity": "6000.0",
   "dependencies": {
     "com.cysharp.unitask": "2.5.10",
@@ -22,5 +22,12 @@
     "servicelocator",
     "gameplay"
   ],
-  "category": "Framework"
+  "category": "Framework",
+  "samples": [
+    {
+      "displayName": "Add-on: Network",
+      "description": "Optional Photon Fusion Host/Client lobby, player spawning, and CoCoFlow event bridge scaffold.",
+      "path": "Samples~/Network"
+    }
+  ]
 }

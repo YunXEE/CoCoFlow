@@ -5,5 +5,8 @@
         "CoCoFlow.Runtime.Gameplay.Enemy",
         "Unity.Splines",
         "Unity.Mathematics"
+    ],
+    "includePlatforms": [
+        "Editor"
     ]
 }

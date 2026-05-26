@@ -1,8 +1,13 @@
 {
-    "name": "CoCoFlow.Editor.Core",
-    "rootNamespace": "CoCoFlow.Editor.Core",
+    "name": "CoCoFlow.Editor.Addon.Network",
+    "rootNamespace": "CoCoFlow.Editor.Addon.Network",
     "references": [
-        "GUID:79ea9195d41d4b2492e4445155765e98"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Input",
+        "CoCoFlow.Runtime.Addon.Network",
+        "Fusion.Unity",
+        "Fusion.Unity.Editor",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"
