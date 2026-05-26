@@ -1,0 +1,153 @@
+using Fusion;
+using UnityEngine;
+using CoCoFlow.Runtime.Core;
+
+namespace CoCoFlow.Runtime.Addon.Network.Input
+{
+    /// <summary>
+    /// 输入桥接器 — 连接本地 InputReader 与 Fusion 网络输入系统。
+    /// 每帧 Accumulate 输入，在 Fusion OnInput 回调中原子消费，解决 Unity 帧率
+    /// （≥60fps）与 Fusion Tick（默认30Hz）之间的输入丢失问题。
+    /// 通过实现 IInputStateProvider 覆盖 InputReader 的 CoCoServices 注册，
+    /// 使网络模式下所有下游消费者自动获取网络化输入。
+    /// </summary>
+    [DefaultExecutionOrder(-90)] // 在 InputReader (-100) 之后，Fusion OnInput 之前
+    public class NetworkInputBridge : MonoBehaviour, IInputStateProvider
+    {
+        [SerializeField] private bool _accumulateLookInput;
+
+        private IInputStateProvider _localInput;
+        private IInputEventSource _inputEvents;
+        private NetPlayerInput _accumulatedInput;
+        private Camera _cachedMainCamera;
+
+        private void Awake()
+        {
+            _cachedMainCamera = Camera.main;
+
+            if (CoCoServices.TryGet<IInputStateProvider>(out var input) && !ReferenceEquals(input, this))
+                _localInput = input;
+
+            CoCoServices.WaitFor<IInputEventSource>(svc =>
+            {
+                _inputEvents = svc;
+                _inputEvents.OnActionPerformed += HandleAction;
+
+                if (_localInput == null && svc is IInputStateProvider inputProvider && !ReferenceEquals(inputProvider, this))
+                    _localInput = inputProvider;
+
+                RegisterAsInputProvider();
+            });
+
+            // 覆盖 IInputStateProvider 注册，使网络模式下消费者自动获取网络化输入
+            RegisterAsInputProvider();
+        }
+
+        private void OnDestroy()
+        {
+            // 清理事件订阅，避免 EventSource 持有已销毁对象的引用
+            if (_inputEvents != null)
+            {
+                _inputEvents.OnActionPerformed -= HandleAction;
+            }
+
+            var wasCurrentProvider =
+                CoCoServices.TryGet<IInputStateProvider>(out var current) &&
+                ReferenceEquals(current, this);
+
+            CoCoServices.Unregister<IInputStateProvider>(this);
+
+            if (wasCurrentProvider && _localInput != null)
+            {
+                if (_localInput is Object unityObj && unityObj == null)
+                    return;
+
+                CoCoServices.Register<IInputStateProvider>(_localInput);
+            }
+        }
+
+        /// <summary>
+        /// 每帧累积输入。Fusion OnInput 回调通过 ConsumeAndReset() 原子消费。
+        /// </summary>
+        private void Update()
+        {
+            if (_localInput == null) return;
+
+            _accumulatedInput.MoveDirection += ConvertMoveToWorldPlanar(_localInput.MoveInput);
+
+            if (_accumulateLookInput)
+            {
+                _accumulatedInput.LookDirection += _localInput.LookInput;
+            }
+        }
+
+        #region Public API
+
+        /// <summary>
+        /// 原子地返回并清空累积的输入，由 NetManager.OnInput 调用。
+        /// </summary>
+        public NetPlayerInput ConsumeAndReset()
+        {
+            var input = _accumulatedInput;
+            _accumulatedInput = default;
+            return input;
+        }
+
+        public Vector2 MoveInput => _localInput?.MoveInput ?? Vector2.zero;
+        public Vector2 LookInput => _localInput?.LookInput ?? Vector2.zero;
+        public Vector2 ZoomInput => _localInput?.ZoomInput ?? Vector2.zero;
+
+        #endregion
+
+        #region Internal Logic
+
+        private void RegisterAsInputProvider()
+        {
+            if (CoCoServices.TryGet<IInputStateProvider>(out var current) && ReferenceEquals(current, this))
+                return;
+
+            CoCoServices.Register<IInputStateProvider>(this);
+        }
+
+        private Vector2 ConvertMoveToWorldPlanar(Vector2 inputDir)
+        {
+            if (inputDir.sqrMagnitude < 0.01f) return Vector2.zero;
+
+            var mainCam = _cachedMainCamera;
+            if (mainCam == null)
+                mainCam = _cachedMainCamera = Camera.main;
+
+            if (mainCam == null)
+                return inputDir.normalized;
+
+            var camForward = mainCam.transform.forward;
+            var camRight = mainCam.transform.right;
+            camForward.y = 0f;
+            camRight.y = 0f;
+            camForward.Normalize();
+            camRight.Normalize();
+
+            var worldDir = (camForward * inputDir.y + camRight * inputDir.x).normalized;
+            return new Vector2(worldDir.x, worldDir.z);
+        }
+
+        /// <summary>
+        /// 处理离散动作事件。使用 OR 累积确保 Fusion Tick 之间
+        /// 的按键按下不会被漏掉（离散动作不会每帧持续触发）。
+        /// </summary>
+        private void HandleAction(string actionName)
+        {
+            switch (actionName)
+            {
+                case "Jump":
+                    _accumulatedInput.Jump = true;
+                    break;
+                case "Interact":
+                    _accumulatedInput.Interact = true;
+                    break;
+            }
+        }
+
+        #endregion
+    }
+}

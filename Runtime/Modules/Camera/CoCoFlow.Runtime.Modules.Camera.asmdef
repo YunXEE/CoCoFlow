@@ -11,15 +11,7 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [
-        "COCOFLOW_USE_CM3"
-    ],
-    "versionDefines": [
-        {
-            "name": "com.unity.cinemachine",
-            "expression": "3.00",
-            "define": "COCOFLOW_USE_CM3"
-        }
-    ],
+    "defineConstraints": [],
+    "versionDefines": [],
     "noEngineReferences": false
 }

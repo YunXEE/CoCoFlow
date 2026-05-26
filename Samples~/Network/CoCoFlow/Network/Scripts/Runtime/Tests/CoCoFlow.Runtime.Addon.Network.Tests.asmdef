@@ -1,0 +1,29 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.Network.Tests",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.Network.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Addon.Network",
+        "Fusion.Unity",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "nunit.framework"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Fusion.Common.dll",
+        "Fusion.Runtime.dll",
+        "Fusion.Realtime.dll",
+        "Fusion.Sockets.dll",
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

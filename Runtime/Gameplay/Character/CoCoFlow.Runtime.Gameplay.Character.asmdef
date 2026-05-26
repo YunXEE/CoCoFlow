@@ -1,0 +1,7 @@
+{
+    "name": "CoCoFlow.Runtime.Gameplay.Character",
+    "rootNamespace": "CoCoFlow.Runtime.Gameplay.Character",
+    "references": [
+        "CoCoFlow.Runtime.Core"
+    ]
+}

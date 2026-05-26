@@ -2,14 +2,14 @@
 
 模块化 Unity 游戏开发框架。
 
-> **版本**: 0.2.0 · **Unity**: 2022.3+
+> **版本**: 0.3.1 · **Unity**: 6000+
 
 ---
 
 ## 架构拓扑
 
 ```
-CoCoFlow Framework v0.2.0
+CoCoFlow v0.3.1
 │
 ├── CoCoFlow.Runtime (运行时)
 │   ├── ◆ Core (核心层)
@@ -25,8 +25,7 @@ CoCoFlow Framework v0.2.0
 │   │   ├── Animation       — AnimationManager / MotionController
 │   │   ├── Map             — MapManager / Chunk 分块加载
 │   │   ├── Rendering       — URP 画质分级 / LOD Bias / 渲染管线
-│   │   ├── Persistence     — SaveManager / SaveData (JSON 存档)
-│   │   └── Network         — 网络层 (房间管理 / Ping)
+│   │   └── Persistence     — SaveManager / SaveData (JSON 存档)
 │   │
 │   └── ◇ Gameplay (游戏玩法层)
 │       ├── Character       — CharacterLifecycle (生命值 / 伤害 / 死亡 / 复活)
@@ -38,6 +37,10 @@ CoCoFlow Framework v0.2.0
     ├── Animation           — 动画编辑器工具
     ├── Persistence         — 存档数据编辑器工具
     └── UI                  — UI 编辑器工具
+
+Samples~
+└── Network/CoCoFlow/Network
+                         — Photon Fusion 可选 Add-on（需手动导入）
 ```
 
 ---
@@ -54,9 +57,9 @@ CoCoFlow Framework v0.2.0
 | **Map** | ✅ 基本完成 | 80% | Chunk 分块加载、异步加载 |
 | **Rendering** | 🟡 大部分完成 | 70% | URP 画质分级 + LOD Bias，后处理 / 纹理流送开发中 |
 | **Persistence** | 🟡 大部分完成 | 65% | JSON 存档 + SaveManager，加密 / 迁移开发中 |
-| **Network** | 🔴 刚建目录 | 10% | 基础连接 / 房间管理已搭建，Gameplay 同步未开发 |
 | **Gameplay** | 🟡 开发中 | 30% | CharacterLifecycle 已有，战斗 / 技能 / AI 待定 |
 | **Editor** | 🟡 大部分完成 | 70% | 各模块编辑器工具链已建立，AssetPipeline 开发中 |
+| **Network Add-on** | 可选 Add-on | Photon Fusion Host/Client、Lobby、PlayerObject 生成；不属于主包默认编译模块 |
 
 ---
 
@@ -69,10 +72,11 @@ CoCoFlow Framework v0.2.0
 | Input System | 1.18.0+ | ✅ 必须 |
 | DOTween | 最新 | ⚠️ 需手动安装 |
 | Cinemachine | 3.x | ⚠️ 仅 Camera 模块需要 |
+| Photon Fusion | 2.x | ⚠️ 仅 Network Add-on 需要 |
 
 > **注意:**
 > - DOTween 需手动安装（Asset Store 或通过名称安装: `com.unity.dotween`）
-> - 框架做了编译切分，不同 Unity 版本下不兼容的模块会自动排除编译，2022.3 和 Unity 6 均可正常使用
+> - Photon Fusion 网络骨架位于 `Samples~/Network/CoCoFlow/Network`，需要时在 Package Manager 的 Samples 面板导入 `Add-on: Network`
 
 ---
 
@@ -91,22 +95,7 @@ git clone https://github.com/YunXEE/CoCoFlow.git com.yunxee.cocoflow
 
 ## 快速开始
 
-```csharp
-// 1. 初始化框架
-CoCoCore.Initialize();
-
-// 2. 注册服务
-CoCoServices.Register<IInputService>(new InputService());
-
-// 3. 订阅事件
-EventBus.Subscribe<OnPlayerSpawned>(e => Debug.Log($"Player {e.PlayerId} spawned"));
-
-// 4. 状态机
-var sm = new StateMachine();
-sm.AddState(new IdleState());
-sm.AddState(new RunState());
-sm.ChangeState<IdleState>();
-```
+请参照：https://cypress-abrosaurus-007.notion.site/CoCoFlow-Guideline-35a9a23f605d80668f5cf0c232389ba4
 
 ---
 

@@ -68,9 +68,9 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
         public void OnAfterDeserialize() { }
 
-#if UNITY_EDITOR
         public void OnBeforeSerialize()
         {
+#if UNITY_EDITOR
             if (Application.isPlaying || BuildPipeline.isBuildingPlayer) return;
 
             if (string.IsNullOrEmpty(uniqueID))
@@ -104,8 +104,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence
                     }
                 }
             }
+#endif
         }
 
+#if UNITY_EDITOR
         private void GenerateSerializedGuid()
         {
             uniqueID = Guid.NewGuid().ToString("N"); // "N" 格式是只有数字和字母的短格式

@@ -1,0 +1,23 @@
+{
+    "name": "CoCoFlow.Editor.Addon.Network",
+    "rootNamespace": "CoCoFlow.Editor.Addon.Network",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Input",
+        "CoCoFlow.Runtime.Addon.Network",
+        "Fusion.Unity",
+        "Fusion.Unity.Editor",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

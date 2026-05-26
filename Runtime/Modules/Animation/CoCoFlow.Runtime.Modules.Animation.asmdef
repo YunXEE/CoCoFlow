@@ -1,8 +1,8 @@
 {
-    "name": "CoCoFlow.Runtime.Animation",
-    "rootNamespace": "",
+    "name": "CoCoFlow.Runtime.Modules.Animation",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Animation",
     "references": [
-        "GUID:79ea9195d41d4b2492e4445155765e98"
+        "CoCoFlow.Runtime.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -1,0 +1,24 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.Network",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.Network",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Gameplay.Character",
+        "CoCoFlow.Runtime.Gameplay.Enemy",
+        "CoCoFlow.Runtime.Modules.UI",
+        "Unity.TextMeshPro",
+        "Fusion.Unity",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "!DISABLE_MY_MODULE"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
