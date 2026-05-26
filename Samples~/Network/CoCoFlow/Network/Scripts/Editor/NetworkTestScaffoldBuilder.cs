@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Input;
+using CoCoFlow.Runtime.Addon.Network;
 using CoCoFlow.Runtime.Addon.Network.Bootstrap;
 using CoCoFlow.Runtime.Addon.Network.Character;
 using CoCoFlow.Runtime.Addon.Network.Input;

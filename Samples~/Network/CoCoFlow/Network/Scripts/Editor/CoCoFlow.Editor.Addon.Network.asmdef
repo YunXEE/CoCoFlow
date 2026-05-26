@@ -17,7 +17,11 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "COCOFLOW_FUSION_SUPPORT"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }
