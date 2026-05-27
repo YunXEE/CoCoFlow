@@ -2,14 +2,14 @@
 
 模块化 Unity 游戏开发框架。
 
-> **版本**: 0.3.1 · **Unity**: 6000+
+> **版本**: 0.3.2 · **Unity**: 6000+
 
 ---
 
 ## 架构拓扑
 
 ```
-CoCoFlow v0.3.1
+CoCoFlow v0.3.2
 │
 ├── CoCoFlow.Runtime (运行时)
 │   ├── ◆ Core (核心层)
@@ -67,29 +67,29 @@ Samples~
 
 | Package | 版本 | 是否必须 |
 |---------|------|----------|
-| UniTask | 2.5.10+ | ✅ 必须 |
+| UniTask | 2.5.11 | ⚠️ 由 Setup Assistant 通过 Git URL 安装 |
 | Addressables | 2.9.1+ | ✅ 必须 |
 | Input System | 1.18.0+ | ✅ 必须 |
+| Newtonsoft Json | 3.2.2+ | ✅ Persistence 必须 |
 | DOTween | 最新 | ⚠️ 需手动安装 |
-| Cinemachine | 3.x | ⚠️ 仅 Camera 模块需要 |
+| Cinemachine | 3.1.6+ | ✅ Camera 模块必须 |
+| Splines | 2.6.0+ | ✅ Enemy 模块必须 |
+| Mathematics | 1.3.3+ | ✅ Splines/Enemy 必须 |
 | Photon Fusion | 2.x | ⚠️ 仅 Network Add-on 需要 |
 
 > **注意:**
-> - DOTween 需手动安装（Asset Store 或通过名称安装: `com.unity.dotween`）
-> - Photon Fusion 网络骨架位于 `Samples~/Network/CoCoFlow/Network`，需要时在 Package Manager 的 Samples 面板导入 `Add-on: Network`
+> - DOTween 需手动安装
+> - 导入后可执行 `CoCoFlow/Setup/Setup Assistant` 查看依赖状态、一键配置 UniTask/Newtonsoft/宏，并安装可选 Add-on
+> - Setup Assistant 使用 UniTask Git URL 固定版本，不再依赖 OpenUPM
+> - Photon Fusion 网络骨架位于 `Samples~/Network/CoCoFlow/Network`，也可通过 Package Manager 的 Samples 面板导入 `Add-on: Network` 后手动迁移
 
 ---
 
 ## 安装
 
-1. 将本仓库克隆到你的 Unity 项目的 `Packages/` 目录下（或通过 `git submodule` 引入）
+1. 将本仓库克隆到你的 Unity 项目的 `Packages/` 目录下（或通过package manager git url安装）
 2. 安装上述依赖
 3. 开始使用
-
-```bash
-cd YourUnityProject/Packages
-git clone https://github.com/YunXEE/CoCoFlow.git com.yunxee.cocoflow
-```
 
 ---
 
