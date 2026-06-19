@@ -74,7 +74,7 @@ Health == 0
 
 包含：
 
-- `ItemIntent`：OpenRequested、UnlockRequested、UseRequested、ActorId。
+- `ItemIntent`：openRequested、unlockRequested、useRequested、actorId。
 - `ItemSemanticState`：Inactive、Available、Locked、Opening、Opened、Consumed。
 - `ItemInventoryPayload`：可选物品载荷。
 

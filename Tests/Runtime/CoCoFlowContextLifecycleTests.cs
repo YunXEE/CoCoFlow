@@ -197,8 +197,8 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         {
             var item = new ItemContext();
             item.Identity.StableEntityId = "item.scene.container.01";
-            item.Payload.ItemId = "loot.currency";
-            item.Payload.Count = 5;
+            item.Payload.itemId = "loot.currency";
+            item.Payload.count = 5;
 
             item.SetLocked();
             Assert.AreEqual(ItemSemanticState.Locked, item.ItemState);
@@ -235,23 +235,23 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.AreSame(provider.Context.Intent, provider.Intent);
 
                 provider.RequestOpen("actor.player");
-                Assert.IsTrue(provider.Context.Intent.OpenRequested);
-                Assert.AreEqual("actor.player", provider.Context.Intent.ActorId);
+                Assert.IsTrue(provider.Context.Intent.openRequested);
+                Assert.AreEqual("actor.player", provider.Context.Intent.actorId);
                 Assert.AreEqual(ItemSemanticState.Inactive, provider.Context.ItemState);
 
                 provider.RequestUnlock("actor.player");
-                Assert.IsTrue(provider.Context.Intent.UnlockRequested);
+                Assert.IsTrue(provider.Context.Intent.unlockRequested);
                 Assert.AreEqual(ItemSemanticState.Inactive, provider.Context.ItemState);
 
                 provider.RequestUse("actor.player");
-                Assert.IsTrue(provider.Context.Intent.UseRequested);
+                Assert.IsTrue(provider.Context.Intent.useRequested);
                 Assert.AreEqual(ItemSemanticState.Inactive, provider.Context.ItemState);
 
                 provider.ClearIntent();
-                Assert.IsFalse(provider.Context.Intent.OpenRequested);
-                Assert.IsFalse(provider.Context.Intent.UnlockRequested);
-                Assert.IsFalse(provider.Context.Intent.UseRequested);
-                Assert.AreEqual(string.Empty, provider.Context.Intent.ActorId);
+                Assert.IsFalse(provider.Context.Intent.openRequested);
+                Assert.IsFalse(provider.Context.Intent.unlockRequested);
+                Assert.IsFalse(provider.Context.Intent.useRequested);
+                Assert.AreEqual(string.Empty, provider.Context.Intent.actorId);
             }
             finally
             {
@@ -271,22 +271,22 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 driver.SetContextProvider(provider);
                 driver.SetItemIntentSource(source);
 
-                source.Intent.OpenRequested = true;
-                source.Intent.ActorId = "actor.player";
+                source.Intent.openRequested = true;
+                source.Intent.actorId = "actor.player";
 
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.IsTrue(provider.Context.Intent.OpenRequested);
-                Assert.AreEqual("actor.player", provider.Context.Intent.ActorId);
+                Assert.IsTrue(provider.Context.Intent.openRequested);
+                Assert.AreEqual("actor.player", provider.Context.Intent.actorId);
                 Assert.AreEqual(ItemSemanticState.Inactive, provider.Context.ItemState);
 
                 driver.ClearIntent();
-                Assert.IsFalse(provider.Context.Intent.OpenRequested);
-                Assert.AreEqual(string.Empty, provider.Context.Intent.ActorId);
+                Assert.IsFalse(provider.Context.Intent.openRequested);
+                Assert.AreEqual(string.Empty, provider.Context.Intent.actorId);
 
                 driver.RequestUnlock("actor.player");
                 driver.RequestUse("actor.player");
-                Assert.IsTrue(provider.Context.Intent.UnlockRequested);
-                Assert.IsTrue(provider.Context.Intent.UseRequested);
+                Assert.IsTrue(provider.Context.Intent.unlockRequested);
+                Assert.IsTrue(provider.Context.Intent.useRequested);
                 Assert.AreEqual(ItemSemanticState.Inactive, provider.Context.ItemState);
 
                 Assert.IsNull(typeof(ItemInputDriver).GetMethod(
@@ -608,7 +608,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             try
             {
                 var provider = root.AddComponent<ItemContextProvider>();
-                provider.Context.Payload.ItemId = "item.test";
+                provider.Context.Payload.itemId = "item.test";
                 provider.Context.SetLocked();
 
                 root.AddComponent<ItemIntentTestState>();
@@ -627,18 +627,18 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                                            evt.Context.Lifecycle.State == CoCoLifecycleState.Consumed;
                 });
 
-                provider.Context.Intent.OpenRequested = true;
+                provider.Context.Intent.openRequested = true;
                 controller.UpdateStateMachine();
                 Assert.AreEqual(ItemSemanticState.Locked, provider.Context.ItemState);
 
-                provider.Context.Intent.UnlockRequested = true;
-                provider.Context.Intent.OpenRequested = true;
+                provider.Context.Intent.unlockRequested = true;
+                provider.Context.Intent.openRequested = true;
                 controller.UpdateStateMachine();
 
                 Assert.AreEqual(ItemSemanticState.Opened, provider.Context.ItemState);
                 Assert.IsTrue(openedMatchesState);
 
-                provider.Context.Intent.UseRequested = true;
+                provider.Context.Intent.useRequested = true;
                 controller.UpdateStateMachine();
 
                 Assert.AreEqual(ItemSemanticState.Consumed, provider.Context.ItemState);
@@ -866,13 +866,13 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 base.OnStateUpdate(context);
                 var itemContext = (ItemContext)context;
 
-                if (itemContext.Intent.UnlockRequested &&
+                if (itemContext.Intent.unlockRequested &&
                     itemContext.ItemState == ItemSemanticState.Locked)
                 {
                     itemContext.SetAvailable();
                 }
 
-                if (itemContext.Intent.OpenRequested &&
+                if (itemContext.Intent.openRequested &&
                     itemContext.ItemState == ItemSemanticState.Available)
                 {
                     itemContext.SetOpening();
@@ -880,20 +880,20 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                     var evt = new ItemOpenedEvent
                     {
                         Context = itemContext,
-                        ItemId = itemContext.Payload.ItemId,
+                        ItemId = itemContext.Payload.itemId,
                         EventSequence = itemContext.NextEventSequence()
                     };
                     CoCoEventBus.Publish(ref evt);
                 }
 
-                if (itemContext.Intent.UseRequested &&
+                if (itemContext.Intent.useRequested &&
                     itemContext.ItemState == ItemSemanticState.Opened)
                 {
                     itemContext.SetConsumed();
                     var evt = new ItemConsumedEvent
                     {
                         Context = itemContext,
-                        ItemId = itemContext.Payload.ItemId,
+                        ItemId = itemContext.Payload.itemId,
                         EventSequence = itemContext.NextEventSequence()
                     };
                     CoCoEventBus.Publish(ref evt);

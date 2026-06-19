@@ -1,6 +1,18 @@
 {
-  "name": "CoCoFlow.Runtime.Modules.Persistence",
-  "references": [
-    "CoCoFlow.Runtime.Core"
-  ]
+    "name": "CoCoFlow.Runtime.Modules.Persistence",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Persistence",
+    "references": [
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }
