@@ -19,7 +19,8 @@
     "autoReferenced": true,
     "defineConstraints": [
         "COCOFLOW_UNITASK_SUPPORT",
-        "COCOFLOW_DOTWEEN_SUPPORT"
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT"
     ],
     "versionDefines": [],
     "noEngineReferences": false

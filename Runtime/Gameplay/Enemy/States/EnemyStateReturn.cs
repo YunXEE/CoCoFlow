@@ -45,6 +45,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
             }
 
             // 在样条上采样 100 个点，找到离当前位置最近的点作为目标
+            Vector3 enemyPosition = _enemyController.transform.position;
             float bestT = 0f;
             float bestDist = float.MaxValue;
             for (int i = 0; i <= 100; i++)
@@ -52,7 +53,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
                 float t = i / 100f;
                 // EvaluatePosition 返回本地坐标，需转换为世界坐标
                 Vector3 splinePos = splineContainer.transform.TransformPoint(splineContainer.EvaluatePosition(t));
-                float dist = Vector3.Distance(transform.position, splinePos);
+                float dist = Vector3.Distance(enemyPosition, splinePos);
                 if (dist < bestDist)
                 {
                     bestDist = dist;
@@ -69,6 +70,8 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
 
             if (splineContainer == null) return;
 
+            Vector3 enemyPosition = _enemyController.transform.position;
+
             // 获取样条上的目标位置（世界坐标）
             Vector3 targetPos = splineContainer.transform.TransformPoint(splineContainer.EvaluatePosition(_targetSplineT));
 
@@ -84,7 +87,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
             _enemyController.Locomotion.SetRotation(desiredVelocity);
 
             // 到达检测：距离目标点 < 2 米时切换回巡逻状态
-            if (Vector3.Distance(transform.position, targetPos) < 2f)
+            if (Vector3.Distance(enemyPosition, targetPos) < 2f)
             {
                 Controller.ChangeState<EnemyStateFixedRoutine>();
             }

@@ -22,6 +22,11 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
         {
             base.Awake();
             if (slider == null) slider = GetComponentInChildren<Slider>();
+            if (slider == null)
+            {
+                Debug.LogError($"[UI 框架规范错误] Widget {gameObject.name} 未找到 Slider 组件！", gameObject);
+                return;
+            }
 
             slider.onValueChanged.AddListener(HandleSliderChange);
         }
@@ -67,4 +72,3 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
         #endregion
     }
 }
-

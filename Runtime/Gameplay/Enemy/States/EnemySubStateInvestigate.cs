@@ -40,7 +40,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
             _enemyController.Locomotion.SetMovementVelocity(_enemyController.Agent.desiredVelocity);
 
             // 转向最后已知位置
-            Vector3 dirToPoint = (_enemyController.Blackboard.lastKnownPosition - transform.position).normalized;
+            Vector3 dirToPoint = (_enemyController.Blackboard.lastKnownPosition - _enemyController.transform.position).normalized;
             if (dirToPoint.sqrMagnitude > 0.01f)
             {
                 _enemyController.Locomotion.SetRotation(dirToPoint);

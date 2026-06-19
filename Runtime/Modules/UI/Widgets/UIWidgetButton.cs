@@ -29,7 +29,18 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
         {
             base.Awake();
             _button = GetComponent<Button>();
+            if (_button == null)
+            {
+                Debug.LogError($"[UI 框架规范错误] Widget {gameObject.name} 未找到 Button 组件！", gameObject);
+                return;
+            }
+
             _button.onClick.AddListener(HandleClick);
+        }
+
+        private void OnDestroy()
+        {
+            if (_button != null) _button.onClick.RemoveListener(HandleClick);
         }
 
         #region Public API
@@ -49,12 +60,26 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
                 case UIButtonActionType.OpenPanel:
                     if (!string.IsNullOrEmpty(targetPanelAddress))
                     {
-                        UIManager.Instance.OpenPanel(targetPanelAddress);
+                        UIManager uiManager = UIManager.Instance;
+                        if (uiManager == null)
+                        {
+                            Debug.LogWarning($"[UI 框架规范错误] Widget {gameObject.name} 执行 OpenPanel 时未找到 UIManager！", gameObject);
+                            return;
+                        }
+
+                        uiManager.OpenPanel(targetPanelAddress);
                     }
                     break;
 
                 case UIButtonActionType.CloseCurrentPanel:
-                    UIManager.Instance.CloseCurrentPanel();
+                    UIManager currentManager = UIManager.Instance;
+                    if (currentManager == null)
+                    {
+                        Debug.LogWarning($"[UI 框架规范错误] Widget {gameObject.name} 执行 CloseCurrentPanel 时未找到 UIManager！", gameObject);
+                        return;
+                    }
+
+                    currentManager.CloseCurrentPanel();
                     break;
 
                 case UIButtonActionType.CustomGameLogic:

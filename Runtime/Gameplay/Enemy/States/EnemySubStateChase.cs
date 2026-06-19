@@ -49,7 +49,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
             _enemyController.Locomotion.SetMovementVelocity(desiredVelocity);
 
             // 面向目标
-            Vector3 dirToTarget = (_enemyController.Blackboard.currentTarget.position - transform.position).normalized;
+            Vector3 dirToTarget = (_enemyController.Blackboard.currentTarget.position - _enemyController.transform.position).normalized;
             _enemyController.Locomotion.SetRotation(dirToTarget);
 
             // 目标丢失视线 → 切入调查

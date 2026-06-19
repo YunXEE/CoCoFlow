@@ -3,7 +3,7 @@ using UnityEditor;
 using System.IO;
 using System.Collections.Generic;
 
-namespace CocoFlow.Editor.AssetPipeline
+namespace CoCoFlow.Editor.AssetPipeline
 {
     /// <summary>
     /// CoCoFlow Asset Pipeline: 静态Prefab提取器
