@@ -1,3 +1,4 @@
+using System;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using Unity.Cinemachine;
@@ -27,41 +28,15 @@ namespace CoCoFlow.Runtime.Modules.Camera
         [Tooltip("触发锁定切换的 Action 名（来自 InputActionAsset）。留空则不绑定。")]
         [SerializeField] private string lockOnActionName = "LockOn";
 
-        private CameraManager cameraManager;
-        public CamLockOnObject CurrentTarget { get; private set; }
+        private CameraManager _cameraManager;
 
-        private Collider[] searchResults = new Collider[20];
+        private readonly Collider[] _searchResults = new Collider[20];
         private IInputEventSource _inputEvents;
+        private IDisposable _inputEventsWait;
 
-        private void Awake()
-        {
-            cameraManager = GetComponent<CameraManager>();
-            if (mainCameraTransform == null && UnityEngine.Camera.main != null)
-            {
-                mainCameraTransform = UnityEngine.Camera.main.transform;
-            }
+        #region Public API
 
-            // 异步绑定输入事件
-            CoCoServices.WaitFor<IInputEventSource>(svc =>
-            {
-                _inputEvents = svc;
-                if (!string.IsNullOrEmpty(lockOnActionName))
-                    _inputEvents.OnActionPerformed += OnInputActionPerformed;
-            });
-        }
-
-        private void OnDestroy()
-        {
-            if (_inputEvents != null && !string.IsNullOrEmpty(lockOnActionName))
-            {
-                _inputEvents.OnActionPerformed -= OnInputActionPerformed;
-            }
-        }
-
-        private void OnInputActionPerformed(string actionName)
-        {
-            if (actionName == lockOnActionName) ToggleLockOn();
-        }
+        public CamLockOnObject CurrentTarget { get; private set; }
 
         public void ToggleLockOn()
         {
@@ -75,9 +50,56 @@ namespace CoCoFlow.Runtime.Modules.Camera
             }
         }
 
+        public void ClearLock()
+        {
+            if (CurrentTarget != null)
+            {
+                CurrentTarget.OnUnlocked();
+                CurrentTarget = null;
+            }
+
+            lockOnCamera.LookAt = null;
+            _cameraManager.SwitchCameraState(CameraState.FreeLook);
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private void Awake()
+        {
+            _cameraManager = GetComponent<CameraManager>();
+            if (mainCameraTransform == null && UnityEngine.Camera.main != null)
+            {
+                mainCameraTransform = UnityEngine.Camera.main.transform;
+            }
+
+            // 异步绑定输入事件
+            _inputEventsWait = CoCoServices.WaitFor<IInputEventSource>(svc =>
+            {
+                _inputEvents = svc;
+                if (!string.IsNullOrEmpty(lockOnActionName))
+                    _inputEvents.OnActionPerformed += OnInputActionPerformed;
+            });
+        }
+
+        private void OnDestroy()
+        {
+            _inputEventsWait?.Dispose();
+            if (_inputEvents != null && !string.IsNullOrEmpty(lockOnActionName))
+            {
+                _inputEvents.OnActionPerformed -= OnInputActionPerformed;
+            }
+        }
+
+        private void OnInputActionPerformed(string actionName)
+        {
+            if (actionName == lockOnActionName) ToggleLockOn();
+        }
+
         private void TryLockTarget()
         {
-            int hitCount = Physics.OverlapSphereNonAlloc(playerTarget.position, searchRadius, searchResults, targetLayer);
+            int hitCount = Physics.OverlapSphereNonAlloc(playerTarget.position, searchRadius, _searchResults, targetLayer);
             if (hitCount == 0) return;
 
             CamLockOnObject bestTarget = null;
@@ -85,7 +107,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
             for (int i = 0; i < hitCount; i++)
             {
-                var target = searchResults[i].GetComponent<CamLockOnObject>();
+                var target = _searchResults[i].GetComponent<CamLockOnObject>();
                 if (target == null) continue;
 
                 Vector3 directionToTarget = target.lockPoint.position - mainCameraTransform.position;
@@ -111,24 +133,12 @@ namespace CoCoFlow.Runtime.Modules.Camera
                 CurrentTarget = bestTarget;
                 CurrentTarget.OnLocked();
                 lockOnCamera.LookAt = CurrentTarget.lockPoint;
-                cameraManager.SwitchCameraState(CameraState.LockOn);
+                _cameraManager.SwitchCameraState(CameraState.LockOn);
             }
             else
             {
                 Debug.Log("[LockOnCameraHandler] 未找到可用目标");
             }
-        }
-
-        public void ClearLock()
-        {
-            if (CurrentTarget != null)
-            {
-                CurrentTarget.OnUnlocked();
-                CurrentTarget = null;
-            }
-
-            lockOnCamera.LookAt = null;
-            cameraManager.SwitchCameraState(CameraState.FreeLook);
         }
 
         private void Update()
@@ -151,5 +161,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
                 Gizmos.DrawWireSphere(playerTarget.position, searchRadius);
             }
         }
+
+        #endregion
     }
 }

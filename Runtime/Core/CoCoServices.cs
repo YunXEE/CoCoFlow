@@ -12,16 +12,7 @@ namespace CoCoFlow.Runtime.Core
     public static class CoCoServices
     {
         private static readonly Dictionary<Type, object> Services = new Dictionary<Type, object>();
-        private static readonly Dictionary<Type, Action<object>> Waiters = new Dictionary<Type, Action<object>>();
-
-#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
-        /// <summary>
-        /// 兼容 "Enter Play Mode Options - Disable Domain Reload" 选项。
-        /// 在进入播放模式时重置静态数据。
-        /// </summary>
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetOnPlay() => ClearAll();
-#endif
+        private static readonly Dictionary<Type, List<WaiterEntry>> Waiters = new Dictionary<Type, List<WaiterEntry>>();
 
         #region Public API
 
@@ -39,11 +30,18 @@ namespace CoCoFlow.Runtime.Core
             Services[t] = impl;
 
             // 通知所有正在等待该服务的对象
-            if (Waiters.TryGetValue(t, out var cb))
+            if (Waiters.TryGetValue(t, out var entries))
             {
                 Waiters.Remove(t);
-                try { cb?.Invoke(impl); }
-                catch (Exception ex) { CoCoLog.Error($"[CoCoServices] WaitFor 回调异常: {ex}"); }
+                var snapshot = entries.ToArray();
+                foreach (var entry in snapshot)
+                {
+                    if (entry == null || entry.IsDisposed) continue;
+
+                    entry.IsDisposed = true;
+                    try { entry.Callback?.Invoke(impl); }
+                    catch (Exception ex) { CoCoLog.Error($"[CoCoServices] WaitFor 回调异常: {ex}"); }
+                }
             }
         }
 
@@ -81,22 +79,27 @@ namespace CoCoFlow.Runtime.Core
         /// 注册时回调；若已注册则立刻同步回调。
         /// 适合解决 Awake 顺序无法保证或跨模块解耦的初始化场景。
         /// </summary>
-        public static void WaitFor<T>(Action<T> onReady) where T : class
+        public static IDisposable WaitFor<T>(Action<T> onReady) where T : class
         {
-            if (onReady == null) return;
+            if (onReady == null) return EmptyDisposable.Instance;
 
             if (TryGet<T>(out var s))
             {
                 onReady(s);
-                return;
+                return EmptyDisposable.Instance;
             }
 
             var t = typeof(T);
-            // 将回调加入等待队列，支持多个等待者
-            if (Waiters.TryGetValue(t, out var existing))
-                Waiters[t] = existing + (o => onReady((T)o));
-            else
-                Waiters[t] = o => onReady((T)o);
+            var entry = new WaiterEntry(o => onReady((T)o));
+
+            if (!Waiters.TryGetValue(t, out var entries))
+            {
+                entries = new List<WaiterEntry>();
+                Waiters[t] = entries;
+            }
+
+            entries.Add(entry);
+            return new CoCoServiceWaitSubscription(t, entry);
         }
 
         /// <summary>
@@ -107,6 +110,73 @@ namespace CoCoFlow.Runtime.Core
         {
             Services.Clear();
             Waiters.Clear();
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private sealed class WaiterEntry
+        {
+            public WaiterEntry(Action<object> callback)
+            {
+                Callback = callback;
+            }
+
+            public Action<object> Callback { get; }
+            public bool IsDisposed { get; set; }
+        }
+
+        private sealed class CoCoServiceWaitSubscription : IDisposable
+        {
+            private Type _serviceType;
+            private WaiterEntry _entry;
+
+            public CoCoServiceWaitSubscription(Type serviceType, WaiterEntry entry)
+            {
+                _serviceType = serviceType;
+                _entry = entry;
+            }
+
+            public void Dispose()
+            {
+                if (_entry == null) return;
+
+                RemoveWaiter(_serviceType, _entry);
+                _serviceType = null;
+                _entry = null;
+            }
+        }
+
+        private sealed class EmptyDisposable : IDisposable
+        {
+            public static readonly EmptyDisposable Instance = new EmptyDisposable();
+            private EmptyDisposable() { }
+            public void Dispose() { }
+        }
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        /// <summary>
+        /// 兼容 "Enter Play Mode Options - Disable Domain Reload" 选项。
+        /// 在进入播放模式时重置静态数据。
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetOnPlay() => ClearAll();
+#endif
+
+        private static void RemoveWaiter(Type serviceType, WaiterEntry entry)
+        {
+            if (serviceType == null || entry == null || entry.IsDisposed) return;
+
+            entry.IsDisposed = true;
+
+            if (!Waiters.TryGetValue(serviceType, out var entries)) return;
+
+            entries.Remove(entry);
+            if (entries.Count == 0)
+            {
+                Waiters.Remove(serviceType);
+            }
         }
 
         #endregion

@@ -1,3 +1,4 @@
+using System;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Addon.Network.Events;
 using Cysharp.Threading.Tasks;
@@ -18,13 +19,17 @@ namespace CoCoFlow.Runtime.Addon.Network.UI
         private readonly EventAgent _eventAgent = new EventAgent();
         private INetworkSessionController _sessionController;
         private INetworkRunnerProvider _runnerProvider;
+        private IDisposable _sessionControllerWait;
+        private IDisposable _runnerProviderWait;
         private string _status = "未连接";
         private int _playerCount;
 
+        #region Internal Logic
+
         private void Awake()
         {
-            CoCoServices.WaitFor<INetworkSessionController>(svc => _sessionController = svc);
-            CoCoServices.WaitFor<INetworkRunnerProvider>(svc => _runnerProvider = svc);
+            _sessionControllerWait = CoCoServices.WaitFor<INetworkSessionController>(svc => _sessionController = svc);
+            _runnerProviderWait = CoCoServices.WaitFor<INetworkRunnerProvider>(svc => _runnerProvider = svc);
         }
 
         private void OnEnable()
@@ -42,6 +47,8 @@ namespace CoCoFlow.Runtime.Addon.Network.UI
 
         private void OnDestroy()
         {
+            _sessionControllerWait?.Dispose();
+            _runnerProviderWait?.Dispose();
             _eventAgent.UnsubscribeAll();
         }
 
@@ -85,8 +92,6 @@ namespace CoCoFlow.Runtime.Addon.Network.UI
             GUILayout.Label("Host + 1-2 Client 使用相同 Room 名称。");
             GUILayout.EndArea();
         }
-
-        #region Internal Logic
 
         private async UniTask StartHost()
         {
