@@ -1,104 +1,199 @@
 using System;
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
 {
-    public class CharacterLifeCycle : MonoBehaviour
+    public class CharacterLifeCycle : MonoBehaviour, ICoCoContextProvider<CharacterContext>
     {
         [Header("Health Settings")]
         [SerializeField] private float maxHealth = 100f;
-        
-        public float CurrentHealth { get; private set; }
-        public bool IsDead { get; private set; }
 
-        // events
-        public event Action<float, float> OnHealthChanged; 
+        [Header("Context")]
+        [Tooltip("可选外部 CharacterContext Provider。若为空，则使用本组件持有的默认 CharacterContext。")]
+        [SerializeField] private MonoBehaviour contextProvider;
+        [SerializeField] private CharacterContext context = new CharacterContext();
+
+        private CharacterContext _context;
+
+        #region Public API
+
+        public CharacterContext Context => ResolveContext();
+        public float CurrentHealth => Context?.Resources.CurrentHealth ?? 0f;
+        public bool IsDead => Context == null || Context.Resources.IsDead;
+
+        public event Action<float, float> OnHealthChanged;
         public event Action<float> OnTakeDamage;
         public event Action OnDeath;
         public event Action OnRevive;
+
+        public void TakeDamage(float damageAmount)
+        {
+            var targetContext = Context;
+            if (targetContext == null || targetContext.Resources.IsDead || damageAmount <= 0) return;
+
+            var died = targetContext.Resources.ApplyDamage(damageAmount);
+
+            OnTakeDamage?.Invoke(damageAmount);
+            OnHealthChanged?.Invoke(targetContext.Resources.CurrentHealth, targetContext.Resources.MaxHealth);
+
+            if (died)
+            {
+                Die(targetContext);
+            }
+        }
+
+        public void Heal(float healAmount)
+        {
+            var targetContext = Context;
+            if (targetContext == null || targetContext.Resources.IsDead || healAmount <= 0) return;
+
+            targetContext.Resources.Heal(healAmount);
+            OnHealthChanged?.Invoke(targetContext.Resources.CurrentHealth, targetContext.Resources.MaxHealth);
+        }
+
+        public void SetMaxHealth(float newMaxHealth, bool keepRatio = false)
+        {
+            var targetContext = Context;
+            if (targetContext == null) return;
+            if (newMaxHealth <= 0) return;
+
+            if (keepRatio)
+            {
+                float ratio = targetContext.Resources.CurrentHealth / targetContext.Resources.MaxHealth;
+                maxHealth = newMaxHealth;
+                targetContext.Resources.MaxHealth = newMaxHealth;
+                targetContext.Resources.CurrentHealth = targetContext.Resources.MaxHealth * ratio;
+            }
+            else
+            {
+                maxHealth = newMaxHealth;
+                targetContext.Resources.MaxHealth = newMaxHealth;
+            }
+
+            OnHealthChanged?.Invoke(targetContext.Resources.CurrentHealth, targetContext.Resources.MaxHealth);
+        }
+
+        public void Revive(float healthPercentage = 1f)
+        {
+            var targetContext = Context;
+            if (targetContext == null || !targetContext.Resources.IsDead) return;
+
+            if (!targetContext.Lifecycle.TryTransitionTo(CoCoLifecycleState.Active))
+            {
+                CoCoLog.Warning($"[CharacterLifeCycle] {gameObject.name} 无法从 {targetContext.Lifecycle.State} 复活到 Active。");
+                return;
+            }
+
+            targetContext.Resources.Revive(healthPercentage);
+            targetContext.SemanticStateId = (int)CharacterSemanticState.Alive;
+
+            OnRevive?.Invoke();
+            OnHealthChanged?.Invoke(targetContext.Resources.CurrentHealth, targetContext.Resources.MaxHealth);
+        }
+
+        public void SetContextProvider(MonoBehaviour provider)
+        {
+            if (ReferenceEquals(provider, this))
+            {
+                provider = null;
+            }
+
+            contextProvider = provider;
+            _context = null;
+        }
+
+        public void ResetLocalContext()
+        {
+            _context = null;
+            if (contextProvider == null)
+            {
+                context = new CharacterContext();
+            }
+        }
+
+        #endregion
+
+        #region Internal Logic
 
         private void Awake()
         {
             InitializeHealth();
         }
 
-        #region Public API
-        
-        public void TakeDamage(float damageAmount)
+        private void OnValidate()
         {
-            if (IsDead || damageAmount <= 0) return;
-
-            CurrentHealth -= damageAmount;
-            CurrentHealth = Mathf.Clamp(CurrentHealth, 0, maxHealth);
-            
-            OnTakeDamage?.Invoke(damageAmount);
-            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
-            
-            if (CurrentHealth <= 0)
+            if (contextProvider == this)
             {
-                Die();
+                contextProvider = null;
             }
         }
-        
-        public void Heal(float healAmount)
+
+        private void Reset()
         {
-            if (IsDead || healAmount <= 0) return;
-
-            CurrentHealth += healAmount;
-            CurrentHealth = Mathf.Clamp(CurrentHealth, 0, maxHealth);
-
-            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
-        }
-        
-        public void SetMaxHealth(float newMaxHealth, bool keepRatio = false)
-        {
-            if (newMaxHealth <= 0) return;
-
-            if (keepRatio)
+            var behaviours = GetComponents<MonoBehaviour>();
+            foreach (var behaviour in behaviours)
             {
-                float ratio = CurrentHealth / maxHealth;
-                maxHealth = newMaxHealth;
-                CurrentHealth = maxHealth * ratio;
+                if (ReferenceEquals(behaviour, this)) continue;
+                if (behaviour is ICoCoContextProvider<CharacterContext>)
+                {
+                    contextProvider = behaviour;
+                    break;
+                }
             }
-            else
-            {
-                maxHealth = newMaxHealth;
-                CurrentHealth = Mathf.Clamp(CurrentHealth, 0, maxHealth);
-            }
-
-            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
         }
-        
-        public void Revive(float healthPercentage = 1f)
-        {
-            if (!IsDead) return;
-                    
-            IsDead = false;
-            CurrentHealth = maxHealth * Mathf.Clamp01(healthPercentage);
-                    
-            OnRevive?.Invoke();
-            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
-        }
-        
-        #endregion
 
-        #region Internal Logic
-
-        private void Die()
+        private void Die(CharacterContext targetContext)
         {
-            IsDead = true;
+            targetContext.SemanticStateId = (int)CharacterSemanticState.Dead;
+            targetContext.Lifecycle.TryTransitionTo(CoCoLifecycleState.Disabled);
             OnDeath?.Invoke();
             Debug.Log($"[CharacterLifeCycle] {gameObject.name} 死亡。");
         }
-        
+
         private void InitializeHealth()
         {
-            CurrentHealth = maxHealth;
-            IsDead = false;
-            OnHealthChanged?.Invoke(CurrentHealth, maxHealth);
+            var targetContext = Context;
+            if (targetContext == null)
+            {
+                CoCoLog.Warning($"[CharacterLifeCycle] {gameObject.name} 未找到 CharacterContext。");
+                return;
+            }
+
+            targetContext.Resources.MaxHealth = maxHealth;
+            targetContext.Resources.Revive(1f);
+            targetContext.SemanticStateId = (int)CharacterSemanticState.Alive;
+            targetContext.Lifecycle.TryTransitionTo(CoCoLifecycleState.Active);
+            OnHealthChanged?.Invoke(targetContext.Resources.CurrentHealth, targetContext.Resources.MaxHealth);
+        }
+
+        private CharacterContext ResolveContext()
+        {
+            if (_context != null) return _context;
+
+            if (TryGetContextFromProvider(contextProvider, out _context))
+            {
+                return _context;
+            }
+
+            _context = context;
+            return _context;
+        }
+
+        private static bool TryGetContextFromProvider(
+            object provider,
+            out CharacterContext targetContext)
+        {
+            if (provider is ICoCoContextProvider<CharacterContext> typedProvider)
+            {
+                targetContext = typedProvider.Context;
+                return targetContext != null;
+            }
+
+            targetContext = null;
+            return false;
         }
 
         #endregion
-
     }
 }

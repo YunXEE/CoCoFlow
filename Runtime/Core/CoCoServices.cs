@@ -30,9 +30,8 @@ namespace CoCoFlow.Runtime.Core
             Services[t] = impl;
 
             // 通知所有正在等待该服务的对象
-            if (Waiters.TryGetValue(t, out var entries))
+            if (Waiters.Remove(t, out var entries))
             {
-                Waiters.Remove(t);
                 var snapshot = entries.ToArray();
                 foreach (var entry in snapshot)
                 {

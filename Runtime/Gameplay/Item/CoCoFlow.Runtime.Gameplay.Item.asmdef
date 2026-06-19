@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Runtime.Gameplay.Item",
+    "rootNamespace": "CoCoFlow.Runtime.Gameplay.Item",
+    "references": [
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

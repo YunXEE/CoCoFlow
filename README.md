@@ -97,6 +97,10 @@ Samples~
 
 请参照：https://cypress-abrosaurus-007.notion.site/CoCoFlow-Guideline-35a9a23f605d80668f5cf0c232389ba4
 
+## 架构文档
+
+- [Context / Network Boundary](Docs/ContextNetworkBoundary.md) — Context、Intent、StateMachine、EventEnvelope、Persistence ID 与网络 adapter 边界。
+
 ---
 
 ## 许可证

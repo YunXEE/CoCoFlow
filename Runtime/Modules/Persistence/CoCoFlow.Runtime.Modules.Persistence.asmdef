@@ -1,3 +1,6 @@
 {
-  "name": "CoCoFlow.Runtime.Modules.Persistence"
+  "name": "CoCoFlow.Runtime.Modules.Persistence",
+  "references": [
+    "CoCoFlow.Runtime.Core"
+  ]
 }
