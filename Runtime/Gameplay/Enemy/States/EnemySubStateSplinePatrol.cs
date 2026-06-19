@@ -62,13 +62,14 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
             }
 
             // 在样条上找到离当前位置最近的点作为起始进度
+            Vector3 enemyPosition = _enemyController.transform.position;
             float bestT = 0f;
             float bestDist = float.MaxValue;
             for (int i = 0; i <= sampleCount; i++)
             {
                 float t = (float)i / sampleCount;
                 Vector3 splinePos = splineContainer.transform.TransformPoint(splineContainer.EvaluatePosition(t));
-                float dist = Vector3.Distance(transform.position, splinePos);
+                float dist = Vector3.Distance(enemyPosition, splinePos);
                 if (dist < bestDist)
                 {
                     bestDist = dist;

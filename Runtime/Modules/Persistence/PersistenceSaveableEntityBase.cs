@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using CoCoFlow.Runtime.Core;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -10,13 +11,15 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 {
     [ExecuteAlways]
     public abstract class SavableEntityBase : MonoBehaviour,
-        ISerializationCallbackReceiver
+        ISerializationCallbackReceiver,
+        ICoCoStableEntityIdProvider
     {
         [Header("Save Settings")]
         [SerializeField]
         [InspectorName("Unique ID")]
         private string uniqueID = string.Empty;
         public string UniqueID => uniqueID;
+        public string StableEntityId => uniqueID;
         protected bool HasRegisteredStore => PersistenceRuntimeStateManager.CurrentData != null;
 
         #region Public API & Contract

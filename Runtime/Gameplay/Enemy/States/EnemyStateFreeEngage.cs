@@ -29,7 +29,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy.States
 
             // 脱离检查 A —— 离开接敌区域
             if (_enemyController.EngagementZone != null &&
-                !_enemyController.EngagementZone.IsPositionInsideZone(transform.position))
+                !_enemyController.EngagementZone.IsPositionInsideZone(_enemyController.transform.position))
             {
                 Controller.ChangeState<EnemyStateReturn>();
                 return;

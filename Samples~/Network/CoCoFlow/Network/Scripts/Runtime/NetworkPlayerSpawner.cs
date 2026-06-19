@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Addon.Network.Events;
@@ -30,34 +31,8 @@ namespace CoCoFlow.Runtime.Addon.Network
         private readonly Dictionary<PlayerRef, NetworkObject> _spawnedObjects = new Dictionary<PlayerRef, NetworkObject>();
 
         private INetworkRunnerProvider _runnerProvider;
+        private IDisposable _runnerProviderWait;
         private bool _isSceneReady;
-
-        private void Awake()
-        {
-            CoCoServices.WaitFor<INetworkRunnerProvider>(provider =>
-            {
-                _runnerProvider = provider;
-                TrySpawnPendingPlayers();
-            });
-        }
-
-        private void OnEnable()
-        {
-            _eventAgent.Subscribe<NetPlayerJoinedEvent>(OnPlayerJoined);
-            _eventAgent.Subscribe<NetPlayerLeftEvent>(OnPlayerLeft);
-            _eventAgent.Subscribe<NetSceneReadyEvent>(OnSceneReady);
-            _eventAgent.Subscribe<NetShutdownEvent>(OnShutdown);
-        }
-
-        private void OnDisable()
-        {
-            _eventAgent.UnsubscribeAll();
-        }
-
-        private void OnDestroy()
-        {
-            _eventAgent.UnsubscribeAll();
-        }
 
         #region Public API
 
@@ -105,6 +80,34 @@ namespace CoCoFlow.Runtime.Addon.Network
         #endregion
 
         #region Internal Logic
+
+        private void Awake()
+        {
+            _runnerProviderWait = CoCoServices.WaitFor<INetworkRunnerProvider>(provider =>
+            {
+                _runnerProvider = provider;
+                TrySpawnPendingPlayers();
+            });
+        }
+
+        private void OnEnable()
+        {
+            _eventAgent.Subscribe<NetPlayerJoinedEvent>(OnPlayerJoined);
+            _eventAgent.Subscribe<NetPlayerLeftEvent>(OnPlayerLeft);
+            _eventAgent.Subscribe<NetSceneReadyEvent>(OnSceneReady);
+            _eventAgent.Subscribe<NetShutdownEvent>(OnShutdown);
+        }
+
+        private void OnDisable()
+        {
+            _eventAgent.UnsubscribeAll();
+        }
+
+        private void OnDestroy()
+        {
+            _runnerProviderWait?.Dispose();
+            _eventAgent.UnsubscribeAll();
+        }
 
         private void OnPlayerJoined(ref NetPlayerJoinedEvent evt)
         {

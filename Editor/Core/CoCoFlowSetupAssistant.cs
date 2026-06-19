@@ -38,8 +38,47 @@ namespace CoCoFlow.Editor.Core
                 "Samples~/Network/CoCoFlow/Network",
                 "Samples~/Network/README.md",
                 "Assets/CoCoFlow/Network",
-                new[] { UniTaskDefine, DotweenDefine, FusionDefine },
-                new[] { "UniTask", "DOTween", "DOTween.Modules", "Fusion.Unity" })
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine, FusionDefine },
+                new[] { "UniTask", "DOTween", "DOTween.Modules", "UniTask.DOTween", "Fusion.Unity" })
+        };
+
+        private static readonly ModuleDefinition[] Modules =
+        {
+            new ModuleDefinition(
+                "Core",
+                new string[0],
+                new string[0],
+                "Always compiled."),
+            new ModuleDefinition(
+                "Input",
+                new string[0],
+                new[] { "Unity.InputSystem" },
+                "Input System runtime module."),
+            new ModuleDefinition(
+                "Camera",
+                new string[0],
+                new[] { CinemachineAssemblyName },
+                "Cinemachine runtime module."),
+            new ModuleDefinition(
+                "Map",
+                new[] { UniTaskDefine },
+                new[] { "UniTask", "Unity.Addressables" },
+                "Addressables scene streaming module."),
+            new ModuleDefinition(
+                "Enemy AI",
+                new[] { UniTaskDefine },
+                new[] { "UniTask", SplinesAssemblyName, "Unity.Mathematics" },
+                "Enemy sensor and spline patrol module."),
+            new ModuleDefinition(
+                "UI",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
+                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro" },
+                "DOTween animated UI module."),
+            new ModuleDefinition(
+                "Network Add-on",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine, FusionDefine },
+                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Fusion.Unity" },
+                "Optional imported Fusion add-on.")
         };
 
         private readonly List<string> _log = new List<string>();
@@ -77,6 +116,7 @@ namespace CoCoFlow.Editor.Core
             DrawHeader();
             DrawDependencies();
             DrawDefines();
+            DrawModules();
             DrawActions();
             DrawAddons();
             DrawLog();
@@ -103,7 +143,7 @@ namespace CoCoFlow.Editor.Core
                 DrawStatusLine("Newtonsoft", _status.NewtonsoftMessage, _status.NewtonsoftState);
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("DOTween", _status.DotweenInstalled ? "Detected." : "Missing. Install DOTween manually.", _status.DotweenInstalled ? MessageType.Info : MessageType.Warning);
+                DrawStatusLine("DOTween", _status.DotweenMessage, _status.DotweenModulesInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Photon Fusion", _status.FusionInstalled ? "Detected." : "Missing. Install Photon Fusion manually.", _status.FusionInstalled ? MessageType.Info : MessageType.Warning);
 
                 if (_status.HasUniTaskOpenUpmScope)
@@ -120,8 +160,26 @@ namespace CoCoFlow.Editor.Core
             {
                 DrawDefineLine(UniTaskDefine);
                 DrawDefineLine(DotweenDefine);
-                DrawDefineLine(FusionDefine);
                 DrawDefineLine(UniTaskDotweenDefine);
+                DrawDefineLine(FusionDefine);
+            }
+        }
+
+        private void DrawModules()
+        {
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField("Modules", EditorStyles.boldLabel);
+
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                foreach (var module in Modules)
+                {
+                    var missingAssemblies = module.RequiredAssemblies.Where(assembly => !_status.AssemblyAvailable(assembly)).ToArray();
+                    var missingDefines = module.RequiredSupportDefines.Where(define => !_status.DefinePresentOnAllTargets(define)).ToArray();
+                    var state = missingAssemblies.Length == 0 && missingDefines.Length == 0 ? MessageType.Info : MessageType.Warning;
+                    var message = BuildModuleMessage(module, missingAssemblies, missingDefines);
+                    DrawStatusLine(module.DisplayName, message, state);
+                }
             }
         }
 
@@ -208,9 +266,56 @@ namespace CoCoFlow.Editor.Core
         private void DrawDefineLine(string define)
         {
             if (_status.MissingDefineTargets.TryGetValue(define, out var missing) && missing.Count > 0)
-                DrawStatusLine(define, "Missing on: " + string.Join(", ", missing.ToArray()), MessageType.Warning);
+                DrawStatusLine(define, BuildDefineMessage(missing), MessageType.Warning);
             else
-                DrawStatusLine(define, "Present on all checked build targets.", MessageType.Info);
+                DrawStatusLine(define, "Enabled on all checked targets.", MessageType.Info);
+        }
+
+        private string BuildModuleMessage(ModuleDefinition module, string[] missingAssemblies, string[] missingDefines)
+        {
+            if (missingAssemblies.Length == 0 && missingDefines.Length == 0)
+                return "Enabled. " + module.Description;
+
+            var parts = new List<string>();
+            if (missingAssemblies.Length > 0)
+                parts.Add("Missing assemblies: " + string.Join(", ", missingAssemblies));
+
+            if (missingDefines.Length > 0)
+                parts.Add("Defines: " + string.Join("; ", missingDefines.Select(BuildDefineSummary).ToArray()));
+
+            return "Disabled or partial. " + string.Join(" | ", parts.ToArray());
+        }
+
+        private string BuildDefineMessage(List<string> missingTargets)
+        {
+            if (_status.CheckedTargetCount <= 0)
+                return "Missing on checked targets.";
+
+            if (missingTargets.Count >= _status.CheckedTargetCount)
+                return "Disabled on checked targets.";
+
+            var enabledCount = _status.CheckedTargetCount - missingTargets.Count;
+            return "Partial: enabled on " + enabledCount + "/" + _status.CheckedTargetCount + " targets; missing " + FormatTargetList(missingTargets) + ".";
+        }
+
+        private string BuildDefineSummary(string define)
+        {
+            if (!_status.MissingDefineTargets.TryGetValue(define, out var missing) || missing.Count == 0)
+                return define + " enabled";
+
+            if (_status.CheckedTargetCount > 0 && missing.Count >= _status.CheckedTargetCount)
+                return define + " off";
+
+            return define + " partial";
+        }
+
+        private static string FormatTargetList(List<string> targets)
+        {
+            const int maxVisibleTargets = 4;
+            if (targets.Count <= maxVisibleTargets)
+                return string.Join(", ", targets.ToArray());
+
+            return string.Join(", ", targets.Take(maxVisibleTargets).ToArray()) + " +" + (targets.Count - maxVisibleTargets);
         }
 
         private void ApplyRecommendedDependencies()
@@ -346,7 +451,7 @@ namespace CoCoFlow.Editor.Core
             if (uniTaskInstallSucceeded || IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask"))
                 defines.Add(UniTaskDefine);
 
-            if (IsDotweenInstalled())
+            if (IsDotweenModuleInstalled())
             {
                 defines.Add(DotweenDefine);
                 defines.Add(UniTaskDotweenDefine);
@@ -369,11 +474,8 @@ namespace CoCoFlow.Editor.Core
             var changedTargets = new List<string>();
             var skippedTargets = new List<string>();
 
-            foreach (BuildTargetGroup group in Enum.GetValues(typeof(BuildTargetGroup)))
+            foreach (BuildTargetGroup group in GetCheckedBuildTargetGroups())
             {
-                if (group == BuildTargetGroup.Unknown)
-                    continue;
-
                 try
                 {
                     var namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
@@ -393,12 +495,12 @@ namespace CoCoFlow.Editor.Core
             }
 
             if (changedTargets.Count > 0)
-                AddLog("Added support defines to: " + string.Join(", ", changedTargets.ToArray()));
+                AddLog("Added support defines to " + changedTargets.Count + " target group(s): " + FormatTargetList(changedTargets) + ".");
             else
                 AddLog("Support defines were already configured for checked build targets.");
 
             if (skippedTargets.Count > 0)
-                AddLog("Skipped unsupported build targets: " + string.Join(", ", skippedTargets.ToArray()));
+                AddLog("Skipped " + skippedTargets.Count + " unsupported target group(s): " + FormatTargetList(skippedTargets) + ".");
         }
 
         private void InstallAddon(AddonDefinition addon, AddonInstallMode mode)
@@ -561,14 +663,23 @@ namespace CoCoFlow.Editor.Core
             status.CinemachineInstalled = IsAssemblyInstalled(CinemachineAssemblyName) || IsTypeAvailable("Unity.Cinemachine.CinemachineCamera, Unity.Cinemachine");
             status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
             status.DotweenInstalled = IsDotweenInstalled();
+            status.DotweenModulesInstalled = IsDotweenModuleInstalled();
             status.FusionInstalled = IsFusionInstalled();
-            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, FusionDefine, UniTaskDotweenDefine });
+            var checkedTargets = GetCheckedBuildTargetGroups();
+            status.CheckedTargetCount = checkedTargets.Count;
+            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, FusionDefine, UniTaskDotweenDefine }, checkedTargets);
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
+            status.AssemblyStates["UniTask.Addressables"] = IsAssemblyInstalled("UniTask.Addressables");
+            status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
             status.AssemblyStates[CinemachineAssemblyName] = status.CinemachineInstalled;
             status.AssemblyStates[SplinesAssemblyName] = status.SplinesInstalled;
+            status.AssemblyStates["Unity.Addressables"] = IsAssemblyInstalled("Unity.Addressables");
+            status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
+            status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
+            status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
             status.AssemblyStates["DOTween"] = status.DotweenInstalled;
-            status.AssemblyStates["DOTween.Modules"] = IsAssemblyInstalled("DOTween.Modules");
+            status.AssemblyStates["DOTween.Modules"] = status.DotweenModulesInstalled;
             status.AssemblyStates["Fusion.Unity"] = status.FusionInstalled;
 
             status.UpdateMessages();
@@ -604,6 +715,11 @@ namespace CoCoFlow.Editor.Core
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
         }
 
+        private static bool IsDotweenModuleInstalled()
+        {
+            return IsAssemblyInstalled("DOTween.Modules");
+        }
+
         private static bool IsFusionInstalled()
         {
             return IsAssemblyInstalled("Fusion.Unity") ||
@@ -626,17 +742,14 @@ namespace CoCoFlow.Editor.Core
             return Type.GetType(assemblyQualifiedTypeName, false) != null;
         }
 
-        private static Dictionary<string, List<string>> GetMissingDefineTargets(string[] requiredDefines)
+        private static Dictionary<string, List<string>> GetMissingDefineTargets(string[] requiredDefines, List<BuildTargetGroup> checkedTargets)
         {
             var result = new Dictionary<string, List<string>>();
             foreach (var define in requiredDefines)
                 result[define] = new List<string>();
 
-            foreach (BuildTargetGroup group in Enum.GetValues(typeof(BuildTargetGroup)))
+            foreach (var group in checkedTargets)
             {
-                if (group == BuildTargetGroup.Unknown)
-                    continue;
-
                 try
                 {
                     var namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
@@ -646,6 +759,30 @@ namespace CoCoFlow.Editor.Core
                         if (!current.Contains(define))
                             result[define].Add(group.ToString());
                     }
+                }
+                catch
+                {
+                    // Some enum values are unavailable when the platform module is not installed.
+                }
+            }
+
+            return result;
+        }
+
+        private static List<BuildTargetGroup> GetCheckedBuildTargetGroups()
+        {
+            var result = new List<BuildTargetGroup>();
+
+            foreach (BuildTargetGroup group in Enum.GetValues(typeof(BuildTargetGroup)))
+            {
+                if (group == BuildTargetGroup.Unknown)
+                    continue;
+
+                try
+                {
+                    var namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
+                    PlayerSettings.GetScriptingDefineSymbols(namedTarget);
+                    result.Add(group);
                 }
                 catch
                 {
@@ -807,6 +944,26 @@ namespace CoCoFlow.Editor.Core
             public string[] RequiredAssemblies { get; }
         }
 
+        private sealed class ModuleDefinition
+        {
+            public ModuleDefinition(
+                string displayName,
+                string[] requiredSupportDefines,
+                string[] requiredAssemblies,
+                string description)
+            {
+                DisplayName = displayName;
+                RequiredSupportDefines = requiredSupportDefines;
+                RequiredAssemblies = requiredAssemblies;
+                Description = description;
+            }
+
+            public string DisplayName { get; }
+            public string[] RequiredSupportDefines { get; }
+            public string[] RequiredAssemblies { get; }
+            public string Description { get; }
+        }
+
         private sealed class InstallSource
         {
             public InstallSource(string networkRoot, string readmePath, string description)
@@ -831,11 +988,14 @@ namespace CoCoFlow.Editor.Core
             public bool CinemachineInstalled { get; set; }
             public bool SplinesInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
+            public bool DotweenModulesInstalled { get; set; }
             public bool FusionInstalled { get; set; }
             public string UniTaskMessage { get; private set; }
             public string NewtonsoftMessage { get; private set; }
+            public string DotweenMessage { get; private set; }
             public MessageType UniTaskState { get; private set; }
             public MessageType NewtonsoftState { get; private set; }
+            public int CheckedTargetCount { get; set; }
             public Dictionary<string, List<string>> MissingDefineTargets { get; set; } = new Dictionary<string, List<string>>();
             public Dictionary<string, bool> AssemblyStates { get; } = new Dictionary<string, bool>();
 
@@ -855,6 +1015,7 @@ namespace CoCoFlow.Editor.Core
                 {
                     UniTaskMessage = "Manifest error: " + ManifestError;
                     NewtonsoftMessage = "Manifest error: " + ManifestError;
+                    DotweenMessage = "Manifest error: " + ManifestError;
                     UniTaskState = MessageType.Error;
                     NewtonsoftState = MessageType.Error;
                     return;
@@ -890,6 +1051,19 @@ namespace CoCoFlow.Editor.Core
                 {
                     NewtonsoftMessage = "Version " + NewtonsoftDependency + " satisfies " + NewtonsoftMinimumVersion + ".";
                     NewtonsoftState = MessageType.Info;
+                }
+
+                if (DotweenModulesInstalled)
+                {
+                    DotweenMessage = "Detected with DOTween.Modules.";
+                }
+                else if (DotweenInstalled)
+                {
+                    DotweenMessage = "DOTween detected, but DOTween.Modules is missing.";
+                }
+                else
+                {
+                    DotweenMessage = "Missing. Install DOTween manually.";
                 }
             }
         }

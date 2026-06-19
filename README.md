@@ -2,14 +2,14 @@
 
 模块化 Unity 游戏开发框架。
 
-> **版本**: 0.3.2 · **Unity**: 6000+
+> **版本**: 0.3.3 · **Unity**: 6000+
 
 ---
 
 ## 架构拓扑
 
 ```
-CoCoFlow v0.3.2
+CoCoFlow v0.3.3
 │
 ├── CoCoFlow.Runtime (运行时)
 │   ├── ◆ Core (核心层)
@@ -96,6 +96,10 @@ Samples~
 ## 快速开始
 
 请参照：https://cypress-abrosaurus-007.notion.site/CoCoFlow-Guideline-35a9a23f605d80668f5cf0c232389ba4
+
+## 架构文档
+
+- [Context / Network Boundary](Docs/ContextNetworkBoundary.md) — Context、Intent、StateMachine、EventEnvelope、Persistence ID 与网络 adapter 边界。
 
 ---
 

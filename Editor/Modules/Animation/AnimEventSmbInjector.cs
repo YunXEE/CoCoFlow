@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEditor.Animations;
 using CoCoFlow.Runtime.Modules.Animation;
 
-namespace CoCoFlow.Editor.AssetPipeline
+namespace CoCoFlow.Editor.Modules.Animation
 {
     public class AnimEventSmbInjector : EditorWindow
     {

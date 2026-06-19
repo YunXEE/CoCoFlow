@@ -1,16 +1,14 @@
 {
-    "name": "CoCoFlow.Runtime.Modules.Persistence",
-    "rootNamespace": "CoCoFlow.Runtime.Modules.Persistence",
+    "name": "CoCoFlow.Runtime.Gameplay.Item",
+    "rootNamespace": "CoCoFlow.Runtime.Gameplay.Item",
     "references": [
         "CoCoFlow.Runtime.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": true,
-    "precompiledReferences": [
-        "Newtonsoft.Json.dll"
-    ],
+    "overrideReferences": false,
+    "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],

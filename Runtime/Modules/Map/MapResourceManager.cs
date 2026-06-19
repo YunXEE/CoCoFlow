@@ -1,13 +1,17 @@
 ﻿using UnityEngine;
 using UnityEngine.ResourceManagement.ResourceProviders;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.AddressableAssets;
 using UnityEngine.SceneManagement;
 using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
+using System.Threading;
 using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Modules.Map
 {
+    #region Public API
+
     public struct MapChunkLoadEvent
     {
         public string ChunkAddress;
@@ -27,12 +31,22 @@ namespace CoCoFlow.Runtime.Modules.Map
         public string ChunkAddress;
     }
 
+    #endregion
+
     public class MapResourceManager : MonoBehaviour
     {
-        private readonly Dictionary<string, SceneInstance> _loadedChunks = new Dictionary<string, SceneInstance>();
+        private readonly HashSet<string> _desiredLoadedChunks = new HashSet<string>();
+        private readonly Dictionary<string, AsyncOperationHandle<SceneInstance>> _loadingChunks =
+            new Dictionary<string, AsyncOperationHandle<SceneInstance>>();
+        private readonly Dictionary<string, AsyncOperationHandle<SceneInstance>> _loadedChunks =
+            new Dictionary<string, AsyncOperationHandle<SceneInstance>>();
+        private readonly HashSet<string> _unloadingChunks = new HashSet<string>();
+        private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
 
         // 声明事件代理
         private readonly EventAgent _eventAgent = new EventAgent();
+
+        #region Internal Logic
 
         private void OnEnable()
         {
@@ -43,6 +57,14 @@ namespace CoCoFlow.Runtime.Modules.Map
         private void OnDisable()
         {
             _eventAgent.UnsubscribeAll();
+        }
+
+        private void OnDestroy()
+        {
+            _eventAgent.UnsubscribeAll();
+            _destroyCts.Cancel();
+            UnloadAllTrackedChunks();
+            _destroyCts.Dispose();
         }
 
         private void OnLoadChunkReceived(ref MapChunkLoadEvent evt)
@@ -57,10 +79,52 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private async UniTask LoadChunkAsync(string chunkAddress)
         {
-            if (_loadedChunks.ContainsKey(chunkAddress)) return;
+            if (string.IsNullOrWhiteSpace(chunkAddress)) return;
 
-            var sceneInstance = await Addressables.LoadSceneAsync(chunkAddress, LoadSceneMode.Additive).ToUniTask();
-            _loadedChunks.Add(chunkAddress, sceneInstance);
+            _desiredLoadedChunks.Add(chunkAddress);
+            if (_loadedChunks.ContainsKey(chunkAddress) ||
+                _loadingChunks.ContainsKey(chunkAddress) ||
+                _unloadingChunks.Contains(chunkAddress))
+            {
+                return;
+            }
+
+            var handle = Addressables.LoadSceneAsync(chunkAddress, LoadSceneMode.Additive);
+            _loadingChunks[chunkAddress] = handle;
+
+            try
+            {
+                await handle.ToUniTask(cancellationToken: _destroyCts.Token);
+            }
+            catch (System.OperationCanceledException)
+            {
+                if (handle.IsValid())
+                {
+                    _ = Addressables.UnloadSceneAsync(handle);
+                }
+                return;
+            }
+            catch (System.Exception ex)
+            {
+                CoCoLog.Error($"[MapResourceManager] 加载地图区块 {chunkAddress} 失败: {ex}");
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
+                return;
+            }
+            finally
+            {
+                _loadingChunks.Remove(chunkAddress);
+            }
+
+            if (_destroyCts.IsCancellationRequested || !_desiredLoadedChunks.Contains(chunkAddress))
+            {
+                await UnloadSceneHandleAsync(chunkAddress, handle);
+                return;
+            }
+
+            _loadedChunks[chunkAddress] = handle;
 
             var loadedEvent = new MapChunkLoadedEvent { ChunkAddress = chunkAddress };
             CoCoEventBus.Publish(ref loadedEvent);
@@ -68,11 +132,71 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private async UniTask UnloadChunkAsync(string chunkAddress)
         {
-            if (_loadedChunks.TryGetValue(chunkAddress, out var instance))
+            if (string.IsNullOrWhiteSpace(chunkAddress)) return;
+
+            _desiredLoadedChunks.Remove(chunkAddress);
+            if (_loadingChunks.ContainsKey(chunkAddress) || _unloadingChunks.Contains(chunkAddress))
             {
-                await Addressables.UnloadSceneAsync(instance).ToUniTask();
+                return;
+            }
+
+            if (_loadedChunks.TryGetValue(chunkAddress, out var handle))
+            {
                 _loadedChunks.Remove(chunkAddress);
+                await UnloadSceneHandleAsync(chunkAddress, handle);
             }
         }
+
+        private async UniTask UnloadSceneHandleAsync(string chunkAddress, AsyncOperationHandle<SceneInstance> handle)
+        {
+            if (!handle.IsValid()) return;
+
+            _unloadingChunks.Add(chunkAddress);
+
+            try
+            {
+                await Addressables.UnloadSceneAsync(handle).ToUniTask();
+            }
+            catch (System.Exception ex)
+            {
+                CoCoLog.Error($"[MapResourceManager] 卸载地图区块 {chunkAddress} 失败: {ex}");
+            }
+            finally
+            {
+                _unloadingChunks.Remove(chunkAddress);
+            }
+
+            if (!_destroyCts.IsCancellationRequested && _desiredLoadedChunks.Contains(chunkAddress))
+            {
+                LoadChunkAsync(chunkAddress).Forget();
+            }
+        }
+
+        private void UnloadAllTrackedChunks()
+        {
+            _desiredLoadedChunks.Clear();
+
+            foreach (var handle in _loadingChunks.Values)
+            {
+                if (handle.IsValid())
+                {
+                    _ = Addressables.UnloadSceneAsync(handle);
+                }
+            }
+
+            foreach (var handle in _loadedChunks.Values)
+            {
+                if (handle.IsValid())
+                {
+                    _ = Addressables.UnloadSceneAsync(handle);
+                }
+            }
+
+            _loadingChunks.Clear();
+            _loadedChunks.Clear();
+            _unloadingChunks.Clear();
+        }
+
+        #endregion
     }
 }

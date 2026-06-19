@@ -1,3 +1,4 @@
+using System;
 using Fusion;
 using UnityEngine;
 using CoCoFlow.Runtime.Core;
@@ -18,8 +19,29 @@ namespace CoCoFlow.Runtime.Addon.Network.Input
 
         private IInputStateProvider _localInput;
         private IInputEventSource _inputEvents;
+        private IDisposable _inputEventsWait;
         private NetPlayerInput _accumulatedInput;
         private Camera _cachedMainCamera;
+
+        #region Public API
+
+        /// <summary>
+        /// 原子地返回并清空累积的输入，由 NetManager.OnInput 调用。
+        /// </summary>
+        public NetPlayerInput ConsumeAndReset()
+        {
+            var input = _accumulatedInput;
+            _accumulatedInput = default;
+            return input;
+        }
+
+        public Vector2 MoveInput => _localInput?.MoveInput ?? Vector2.zero;
+        public Vector2 LookInput => _localInput?.LookInput ?? Vector2.zero;
+        public Vector2 ZoomInput => _localInput?.ZoomInput ?? Vector2.zero;
+
+        #endregion
+
+        #region Internal Logic
 
         private void Awake()
         {
@@ -28,7 +50,7 @@ namespace CoCoFlow.Runtime.Addon.Network.Input
             if (CoCoServices.TryGet<IInputStateProvider>(out var input) && !ReferenceEquals(input, this))
                 _localInput = input;
 
-            CoCoServices.WaitFor<IInputEventSource>(svc =>
+            _inputEventsWait = CoCoServices.WaitFor<IInputEventSource>(svc =>
             {
                 _inputEvents = svc;
                 _inputEvents.OnActionPerformed += HandleAction;
@@ -45,6 +67,8 @@ namespace CoCoFlow.Runtime.Addon.Network.Input
 
         private void OnDestroy()
         {
+            _inputEventsWait?.Dispose();
+
             // 清理事件订阅，避免 EventSource 持有已销毁对象的引用
             if (_inputEvents != null)
             {
@@ -80,26 +104,6 @@ namespace CoCoFlow.Runtime.Addon.Network.Input
                 _accumulatedInput.LookDirection += _localInput.LookInput;
             }
         }
-
-        #region Public API
-
-        /// <summary>
-        /// 原子地返回并清空累积的输入，由 NetManager.OnInput 调用。
-        /// </summary>
-        public NetPlayerInput ConsumeAndReset()
-        {
-            var input = _accumulatedInput;
-            _accumulatedInput = default;
-            return input;
-        }
-
-        public Vector2 MoveInput => _localInput?.MoveInput ?? Vector2.zero;
-        public Vector2 LookInput => _localInput?.LookInput ?? Vector2.zero;
-        public Vector2 ZoomInput => _localInput?.ZoomInput ?? Vector2.zero;
-
-        #endregion
-
-        #region Internal Logic
 
         private void RegisterAsInputProvider()
         {

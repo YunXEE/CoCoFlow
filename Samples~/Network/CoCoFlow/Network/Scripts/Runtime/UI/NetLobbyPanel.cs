@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -24,18 +25,22 @@ namespace CoCoFlow.Runtime.Addon.Network.UI
         private readonly EventAgent _eventAgent = new EventAgent();
         private INetworkSessionController _sessionController;
         private INetworkRunnerProvider _runnerProvider;
+        private IDisposable _sessionControllerWait;
+        private IDisposable _runnerProviderWait;
         private int _playerCount;
+
+        #region Internal Logic
 
         protected override void Awake()
         {
             base.Awake();
             BindButtonEvents();
-            CoCoServices.WaitFor<INetworkSessionController>(ctrl =>
+            _sessionControllerWait = CoCoServices.WaitFor<INetworkSessionController>(ctrl =>
             {
                 _sessionController = ctrl;
                 RefreshControls();
             });
-            CoCoServices.WaitFor<INetworkRunnerProvider>(provider =>
+            _runnerProviderWait = CoCoServices.WaitFor<INetworkRunnerProvider>(provider =>
             {
                 _runnerProvider = provider;
                 RefreshControls();
@@ -66,11 +71,12 @@ namespace CoCoFlow.Runtime.Addon.Network.UI
 
         protected override void OnDestroy()
         {
+            _sessionControllerWait?.Dispose();
+            _runnerProviderWait?.Dispose();
             _eventAgent.UnsubscribeAll();
             base.OnDestroy();
         }
 
-        #region Internal Logic
         private void BindButtonEvents()
         {
             if (_hostButton != null)

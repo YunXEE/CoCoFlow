@@ -3,16 +3,8 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
-    #region Public Types
-
-    /// <summary>
-    /// 事件回调委托。使用 ref 传递结构体避免装箱，零 GC。
-    /// </summary>
     public delegate void EventCallback<T>(ref T eventData);
 
-    /// <summary>
-    /// 可取消事件接口。实现此接口的事件可在广播链中被中途拦截。
-    /// </summary>
     public interface ICancellableEvent
     {
         bool IsCancelled { get; set; }
@@ -23,9 +15,49 @@ namespace CoCoFlow.Runtime.Core
         void OnEvent(ref T eventData);
     }
 
-    /// <summary>
-    /// 事件代理器 — 将多个订阅绑定到同一生命周期，OnDestroy 时一键退订。
-    /// </summary>
+    [Serializable]
+    public struct CoCoEventEnvelope
+    {
+        public string eventTypeId;
+        public string sourceEntityId;
+        public string targetEntityId;
+        public int sequence;
+        public int tick;
+        public bool reliable;
+        public string payloadTypeId;
+        public string payload;
+
+        public bool IsValid => !string.IsNullOrEmpty(eventTypeId) &&
+                               !string.IsNullOrEmpty(sourceEntityId) &&
+                               sequence > 0;
+
+        public bool HasTarget => !string.IsNullOrEmpty(targetEntityId);
+        public bool HasPayload => !string.IsNullOrEmpty(payload);
+
+        public static CoCoEventEnvelope Create(
+            string eventTypeId,
+            string sourceEntityId,
+            int sequence,
+            int tick,
+            bool reliable,
+            string targetEntityId = "",
+            string payloadTypeId = "",
+            string payload = "")
+        {
+            return new CoCoEventEnvelope
+            {
+                eventTypeId = eventTypeId,
+                sourceEntityId = sourceEntityId,
+                targetEntityId = targetEntityId,
+                sequence = sequence,
+                tick = tick,
+                reliable = reliable,
+                payloadTypeId = payloadTypeId,
+                payload = payload
+            };
+        }
+    }
+
     public class EventAgent
     {
         private interface IAgentWrapper
@@ -80,36 +112,10 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    #endregion
-
-    /// <summary>
-    /// 非线程安全。严禁在多线程或 Unity Job System 中调用。
-    /// </summary>
+    // Non-thread-safe. Do not call from jobs or background threads.
     public static class CoCoEventBus
     {
-        // 每个 T 拥有一份独立的订阅者列表（泛型静态类天然隔离）
-        private static class EventContext<T>
-        {
-            public struct SubNode
-            {
-                public int Priority;
-                // 弱引用：防止监听器被 EventBus 拽住无法 GC
-                public WeakReference<IEventListener<T>> ListenerRef;
-                // 广播期间无法安全移除列表元素，先标记，Flush 时统一清理
-                public bool IsPendingRemove;
-            }
-
-            public static readonly List<SubNode> Subscribers = new List<SubNode>();
-            // 广播期间的新增订阅暂存于此，等广播结束后再合入主列表
-            public static readonly List<SubNode> PendingAdds = new List<SubNode>();
-
-            // int 而非 bool：支持嵌套 Publish（一个事件回调里再发另一个事件）
-            public static int BroadcastDepth;
-            public static bool IsBroadcasting => BroadcastDepth > 0;
-            public static bool NeedsCleanup;
-        }
-
-        #region Public API - Subscribe
+        #region Public API
 
         public static void Subscribe<T>(IEventListener<T> listener, int priority = 0)
         {
@@ -164,10 +170,6 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        #endregion
-
-        #region Public API - Publish
-
         /// <summary>
         /// 发布普通事件
         /// </summary>
@@ -186,8 +188,6 @@ namespace CoCoFlow.Runtime.Core
                     if (node.ListenerRef.TryGetTarget(out var listener))
                     {
                         #if UNITY_5_3_OR_NEWER
-                        // 已被 Destroy 的 Unity Object 会通过重载的 == null 返回 true，
-                        // 但弱引用仍持有目标（C# 层未 GC），不做此检查会导致调用已销毁组件
                         if (listener is UnityEngine.Object unityObj && unityObj == null)
                         {
                             MarkNodeForRemoval(i, ref node);
@@ -220,6 +220,14 @@ namespace CoCoFlow.Runtime.Core
                     }
                 }
             }
+        }
+
+        public static void PublishWithEnvelope<T>(
+            ref T eventData,
+            ref CoCoEventEnvelope envelope)
+        {
+            Publish(ref eventData);
+            Publish(ref envelope);
         }
 
         /// <summary>
@@ -255,7 +263,6 @@ namespace CoCoFlow.Runtime.Core
                             CoCoLog.Error($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
                         }
 
-                        // 接口方法调用无装箱开销；与 Publish 不同，这里需要提前退出
                         if (eventData.IsCancelled)
                         {
                             break;
@@ -291,7 +298,24 @@ namespace CoCoFlow.Runtime.Core
 
         #endregion
 
-        #region Inner Logic
+        #region Internal Logic
+
+        private static class EventContext<T>
+        {
+            public struct SubNode
+            {
+                public int Priority;
+                public WeakReference<IEventListener<T>> ListenerRef;
+                public bool IsPendingRemove;
+            }
+
+            public static readonly List<SubNode> Subscribers = new List<SubNode>();
+            public static readonly List<SubNode> PendingAdds = new List<SubNode>();
+
+            public static int BroadcastDepth;
+            public static bool IsBroadcasting => BroadcastDepth > 0;
+            public static bool NeedsCleanup;
+        }
 
         private static void MarkNodeForRemoval<T>(int index, ref EventContext<T>.SubNode node)
         {
@@ -300,7 +324,6 @@ namespace CoCoFlow.Runtime.Core
             EventContext<T>.NeedsCleanup = true;
         }
 
-        // 优先级升序插入：Priority 值越小越靠前（0 比 10 先执行）
         private static void InsertIntoSubscribers<T>(EventContext<T>.SubNode newNode)
         {
             var list = EventContext<T>.Subscribers;
@@ -313,7 +336,6 @@ namespace CoCoFlow.Runtime.Core
             list.Insert(insertIndex, newNode);
         }
 
-        // 倒序移除：正序 RemoveAt 会导致后续元素索引前移，倒序则不受影响
         private static void Flush<T>()
         {
             var list = EventContext<T>.Subscribers;

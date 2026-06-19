@@ -18,77 +18,18 @@ namespace CoCoFlow.Runtime.Core
         [Tooltip("预注册的状态列表。若为空，则会自动获取子物体下的所有状态组件")]
         [SerializeField] private List<CoCoStateMachineBase> availableStates = new List<CoCoStateMachineBase>();
 
+        [Header("Context (Optional)")]
+        [Tooltip("可选 Context Provider。若为空，会在当前 GameObject 上自动查找匹配的 Provider。")]
+        [SerializeField] private MonoBehaviour contextProvider;
+
         private readonly Dictionary<Type, CoCoStateMachineBase> _states = new Dictionary<Type, CoCoStateMachineBase>();
-
-        /// <summary>
-        /// 当前激活的状态实例。
-        /// </summary>
-        public CoCoStateMachineBase CurrentCoCoState { get; private set; }
-
-        /// <summary>
-        /// 当前激活的状态类型。
-        /// </summary>
-        public Type CurrentStateType { get; private set; }
-
-        private void Awake()
-        {
-            // 初始化状态机，优先使用手动指定的列表，否则自动扫描子物体
-            if (availableStates.Count > 0)
-            {
-                foreach (var state in availableStates)
-                {
-                    if (state == null) continue;
-                    RegisterState(state);
-                }
-            }
-            else
-            {
-                var attachedStates = GetComponentsInChildren<CoCoStateMachineBase>(true);
-                foreach (var state in attachedStates)
-                {
-                    if (state == null) continue;
-
-                    // 核心过滤逻辑：只注册“直属”于此控制器的状态。
-                    // 注意：如果状态物体上挂载了另一个控制器，那么该状态属于父级控制器，而该控制器是它的子状态机。
-                    var nearestController = state.GetComponentInParent<CoCoStateMachineController>(true);
-                    if (nearestController != null && nearestController.gameObject == state.gameObject && nearestController != this)
-                    {
-                        nearestController = state.transform.parent != null
-                            ? state.transform.parent.GetComponentInParent<CoCoStateMachineController>(true)
-                            : null;
-                    }
-
-                    if (nearestController == this)
-                    {
-                        RegisterState(state);
-                    }
-                }
-            }
-        }
-
-        private void Start()
-        {
-            if (autoUpdate)
-            {
-                EnterStateMachine();
-                if (defaultCoCoState == null)
-                {
-                    CoCoLog.Error($"致命错误：{gameObject.name} 未挂载/指定初始状态组件！");
-                }
-            }
-        }
-
-        private void Update()
-        {
-            if (autoUpdate) UpdateStateMachine();
-        }
-
-        private void FixedUpdate()
-        {
-            if (autoUpdate) FixedUpdateStateMachine();
-        }
+        private ICoCoContext _context;
 
         #region Public API
+
+        public CoCoStateMachineBase CurrentCoCoState { get; private set; }
+        public Type CurrentStateType { get; private set; }
+        public ICoCoContext Context => ResolveContext();
 
         /// <summary>
         /// 切换到指定类型的状态。状态必须已在 _states 中注册。
@@ -106,15 +47,27 @@ namespace CoCoFlow.Runtime.Core
             return _states.ContainsKey(typeof(T));
         }
 
-        #endregion
-
-        #region Lifecycle Control
+        public void SetContextProvider(MonoBehaviour provider)
+        {
+            contextProvider = provider;
+            _context = null;
+            ResolveContext();
+        }
 
         /// <summary>
         /// 进入状态机，启动默认状态。
         /// </summary>
         public void EnterStateMachine()
         {
+            BeforeStateMachineTick(Context);
+
+            var nextStateType = EvaluateStateType(Context);
+            if (nextStateType != null)
+            {
+                ChangeState(nextStateType);
+                return;
+            }
+
             if (defaultCoCoState != null)
             {
                 ChangeState(defaultCoCoState.GetType());
@@ -126,7 +79,11 @@ namespace CoCoFlow.Runtime.Core
         /// </summary>
         public void ExitStateMachine()
         {
-            CurrentCoCoState?.Exit();
+            if (CurrentCoCoState != null)
+            {
+                InvokeStateExit(CurrentCoCoState);
+            }
+
             CurrentCoCoState = null;
             CurrentStateType = null;
         }
@@ -136,7 +93,13 @@ namespace CoCoFlow.Runtime.Core
         /// </summary>
         public void UpdateStateMachine()
         {
-            CurrentCoCoState?.OnStateUpdate();
+            BeforeStateMachineTick(Context);
+            TryApplyEvaluatedTransition();
+
+            if (CurrentCoCoState != null)
+            {
+                InvokeStateUpdate(CurrentCoCoState);
+            }
         }
 
         /// <summary>
@@ -144,12 +107,113 @@ namespace CoCoFlow.Runtime.Core
         /// </summary>
         public void FixedUpdateStateMachine()
         {
-            CurrentCoCoState?.OnStateFixedUpdate();
+            BeforeStateMachineTick(Context);
+            TryApplyEvaluatedTransition();
+
+            if (CurrentCoCoState != null)
+            {
+                InvokeStateFixedUpdate(CurrentCoCoState);
+            }
+        }
+
+        #endregion
+
+        #region Unity Lifecycle
+
+        protected virtual void Awake()
+        {
+            ResolveContext();
+
+            if (availableStates.Count > 0)
+            {
+                foreach (var state in availableStates)
+                {
+                    if (state == null) continue;
+                    RegisterState(state);
+                }
+            }
+            else
+            {
+                var attachedStates = GetComponentsInChildren<CoCoStateMachineBase>(true);
+                foreach (var state in attachedStates)
+                {
+                    if (state == null) continue;
+
+                    var nearestController = state.GetComponentInParent<CoCoStateMachineController>(true);
+                    if (nearestController != null && nearestController.gameObject == state.gameObject && nearestController != this)
+                    {
+                        nearestController = state.transform.parent != null
+                            ? state.transform.parent.GetComponentInParent<CoCoStateMachineController>(true)
+                            : null;
+                    }
+
+                    if (nearestController == this)
+                    {
+                        RegisterState(state);
+                    }
+                }
+            }
+        }
+
+        protected virtual void Start()
+        {
+            if (autoUpdate)
+            {
+                EnterStateMachine();
+                if (defaultCoCoState == null && CurrentCoCoState == null)
+                {
+                    CoCoLog.Error($"致命错误：{gameObject.name} 未挂载/指定初始状态组件！");
+                }
+            }
+        }
+
+        protected virtual void Update()
+        {
+            if (autoUpdate) UpdateStateMachine();
+        }
+
+        protected virtual void FixedUpdate()
+        {
+            if (autoUpdate) FixedUpdateStateMachine();
+        }
+
+        #endregion
+
+        #region Protected API
+
+        // Override this to refresh Context from input, AI, timeline, or network before transition evaluation.
+        protected virtual void BeforeStateMachineTick(ICoCoContext context) { }
+
+        // Return null to keep the current state.
+        protected virtual Type EvaluateStateType(ICoCoContext context)
+        {
+            return null;
         }
 
         #endregion
 
         #region Internal Logic
+
+        private void ChangeState(Type newStateType)
+        {
+            if (CurrentStateType == newStateType) return;
+
+            if (_states.TryGetValue(newStateType, out var newState))
+            {
+                if (CurrentCoCoState != null)
+                {
+                    InvokeStateExit(CurrentCoCoState);
+                }
+
+                CurrentCoCoState = newState;
+                CurrentStateType = newStateType;
+                InvokeStateEnter(CurrentCoCoState);
+            }
+            else
+            {
+                CoCoLog.Warning($"{gameObject.name} 尝试切换到未注册的状态: {newStateType.Name}。已忽略。");
+            }
+        }
 
         /// <summary>
         /// 注册状态实例到状态机字典中。
@@ -168,24 +232,81 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>
-        /// 内部执行状态切换的具体逻辑。
-        /// </summary>
-        private void ChangeState(Type newStateType)
+        private void TryApplyEvaluatedTransition()
         {
-            if (CurrentStateType == newStateType) return;
+            var nextStateType = EvaluateStateType(Context);
+            if (nextStateType != null && nextStateType != CurrentStateType)
+            {
+                ChangeState(nextStateType);
+            }
+        }
 
-            if (_states.TryGetValue(newStateType, out var newState))
+        private void InvokeStateEnter(CoCoStateMachineBase state)
+        {
+            var context = Context;
+            if (context != null) state.Enter(context);
+            else state.Enter();
+        }
+
+        private void InvokeStateUpdate(CoCoStateMachineBase state)
+        {
+            var context = Context;
+            if (context != null) state.OnStateUpdate(context);
+            else state.OnStateUpdate();
+        }
+
+        private void InvokeStateFixedUpdate(CoCoStateMachineBase state)
+        {
+            var context = Context;
+            if (context != null) state.OnStateFixedUpdate(context);
+            else state.OnStateFixedUpdate();
+        }
+
+        private void InvokeStateExit(CoCoStateMachineBase state)
+        {
+            var context = Context;
+            if (context != null) state.Exit(context);
+            else state.Exit();
+        }
+
+        private ICoCoContext ResolveContext()
+        {
+            if (_context != null) return _context;
+
+            if (TryGetContextFromProvider(contextProvider, out _context))
             {
-                CurrentCoCoState?.Exit();
-                CurrentCoCoState = newState;
-                CurrentStateType = newStateType;
-                CurrentCoCoState.Enter();
+                return _context;
             }
-            else
+
+            var behaviours = GetComponents<MonoBehaviour>();
+            foreach (var behaviour in behaviours)
             {
-                CoCoLog.Warning($"{gameObject.name} 尝试切换到未注册的状态: {newStateType.Name}。已忽略。");
+                if (ReferenceEquals(behaviour, this)) continue;
+                if (TryGetContextFromProvider(behaviour, out _context))
+                {
+                    if (contextProvider == null)
+                    {
+                        contextProvider = behaviour;
+                    }
+                    return _context;
+                }
             }
+
+            return null;
+        }
+
+        private static bool TryGetContextFromProvider(
+            object provider,
+            out ICoCoContext context)
+        {
+            if (provider is ICoCoContextProvider<ICoCoContext> typedProvider)
+            {
+                context = typedProvider.Context;
+                return context != null;
+            }
+
+            context = null;
+            return false;
         }
 
         #endregion

@@ -1,3 +1,4 @@
+using System;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using Unity.Cinemachine;
@@ -47,12 +48,15 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
         // 通过抽象访问输入
         private IInputStateProvider _input;
+        private IDisposable _inputWait;
 
         private float currentZoomLevel;
         private float zoomVelocity;
 
         private float lastManualInputTime;
         private float adjustVelocityY;
+
+        #region Internal Logic
 
         private void Awake()
         {
@@ -64,10 +68,15 @@ namespace CoCoFlow.Runtime.Modules.Camera
             }
 
             // 异步获取，兼容 InputReader 在场景里晚于本组件加载的情况
-            CoCoServices.WaitFor<IInputStateProvider>(svc => _input = svc);
+            _inputWait = CoCoServices.WaitFor<IInputStateProvider>(svc => _input = svc);
 
             InitializeZoomData();
             lastManualInputTime = Time.time;
+        }
+
+        private void OnDestroy()
+        {
+            _inputWait?.Dispose();
         }
 
         private void InitializeZoomData()
@@ -151,5 +160,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
                 zoomSmoothTime
             );
         }
+
+        #endregion
     }
 }

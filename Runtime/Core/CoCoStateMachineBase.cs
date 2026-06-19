@@ -3,9 +3,9 @@ using UnityEngine.Serialization;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public abstract class CoCoStateMachineBase: MonoBehaviour
+    public abstract class CoCoStateMachineBase : MonoBehaviour
     {
-        // 依赖注入，由 Controller 在 Init 时赋值
+        // Controller injects this during registration.
         protected CoCoStateMachineController Controller;
 
         [FormerlySerializedAs("ubStateMachine")]
@@ -14,12 +14,9 @@ namespace CoCoFlow.Runtime.Core
         [Tooltip("该状态所属的子状态机。若赋值，进入该状态时将同步进入子状态机。")]
         [SerializeField] protected CoCoStateMachineController subStateMachine;
 
-        /// <summary>
-        /// 当前状态是否已完成逻辑，可供外部或 Controller 判断是否需要切换状态。
-        /// </summary>
-        public bool IsFinished { get; protected set; }
-
         #region Public API
+
+        public bool IsFinished { get; protected set; }
 
         /// <summary>
         /// 初始化状态，绑定所属控制器。
@@ -41,6 +38,11 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        public virtual void Enter(ICoCoContext context)
+        {
+            Enter();
+        }
+
         /// <summary>
         /// 每帧更新逻辑，由 Controller.Update 调用。
         /// </summary>
@@ -50,6 +52,11 @@ namespace CoCoFlow.Runtime.Core
             {
                 subStateMachine.UpdateStateMachine();
             }
+        }
+
+        public virtual void OnStateUpdate(ICoCoContext context)
+        {
+            OnStateUpdate();
         }
 
         /// <summary>
@@ -63,6 +70,11 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        public virtual void OnStateFixedUpdate(ICoCoContext context)
+        {
+            OnStateFixedUpdate();
+        }
+
         /// <summary>
         /// 退出状态时的逻辑。
         /// </summary>
@@ -72,6 +84,11 @@ namespace CoCoFlow.Runtime.Core
             {
                 subStateMachine.ExitStateMachine();
             }
+        }
+
+        public virtual void Exit(ICoCoContext context)
+        {
+            Exit();
         }
 
         #endregion

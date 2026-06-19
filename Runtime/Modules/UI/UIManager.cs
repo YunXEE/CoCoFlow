@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using Cysharp.Threading.Tasks;
 using CoCoFlow.Runtime.Core;
 
@@ -17,8 +20,6 @@ namespace CoCoFlow.Runtime.Modules.UI
 
     public class UIManager : MonoBehaviour
     {
-        public static UIManager Instance { get; private set; }
-
         [Header("Root Transforms")]
         [SerializeField] private Transform hudRoot;
         [SerializeField] private Transform panelRoot;
@@ -31,42 +32,23 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         private IInputEventSource _inputEvents;
         private IInputModeController _inputMode;
+        private IDisposable _inputEventsWait;
+        private IDisposable _inputModeWait;
 
-        private readonly Dictionary<string, GameObject> _prefabCache = new Dictionary<string, GameObject>();
+        private readonly Dictionary<string, AsyncOperationHandle<GameObject>> _prefabHandles =
+            new Dictionary<string, AsyncOperationHandle<GameObject>>();
         private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
+        private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
         private bool _isTransitioning;
+        private bool _isDestroyed;
 
         private int _pauseLockCount;
         private int _cursorLockCount;
 
-        private void Awake()
-        {
-            if (Instance == null)
-            {
-                Instance = this;
-            }
-            else
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            CoCoServices.WaitFor<IInputEventSource>(svc =>
-            {
-                _inputEvents = svc;
-                _inputEvents.OnActionPerformed += HandleUIInput;
-            });
-
-            CoCoServices.WaitFor<IInputModeController>(svc => _inputMode = svc);
-        }
-
-        private void OnDestroy()
-        {
-            if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
-            if (Instance == this) Instance = null;
-        }
-
         #region Public API
+
+        public static UIManager Instance { get; private set; }
+
         public void OpenPanel(string address) => PushPanelAsync(address).Forget();
         public void CloseCurrentPanel() => PopPanelAsync().Forget();
         public void CloseAllPanels() => PopAllPanelsAsync().Forget();
@@ -83,25 +65,80 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
         }
 
-
         #endregion
 
         #region Internal Logic
+
+        private void Awake()
+        {
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _inputEventsWait = CoCoServices.WaitFor<IInputEventSource>(svc =>
+            {
+                if (_isDestroyed) return;
+                _inputEvents = svc;
+                _inputEvents.OnActionPerformed += HandleUIInput;
+            });
+
+            _inputModeWait = CoCoServices.WaitFor<IInputModeController>(svc =>
+            {
+                if (!_isDestroyed) _inputMode = svc;
+            });
+        }
+
+        private void OnDestroy()
+        {
+            _isDestroyed = true;
+            _destroyCts.Cancel();
+            _inputEventsWait?.Dispose();
+            _inputModeWait?.Dispose();
+            if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
+            DestroyCachedPanels();
+            ReleasePrefabHandles();
+            _destroyCts.Dispose();
+            if (Instance == this) Instance = null;
+        }
+
         private async UniTask PushPanelAsync(string address)
         {
-            if (_isTransitioning) return;
+            if (_isTransitioning || _isDestroyed || string.IsNullOrWhiteSpace(address)) return;
             _isTransitioning = true;
 
             try
             {
-                if (!_prefabCache.TryGetValue(address, out GameObject prefab))
+                GameObject prefab;
+                try
                 {
-                    prefab = await Addressables.LoadAssetAsync<GameObject>(address).ToUniTask();
-                    _prefabCache.Add(address, prefab);
+                    prefab = await LoadPanelPrefabAsync(address);
                 }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    CoCoLog.Error($"[UIManager] 加载面板 {address} 失败: {ex}");
+                    return;
+                }
+
+                if (_isDestroyed || prefab == null) return;
 
                 // 从 prefab 读取 Layer 来确定目标根节点，避免 Instantiate 后再 SetParent
                 UIPanelBase prefabPanel = prefab.GetComponent<UIPanelBase>();
+                if (prefabPanel == null)
+                {
+                    CoCoLog.Error($"[UIManager] 面板 {address} 缺少 UIPanelBase 组件。");
+                    return;
+                }
+
                 Transform targetRoot = prefabPanel.Layer switch
                 {
                     UILayer.HUD => hudRoot,
@@ -127,7 +164,7 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
             finally
             {
-                _isTransitioning = false;
+                if (!_isDestroyed) _isTransitioning = false;
             }
         }
 
@@ -166,7 +203,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         private void HandleUIInput(string actionName)
         {
-            if (_isTransitioning) return;
+            if (_isTransitioning || _isDestroyed) return;
 
             if (actionName == pauseActionName && _panelStack.Count == 0)
             {
@@ -176,6 +213,73 @@ namespace CoCoFlow.Runtime.Modules.UI
             {
                 PopPanelAsync().Forget();
             }
+        }
+
+        private async UniTask<GameObject> LoadPanelPrefabAsync(string address)
+        {
+            if (_prefabHandles.TryGetValue(address, out var cachedHandle))
+            {
+                if (cachedHandle.IsValid())
+                {
+                    return cachedHandle.IsDone
+                        ? cachedHandle.Result
+                        : await cachedHandle.ToUniTask(cancellationToken: _destroyCts.Token);
+                }
+
+                _prefabHandles.Remove(address);
+            }
+
+            var handle = Addressables.LoadAssetAsync<GameObject>(address);
+            _prefabHandles[address] = handle;
+
+            try
+            {
+                return await handle.ToUniTask(cancellationToken: _destroyCts.Token);
+            }
+            catch
+            {
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
+
+                _prefabHandles.Remove(address);
+                throw;
+            }
+        }
+
+        private void DestroyCachedPanels()
+        {
+            while (_panelStack.Count > 0)
+            {
+                var panel = _panelStack.Pop();
+                if (panel == null) continue;
+
+                var panelObject = panel.gameObject;
+                if (panelObject == null) continue;
+
+                if (Application.isPlaying)
+                    Destroy(panelObject);
+                else
+                    DestroyImmediate(panelObject);
+            }
+
+            _pauseLockCount = 0;
+            _cursorLockCount = 0;
+            Time.timeScale = 1f;
+        }
+
+        private void ReleasePrefabHandles()
+        {
+            foreach (var handle in _prefabHandles.Values)
+            {
+                if (handle.IsValid())
+                {
+                    Addressables.Release(handle);
+                }
+            }
+
+            _prefabHandles.Clear();
         }
 
         private async UniTask PopAllPanelsAsync()

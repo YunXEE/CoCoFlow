@@ -15,7 +15,8 @@ namespace CoCoFlow.Runtime.Modules.Input
 
     [DefaultExecutionOrder(-100)] // 保证早于 Camera/UI 的 Awake 完成注册，确保依赖输入的组件能正确获取服务
     public class InputReader : MonoBehaviour,
-        IInputStateProvider, IInputEventSource, IInputModeController
+        IInputStateProvider, IInputEventSource, IInputModeController,
+        ICoCoIntentSource<CoCoInputIntent>
     {
         private struct BufferedInput
         {
@@ -34,8 +35,6 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
         }
 
-        // --- 序列化字段与生命周期 ---
-
         [Header("Input Configuration")]
         [Tooltip("Add Input Asset here")]
         public InputActionAsset inputAsset;
@@ -49,92 +48,23 @@ namespace CoCoFlow.Runtime.Modules.Input
         [SerializeField] private InputMapType defaultMapType = InputMapType.Player;
 
         private BufferedInput _currentBuffer;
-
-        // 实现 IInputStateProvider
-        public Vector2 MoveInput { get; private set; }
-        public Vector2 LookInput { get; private set; }
-        public Vector2 ZoomInput { get; private set; }
-
         private InputActionAsset _runtimeAsset;
         private InputActionMap _currentMap;
         private InputAction _moveAction;
         private InputAction _lookAction;
         private InputAction _zoomAction;
+        private readonly CoCoInputIntent _intent = new CoCoInputIntent();
 
-        // Events (实现 IInputEventSource)
+        #region Public API
+
+        public Vector2 MoveInput { get; private set; }
+        public Vector2 LookInput { get; private set; }
+        public Vector2 ZoomInput { get; private set; }
+
         public event Action<string> OnActionPerformed;
         public event Action<string> OnActionCanceled;
 
-        private void Awake()
-        {
-            if (inputAsset == null)
-            {
-                Debug.LogWarning("[InputReader] 无可用输入配置");
-                return;
-            }
-
-            // 实例化 Asset 避免修改原始资源
-            _runtimeAsset = Instantiate(inputAsset);
-
-            SwitchActionMap(defaultMapType);
-            _currentBuffer.Clear();
-
-            // 注册到 Core ServiceLocator —— 一次性把三个接口都登记
-            CoCoServices.Register<IInputStateProvider>(this);
-            CoCoServices.Register<IInputEventSource>(this);
-            CoCoServices.Register<IInputModeController>(this);
-        }
-
-        private void Update()
-        {
-            // 每帧轮询持续性输入（如摇杆/鼠标移动）
-            if (_moveAction != null) MoveInput = _moveAction.ReadValue<Vector2>();
-            if (_lookAction != null) LookInput = _lookAction.ReadValue<Vector2>();
-            if (_zoomAction != null) ZoomInput = _zoomAction.ReadValue<Vector2>();
-
-            // 检查缓冲区超时，自动清除过期输入
-            if (isUsingInputBuffering &&
-                !string.IsNullOrEmpty(_currentBuffer.ActionName) &&
-                !_currentBuffer.IsValid(Time.time, inputBufferTime))
-            {
-                _currentBuffer.Clear();
-            }
-        }
-
-        private void OnEnable() => _currentMap?.Enable();
-
-        private void OnDisable()
-        {
-            _currentMap?.Disable();
-            ClearBuffer();
-
-            MoveInput = Vector2.zero;
-            LookInput = Vector2.zero;
-            ZoomInput = Vector2.zero;
-        }
-
-        private void OnDestroy()
-        {
-            // 务必注销服务，防止 ServiceLocator 持有已销毁对象的引用
-            CoCoServices.Unregister<IInputStateProvider>(this);
-            CoCoServices.Unregister<IInputEventSource>(this);
-            CoCoServices.Unregister<IInputModeController>(this);
-
-            if (_currentMap != null)
-            {
-                UnbindCurrentMapActions();
-            }
-
-            if (_runtimeAsset != null)
-            {
-                Destroy(_runtimeAsset);
-            }
-        }
-
-        #region Public API
-        // ============================================================
-        //  IInputModeController & IInputEventSource 实现
-        // ============================================================
+        public CoCoInputIntent Intent => _intent;
 
         /// <summary>
         /// 切换当前活跃的 Action Map（字符串版本，用于解耦）
@@ -223,11 +153,87 @@ namespace CoCoFlow.Runtime.Modules.Input
         /// <summary>
         /// 清除当前所有缓冲输入
         /// </summary>
-        public void ClearBuffer() => _currentBuffer.Clear();
+        public void ClearBuffer()
+        {
+            _currentBuffer.Clear();
+            _intent.ClearDiscrete();
+        }
 
         #endregion
 
         #region Internal Logic
+
+        private void Awake()
+        {
+            if (inputAsset == null)
+            {
+                Debug.LogWarning("[InputReader] 无可用输入配置");
+                return;
+            }
+
+            _runtimeAsset = Instantiate(inputAsset);
+
+            SwitchActionMap(defaultMapType);
+            _currentBuffer.Clear();
+
+            CoCoServices.Register<IInputStateProvider>(this);
+            CoCoServices.Register<IInputEventSource>(this);
+            CoCoServices.Register<IInputModeController>(this);
+            CoCoServices.Register<ICoCoIntentSource<CoCoInputIntent>>(this);
+        }
+
+        private void Update()
+        {
+            // 每帧轮询持续性输入（如摇杆/鼠标移动）
+            if (_moveAction != null) MoveInput = _moveAction.ReadValue<Vector2>();
+            if (_lookAction != null) LookInput = _lookAction.ReadValue<Vector2>();
+            if (_zoomAction != null) ZoomInput = _zoomAction.ReadValue<Vector2>();
+
+            _intent.move = MoveInput;
+            _intent.look = LookInput;
+            _intent.zoom = ZoomInput;
+
+            // 检查缓冲区超时，自动清除过期输入
+            if (isUsingInputBuffering &&
+                !string.IsNullOrEmpty(_currentBuffer.ActionName) &&
+                !_currentBuffer.IsValid(Time.time, inputBufferTime))
+            {
+                _currentBuffer.Clear();
+            }
+        }
+
+        private void OnEnable() => _currentMap?.Enable();
+
+        private void OnDisable()
+        {
+            _currentMap?.Disable();
+            ClearBuffer();
+
+            MoveInput = Vector2.zero;
+            LookInput = Vector2.zero;
+            ZoomInput = Vector2.zero;
+            _intent.ClearContinuous();
+            _intent.ClearDiscrete();
+        }
+
+        private void OnDestroy()
+        {
+            // 务必注销服务，防止 ServiceLocator 持有已销毁对象的引用
+            CoCoServices.Unregister<IInputStateProvider>(this);
+            CoCoServices.Unregister<IInputEventSource>(this);
+            CoCoServices.Unregister<IInputModeController>(this);
+            CoCoServices.Unregister<ICoCoIntentSource<CoCoInputIntent>>(this);
+
+            if (_currentMap != null)
+            {
+                UnbindCurrentMapActions();
+            }
+
+            if (_runtimeAsset != null)
+            {
+                Destroy(_runtimeAsset);
+            }
+        }
 
         private void BindCurrentMapActions()
         {
@@ -280,14 +286,19 @@ namespace CoCoFlow.Runtime.Modules.Input
                 _currentBuffer.Timestamp = Time.time;
             }
 
+            _intent.performedAction = actionName;
+            _intent.performedSequence++;
             OnActionPerformed?.Invoke(actionName);
         }
 
         private void HandleActionCanceled(InputAction.CallbackContext ctx)
-            => OnActionCanceled?.Invoke(ctx.action.name);
+        {
+            var actionName = ctx.action.name;
+            _intent.canceledAction = actionName;
+            _intent.canceledSequence++;
+            OnActionCanceled?.Invoke(actionName);
+        }
 
         #endregion
     }
 }
-
-

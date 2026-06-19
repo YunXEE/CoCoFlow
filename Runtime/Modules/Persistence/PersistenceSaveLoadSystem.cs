@@ -11,37 +11,11 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 {
     public static class PersistenceSaveLoadSystem
     {
+        #region Public API
+
         // 存档槽位配置
         public static int MaxSaveSlots = 3; 
         public static int CurrentSlotIndex = 0; 
-
-        /// <summary>
-        /// 判断存档目录
-        /// </summary>
-        private static string GetSaveDirectory()
-        {
-#if UNITY_EDITOR
-            // 测试文件夹
-            string path = Path.Combine(Application.dataPath, "CoCoFlow/Test/Saves");
-#else
-            // 正式运行：放在系统标准持久化目录
-            string path = Application.persistentDataPath;
-#endif
-            // 确保文件夹存在，没有就建一个
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-            }
-            return path;
-        }
-
-        /// <summary>
-        /// 组合出完整的文件名，显式使用 .json 后缀方便 IDE 解析
-        /// </summary>
-        private static string GetSaveFilePath(int slotIndex)
-        {
-            return Path.Combine(GetSaveDirectory(), $"savegame_slot_{slotIndex}.json");
-        }
 
         /// <summary>
         /// 执行存盘操作
@@ -65,6 +39,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
             try
             {
+                RefreshSavableEntitiesBeforeSave();
                 string jsonString = JsonConvert.SerializeObject(PersistenceRuntimeStateManager.CurrentData, Formatting.Indented);
                 string path = GetSaveFilePath(targetSlot);
                 
@@ -119,5 +94,60 @@ namespace CoCoFlow.Runtime.Modules.Persistence
                 return false;
             }
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        /// <summary>
+        /// 判断存档目录
+        /// </summary>
+        private static string GetSaveDirectory()
+        {
+#if UNITY_EDITOR
+            // 测试文件夹
+            string path = Path.Combine(Application.dataPath, "CoCoFlow/Test/Saves");
+#else
+            // 正式运行：放在系统标准持久化目录
+            string path = Application.persistentDataPath;
+#endif
+            // 确保文件夹存在，没有就建一个
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+            return path;
+        }
+
+        /// <summary>
+        /// 组合出完整的文件名，显式使用 .json 后缀方便 IDE 解析
+        /// </summary>
+        private static string GetSaveFilePath(int slotIndex)
+        {
+            return Path.Combine(GetSaveDirectory(), $"savegame_slot_{slotIndex}.json");
+        }
+
+        private static void RefreshSavableEntitiesBeforeSave()
+        {
+            var entities = UnityEngine.Object.FindObjectsByType<SavableEntityBase>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
+
+            foreach (var entity in entities)
+            {
+                if (entity == null) continue;
+
+                try
+                {
+                    entity.SaveState();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[SaveLoadSystem] 刷新 SavableEntity {entity.name} 失败: {ex.Message}");
+                }
+            }
+        }
+
+        #endregion
     }
 }
