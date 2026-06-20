@@ -1,0 +1,24 @@
+{
+    "name": "CoCoFlow.Tests.Editor.Enemy",
+    "rootNamespace": "CoCoFlow.Tests.Editor.Enemy",
+    "references": [
+        "CoCoFlow.Editor.Gameplay.Enemy",
+        "CoCoFlow.Runtime.Gameplay.Enemy",
+        "Unity.Splines",
+        "Unity.Mathematics"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

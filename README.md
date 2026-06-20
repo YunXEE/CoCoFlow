@@ -2,14 +2,14 @@
 
 模块化 Unity 游戏开发框架。
 
-> **版本**: 0.3.3 · **Unity**: 6000+
+> **版本**: 0.3.4 · **Unity**: 6000+
 
 ---
 
 ## 架构拓扑
 
 ```
-CoCoFlow v0.3.3
+CoCoFlow v0.3.4
 │
 ├── CoCoFlow.Runtime (运行时)
 │   ├── ◆ Core (核心层)
@@ -28,8 +28,9 @@ CoCoFlow v0.3.3
 │   │   └── Persistence     — SaveManager / SaveData (JSON 存档)
 │   │
 │   └── ◇ Gameplay (游戏玩法层)
-│       ├── Character       — CharacterLifecycle (生命值 / 伤害 / 死亡 / 复活)
-│       └── ...              — 待扩展
+│       ├── Character       — CharacterContext / CharacterLifeCycle / CharacterNavigation / Locomotion
+│       ├── Enemy           — EnemyBrain / EnemySpline / EnemyVisionQuery / EngagementZone
+│       └── Item            — ItemContext / ItemInputDriver / Item 生命周期事实
 │
 └── CoCoFlow.Editor (编辑器工具链)
     ├── Core                — 编辑器核心
@@ -61,10 +62,10 @@ Samples~
 | **Map** | ✅ 基本完成 | 80% | Chunk 分块加载、异步加载 |
 | **Rendering** | 🟡 大部分完成 | 70% | URP 画质分级 + LOD Bias，后处理 / 纹理流送开发中 |
 | **Persistence** | 🟡 大部分完成 | 65% | JSON 存档 + SaveManager，加密 / 迁移开发中 |
-| **Gameplay** | 🟡 开发中 | 35% | Character / Enemy 基础层已建立，战斗 / 技能待定 |
-| **Editor** | 🟡 大部分完成 | 70% | 各模块编辑器工具链已建立，AssetPipeline 开发中 |
-| **Network Samples** | 可选 Samples | Fusion 技术栈下的 Input/Context 同步兼容层设计 |
-| **Enemy Samples** | 可选 Samples | 基础 Enemy 状态脚本、意图/配置 SO 和 `P_Enemy_00` prefab |
+| **Gameplay** | 🟡 开发中 | 45% | Character Context/Navigation、Enemy 基础层、Item Context 已建立；战斗 / 技能待定 |
+| **Editor** | 🟡 大部分完成 | 72% | 各模块编辑器工具链已建立，Setup Assistant 支持多 Samples 导入 |
+| **Network Samples** | 可选 Samples | Fusion 技术栈下的 Input/Context 同步兼容层设计文档，不提供可编译 runtime |
+| **Enemy Samples** | 可选 Samples | 基础 Enemy 状态脚本、意图/配置 SO、`P_Enemy_00` prefab 和 sample 测试 |
 | **Player Samples** | 可选 Samples | 常见 Player CCS 状态脚本和 `P_Player_00` prefab |
 
 ---
@@ -85,9 +86,9 @@ Samples~
 
 > **注意:**
 > - DOTween 需手动安装
-> - 导入后可执行 `CoCoFlow/Setup/Setup Assistant` 查看依赖状态、一键配置 UniTask/Newtonsoft/宏，并选择安装 Network / Enemy / Player samples
+> - 导入后可执行 `CoCoFlow/Setup/Setup Assistant` 查看依赖状态、一键配置 UniTask/Newtonsoft/宏，并选择安装 Network / Enemy / Player Samples
 > - Setup Assistant 使用 UniTask Git URL 固定版本，不再依赖 OpenUPM
-> - Network Samples 位于 `Samples~/Network Samples/CoCoFlow/Network`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Network`
+> - Network Samples 位于 `Samples~/Network Samples/CoCoFlow/Network`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Network`；当前是 Fusion Context 同步方案文档
 > - Enemy Samples 位于 `Samples~/Enemy Samples/CoCoFlow/Enemy Samples`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Enemy`
 > - Player Samples 位于 `Samples~/Player Samples/CoCoFlow/Player Samples`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Player`
 

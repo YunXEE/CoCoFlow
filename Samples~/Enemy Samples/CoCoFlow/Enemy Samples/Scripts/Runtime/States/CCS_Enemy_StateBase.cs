@@ -54,7 +54,15 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
 
         protected void ReleaseNavigation()
         {
-            NavigationContext?.ReleaseControl(NavigationOwner);
+            if (NavigationContext == null ||
+                !NavigationContext.HasControl(NavigationOwner))
+            {
+                return;
+            }
+
+            NavigationContext.ClearDestination();
+            NavigationContext.ClearDesiredVelocity();
+            NavigationContext.ReleaseControl(NavigationOwner);
         }
 
         protected void ChangeToBestAvailableState(CharacterContext context)

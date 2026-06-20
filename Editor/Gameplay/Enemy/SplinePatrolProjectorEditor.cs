@@ -19,7 +19,7 @@ namespace CoCoFlow.Editor.Gameplay.Enemy
             for (int i = 0; i < sampleCount; i++)
             {
                 float t = i / (float)(sampleCount - 1);
-                Vector3 splinePoint = (Vector3)spline.EvaluatePosition(t);
+                Vector3 splinePoint = EvaluateWorldPosition(spline, t);
 
                 Handles.color = Color.red;
                 Handles.SphereHandleCap(0, splinePoint, Quaternion.identity, 0.05f, EventType.Repaint);
@@ -33,6 +33,11 @@ namespace CoCoFlow.Editor.Gameplay.Enemy
                     Handles.DrawLine(splinePoint, hit.position);
                 }
             }
+        }
+
+        internal static Vector3 EvaluateWorldPosition(SplineContainer spline, float progress)
+        {
+            return spline.transform.TransformPoint((Vector3)spline.EvaluatePosition(Mathf.Clamp01(progress)));
         }
     }
 }

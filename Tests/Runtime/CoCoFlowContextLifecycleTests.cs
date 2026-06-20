@@ -329,6 +329,72 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void EnemyBrainClearsEngagementWhenDestroyedTargetComparesNull()
+        {
+            var enemy = new GameObject("Enemy Brain Destroyed Target Test");
+            var target = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                target.layer = 6;
+                enemy.transform.position = Vector3.zero;
+                target.transform.position = new Vector3(0f, 0f, 1f);
+
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var navigation = enemy.AddComponent<CharacterNavigation>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(lifecycle);
+                brain.SetNavigationProvider(navigation);
+
+                lifecycle.Context.Perception.currentTarget = target.transform;
+                lifecycle.Context.Perception.currentTargetId = "target.destroyed";
+                lifecycle.Context.Perception.isTargetVisible = true;
+                lifecycle.Context.Intent.desiredTarget = target.transform;
+                lifecycle.Context.Intent.desiredTargetId = "target.destroyed";
+                lifecycle.Context.Intent.attack = true;
+                navigation.Context.TryClaimControl("EnemyBrain", 10);
+                navigation.Context.SetDestination(
+                    target.transform.position,
+                    config.ChaseSpeed,
+                    intent.AttackRange,
+                    CharacterNavigationMode.Chase);
+
+                UnityEngine.Object.DestroyImmediate(target);
+                target = null;
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.IsNull(lifecycle.Context.Perception.currentTarget);
+                Assert.AreEqual(string.Empty, lifecycle.Context.Perception.currentTargetId);
+                Assert.IsFalse(lifecycle.Context.Perception.isTargetVisible);
+                Assert.IsNull(lifecycle.Context.Intent.desiredTarget);
+                Assert.AreEqual(string.Empty, lifecycle.Context.Intent.desiredTargetId);
+                Assert.IsFalse(lifecycle.Context.Intent.attack);
+                Assert.IsFalse(lifecycle.Context.Intent.hasMovePosition);
+                Assert.IsFalse(navigation.Context.HasAnyControl);
+                Assert.IsFalse(navigation.Context.HasDestination);
+                Assert.IsFalse(navigation.Context.HasDesiredVelocity);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                if (target != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
         public void CharacterAndItemModelDoesNotIntroducePlayerEnemyOrChestContexts()
         {
             var characterAssembly = typeof(CharacterContext).Assembly;

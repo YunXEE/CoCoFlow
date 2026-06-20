@@ -1,0 +1,21 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.EnemySamples.Tests",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.EnemySamples.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Gameplay.Character",
+        "CoCoFlow.Runtime.Addon.EnemySamples"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

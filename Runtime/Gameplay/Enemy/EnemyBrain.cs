@@ -191,7 +191,15 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             Transform previousTarget = characterContext.Perception.currentTarget;
             if (previousTarget == null)
             {
-                characterContext.Perception.isTargetVisible = false;
+                if (HasEngagementFacts(characterContext))
+                {
+                    ClearEngagement(characterContext);
+                }
+                else
+                {
+                    characterContext.Perception.isTargetVisible = false;
+                }
+
                 return;
             }
 
@@ -250,6 +258,25 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             }
 
             _lostTargetStartTime = -1f;
+        }
+
+        private bool HasEngagementFacts(CharacterContext characterContext)
+        {
+            if (characterContext == null) return false;
+
+            if (characterContext.Perception.isTargetVisible ||
+                !string.IsNullOrEmpty(characterContext.Perception.currentTargetId) ||
+                !string.IsNullOrEmpty(characterContext.Intent.desiredTargetId) ||
+                characterContext.Intent.desiredTarget != null ||
+                characterContext.Intent.hasMovePosition ||
+                characterContext.Intent.attack)
+            {
+                return true;
+            }
+
+            var navigationContext = NavigationContext;
+            return navigationContext != null &&
+                   navigationContext.HasControl(intentData.BrainOwnerId);
         }
 
         private bool CanEngage(Vector3 targetPosition)
