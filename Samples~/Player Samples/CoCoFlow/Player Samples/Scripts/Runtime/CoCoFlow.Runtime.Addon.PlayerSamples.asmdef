@@ -1,0 +1,17 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.PlayerSamples",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.PlayerSamples",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Gameplay.Character"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

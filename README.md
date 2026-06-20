@@ -39,8 +39,12 @@ CoCoFlow v0.3.3
     └── UI                  — UI 编辑器工具
 
 Samples~
-└── Network/CoCoFlow/Network
-                         — Photon Fusion 可选 Add-on（需手动导入）
+├── Network Samples/CoCoFlow/Network
+│                        — Fusion 网络兼容层设计样本（InputReader 桥 + Context 同步）
+├── Enemy Samples/CoCoFlow/Enemy Samples
+│                        — Enemy 基础层示例状态、配置和 prefab
+└── Player Samples/CoCoFlow/Player Samples
+                         — Player 示例 CCS 状态和 prefab
 ```
 
 ---
@@ -57,9 +61,11 @@ Samples~
 | **Map** | ✅ 基本完成 | 80% | Chunk 分块加载、异步加载 |
 | **Rendering** | 🟡 大部分完成 | 70% | URP 画质分级 + LOD Bias，后处理 / 纹理流送开发中 |
 | **Persistence** | 🟡 大部分完成 | 65% | JSON 存档 + SaveManager，加密 / 迁移开发中 |
-| **Gameplay** | 🟡 开发中 | 30% | CharacterLifecycle 已有，战斗 / 技能 / AI 待定 |
+| **Gameplay** | 🟡 开发中 | 35% | Character / Enemy 基础层已建立，战斗 / 技能待定 |
 | **Editor** | 🟡 大部分完成 | 70% | 各模块编辑器工具链已建立，AssetPipeline 开发中 |
-| **Network Add-on** | 可选 Add-on | Photon Fusion Host/Client、Lobby、PlayerObject 生成；不属于主包默认编译模块 |
+| **Network Samples** | 可选 Samples | Fusion 技术栈下的 Input/Context 同步兼容层设计 |
+| **Enemy Samples** | 可选 Samples | 基础 Enemy 状态脚本、意图/配置 SO 和 `P_Enemy_00` prefab |
+| **Player Samples** | 可选 Samples | 常见 Player CCS 状态脚本和 `P_Player_00` prefab |
 
 ---
 
@@ -75,13 +81,15 @@ Samples~
 | Cinemachine | 3.1.6+ | ✅ Camera 模块必须 |
 | Splines | 2.6.0+ | ✅ Enemy 模块必须 |
 | Mathematics | 1.3.3+ | ✅ Splines/Enemy 必须 |
-| Photon Fusion | 2.x | ⚠️ 仅 Network Add-on 需要 |
+| Photon Fusion | 2.x | ⚠️ 仅 Network Samples 需要 |
 
 > **注意:**
 > - DOTween 需手动安装
-> - 导入后可执行 `CoCoFlow/Setup/Setup Assistant` 查看依赖状态、一键配置 UniTask/Newtonsoft/宏，并安装可选 Add-on
+> - 导入后可执行 `CoCoFlow/Setup/Setup Assistant` 查看依赖状态、一键配置 UniTask/Newtonsoft/宏，并选择安装 Network / Enemy / Player samples
 > - Setup Assistant 使用 UniTask Git URL 固定版本，不再依赖 OpenUPM
-> - Photon Fusion 网络骨架位于 `Samples~/Network/CoCoFlow/Network`，也可通过 Package Manager 的 Samples 面板导入 `Add-on: Network` 后手动迁移
+> - Network Samples 位于 `Samples~/Network Samples/CoCoFlow/Network`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Network`
+> - Enemy Samples 位于 `Samples~/Enemy Samples/CoCoFlow/Enemy Samples`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Enemy`
+> - Player Samples 位于 `Samples~/Player Samples/CoCoFlow/Player Samples`，Setup Assistant 默认导入到 `Assets/CoCoFlow/Player`
 
 ---
 

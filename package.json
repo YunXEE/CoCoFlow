@@ -27,9 +27,19 @@
   "category": "Framework",
   "samples": [
     {
-      "displayName": "Add-on: Network",
-      "description": "Optional Photon Fusion Host/Client lobby, player spawning, and CoCoFlow event bridge scaffold.",
-      "path": "Samples~/Network"
+      "displayName": "Add-on: Network Samples",
+      "description": "Fusion-oriented network compatibility plan based on input and context synchronization bridges.",
+      "path": "Samples~/Network Samples"
+    },
+    {
+      "displayName": "Add-on: Enemy Samples",
+      "description": "Sample enemy behavior states, intent/config assets, and a prefab wired to the CoCoFlow Enemy foundation.",
+      "path": "Samples~/Enemy Samples"
+    },
+    {
+      "displayName": "Add-on: Player Samples",
+      "description": "Sample player CCS states and a prefab wired to CharacterContext and CharacterLocomotion.",
+      "path": "Samples~/Player Samples"
     }
   ]
 }
