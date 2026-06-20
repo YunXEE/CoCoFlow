@@ -127,27 +127,17 @@ namespace CoCoFlow.Runtime.Gameplay.Character
     }
 
     [Serializable]
-    public class CharacterNavigationContext
-    {
-        public Vector3 destination;
-        public Vector3 desiredVelocity;
-        public bool hasDestination;
-    }
-
-    [Serializable]
     public class CharacterContext : CoCoEntityContext
     {
         [SerializeField] private CharacterIntent intent = new CharacterIntent();
         [SerializeField] private CharacterMotionContext motion = new CharacterMotionContext();
         [SerializeField] private CharacterResourceContext resources = new CharacterResourceContext();
         [SerializeField] private CharacterPerceptionContext perception = new CharacterPerceptionContext();
-        [SerializeField] private CharacterNavigationContext navigation = new CharacterNavigationContext();
 
         public CharacterIntent Intent => intent;
         public CharacterMotionContext Motion => motion;
         public CharacterResourceContext Resources => resources;
         public CharacterPerceptionContext Perception => perception;
-        public CharacterNavigationContext Navigation => navigation;
 
         public void MarkAlive()
         {

@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
@@ -7,6 +8,10 @@ namespace CoCoFlow.Runtime.Gameplay.Character
     {
         [Header("Components")]
         private CharacterController _characterController;
+
+        [Header("Context")]
+        [SerializeField] private MonoBehaviour contextProvider;
+        [SerializeField] private bool writeMotionToContext = true;
 
         [Header("Gravity & Ground")]
         [SerializeField] private bool isUsingGravity = true; //是否启用自动重力计算
@@ -30,10 +35,12 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         private float _currentGravityScale = 1f;     // 重力缩放倍率 
         
         private float _verticalVelocity;             // 垂直速度
+        private CharacterContext _context;
 
         private void Awake()
         {
             _characterController = GetComponent<CharacterController>();
+            ResolveContext();
         }
 
         private void Update()
@@ -41,9 +48,16 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             CheckGrounded();
             HandleGravity();
             ApplyMovement();
+            WriteMotionContext();
         }
 
         #region Public API
+
+        public void SetContextProvider(MonoBehaviour provider)
+        {
+            contextProvider = provider;
+            _context = null;
+        }
         
         // ================= 重力处理开关 ==============
         public void SetGravityEnable(bool enable)
@@ -148,6 +162,92 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             _forcedMovementVelocity = Vector3.zero; 
             _currentSpeedMultiplier = 1f; 
             _currentGravityScale = 1f;
+        }
+
+        private void WriteMotionContext()
+        {
+            if (!writeMotionToContext) return;
+
+            var targetContext = ResolveContext();
+            if (targetContext == null) return;
+
+            targetContext.Motion.position = transform.position;
+            targetContext.Motion.rotation = transform.rotation;
+            targetContext.Motion.velocity = CurrentVelocity;
+            targetContext.Motion.isGrounded = IsGrounded;
+        }
+
+        private CharacterContext ResolveContext()
+        {
+            if (_context != null) return _context;
+
+            if (TryGetContextFromProvider(contextProvider, out _context))
+            {
+                return _context;
+            }
+
+            var behaviours = GetComponents<MonoBehaviour>();
+            foreach (var behaviour in behaviours)
+            {
+                if (ReferenceEquals(behaviour, this)) continue;
+                if (TryGetContextFromProvider(behaviour, out _context))
+                {
+                    if (contextProvider == null)
+                    {
+                        contextProvider = behaviour;
+                    }
+                    return _context;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryGetContextFromProvider(
+            object provider,
+            out CharacterContext targetContext)
+        {
+            if (provider is ICoCoContextProvider<CharacterContext> typedProvider)
+            {
+                targetContext = typedProvider.Context;
+                return targetContext != null;
+            }
+
+            targetContext = null;
+            return false;
+        }
+
+        private void OnValidate()
+        {
+            if (ReferenceEquals(contextProvider, this))
+            {
+                contextProvider = null;
+            }
+
+            if (_characterController == null)
+            {
+                _characterController = GetComponent<CharacterController>();
+            }
+        }
+
+        private void Reset()
+        {
+            if (_characterController == null)
+            {
+                _characterController = GetComponent<CharacterController>();
+            }
+
+            var behaviours = GetComponents<MonoBehaviour>();
+            foreach (var behaviour in behaviours)
+            {
+                if (ReferenceEquals(behaviour, this)) continue;
+                if (contextProvider == null &&
+                    behaviour is ICoCoContextProvider<CharacterContext>)
+                {
+                    contextProvider = behaviour;
+                    break;
+                }
+            }
         }
 
         #endregion

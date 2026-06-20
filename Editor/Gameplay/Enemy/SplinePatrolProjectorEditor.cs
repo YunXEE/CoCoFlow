@@ -2,17 +2,16 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.Splines;
-using Unity.Mathematics;
-using CoCoFlow.Runtime.Gameplay.Enemy.States;
+using CoCoFlow.Runtime.Gameplay.Enemy;
 
 namespace CoCoFlow.Editor.Gameplay.Enemy
 {
-    [CustomEditor(typeof(EnemySubStateSplinePatrol))]
+    [CustomEditor(typeof(EnemySpline))]
     public class SplinePatrolProjectorEditor : UnityEditor.Editor
     {
         private void OnSceneGUI()
         {
-            SerializedProperty splineProp = serializedObject.FindProperty("_splineContainer");
+            SerializedProperty splineProp = serializedObject.FindProperty("splineContainer");
             SplineContainer spline = splineProp.objectReferenceValue as SplineContainer;
             if (spline == null) return;
 

@@ -9,7 +9,5 @@
     "includePlatforms": [
         "Editor"
     ],
-    "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT"
-    ]
+    "defineConstraints": []
 }
