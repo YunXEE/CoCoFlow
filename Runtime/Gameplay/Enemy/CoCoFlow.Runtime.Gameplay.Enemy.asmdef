@@ -4,11 +4,8 @@
     "references": [
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Gameplay.Character",
-        "UniTask",
         "Unity.Splines",
         "Unity.Mathematics"
     ],
-    "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT"
-    ]
+    "defineConstraints": []
 }

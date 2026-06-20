@@ -1,0 +1,432 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7737160894800217780
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2382883503764078827}
+  - component: {fileID: 8818688749188220591}
+  - component: {fileID: 304967881200096920}
+  m_Layer: 0
+  m_Name: Visual
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2382883503764078827
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7737160894800217780}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1, z: 0}
+  m_LocalScale: {x: 0.7, y: 1, z: 0.7}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2830494330207239345}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &8818688749188220591
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7737160894800217780}
+  m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &304967881200096920
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7737160894800217780}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 1
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &8856977091768750129
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5041652099791381743}
+  - component: {fileID: 5874323194827537483}
+  - component: {fileID: 169071448482855086}
+  - component: {fileID: 6039238771811937212}
+  - component: {fileID: 3192747847456196655}
+  - component: {fileID: 8618005514495560478}
+  - component: {fileID: 2887487745589468051}
+  m_Layer: 0
+  m_Name: CoCoStates
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5041652099791381743
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2830494330207239345}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5874323194827537483
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f7f26bf1490413ca5232450e7236276, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Core::CoCoFlow.Runtime.Core.CoCoStateMachineController
+  defaultCoCoState: {fileID: 169071448482855086}
+  autoUpdate: 1
+  availableStates:
+  - {fileID: 169071448482855086}
+  - {fileID: 6039238771811937212}
+  - {fileID: 3192747847456196655}
+  - {fileID: 8618005514495560478}
+  - {fileID: 2887487745589468051}
+  contextProvider: {fileID: 1856703846946002798}
+--- !u!114 &169071448482855086
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c9e7757fe86740158adf4a0f8e9d3f0b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Idle
+  subStateMachine: {fileID: 0}
+  moveDeadZone: 0.05
+--- !u!114 &6039238771811937212
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 206a61cf56b140d69663ff873f327e18, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Move
+  subStateMachine: {fileID: 0}
+  moveDeadZone: 0.05
+  moveSpeed: 5
+--- !u!114 &3192747847456196655
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e04c21161f1544c4ab91b9b8b47c2c2b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Jump
+  subStateMachine: {fileID: 0}
+  moveDeadZone: 0.05
+  jumpForce: 5
+  airMoveSpeed: 3
+  minAirTime: 0.2
+--- !u!114 &8618005514495560478
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9421c2e17164f65bb32fc88f37f8322, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Attack
+  subStateMachine: {fileID: 0}
+  moveDeadZone: 0.05
+  attackDuration: 0.35
+  allowMoveDuringAttack: 0
+  attackMoveSpeed: 2
+--- !u!114 &2887487745589468051
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8856977091768750129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e14112e84d14a8db84ec66747bccbdc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Interact
+  subStateMachine: {fileID: 0}
+  moveDeadZone: 0.05
+  interactDuration: 0.25
+--- !u!1 &8881738612454855607
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2830494330207239345}
+  - component: {fileID: 3159549134905336917}
+  - component: {fileID: 2616564374428000419}
+  - component: {fileID: 1856703846946002798}
+  - component: {fileID: 1873115728257622896}
+  - component: {fileID: 2212234638675521841}
+  - component: {fileID: 4189886022400882356}
+  m_Layer: 0
+  m_Name: P_Player_00
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2830494330207239345
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 2382883503764078827}
+  - {fileID: 5041652099791381743}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!143 &3159549134905336917
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 2
+  m_Radius: 0.35
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 1, z: 0}
+--- !u!195 &2616564374428000419
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.35
+  m_Speed: 5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 0
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 2
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
+--- !u!114 &1856703846946002798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c50c4b16650a4b059b01e46114b92ca6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLifeCycle
+  maxHealth: 100
+  contextProvider: {fileID: 0}
+  context:
+    identity:
+      stableEntityId: 
+      runtimeInstanceId: 
+      ownerId: 
+      entityTypeId: 
+      prefabKey: 
+    lifecycle:
+      state: 0
+    semanticStateId: 0
+    actionStateId: 0
+    lastEventSequence: 0
+    intent:
+      move: {x: 0, y: 0}
+      look: {x: 0, y: 0}
+      desiredMovePosition: {x: 0, y: 0, z: 0}
+      hasMovePosition: 0
+      desiredTarget: {fileID: 0}
+      desiredTargetId: 
+      jump: 0
+      attack: 0
+      interact: 0
+      useSkill: 0
+    motion:
+      position: {x: 0, y: 0, z: 0}
+      rotation: {x: 0, y: 0, z: 0, w: 1}
+      velocity: {x: 0, y: 0, z: 0}
+      isGrounded: 0
+    resources:
+      maxHealth: 100
+      currentHealth: 100
+    perception:
+      currentTarget: {fileID: 0}
+      currentTargetId: 
+      lastKnownPosition: {x: 0, y: 0, z: 0}
+      isTargetVisible: 0
+--- !u!114 &1873115728257622896
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 10ab383121e0434895a8915f92f881a0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigation
+  context:
+    mode: 0
+    controlOwner: 
+    controlPriority: 0
+    destination: {x: 0, y: 0, z: 0}
+    desiredVelocity: {x: 0, y: 0, z: 0}
+    desiredSpeed: 0
+    stoppingDistance: 0.1
+    hasDestination: 0
+    hasDesiredVelocity: 0
+    routePosition: {x: 0, y: 0, z: 0}
+    routeProgress: 0
+    reverseRoute: 0
+    hasRoute: 0
+    warpPosition: {x: 0, y: 0, z: 0}
+    hasWarpRequest: 0
+--- !u!114 &2212234638675521841
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 033a20e83ea84589a2d6f6f10e0ffa19, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLocomotion
+  contextProvider: {fileID: 1856703846946002798}
+  writeMotionToContext: 1
+  isUsingGravity: 1
+  gravity: -9.81
+  baseGravityMultiplier: 2
+  groundLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  groundCheckRadius: 0.2
+  groundCheckOffset: {x: 0, y: 0.1, z: 0}
+  rotationSmoothTime: 0.1
+--- !u!114 &4189886022400882356
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8881738612454855607}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 328e219cf9d34ccd8418720e39787823, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigationMotor
+  navigationProvider: {fileID: 1873115728257622896}
+  locomotion: {fileID: 2212234638675521841}
+  navMeshAgent: {fileID: 2616564374428000419}
+  updateAutomatically: 1
+  rotateTowardsVelocity: 1

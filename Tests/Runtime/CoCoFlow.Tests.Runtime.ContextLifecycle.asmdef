@@ -4,6 +4,7 @@
     "references": [
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Gameplay.Character",
+        "CoCoFlow.Runtime.Gameplay.Enemy",
         "CoCoFlow.Runtime.Gameplay.Item",
         "CoCoFlow.Runtime.Modules.Input",
         "CoCoFlow.Runtime.Modules.Persistence"

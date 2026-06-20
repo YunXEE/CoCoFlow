@@ -23,6 +23,12 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
         /// <returns>true 表示在区域内</returns>
         public bool IsPositionInsideZone(Vector3 position)
         {
+            if (_zoneCollider == null)
+            {
+                _zoneCollider = GetComponent<BoxCollider>();
+                if (_zoneCollider == null) return false;
+            }
+
             return _zoneCollider.bounds.Contains(position);
         }
 

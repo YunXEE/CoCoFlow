@@ -1,11 +1,15 @@
 using System;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Gameplay.Character;
+using CoCoFlow.Runtime.Gameplay.Enemy;
 using CoCoFlow.Runtime.Gameplay.Item;
 using CoCoFlow.Runtime.Modules.Input;
 using CoCoFlow.Runtime.Modules.Persistence;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 {
@@ -157,7 +161,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
             enemy.MarkAlive();
             enemy.Perception.currentTargetId = "player.local";
-            enemy.Navigation.hasDestination = true;
 
             merchant.MarkAlive();
             merchant.Intent.interact = true;
@@ -171,6 +174,224 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             Assert.IsTrue(((PlayerLikeCharacterContext)player).HasLocalCameraAuthority);
             Assert.AreEqual(1f, ((EnemyLikeCharacterContext)enemy).ThreatScore);
             Assert.AreEqual("merchant.basic", ((MerchantLikeCharacterContext)merchant).ShopInventoryId);
+        }
+
+        [Test]
+        public void CharacterNavigationIsIndependentContextForNavigationFacts()
+        {
+            var root = new GameObject("Character Navigation Context Test");
+            try
+            {
+                var lifecycle = root.AddComponent<CharacterLifeCycle>();
+                var navigation = root.AddComponent<CharacterNavigation>();
+                var characterController = root.AddComponent<CoCoStateMachineController>();
+                var navigationController = root.AddComponent<CoCoStateMachineController>();
+
+                characterController.SetContextProvider(lifecycle);
+                navigationController.SetContextProvider(navigation);
+
+                navigation.Context.TryClaimControl("EnemySpline");
+                navigation.Context.SetDestination(
+                    new Vector3(3f, 0f, 2f),
+                    2f,
+                    0.25f,
+                    CharacterNavigationMode.Patrol);
+
+                Assert.AreSame(lifecycle.Context, characterController.Context);
+                Assert.AreSame(navigation.Context, navigationController.Context);
+                Assert.IsInstanceOf<ICoCoContext>(navigation.Context);
+                Assert.AreEqual("EnemySpline", navigation.Context.ControlOwner);
+                Assert.IsTrue(navigation.Context.HasDestination);
+                Assert.AreEqual(CharacterNavigationMode.Patrol, navigation.Context.Mode);
+                Assert.IsNull(typeof(CharacterContext).GetProperty("Navigation"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainRequiresIntentData()
+        {
+            LogAssert.Expect(
+                LogType.Error,
+                new Regex("EnemyBrain.*缺少 EnemyIntentData"));
+
+            var root = new GameObject("Enemy Brain Missing Intent Test");
+            try
+            {
+                var brain = root.AddComponent<EnemyBrain>();
+
+                Assert.IsFalse(brain.enabled);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainWritesTargetIntentAndNavigationFacts()
+        {
+            var enemy = new GameObject("Enemy Brain Facts Test");
+            var target = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                target.name = "Target Player";
+                target.layer = 6;
+                enemy.transform.position = Vector3.zero;
+                target.transform.position = new Vector3(0f, 0f, 4f);
+
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var navigation = enemy.AddComponent<CharacterNavigation>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(lifecycle);
+                brain.SetNavigationProvider(navigation);
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.AreSame(target.transform, lifecycle.Context.Perception.currentTarget);
+                Assert.AreSame(target.transform, lifecycle.Context.Intent.desiredTarget);
+                Assert.IsTrue(lifecycle.Context.Intent.hasMovePosition);
+                Assert.IsFalse(lifecycle.Context.Intent.attack);
+                Assert.AreEqual(CharacterNavigationMode.Chase, navigation.Context.Mode);
+                Assert.AreEqual("EnemyBrain", navigation.Context.ControlOwner);
+                Assert.IsTrue(navigation.Context.HasDestination);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainReleasesNavigationAfterTargetLost()
+        {
+            var enemy = new GameObject("Enemy Brain Lost Target Test");
+            var target = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                target.layer = 6;
+                enemy.transform.position = Vector3.zero;
+                target.transform.position = new Vector3(0f, 0f, 40f);
+                SetPrivateField(intent, "disengageDelay", 0f);
+
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var navigation = enemy.AddComponent<CharacterNavigation>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(lifecycle);
+                brain.SetNavigationProvider(navigation);
+
+                lifecycle.Context.Perception.currentTarget = target.transform;
+                lifecycle.Context.Perception.currentTargetId = "target";
+                lifecycle.Context.Perception.lastKnownPosition = new Vector3(0f, 0f, 4f);
+                navigation.Context.TryClaimControl("EnemyBrain", 10);
+                navigation.Context.SetDestination(
+                    lifecycle.Context.Perception.lastKnownPosition,
+                    config.ChaseSpeed,
+                    0.1f,
+                    CharacterNavigationMode.Chase);
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.IsNull(lifecycle.Context.Perception.currentTarget);
+                Assert.IsFalse(lifecycle.Context.Intent.hasMovePosition);
+                Assert.IsFalse(navigation.Context.HasAnyControl);
+                Assert.IsFalse(navigation.Context.HasDestination);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainClearsEngagementWhenDestroyedTargetComparesNull()
+        {
+            var enemy = new GameObject("Enemy Brain Destroyed Target Test");
+            var target = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                target.layer = 6;
+                enemy.transform.position = Vector3.zero;
+                target.transform.position = new Vector3(0f, 0f, 1f);
+
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var navigation = enemy.AddComponent<CharacterNavigation>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(lifecycle);
+                brain.SetNavigationProvider(navigation);
+
+                lifecycle.Context.Perception.currentTarget = target.transform;
+                lifecycle.Context.Perception.currentTargetId = "target.destroyed";
+                lifecycle.Context.Perception.isTargetVisible = true;
+                lifecycle.Context.Intent.desiredTarget = target.transform;
+                lifecycle.Context.Intent.desiredTargetId = "target.destroyed";
+                lifecycle.Context.Intent.attack = true;
+                navigation.Context.TryClaimControl("EnemyBrain", 10);
+                navigation.Context.SetDestination(
+                    target.transform.position,
+                    config.ChaseSpeed,
+                    intent.AttackRange,
+                    CharacterNavigationMode.Chase);
+
+                UnityEngine.Object.DestroyImmediate(target);
+                target = null;
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.IsNull(lifecycle.Context.Perception.currentTarget);
+                Assert.AreEqual(string.Empty, lifecycle.Context.Perception.currentTargetId);
+                Assert.IsFalse(lifecycle.Context.Perception.isTargetVisible);
+                Assert.IsNull(lifecycle.Context.Intent.desiredTarget);
+                Assert.AreEqual(string.Empty, lifecycle.Context.Intent.desiredTargetId);
+                Assert.IsFalse(lifecycle.Context.Intent.attack);
+                Assert.IsFalse(lifecycle.Context.Intent.hasMovePosition);
+                Assert.IsFalse(navigation.Context.HasAnyControl);
+                Assert.IsFalse(navigation.Context.HasDestination);
+                Assert.IsFalse(navigation.Context.HasDesiredVelocity);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                if (target != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
         }
 
         [Test]
@@ -758,12 +979,24 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
         private static void SetPrivateField(object target, string fieldName, object value)
         {
-            var field = target.GetType().BaseType?.GetField(
-                fieldName,
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.NonPublic);
+            var field = FindPrivateField(target.GetType(), fieldName);
             Assert.IsNotNull(field);
             field.SetValue(target, value);
+        }
+
+        private static FieldInfo FindPrivateField(Type type, string fieldName)
+        {
+            while (type != null)
+            {
+                var field = type.GetField(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field != null) return field;
+
+                type = type.BaseType;
+            }
+
+            return null;
         }
 
         private static bool InvokePrivateBool(object target, string methodName)

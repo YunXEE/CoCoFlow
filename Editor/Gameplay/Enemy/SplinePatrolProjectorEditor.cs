@@ -2,17 +2,16 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.Splines;
-using Unity.Mathematics;
-using CoCoFlow.Runtime.Gameplay.Enemy.States;
+using CoCoFlow.Runtime.Gameplay.Enemy;
 
 namespace CoCoFlow.Editor.Gameplay.Enemy
 {
-    [CustomEditor(typeof(EnemySubStateSplinePatrol))]
+    [CustomEditor(typeof(EnemySpline))]
     public class SplinePatrolProjectorEditor : UnityEditor.Editor
     {
         private void OnSceneGUI()
         {
-            SerializedProperty splineProp = serializedObject.FindProperty("_splineContainer");
+            SerializedProperty splineProp = serializedObject.FindProperty("splineContainer");
             SplineContainer spline = splineProp.objectReferenceValue as SplineContainer;
             if (spline == null) return;
 
@@ -20,7 +19,7 @@ namespace CoCoFlow.Editor.Gameplay.Enemy
             for (int i = 0; i < sampleCount; i++)
             {
                 float t = i / (float)(sampleCount - 1);
-                Vector3 splinePoint = (Vector3)spline.EvaluatePosition(t);
+                Vector3 splinePoint = EvaluateWorldPosition(spline, t);
 
                 Handles.color = Color.red;
                 Handles.SphereHandleCap(0, splinePoint, Quaternion.identity, 0.05f, EventType.Repaint);
@@ -34,6 +33,11 @@ namespace CoCoFlow.Editor.Gameplay.Enemy
                     Handles.DrawLine(splinePoint, hit.position);
                 }
             }
+        }
+
+        internal static Vector3 EvaluateWorldPosition(SplineContainer spline, float progress)
+        {
+            return spline.transform.TransformPoint((Vector3)spline.EvaluatePosition(Mathf.Clamp01(progress)));
         }
     }
 }
