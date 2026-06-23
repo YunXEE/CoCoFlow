@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "displayName": "CoCoFlow",
-  "description": "A modular Unity game development framework — Core, Input, Camera, UI, Animation, Map, Rendering, Persistence, Character/Enemy gameplay foundations, optional samples, and Editor toolchain.",
+  "description": "A modular Unity game development framework with Context-driven State Layers, Character/Enemy gameplay foundations, optional samples, and Editor tooling.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",
@@ -19,7 +19,9 @@
   "keywords": [
     "framework",
     "modular",
-    "statemachine",
+    "state",
+    "state-layer",
+    "context",
     "eventbus",
     "servicelocator",
     "gameplay"
@@ -28,17 +30,17 @@
   "samples": [
     {
       "displayName": "Add-on: Network Samples",
-      "description": "Fusion-oriented network compatibility plan based on input and context synchronization bridges.",
+      "description": "Fusion-oriented network compatibility plan based on input bridges, context snapshots, and event envelopes.",
       "path": "Samples~/Network Samples"
     },
     {
       "displayName": "Add-on: Enemy Samples",
-      "description": "Sample enemy behavior states, intent/config assets, and a prefab wired to the CoCoFlow Enemy foundation.",
+      "description": "Sample enemy states, intent/config assets, and a prefab wired to CharacterContextProvider, EnemyBrain, EnemySpline, and one Main State Layer.",
       "path": "Samples~/Enemy Samples"
     },
     {
       "displayName": "Add-on: Player Samples",
-      "description": "Sample player CCS states and a prefab wired to CharacterContext and CharacterLocomotion.",
+      "description": "Sample player states and a prefab wired to CharacterContextProvider, CharacterLocomotion, and explicit Main/FullBody/UpperLayer State Layers.",
       "path": "Samples~/Player Samples"
     }
   ]

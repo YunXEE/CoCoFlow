@@ -10,10 +10,12 @@ CoCoFlow 的 gameplay 边界以 Context、Intent、State、Event、Persistence I
 
 ```text
 Input / AI / Timeline / Network / Replay
-  -> CoCoStateController
+  -> Context Provider / Context Source
   -> Context.Intent / Context facts
+  -> CoCoStateController
+  -> ordered CoCoStateLayer ticks
   -> CoCoStateBase lifecycle(context)
-  -> Arms: Motor / Combat / Interaction
+  -> Operations: Motor / Combat / Interaction / Animation
   -> Context facts + CoCoEventBus events
   -> Presenter / Network Adapter / Persistence
 ```
@@ -23,7 +25,9 @@ Input / AI / Timeline / Network / Replay
 - `InputReader` 只表示输入端，不绑定 Character、Vehicle、UI 或具体 gameplay。
 - Character、Vehicle、Item 等对象在各自 gameplay 层把输入或交互请求翻译成自己的 Intent。
 - State 读取生命周期参数里的 `ICoCoContext`，不再为常规业务到处查找具体 Controller。
-- 常规状态切换由 `CoCoStateController` 或其评估逻辑根据 Context 推进；旧状态直接 `ChangeState` 只作为兼容路径保留。
+- 一个状态系统只使用一个 `CoCoStateController`；Controller 持有显式声明的 `CoCoStateLayer` 列表，并按 `Order` 从上到下执行。
+- 常规状态切换优先在当前 State 所属 Layer 内发生；当同一状态类型存在于多个 Layer 时，调用方必须指定 Layer 或从源 State 发起切换。
+- `CoCoStateBase.DefineState` 声明 Context 读写、外部操作依赖和可能 transition，供只读 State Graph Viewer 分析。
 - Event 表示离散事实，重要 Event 必须对应可恢复的 Context 状态变化。
 
 ## Core Contracts
@@ -56,7 +60,7 @@ Core 不依赖 Fusion，也不依赖具体 gameplay 模块。
 
 玩家不是单独的 Core 类型。玩家输入通过 `CharacterInputDriver` 把 `CoCoInputIntent` 写入 `CharacterContext.Intent`。敌人行为树、Sensor、Spline 巡逻、Timeline、Network adapter 后续也应写同一个 `CharacterContext`。`CharacterInputDriver` 是 Character 的意图写入层，不持有状态切换权威。
 
-`CharacterContextProvider` 是本地默认 `CharacterContext` 宿主。它可以显式接入多个 `ICharacterContextSource`，在状态 tick 前按 priority 写入同一份 Context。业务场景需要额外事实时，继承 `CharacterContext` 并通过 `CharacterContextProvider<TContext>` 提供派生 Context，例如特殊动画参数或业务标记；消费侧仍通过 `ICoCoContextProvider<CharacterContext>` 接入。
+`CharacterContextProvider` 是本地默认 `CharacterContext` 宿主。它可以显式接入多个 `ICharacterContextSource`，在状态 tick 前按 priority 写入同一份 Context。相同 priority 使用 Inspector List 声明顺序作为 tie-breaker；disabled 或 inactive source 不会被 provider 驱动。业务场景需要额外事实时，继承 `CharacterContext` 并通过 `CharacterContextProvider<TContext>` 提供派生 Context，例如特殊动画参数或业务标记；消费侧仍通过 `ICoCoContextProvider<CharacterContext>` 接入。
 
 `CharacterLifeCycle` 是兼容门面和生命周期写入组件：旧代码仍可调用 `TakeDamage/Heal/Revive`，但它只从 provider 读取 Context，并把权威事实写入 `CharacterContext.Resources` 和 `CharacterContext.Lifecycle`。它不再作为 `CharacterContext` provider。
 
@@ -147,8 +151,9 @@ Core 不包含 Fusion 依赖。Fusion 或其他网络实现应作为可选 adapt
 
 不为每个 gameplay state 创建网络版本，例如 `NetEnemyStateChase` 或 `NetItemStateOpened`。网络围绕 Context snapshot 和 EventEnvelope 接入。
 
-## 当前迁移边界
+## 当前实现边界
 
-- 旧 Enemy 状态仍可通过旧 API 编译运行。
 - 新状态优先使用 `Enter(ICoCoContext)`、`OnStateUpdate(ICoCoContext)`、`OnStateFixedUpdate(ICoCoContext)`、`Exit(ICoCoContext)`。
-- 新 Character / Item 逻辑应通过 Context 和 Intent 接入，不再依赖具体 PlayerController、EnemyController 或 Chest 命名。
+- 所有可运行状态必须显式声明到 `CoCoStateLayer.AvailableStates`；不再依赖自动扫描或嵌套 controller。
+- Character / Item 逻辑应通过 Context 和 Intent 接入，不再依赖具体 PlayerController、EnemyController 或 Chest 命名。
+- Animation Rigging、IK、武器挂点、完整战斗和技能系统仍属于业务项目或未来 add-on，不是当前 Runtime 主包的一部分。
