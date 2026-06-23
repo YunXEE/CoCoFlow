@@ -16,11 +16,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         void SetProviderDriven(bool providerDriven);
     }
 
-    public abstract class CharacterContextProvider<TContext> :
+    public abstract class CharacterContextProviderBase :
         MonoBehaviour,
-        ICoCoContextProvider<TContext>,
         ICoCoContextFrameResolver
-        where TContext : CharacterContext
     {
         [Header("Context Sources")]
         [Tooltip("按 Priority 从低到高写入同一份 CharacterContext。空槽位会被跳过。")]
@@ -32,8 +30,6 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         private readonly HashSet<ICharacterContextSourceUpdateMode> _providerDrivenSources =
             new HashSet<ICharacterContextSourceUpdateMode>();
         private int _lastResolvedFrame = -1;
-
-        public abstract TContext Context { get; }
 
         public void SetContextSources(IEnumerable<MonoBehaviour> sources)
         {
@@ -166,6 +162,14 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             public ICharacterContextSource Source { get; }
             public int DeclarationIndex { get; }
         }
+    }
+
+    public abstract class CharacterContextProvider<TContext> :
+        CharacterContextProviderBase,
+        ICoCoContextProvider<TContext>
+        where TContext : CharacterContext
+    {
+        public abstract TContext Context { get; }
     }
 
     public class CharacterContextProvider : CharacterContextProvider<CharacterContext>

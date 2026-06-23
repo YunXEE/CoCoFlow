@@ -449,6 +449,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 37ba723939db474da8ed3f634d90a53c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterContextProvider
+  contextSources:
+  - {fileID: 6307659065620841919}
+  - {fileID: 3120731653292650295}
+  resolveSourcesOncePerFrame: 1
   context:
     identity:
       stableEntityId: 
@@ -572,7 +576,7 @@ MonoBehaviour:
   contextProvider: {fileID: 7644779422061056625}
   splineOwnerId: EnemySpline
   navigationPriority: 0
-  updateAutomatically: 1
+  updateAutomatically: 0
   warpToRouteOnResume: 1
   navMeshSampleRadius: 3
 --- !u!114 &3120731653292650295
@@ -592,4 +596,4 @@ MonoBehaviour:
   engagementZone: {fileID: 0}
   enemySpline: {fileID: 6307659065620841919}
   characterContextProvider: {fileID: 7644779422061056625}
-  updateAutomatically: 1
+  updateAutomatically: 0

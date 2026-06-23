@@ -60,6 +60,24 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void CharacterContextSourceSerializedFieldsLiveOnNongenericProviderBase()
+        {
+            var sourceField = FindPrivateField(typeof(CharacterContextProviderBase), "contextSources");
+            var frameField = FindPrivateField(typeof(CharacterContextProviderBase), "resolveSourcesOncePerFrame");
+
+            Assert.IsNotNull(sourceField);
+            Assert.IsNotNull(frameField);
+            Assert.AreSame(typeof(CharacterContextProviderBase), sourceField.DeclaringType);
+            Assert.AreSame(typeof(CharacterContextProviderBase), frameField.DeclaringType);
+            Assert.IsFalse(typeof(CharacterContextProviderBase).IsGenericType);
+            Assert.IsNull(typeof(CharacterContextProvider<>).GetField(
+                "contextSources",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly));
+            Assert.IsTrue(typeof(ICoCoContextFrameResolver).IsAssignableFrom(
+                typeof(CharacterContextProviderBase)));
+        }
+
+        [Test]
         public void LegacyStateChangesStatesWithoutContext()
         {
             var root = new GameObject("Legacy State Test");

@@ -428,6 +428,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 37ba723939db474da8ed3f634d90a53c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterContextProvider
+  contextSources: []
+  resolveSourcesOncePerFrame: 1
   context:
     identity:
       stableEntityId: 
