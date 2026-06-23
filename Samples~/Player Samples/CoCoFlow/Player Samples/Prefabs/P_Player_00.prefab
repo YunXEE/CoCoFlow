@@ -124,7 +124,9 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 710100100100100002}
+  - {fileID: 710100100100100012}
   m_Father: {fileID: 2830494330207239345}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &5874323194827537483
@@ -137,16 +139,35 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1f7f26bf1490413ca5232450e7236276, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Core::CoCoFlow.Runtime.Core.CoCoStateMachineController
-  defaultCoCoState: {fileID: 169071448482855086}
+  m_Name:
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Core::CoCoFlow.Runtime.Core.CoCoStateController
   autoUpdate: 1
-  availableStates:
-  - {fileID: 169071448482855086}
-  - {fileID: 6039238771811937212}
-  - {fileID: 3192747847456196655}
-  - {fileID: 8618005514495560478}
-  - {fileID: 2887487745589468051}
+  stateLayers:
+  - name: Main
+    order: -1000
+    update: 1
+    fixedUpdate: 1
+    defaultCoCoState: {fileID: 169071448482855086}
+    availableStates:
+    - {fileID: 169071448482855086}
+    - {fileID: 6039238771811937212}
+    - {fileID: 3192747847456196655}
+    - {fileID: 8618005514495560478}
+    - {fileID: 2887487745589468051}
+  - name: FullBody
+    order: 0
+    update: 1
+    fixedUpdate: 1
+    defaultCoCoState: {fileID: 710100100100100004}
+    availableStates:
+    - {fileID: 710100100100100004}
+  - name: UpperLayer
+    order: 10
+    update: 1
+    fixedUpdate: 0
+    defaultCoCoState: {fileID: 710100100100100014}
+    availableStates:
+    - {fileID: 710100100100100014}
   contextProvider: {fileID: 1856703846946002798}
 --- !u!114 &169071448482855086
 MonoBehaviour:
@@ -158,9 +179,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c9e7757fe86740158adf4a0f8e9d3f0b, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Idle
-  subStateMachine: {fileID: 0}
   moveDeadZone: 0.05
 --- !u!114 &6039238771811937212
 MonoBehaviour:
@@ -172,9 +192,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 206a61cf56b140d69663ff873f327e18, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Move
-  subStateMachine: {fileID: 0}
   moveDeadZone: 0.05
   moveSpeed: 5
 --- !u!114 &3192747847456196655
@@ -187,9 +206,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e04c21161f1544c4ab91b9b8b47c2c2b, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Jump
-  subStateMachine: {fileID: 0}
   moveDeadZone: 0.05
   jumpForce: 5
   airMoveSpeed: 3
@@ -204,9 +222,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b9421c2e17164f65bb32fc88f37f8322, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Attack
-  subStateMachine: {fileID: 0}
   moveDeadZone: 0.05
   attackDuration: 0.35
   allowMoveDuringAttack: 0
@@ -221,11 +238,98 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9e14112e84d14a8db84ec66747bccbdc, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_Interact
-  subStateMachine: {fileID: 0}
   moveDeadZone: 0.05
   interactDuration: 0.25
+--- !u!1 &710100100100100001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 710100100100100002}
+  - component: {fileID: 710100100100100004}
+  m_Layer: 0
+  m_Name: FullBody
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &710100100100100002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710100100100100001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5041652099791381743}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &710100100100100004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710100100100100001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 387727578196403d87f4e70803b26504, type: 3}
+  m_Name: FullBodyState
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_FullBody
+--- !u!1 &710100100100100011
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 710100100100100012}
+  - component: {fileID: 710100100100100014}
+  m_Layer: 0
+  m_Name: UpperLayer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &710100100100100012
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710100100100100011}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5041652099791381743}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &710100100100100014
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 710100100100100011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 71db9e0b260d46119fd727d4bedff3b2, type: 3}
+  m_Name: UpperLayerState
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.PlayerSamples::CoCoFlow.Runtime.Addon.PlayerSamples.CCS_Player_UpperLayer
 --- !u!1 &8881738612454855607
 GameObject:
   m_ObjectHideFlags: 0
@@ -238,7 +342,7 @@ GameObject:
   - component: {fileID: 3159549134905336917}
   - component: {fileID: 2616564374428000419}
   - component: {fileID: 1856703846946002798}
-  - component: {fileID: 1873115728257622896}
+  - component: {fileID: 653987939067869816}
   - component: {fileID: 2212234638675521841}
   - component: {fileID: 4189886022400882356}
   m_Layer: 0
@@ -321,11 +425,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 8881738612454855607}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c50c4b16650a4b059b01e46114b92ca6, type: 3}
+  m_Script: {fileID: 11500000, guid: 37ba723939db474da8ed3f634d90a53c, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLifeCycle
-  maxHealth: 100
-  contextProvider: {fileID: 0}
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterContextProvider
   context:
     identity:
       stableEntityId: 
@@ -362,7 +464,23 @@ MonoBehaviour:
       currentTargetId: 
       lastKnownPosition: {x: 0, y: 0, z: 0}
       isTargetVisible: 0
---- !u!114 &1873115728257622896
+    navigation:
+      mode: 0
+      controlOwner:
+      controlPriority: 0
+      destination: {x: 0, y: 0, z: 0}
+      desiredVelocity: {x: 0, y: 0, z: 0}
+      desiredSpeed: 0
+      stoppingDistance: 0.1
+      hasDestination: 0
+      hasDesiredVelocity: 0
+      routePosition: {x: 0, y: 0, z: 0}
+      routeProgress: 0
+      reverseRoute: 0
+      hasRoute: 0
+      warpPosition: {x: 0, y: 0, z: 0}
+      hasWarpRequest: 0
+--- !u!114 &653987939067869816
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -371,25 +489,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 8881738612454855607}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 10ab383121e0434895a8915f92f881a0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigation
-  context:
-    mode: 0
-    controlOwner: 
-    controlPriority: 0
-    destination: {x: 0, y: 0, z: 0}
-    desiredVelocity: {x: 0, y: 0, z: 0}
-    desiredSpeed: 0
-    stoppingDistance: 0.1
-    hasDestination: 0
-    hasDesiredVelocity: 0
-    routePosition: {x: 0, y: 0, z: 0}
-    routeProgress: 0
-    reverseRoute: 0
-    hasRoute: 0
-    warpPosition: {x: 0, y: 0, z: 0}
-    hasWarpRequest: 0
+  m_Script: {fileID: 11500000, guid: c50c4b16650a4b059b01e46114b92ca6, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLifeCycle
+  maxHealth: 100
+  contextProvider: {fileID: 1856703846946002798}
 --- !u!114 &2212234638675521841
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -425,7 +529,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 328e219cf9d34ccd8418720e39787823, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigationMotor
-  navigationProvider: {fileID: 1873115728257622896}
+  contextProvider: {fileID: 1856703846946002798}
   locomotion: {fileID: 2212234638675521841}
   navMeshAgent: {fileID: 2616564374428000419}
   updateAutomatically: 1

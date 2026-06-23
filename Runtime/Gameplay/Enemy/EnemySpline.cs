@@ -6,14 +6,17 @@ using UnityEngine.Splines;
 
 namespace CoCoFlow.Runtime.Gameplay.Enemy
 {
-    public class EnemySpline : MonoBehaviour
+    public class EnemySpline :
+        MonoBehaviour,
+        ICharacterContextSource,
+        ICharacterContextSourceUpdateMode
     {
         [Header("Route")]
         [SerializeField] private SplineContainer splineContainer;
         [SerializeField] private EnemyConfigData configData;
 
         [Header("Context")]
-        [SerializeField] private MonoBehaviour navigationProvider;
+        [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Navigation Control")]
         [SerializeField] private string splineOwnerId = "EnemySpline";
@@ -22,19 +25,22 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
         [SerializeField] private bool warpToRouteOnResume = true;
         [SerializeField] private float navMeshSampleRadius = 3f;
 
-        private CharacterNavigationContext _navigationContext;
+        private CharacterContext _characterContext;
         private float _splineT;
         private float _splineLength;
         private bool _reverseDirection;
         private bool _routeInitialized;
         private bool _resumeRequested;
         private bool _resumeShouldWarp;
+        private bool _isProviderDriven;
 
         #region Public API
 
         public SplineContainer SplineContainer => splineContainer;
         public float RouteProgress => _splineT;
         public bool ReverseDirection => _reverseDirection;
+        public int Priority => navigationPriority;
+        public bool IsProviderDriven => _isProviderDriven;
 
         public void SetSplineContainer(SplineContainer container)
         {
@@ -47,10 +53,10 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             configData = data;
         }
 
-        public void SetNavigationProvider(MonoBehaviour provider)
+        public void SetContextProvider(MonoBehaviour provider)
         {
-            navigationProvider = provider;
-            _navigationContext = null;
+            contextProvider = provider;
+            _characterContext = null;
         }
 
         public void RequestResume(bool warpToRoute)
@@ -59,9 +65,24 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             _resumeShouldWarp = warpToRoute && warpToRouteOnResume;
         }
 
+        public void WriteToContext(CharacterContext context)
+        {
+            Tick(context, Time.deltaTime);
+        }
+
+        public void SetProviderDriven(bool providerDriven)
+        {
+            _isProviderDriven = providerDriven;
+        }
+
         public bool Tick(float deltaTime)
         {
-            var navigationContext = NavigationContext;
+            return Tick(CharacterContext, deltaTime);
+        }
+
+        public bool Tick(CharacterContext characterContext, float deltaTime)
+        {
+            var navigationContext = characterContext?.Navigation;
             if (navigationContext == null || splineContainer == null || configData == null)
             {
                 return false;
@@ -113,16 +134,16 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         #region Internal Logic
 
-        private CharacterNavigationContext NavigationContext => ResolveNavigationContext();
+        private CharacterContext CharacterContext => ResolveCharacterContext();
 
         private void Awake()
         {
-            ResolveNavigationContext();
+            ResolveCharacterContext();
         }
 
         private void Update()
         {
-            if (updateAutomatically)
+            if (updateAutomatically && !_isProviderDriven)
             {
                 Tick(Time.deltaTime);
             }
@@ -211,26 +232,26 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             return false;
         }
 
-        private CharacterNavigationContext ResolveNavigationContext()
+        private CharacterContext ResolveCharacterContext()
         {
-            if (_navigationContext != null) return _navigationContext;
+            if (_characterContext != null) return _characterContext;
 
-            if (TryGetContextFromProvider(navigationProvider, out _navigationContext))
+            if (TryGetContextFromProvider(contextProvider, out _characterContext))
             {
-                return _navigationContext;
+                return _characterContext;
             }
 
             var behaviours = GetComponents<MonoBehaviour>();
             foreach (var behaviour in behaviours)
             {
                 if (ReferenceEquals(behaviour, this)) continue;
-                if (TryGetContextFromProvider(behaviour, out _navigationContext))
+                if (TryGetContextFromProvider(behaviour, out _characterContext))
                 {
-                    if (navigationProvider == null)
+                    if (contextProvider == null)
                     {
-                        navigationProvider = behaviour;
+                        contextProvider = behaviour;
                     }
-                    return _navigationContext;
+                    return _characterContext;
                 }
             }
 
@@ -239,9 +260,9 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         private static bool TryGetContextFromProvider(
             object provider,
-            out CharacterNavigationContext targetContext)
+            out CharacterContext targetContext)
         {
-            if (provider is ICoCoContextProvider<CharacterNavigationContext> typedProvider)
+            if (provider is ICoCoContextProvider<CharacterContext> typedProvider)
             {
                 targetContext = typedProvider.Context;
                 return targetContext != null;
@@ -253,9 +274,9 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         private void OnValidate()
         {
-            if (ReferenceEquals(navigationProvider, this))
+            if (ReferenceEquals(contextProvider, this))
             {
-                navigationProvider = null;
+                contextProvider = null;
             }
         }
 

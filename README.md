@@ -15,7 +15,7 @@ CoCoFlow v0.3.4
 │   ├── ◆ Core (核心层)
 │   │   ├── CoCoServices    — 类型化服务定位器 (Register / Get / WaitFor)
 │   │   ├── EventBus        — 类型安全的事件总线 (Pub/Sub + 动态反射)
-│   │   ├── StateMachine    — 通用有限状态机引擎 (含 TransitionPredicate)
+│   │   ├── State    — 通用状态控制引擎 (含 TransitionPredicate)
 │   │   └── CoCoLog         — 统一日志工具
 │   │
 │   ├── ◇ Modules (功能模块层)
@@ -28,7 +28,7 @@ CoCoFlow v0.3.4
 │   │   └── Persistence     — SaveManager / SaveData (JSON 存档)
 │   │
 │   └── ◇ Gameplay (游戏玩法层)
-│       ├── Character       — CharacterContext / CharacterLifeCycle / CharacterNavigation / Locomotion
+│       ├── Character       — CharacterContextProvider / CharacterContext / CharacterLifeCycle / CharacterNavigationMotor / Locomotion
 │       ├── Enemy           — EnemyBrain / EnemySpline / EnemyVisionQuery / EngagementZone
 │       └── Item            — ItemContext / ItemInputDriver / Item 生命周期事实
 │
@@ -54,7 +54,7 @@ Samples~
 
 | 模块 | 状态 | 完成度 | 说明 |
 |------|------|--------|------|
-| **Core** | ✅ 稳定 | 95% | ServiceLocator / EventBus / StateMachine 已定型 |
+| **Core** | ✅ 稳定 | 95% | ServiceLocator / EventBus / State 已定型 |
 | **Input** | ✅ 基本完成 | 90% | ActionMap 切换、输入缓冲、多设备支持 |
 | **Camera** | ✅ 基本完成 | 85% | 第三人称相机、Cinemachine 虚拟相机绑定 |
 | **UI** | ✅ 基本完成 | 85% | 面板栈管理、View 生命周期 |
@@ -108,7 +108,7 @@ Samples~
 
 ## 架构文档
 
-- [Context / Network Boundary](Docs/ContextNetworkBoundary.md) — Context、Intent、StateMachine、EventEnvelope、Persistence ID 与网络 adapter 边界。
+- [Context / Network Boundary](Docs/ContextNetworkBoundary.md) — Context、Intent、State、EventEnvelope、Persistence ID 与网络 adapter 边界。
 
 ---
 

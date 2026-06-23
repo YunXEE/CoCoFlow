@@ -3,13 +3,17 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
 {
-    public class CharacterInputDriver : MonoBehaviour
+    public class CharacterInputDriver :
+        MonoBehaviour,
+        ICharacterContextSource,
+        ICharacterContextSourceUpdateMode
     {
         [Header("Context")]
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Input Source")]
         [SerializeField] private MonoBehaviour inputIntentSource;
+        [SerializeField] private int sourcePriority = 30;
         [SerializeField] private bool updateAutomatically = true;
 
         [Header("Action Names")]
@@ -21,8 +25,25 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         private CharacterContext _context;
         private ICoCoIntentSource<CoCoInputIntent> _inputIntentSource;
         private int _lastPerformedSequence;
+        private bool _isProviderDriven;
 
         #region Public API
+
+        public int Priority => sourcePriority;
+        public bool IsProviderDriven => _isProviderDriven;
+
+        public void WriteToContext(CharacterContext context)
+        {
+            var source = InputIntentSource;
+            if (context == null || source?.Intent == null) return;
+
+            ApplyInputIntent(context, source.Intent);
+        }
+
+        public void SetProviderDriven(bool providerDriven)
+        {
+            _isProviderDriven = providerDriven;
+        }
 
         public void SetContextProvider(MonoBehaviour provider)
         {
@@ -52,7 +73,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
         private void Update()
         {
-            if (updateAutomatically)
+            if (updateAutomatically && !_isProviderDriven)
             {
                 SampleInput();
             }
@@ -64,13 +85,14 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             var source = InputIntentSource;
             if (targetContext == null || source?.Intent == null) return false;
 
-            ApplyInputIntent(source.Intent);
+            ApplyInputIntent(targetContext, source.Intent);
             return true;
         }
 
-        private void ApplyInputIntent(CoCoInputIntent inputIntent)
+        private void ApplyInputIntent(
+            CharacterContext targetContext,
+            CoCoInputIntent inputIntent)
         {
-            var targetContext = Context;
             if (targetContext == null || inputIntent == null) return;
 
             var characterIntent = targetContext.Intent;

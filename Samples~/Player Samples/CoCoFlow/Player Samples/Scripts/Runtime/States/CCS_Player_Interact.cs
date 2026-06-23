@@ -29,5 +29,18 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
         }
 
         #endregion
+
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
+            base.DefineState(builder);
+            builder
+                .ReadsContext<CharacterContext>("Intent", "Returns to the best available state after interaction")
+                .CanTransitionTo<CCS_Player_Idle>("Interact duration finished")
+                .CanTransitionTo<CCS_Player_Move>("Interact duration finished with move input");
+        }
+
+        #endregion
     }
 }

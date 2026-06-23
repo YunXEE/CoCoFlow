@@ -4,15 +4,15 @@
 
 ## 目标
 
-CoCoFlow 的 gameplay 边界以 Context、Intent、StateMachine、Event、Persistence Identity 为核心。网络层不理解具体状态类、Animator、IK 或本地 Controller；网络 adapter 只搬运 Intent、Context snapshot 和 EventEnvelope。
+CoCoFlow 的 gameplay 边界以 Context、Intent、State、Event、Persistence Identity 为核心。网络层不理解具体状态类、Animator、IK 或本地 Controller；网络 adapter 只搬运 Intent、Context snapshot 和 EventEnvelope。
 
 ## 信息流
 
 ```text
 Input / AI / Timeline / Network / Replay
-  -> CoCoStateMachineController
+  -> CoCoStateController
   -> Context.Intent / Context facts
-  -> CoCoStateMachineBase lifecycle(context)
+  -> CoCoStateBase lifecycle(context)
   -> Arms: Motor / Combat / Interaction
   -> Context facts + CoCoEventBus events
   -> Presenter / Network Adapter / Persistence
@@ -23,7 +23,7 @@ Input / AI / Timeline / Network / Replay
 - `InputReader` 只表示输入端，不绑定 Character、Vehicle、UI 或具体 gameplay。
 - Character、Vehicle、Item 等对象在各自 gameplay 层把输入或交互请求翻译成自己的 Intent。
 - State 读取生命周期参数里的 `ICoCoContext`，不再为常规业务到处查找具体 Controller。
-- 常规状态切换由 `CoCoStateMachineController` 或其评估逻辑根据 Context 推进；旧状态直接 `ChangeState` 只作为兼容路径保留。
+- 常规状态切换由 `CoCoStateController` 或其评估逻辑根据 Context 推进；旧状态直接 `ChangeState` 只作为兼容路径保留。
 - Event 表示离散事实，重要 Event 必须对应可恢复的 Context 状态变化。
 
 ## Core Contracts
@@ -52,11 +52,13 @@ Core 不依赖 Fusion，也不依赖具体 gameplay 模块。
 - `CharacterMotionContext`：位置、旋转、速度、grounded。
 - `CharacterResourceContext`：生命值和死亡判断。
 - `CharacterPerceptionContext`：当前目标、目标可见性、最后已知位置。
-- `CharacterNavigationContext`：目标点、期望速度、是否有目的地。
+- `CharacterNavigationContext`：`CharacterContext.Navigation` 下的导航和移动请求事实，记录控制权、目标点、期望速度、路线进度和 warp 请求。
 
 玩家不是单独的 Core 类型。玩家输入通过 `CharacterInputDriver` 把 `CoCoInputIntent` 写入 `CharacterContext.Intent`。敌人行为树、Sensor、Spline 巡逻、Timeline、Network adapter 后续也应写同一个 `CharacterContext`。`CharacterInputDriver` 是 Character 的意图写入层，不持有状态切换权威。
 
-`CharacterLifeCycle` 是兼容门面：旧代码仍可调用 `TakeDamage/Heal/Revive`，但权威事实写入 `CharacterContext.Resources` 和 `CharacterContext.Lifecycle`。
+`CharacterContextProvider` 是本地默认 `CharacterContext` 宿主。它可以显式接入多个 `ICharacterContextSource`，在状态 tick 前按 priority 写入同一份 Context。业务场景需要额外事实时，继承 `CharacterContext` 并通过 `CharacterContextProvider<TContext>` 提供派生 Context，例如特殊动画参数或业务标记；消费侧仍通过 `ICoCoContextProvider<CharacterContext>` 接入。
+
+`CharacterLifeCycle` 是兼容门面和生命周期写入组件：旧代码仍可调用 `TakeDamage/Heal/Revive`，但它只从 provider 读取 Context，并把权威事实写入 `CharacterContext.Resources` 和 `CharacterContext.Lifecycle`。它不再作为 `CharacterContext` provider。
 
 默认死亡规则：
 
@@ -78,7 +80,7 @@ Health == 0
 - `ItemSemanticState`：Inactive、Available、Locked、Opening、Opened、Consumed。
 - `ItemInventoryPayload`：可选物品载荷。
 
-`ItemContextProvider` 提供 `ItemContext`，同时暴露 `RequestOpen/RequestUnlock/RequestUse` 作为最薄的 Item Intent 写入口。`ItemInputDriver` 可从 `ICoCoIntentSource<ItemIntent>` 采样，或被交互系统、网络 adapter、回放系统直接调用 `RequestOpen/RequestUnlock/RequestUse`。它们都不发布事件，也不切状态；Item 状态机读取 Context 后推进 Item 状态，并在状态事实落定后发布事件。
+`ItemContextProvider` 提供 `ItemContext`，同时暴露 `RequestOpen/RequestUnlock/RequestUse` 作为最薄的 Item Intent 写入口。`ItemInputDriver` 可从 `ICoCoIntentSource<ItemIntent>` 采样，或被交互系统、网络 adapter、回放系统直接调用 `RequestOpen/RequestUnlock/RequestUse`。它们都不发布事件，也不切状态；Item 状态控制器读取 Context 后推进 Item 状态，并在状态事实落定后发布事件。
 
 默认规则：
 
@@ -96,7 +98,7 @@ Consumed -> Lifecycle.State = Consumed
 - `IInputModeController`
 - `ICoCoIntentSource<CoCoInputIntent>`
 
-它不依赖 Character，不调用状态机，不理解 Player/Vehicle/Item。角色侧的 `CharacterInputDriver` 才负责将 `CoCoInputIntent` 翻译为 `CharacterIntent`。
+它不依赖 Character，不调用状态控制器，不理解 Player/Vehicle/Item。角色侧的 `CharacterInputDriver` 才负责将 `CoCoInputIntent` 翻译为 `CharacterIntent`。
 
 离散输入通过 `PerformedSequence` 表示新事件，避免一个按钮事件在多个 frame 中重复触发。
 

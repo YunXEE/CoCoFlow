@@ -19,7 +19,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
     }
 
     /// <summary>
-    /// 动画状态机行为扩展，用于精确触发自定义动画事件
+    /// Animator SMB 行为扩展，用于精确触发自定义动画事件
     /// 解决原生 Animation Event 在过渡或循环时可能存在的失效问题
     /// </summary>
     public class AnimEventSmb : StateMachineBehaviour
@@ -93,4 +93,3 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
     }
 }
-

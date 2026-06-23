@@ -8,8 +8,8 @@ CoCoFlow already routes behavior through intent and context:
 
 ```text
 InputReader or AI Provider
-  -> CoCoInputIntent / CharacterContext / CharacterNavigationContext
-  -> CoCoStateMachineController
+  -> CoCoInputIntent / CharacterContext
+  -> CoCoStateController
   -> State scripts
   -> Locomotion, Navigation, Animation, Combat
 ```
@@ -21,8 +21,7 @@ The Fusion layer should preserve that shape. It should bridge network data into 
 | Script | Interface | Responsibility |
 |---|---|---|
 | `NetInputReaderBridge` | `ICoCoIntentSource<CoCoInputIntent>` | Convert Fusion input into CoCoFlow input intent. |
-| `NetCharacterContextBridge` | `ICoCoContextProvider<CharacterContext>` | Synchronize health, lifecycle, identity, motion, perception ids, and character intent facts. |
-| `NetCharacterNavigationContextBridge` | `ICoCoContextProvider<CharacterNavigationContext>` | Synchronize navigation mode, destination, route progress, warp requests, owner facts, and desired speed. |
+| `NetCharacterContextBridge` | `ICoCoContextProvider<CharacterContext>` | Replace or feed the local `CharacterContextProvider` by synchronizing health, lifecycle, identity, motion, perception ids, character intent facts, and `CharacterContext.Navigation` facts. |
 | `NetEntityReferenceResolver` | optional helper | Resolve stable ids or Fusion object refs into local transforms. |
 
 ## Player Flow
@@ -33,15 +32,15 @@ Local InputReader
   -> NetInputReaderBridge on StateAuthority
   -> CharacterInputDriver
   -> CharacterContext.Intent
-  -> CoCoStateMachineController
+  -> CoCoStateController
 ```
 
 ## Enemy Flow
 
 ```text
 EnemyBrain and EnemySpline on StateAuthority
-  -> CharacterContext / CharacterNavigationContext
-  -> CoCoStateMachineController
+  -> CharacterContext
+  -> CoCoStateController
   -> State scripts
   -> CharacterNavigationMotor / CharacterLocomotion
 ```
@@ -51,7 +50,7 @@ Proxies should not run `EnemyBrain` or `EnemySpline`; they apply synchronized Co
 ## Boundaries
 
 - No Fusion dependency in package Runtime.
-- No dedicated network state machine.
+- No dedicated network State controller.
 - No direct synchronization of Unity `Transform` references.
 - No direct network ownership of Animator, Locomotion, or Combat scripts.
-- Context bridges may be separate per Context. A character can hold multiple Contexts and multiple state machine systems.
+- A character should expose one synchronized `CharacterContext`; navigation facts are part of that payload, not a second State context.

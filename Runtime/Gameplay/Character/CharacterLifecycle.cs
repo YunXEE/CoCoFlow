@@ -4,15 +4,14 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
 {
-    public class CharacterLifeCycle : MonoBehaviour, ICoCoContextProvider<CharacterContext>
+    public class CharacterLifeCycle : MonoBehaviour
     {
         [Header("Health Settings")]
         [SerializeField] private float maxHealth = 100f;
 
         [Header("Context")]
-        [Tooltip("可选外部 CharacterContext Provider。若为空，则使用本组件持有的默认 CharacterContext。")]
+        [Tooltip("CharacterContext Provider。若为空，会在当前 GameObject 上自动查找匹配的 Provider。")]
         [SerializeField] private MonoBehaviour contextProvider;
-        [SerializeField] private CharacterContext context = new CharacterContext();
 
         private CharacterContext _context;
 
@@ -103,13 +102,15 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             _context = null;
         }
 
-        public void ResetLocalContext()
+        public void ResetContextCache()
         {
             _context = null;
-            if (contextProvider == null)
-            {
-                context = new CharacterContext();
-            }
+        }
+
+        [Obsolete("Use ResetContextCache instead. CharacterLifeCycle no longer owns a local CharacterContext.")]
+        public void ResetLocalContext()
+        {
+            ResetContextCache();
         }
 
         #endregion
@@ -176,8 +177,21 @@ namespace CoCoFlow.Runtime.Gameplay.Character
                 return _context;
             }
 
-            _context = context;
-            return _context;
+            var behaviours = GetComponents<MonoBehaviour>();
+            foreach (var behaviour in behaviours)
+            {
+                if (ReferenceEquals(behaviour, this)) continue;
+                if (TryGetContextFromProvider(behaviour, out _context))
+                {
+                    if (contextProvider == null)
+                    {
+                        contextProvider = behaviour;
+                    }
+                    return _context;
+                }
+            }
+
+            return null;
         }
 
         private static bool TryGetContextFromProvider(

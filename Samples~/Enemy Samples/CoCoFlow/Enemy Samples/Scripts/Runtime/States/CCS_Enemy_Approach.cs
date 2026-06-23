@@ -22,14 +22,14 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
             if (ShouldFlee(characterContext))
             {
                 ReleaseNavigation();
-                Controller.ChangeState<CCS_Enemy_Flee>();
+                ChangeState<CCS_Enemy_Flee>();
                 return;
             }
 
             if (characterContext?.Intent.attack == true)
             {
                 ReleaseNavigation();
-                Controller.ChangeState<CCS_Enemy_Combat>();
+                ChangeState<CCS_Enemy_Combat>();
                 return;
             }
 

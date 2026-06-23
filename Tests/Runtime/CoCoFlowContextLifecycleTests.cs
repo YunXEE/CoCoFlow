@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Core;
@@ -8,7 +9,9 @@ using CoCoFlow.Runtime.Gameplay.Item;
 using CoCoFlow.Runtime.Modules.Input;
 using CoCoFlow.Runtime.Modules.Persistence;
 using NUnit.Framework;
+using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Splines;
 using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.ContextLifecycle
@@ -41,21 +44,35 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         [Test]
         public void RemovedGenericStateAndControllerTypesDoNotExist()
         {
-            var coreAssembly = typeof(CoCoStateMachineController).Assembly;
+            var coreAssembly = typeof(CoCoStateController).Assembly;
 
             Assert.IsNull(coreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoState`1"));
-            Assert.IsNull(coreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateMachineController`1"));
+            Assert.IsNull(coreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateController`1"));
         }
 
         [Test]
-        public void LegacyStateMachineChangesStatesWithoutContext()
+        public void StateBaseDoesNotExposeNestedStateLayers()
         {
-            var root = new GameObject("Legacy StateMachine Test");
+            Assert.IsNull(typeof(CoCoStateBase).GetProperty(
+                "StateLayers",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
+            Assert.IsNull(FindPrivateField(typeof(CoCoStateBase), "stateLayers"));
+        }
+
+        [Test]
+        public void LegacyStateChangesStatesWithoutContext()
+        {
+            var root = new GameObject("Legacy State Test");
             try
             {
                 var first = root.AddComponent<LegacyTestStateA>();
                 var second = root.AddComponent<LegacyTestStateB>();
-                var controller = root.AddComponent<CoCoStateMachineController>();
+                var controller = root.AddComponent<CoCoStateController>();
+                var mainLayer = new CoCoStateLayer(
+                    "Main",
+                    first,
+                    new CoCoStateBase[] { first, second });
+                controller.SetStateLayers(new[] { mainLayer });
 
                 controller.ChangeState<LegacyTestStateA>();
                 Assert.IsTrue(first.Initialized);
@@ -73,6 +90,40 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void ControllerOnlyRegistersExplicitStateLayerStates()
+        {
+            var root = new GameObject("Explicit State Registration Test");
+            try
+            {
+                var state = root.AddComponent<LegacyTestStateA>();
+                var controller = root.AddComponent<CoCoStateController>();
+
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new Regex("未注册的状态: LegacyTestStateA"));
+                controller.ChangeState<LegacyTestStateA>();
+
+                Assert.IsFalse(state.Initialized);
+                Assert.IsFalse(state.Entered);
+
+                var mainLayer = new CoCoStateLayer(
+                    "Main",
+                    state,
+                    new CoCoStateBase[] { state });
+                controller.SetStateLayers(new[] { mainLayer });
+                controller.ChangeState<LegacyTestStateA>();
+
+                Assert.IsTrue(state.Initialized);
+                Assert.IsTrue(state.Entered);
+                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(mainLayer));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void ExistingControllerPassesProviderContextToStateLifecycle()
         {
             var root = new GameObject("Single Controller Context Test");
@@ -80,13 +131,18 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             {
                 var provider = root.AddComponent<TestCharacterProvider>();
                 var state = root.AddComponent<ContextLifecycleState>();
-                var controller = root.AddComponent<CoCoStateMachineController>();
+                var controller = root.AddComponent<CoCoStateController>();
+                var mainLayer = new CoCoStateLayer(
+                    "Main",
+                    state,
+                    new CoCoStateBase[] { state });
 
                 controller.SetContextProvider(provider);
+                controller.SetStateLayers(new[] { mainLayer });
                 controller.ChangeState<ContextLifecycleState>();
-                controller.UpdateStateMachine();
-                controller.FixedUpdateStateMachine();
-                controller.ExitStateMachine();
+                controller.UpdateState();
+                controller.FixedUpdateState();
+                controller.ExitState();
 
                 Assert.AreSame(provider.Context, controller.Context);
                 Assert.AreSame(provider.Context, state.EnterContext);
@@ -101,6 +157,386 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void ContextOverrideIsRestoredAfterSingleTick()
+        {
+            var root = new GameObject("Context Override Restore Test");
+            try
+            {
+                var provider = root.AddComponent<TestCharacterProvider>();
+                var source = root.AddComponent<TestCharacterContextSource>();
+                source.Configure(10, Vector2.up, true);
+                provider.SetContextSources(new MonoBehaviour[] { source });
+
+                var state = root.AddComponent<ContextLifecycleState>();
+                var controller = root.AddComponent<CoCoStateController>();
+                var mainLayer = new CoCoStateLayer(
+                    "Main",
+                    state,
+                    new CoCoStateBase[] { state });
+                var overrideContext = new TestCharacterContext();
+
+                controller.SetContextProvider(provider);
+                controller.SetStateLayers(new[] { mainLayer });
+
+                controller.UpdateState(overrideContext);
+
+                Assert.AreSame(overrideContext, state.UpdateContext);
+                Assert.AreSame(provider.Context, controller.Context);
+                Assert.AreEqual(Vector2.zero, provider.Context.Intent.move);
+
+                controller.UpdateState();
+
+                Assert.AreSame(provider.Context, state.UpdateContext);
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.attack);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ControllerRequiresLayerWhenStateTypeExistsInMultipleLayers()
+        {
+            var root = new GameObject("Ambiguous State Layer Test");
+            try
+            {
+                var first = root.AddComponent<LegacyTestStateA>();
+                var second = root.AddComponent<LegacyTestStateA>();
+                var controller = root.AddComponent<CoCoStateController>();
+                var firstLayer = new CoCoStateLayer(
+                    "First",
+                    first,
+                    new CoCoStateBase[] { first });
+                var secondLayer = new CoCoStateLayer(
+                    "Second",
+                    second,
+                    new CoCoStateBase[] { second });
+
+                controller.SetStateLayers(new[] { firstLayer, secondLayer });
+
+                Assert.IsFalse(controller.IfHasState<LegacyTestStateA>());
+                Assert.IsTrue(controller.IfHasState<LegacyTestStateA>(firstLayer));
+                Assert.IsTrue(controller.IfHasState<LegacyTestStateA>(secondLayer));
+
+                LogAssert.Expect(
+                    LogType.Warning,
+                    new Regex("多个 State Layer.*LegacyTestStateA"));
+                controller.ChangeState<LegacyTestStateA>();
+
+                Assert.IsFalse(first.Entered);
+                Assert.IsFalse(second.Entered);
+
+                controller.ChangeState<LegacyTestStateA>(secondLayer);
+
+                Assert.IsFalse(first.Entered);
+                Assert.IsTrue(second.Entered);
+                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(secondLayer));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void LayerAwareEvaluateStateTypeCanDriveDuplicateStateTypesPerLayer()
+        {
+            var root = new GameObject("Layer Aware Evaluation Test");
+            try
+            {
+                var first = root.AddComponent<LegacyTestStateA>();
+                var second = root.AddComponent<LegacyTestStateA>();
+                var controller = root.AddComponent<LayerAwareDecisionStateController>();
+                var firstLayer = new CoCoStateLayer(
+                    "First",
+                    null,
+                    new CoCoStateBase[] { first });
+                var secondLayer = new CoCoStateLayer(
+                    "Second",
+                    null,
+                    new CoCoStateBase[] { second });
+
+                controller.Configure(firstLayer, secondLayer);
+                controller.SetStateLayers(new[] { firstLayer, secondLayer });
+
+                controller.UpdateState();
+
+                Assert.IsTrue(first.Entered);
+                Assert.IsTrue(second.Entered);
+                Assert.AreSame(first, controller.GetCurrentState(firstLayer));
+                Assert.AreSame(second, controller.GetCurrentState(secondLayer));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ControllerRunsExplicitStateLayersInOrderWithSharedContext()
+        {
+            var root = new GameObject("State Layer Controller Test");
+            var log = new System.Collections.Generic.List<string>();
+
+            try
+            {
+                var provider = root.AddComponent<TestCharacterProvider>();
+                var rootState = root.AddComponent<OrderedLifecycleState>();
+                var rootController = root.AddComponent<CoCoStateController>();
+                rootState.Configure("root", log);
+                rootController.SetContextProvider(provider);
+
+                var childAState = root.AddComponent<OrderedLifecycleState>();
+                childAState.Configure("child-a", log);
+
+                var childBState = root.AddComponent<OrderedLifecycleState>();
+                childBState.Configure("child-b", log);
+
+                rootController.SetStateLayers(new[]
+                {
+                    new CoCoStateLayer("main", rootState, new CoCoStateBase[] { rootState }, 0),
+                    new CoCoStateLayer("child-b", childBState, new CoCoStateBase[] { childBState }, 20),
+                    new CoCoStateLayer("empty", null, null, 15),
+                    new CoCoStateLayer("child-a", childAState, new CoCoStateBase[] { childAState }, 10)
+                });
+
+                rootController.EnterState();
+                rootController.UpdateState();
+                rootController.FixedUpdateState();
+                rootController.ExitState();
+
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "root.enter",
+                        "child-a.enter",
+                        "child-b.enter",
+                        "root.update",
+                        "child-a.update",
+                        "child-b.update",
+                        "root.fixed",
+                        "child-a.fixed",
+                        "child-b.fixed",
+                        "child-b.exit",
+                        "child-a.exit",
+                        "root.exit"
+                    },
+                    log);
+                Assert.AreSame(provider.Context, rootState.EnterContext);
+                Assert.AreSame(provider.Context, childAState.EnterContext);
+                Assert.AreSame(provider.Context, childBState.EnterContext);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CharacterContextProviderWritesSourcesByPriorityBeforeStateTick()
+        {
+            var root = new GameObject("Character Context Sources Test");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var low = root.AddComponent<TestCharacterContextSource>();
+                low.Configure(10, Vector2.right, false);
+                var high = root.AddComponent<TestCharacterContextSource>();
+                high.Configure(50, Vector2.up, true);
+                var controller = root.AddComponent<CoCoStateController>();
+
+                provider.SetContextSources(new MonoBehaviour[] { high, null, low });
+                controller.SetContextProvider(provider);
+                controller.UpdateState();
+
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.attack);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CharacterContextProviderIgnoresInactiveOrDisabledSources()
+        {
+            var root = new GameObject("Character Context Active Source Test");
+            var inactiveRoot = new GameObject("Inactive Context Source");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var active = root.AddComponent<TestCharacterContextSource>();
+                active.Configure(10, Vector2.up, true);
+
+                var inactive = inactiveRoot.AddComponent<TestCharacterContextSource>();
+                inactive.Configure(90, Vector2.down, false);
+                inactiveRoot.SetActive(false);
+
+                var disabled = root.AddComponent<TestCharacterContextSource>();
+                disabled.Configure(100, Vector2.left, false);
+                disabled.enabled = false;
+
+                provider.SetContextSources(new MonoBehaviour[] { active, inactive, disabled });
+                provider.ResolveContextFrame(provider.Context);
+
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.attack);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(inactiveRoot);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CharacterContextProviderUsesDeclarationOrderForEqualPrioritySources()
+        {
+            var root = new GameObject("Character Context Equal Priority Test");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var first = root.AddComponent<TestCharacterContextSource>();
+                first.Configure(10, Vector2.right, false);
+                var second = root.AddComponent<TestCharacterContextSource>();
+                second.Configure(10, Vector2.up, true);
+
+                provider.SetContextSources(new MonoBehaviour[] { first, second });
+                provider.ResolveContextFrame(provider.Context);
+
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.attack);
+
+                provider.Context.Intent.move = Vector2.zero;
+                provider.Context.Intent.attack = false;
+
+                provider.SetContextSources(new MonoBehaviour[] { second, first });
+                provider.ResolveContextFrame(provider.Context);
+
+                Assert.AreEqual(Vector2.right, provider.Context.Intent.move);
+                Assert.IsFalse(provider.Context.Intent.attack);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void SetContextSourcesInvalidatesSameFrameSourceCache()
+        {
+            var root = new GameObject("Character Context Source Cache Test");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var first = root.AddComponent<TestCharacterContextSource>();
+                first.Configure(10, Vector2.right, false);
+                var second = root.AddComponent<TestCharacterContextSource>();
+                second.Configure(10, Vector2.up, true);
+
+                provider.SetContextSources(new MonoBehaviour[] { first });
+                provider.ResolveContextFrame(provider.Context);
+
+                Assert.AreEqual(Vector2.right, provider.Context.Intent.move);
+                Assert.IsFalse(provider.Context.Intent.attack);
+
+                provider.SetContextSources(new MonoBehaviour[] { second });
+                provider.ResolveContextFrame(provider.Context);
+
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.attack);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ProviderDrivenCharacterInputDriverSkipsAutomaticUpdate()
+        {
+            var root = new GameObject("Provider Driven Character Input Test");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var source = root.AddComponent<TestInputIntentSource>();
+                var driver = root.AddComponent<CharacterInputDriver>();
+                var controller = root.AddComponent<CoCoStateController>();
+                SetPrivateField(controller, "autoUpdate", false);
+
+                driver.SetContextProvider(provider);
+                driver.SetInputIntentSource(source);
+                provider.SetContextSources(new MonoBehaviour[] { driver });
+                controller.SetContextProvider(provider);
+
+                source.Intent.performedAction = "Attack";
+                source.Intent.performedSequence = 1;
+                controller.UpdateState();
+
+                Assert.IsTrue(driver.IsProviderDriven);
+                Assert.IsTrue(provider.Context.Intent.attack);
+
+                yield return null;
+
+                Assert.IsTrue(provider.Context.Intent.attack);
+
+                provider.SetContextSources(null);
+                Assert.IsFalse(driver.IsProviderDriven);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ProviderDrivenEnemySplineSkipsAutomaticUpdate()
+        {
+            var enemy = new GameObject("Provider Driven Enemy Spline Test");
+            var splineRoot = new GameObject("Provider Driven Spline Root");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.transform.position = Vector3.zero;
+                var provider = enemy.AddComponent<CharacterContextProvider>();
+                var spline = enemy.AddComponent<EnemySpline>();
+                var splineContainer = splineRoot.AddComponent<SplineContainer>();
+                splineContainer.Spline = new Spline
+                {
+                    new BezierKnot(new float3(0f, 0f, 0f)),
+                    new BezierKnot(new float3(0f, 0f, 10f))
+                };
+
+                spline.SetContextProvider(provider);
+                spline.SetConfigData(config);
+                spline.SetSplineContainer(splineContainer);
+                provider.SetContextSources(new MonoBehaviour[] { spline });
+
+                Assert.IsTrue(spline.IsProviderDriven);
+                Assert.IsTrue(spline.Tick(provider.Context, 0.25f));
+                float progressAfterProviderTick = spline.RouteProgress;
+                Assert.Greater(progressAfterProviderTick, 0f);
+
+                yield return null;
+
+                Assert.AreEqual(progressAfterProviderTick, spline.RouteProgress, 0.00001f);
+
+                provider.SetContextSources(null);
+                Assert.IsFalse(spline.IsProviderDriven);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(splineRoot);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
         public void SpecializedCharacterContextCanDriveControllerDecision()
         {
             var root = new GameObject("Specialized Character Context Test");
@@ -110,10 +546,15 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             try
             {
                 var provider = root.AddComponent<TestCharacterProvider>();
-                root.AddComponent<CharacterIdleTestState>();
-                root.AddComponent<CharacterAttackTestState>();
-                var controller = root.AddComponent<TestDecisionStateMachineController>();
+                var idle = root.AddComponent<CharacterIdleTestState>();
+                var attack = root.AddComponent<CharacterAttackTestState>();
+                var controller = root.AddComponent<TestDecisionStateController>();
+                var mainLayer = new CoCoStateLayer(
+                    "Main",
+                    idle,
+                    new CoCoStateBase[] { idle, attack });
                 controller.SetContextProvider(provider);
+                controller.SetStateLayers(new[] { mainLayer });
 
                 provider.Context.Lifecycle.TransitionTo(CoCoLifecycleState.Active);
                 provider.Context.Intent.attack = true;
@@ -123,9 +564,9 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                     eventReceived = evt.Context == provider.Context;
                 });
 
-                controller.UpdateStateMachine();
+                controller.UpdateState();
 
-                Assert.AreEqual(typeof(CharacterAttackTestState), controller.CurrentStateType);
+                Assert.AreEqual(typeof(CharacterAttackTestState), controller.GetCurrentStateType(mainLayer));
                 Assert.IsTrue(eventReceived);
                 Assert.IsTrue(provider.Context.Resources.IsDead);
                 Assert.AreEqual((int)CharacterSemanticState.Dead, provider.Context.SemanticStateId);
@@ -177,33 +618,75 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void CharacterNavigationIsIndependentContextForNavigationFacts()
+        public void CharacterContextProviderSuppliesDefaultCharacterContext()
+        {
+            var root = new GameObject("Character Context Provider Test");
+            try
+            {
+                var provider = root.AddComponent<CharacterContextProvider>();
+                ICoCoContextProvider<CharacterContext> contextProvider = provider;
+
+                Assert.IsNotNull(provider.Context);
+                Assert.AreSame(provider.Context, contextProvider.Context);
+                Assert.IsInstanceOf<CharacterContext>(provider.Context);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void DerivedCharacterContextProviderCanExposeBusinessContext()
+        {
+            var root = new GameObject("Derived Character Context Provider Test");
+            try
+            {
+                var provider = root.AddComponent<TestCharacterProvider>();
+                ICoCoContextProvider<CharacterContext> baseProvider = provider;
+
+                provider.Context.DecisionStamp = 7;
+
+                Assert.AreSame(provider.Context, baseProvider.Context);
+                Assert.IsInstanceOf<TestCharacterContext>(baseProvider.Context);
+                Assert.AreEqual(7, ((TestCharacterContext)baseProvider.Context).DecisionStamp);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CharacterNavigationFactsLiveInsideCharacterContext()
         {
             var root = new GameObject("Character Navigation Context Test");
             try
             {
+                var provider = root.AddComponent<CharacterContextProvider>();
                 var lifecycle = root.AddComponent<CharacterLifeCycle>();
-                var navigation = root.AddComponent<CharacterNavigation>();
-                var characterController = root.AddComponent<CoCoStateMachineController>();
-                var navigationController = root.AddComponent<CoCoStateMachineController>();
+                var characterController = root.AddComponent<CoCoStateController>();
+                var navigationContext = provider.Context.Navigation;
 
-                characterController.SetContextProvider(lifecycle);
-                navigationController.SetContextProvider(navigation);
+                characterController.SetContextProvider(provider);
 
-                navigation.Context.TryClaimControl("EnemySpline");
-                navigation.Context.SetDestination(
+                navigationContext.TryClaimControl("EnemySpline");
+                navigationContext.SetDestination(
                     new Vector3(3f, 0f, 2f),
                     2f,
                     0.25f,
                     CharacterNavigationMode.Patrol);
 
-                Assert.AreSame(lifecycle.Context, characterController.Context);
-                Assert.AreSame(navigation.Context, navigationController.Context);
-                Assert.IsInstanceOf<ICoCoContext>(navigation.Context);
-                Assert.AreEqual("EnemySpline", navigation.Context.ControlOwner);
-                Assert.IsTrue(navigation.Context.HasDestination);
-                Assert.AreEqual(CharacterNavigationMode.Patrol, navigation.Context.Mode);
-                Assert.IsNull(typeof(CharacterContext).GetProperty("Navigation"));
+                Assert.AreSame(provider.Context, lifecycle.Context);
+                Assert.AreSame(provider.Context, characterController.Context);
+                Assert.AreSame(provider.Context.Navigation, navigationContext);
+                Assert.IsFalse(typeof(ICoCoContext).IsAssignableFrom(typeof(CharacterNavigationContext)));
+                Assert.IsNull(typeof(CharacterContext).Assembly.GetType(
+                    "CoCoFlow.Runtime.Gameplay.Character.CharacterNavigation"));
+                Assert.AreEqual("EnemySpline", navigationContext.ControlOwner);
+                Assert.IsTrue(navigationContext.HasDestination);
+                Assert.AreEqual(CharacterNavigationMode.Patrol, navigationContext.Mode);
+                Assert.IsNotNull(typeof(CharacterContext).GetProperty("Navigation"));
             }
             finally
             {
@@ -247,25 +730,25 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 enemy.transform.position = Vector3.zero;
                 target.transform.position = new Vector3(0f, 0f, 4f);
 
+                var provider = enemy.AddComponent<CharacterContextProvider>();
                 var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
-                var navigation = enemy.AddComponent<CharacterNavigation>();
                 var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
                 brain.SetIntentData(intent);
                 brain.SetConfigData(config);
-                brain.SetCharacterContextProvider(lifecycle);
-                brain.SetNavigationProvider(navigation);
+                brain.SetCharacterContextProvider(provider);
 
                 enemy.SetActive(true);
                 Physics.SyncTransforms();
 
                 Assert.IsTrue(brain.Tick(true));
-                Assert.AreSame(target.transform, lifecycle.Context.Perception.currentTarget);
-                Assert.AreSame(target.transform, lifecycle.Context.Intent.desiredTarget);
-                Assert.IsTrue(lifecycle.Context.Intent.hasMovePosition);
-                Assert.IsFalse(lifecycle.Context.Intent.attack);
-                Assert.AreEqual(CharacterNavigationMode.Chase, navigation.Context.Mode);
-                Assert.AreEqual("EnemyBrain", navigation.Context.ControlOwner);
-                Assert.IsTrue(navigation.Context.HasDestination);
+                Assert.AreSame(target.transform, provider.Context.Perception.currentTarget);
+                Assert.AreSame(target.transform, provider.Context.Intent.desiredTarget);
+                Assert.IsTrue(provider.Context.Intent.hasMovePosition);
+                Assert.IsFalse(provider.Context.Intent.attack);
+                Assert.AreEqual(CharacterNavigationMode.Chase, provider.Context.Navigation.Mode);
+                Assert.AreEqual("EnemyBrain", provider.Context.Navigation.ControlOwner);
+                Assert.IsTrue(provider.Context.Navigation.HasDestination);
             }
             finally
             {
@@ -292,20 +775,20 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 target.transform.position = new Vector3(0f, 0f, 40f);
                 SetPrivateField(intent, "disengageDelay", 0f);
 
+                var provider = enemy.AddComponent<CharacterContextProvider>();
                 var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
-                var navigation = enemy.AddComponent<CharacterNavigation>();
                 var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
                 brain.SetIntentData(intent);
                 brain.SetConfigData(config);
-                brain.SetCharacterContextProvider(lifecycle);
-                brain.SetNavigationProvider(navigation);
+                brain.SetCharacterContextProvider(provider);
 
-                lifecycle.Context.Perception.currentTarget = target.transform;
-                lifecycle.Context.Perception.currentTargetId = "target";
-                lifecycle.Context.Perception.lastKnownPosition = new Vector3(0f, 0f, 4f);
-                navigation.Context.TryClaimControl("EnemyBrain", 10);
-                navigation.Context.SetDestination(
-                    lifecycle.Context.Perception.lastKnownPosition,
+                provider.Context.Perception.currentTarget = target.transform;
+                provider.Context.Perception.currentTargetId = "target";
+                provider.Context.Perception.lastKnownPosition = new Vector3(0f, 0f, 4f);
+                provider.Context.Navigation.TryClaimControl("EnemyBrain", 10);
+                provider.Context.Navigation.SetDestination(
+                    provider.Context.Perception.lastKnownPosition,
                     config.ChaseSpeed,
                     0.1f,
                     CharacterNavigationMode.Chase);
@@ -314,10 +797,10 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Physics.SyncTransforms();
 
                 Assert.IsTrue(brain.Tick(true));
-                Assert.IsNull(lifecycle.Context.Perception.currentTarget);
-                Assert.IsFalse(lifecycle.Context.Intent.hasMovePosition);
-                Assert.IsFalse(navigation.Context.HasAnyControl);
-                Assert.IsFalse(navigation.Context.HasDestination);
+                Assert.IsNull(provider.Context.Perception.currentTarget);
+                Assert.IsFalse(provider.Context.Intent.hasMovePosition);
+                Assert.IsFalse(provider.Context.Navigation.HasAnyControl);
+                Assert.IsFalse(provider.Context.Navigation.HasDestination);
             }
             finally
             {
@@ -343,22 +826,22 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 enemy.transform.position = Vector3.zero;
                 target.transform.position = new Vector3(0f, 0f, 1f);
 
+                var provider = enemy.AddComponent<CharacterContextProvider>();
                 var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
-                var navigation = enemy.AddComponent<CharacterNavigation>();
                 var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
                 brain.SetIntentData(intent);
                 brain.SetConfigData(config);
-                brain.SetCharacterContextProvider(lifecycle);
-                brain.SetNavigationProvider(navigation);
+                brain.SetCharacterContextProvider(provider);
 
-                lifecycle.Context.Perception.currentTarget = target.transform;
-                lifecycle.Context.Perception.currentTargetId = "target.destroyed";
-                lifecycle.Context.Perception.isTargetVisible = true;
-                lifecycle.Context.Intent.desiredTarget = target.transform;
-                lifecycle.Context.Intent.desiredTargetId = "target.destroyed";
-                lifecycle.Context.Intent.attack = true;
-                navigation.Context.TryClaimControl("EnemyBrain", 10);
-                navigation.Context.SetDestination(
+                provider.Context.Perception.currentTarget = target.transform;
+                provider.Context.Perception.currentTargetId = "target.destroyed";
+                provider.Context.Perception.isTargetVisible = true;
+                provider.Context.Intent.desiredTarget = target.transform;
+                provider.Context.Intent.desiredTargetId = "target.destroyed";
+                provider.Context.Intent.attack = true;
+                provider.Context.Navigation.TryClaimControl("EnemyBrain", 10);
+                provider.Context.Navigation.SetDestination(
                     target.transform.position,
                     config.ChaseSpeed,
                     intent.AttackRange,
@@ -371,16 +854,16 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Physics.SyncTransforms();
 
                 Assert.IsTrue(brain.Tick(true));
-                Assert.IsNull(lifecycle.Context.Perception.currentTarget);
-                Assert.AreEqual(string.Empty, lifecycle.Context.Perception.currentTargetId);
-                Assert.IsFalse(lifecycle.Context.Perception.isTargetVisible);
-                Assert.IsNull(lifecycle.Context.Intent.desiredTarget);
-                Assert.AreEqual(string.Empty, lifecycle.Context.Intent.desiredTargetId);
-                Assert.IsFalse(lifecycle.Context.Intent.attack);
-                Assert.IsFalse(lifecycle.Context.Intent.hasMovePosition);
-                Assert.IsFalse(navigation.Context.HasAnyControl);
-                Assert.IsFalse(navigation.Context.HasDestination);
-                Assert.IsFalse(navigation.Context.HasDesiredVelocity);
+                Assert.IsNull(provider.Context.Perception.currentTarget);
+                Assert.AreEqual(string.Empty, provider.Context.Perception.currentTargetId);
+                Assert.IsFalse(provider.Context.Perception.isTargetVisible);
+                Assert.IsNull(provider.Context.Intent.desiredTarget);
+                Assert.AreEqual(string.Empty, provider.Context.Intent.desiredTargetId);
+                Assert.IsFalse(provider.Context.Intent.attack);
+                Assert.IsFalse(provider.Context.Intent.hasMovePosition);
+                Assert.IsFalse(provider.Context.Navigation.HasAnyControl);
+                Assert.IsFalse(provider.Context.Navigation.HasDestination);
+                Assert.IsFalse(provider.Context.Navigation.HasDesiredVelocity);
             }
             finally
             {
@@ -666,7 +1149,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
 
         [Test]
-        public void InputReaderIsCoreIntentSourceWithoutGameplayOrStateMachineAuthority()
+        public void InputReaderIsCoreIntentSourceWithoutGameplayOrStateAuthority()
         {
             var inputReaderType = typeof(InputReader);
             var intentSourceType = typeof(ICoCoIntentSource<CoCoInputIntent>);
@@ -715,10 +1198,10 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var root = new GameObject("Character Input Driver Test");
             try
             {
-                var lifecycle = root.AddComponent<CharacterLifeCycle>();
+                var provider = root.AddComponent<CharacterContextProvider>();
                 var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
-                driver.SetContextProvider(lifecycle);
+                driver.SetContextProvider(provider);
                 driver.SetInputIntentSource(source);
 
                 source.Intent.move = new Vector2(0.75f, -0.25f);
@@ -727,26 +1210,26 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 source.Intent.performedSequence = 1;
 
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.AreEqual(source.Intent.move, lifecycle.Context.Intent.move);
-                Assert.AreEqual(source.Intent.look, lifecycle.Context.Intent.look);
-                Assert.IsTrue(lifecycle.Context.Intent.attack);
-                Assert.IsFalse(lifecycle.Context.Intent.interact);
+                Assert.AreEqual(source.Intent.move, provider.Context.Intent.move);
+                Assert.AreEqual(source.Intent.look, provider.Context.Intent.look);
+                Assert.IsTrue(provider.Context.Intent.attack);
+                Assert.IsFalse(provider.Context.Intent.interact);
 
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.IsFalse(lifecycle.Context.Intent.attack);
-                Assert.IsFalse(lifecycle.Context.Intent.interact);
+                Assert.IsFalse(provider.Context.Intent.attack);
+                Assert.IsFalse(provider.Context.Intent.interact);
 
                 source.Intent.performedAction = "Interact";
                 source.Intent.performedSequence = 2;
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.IsFalse(lifecycle.Context.Intent.attack);
-                Assert.IsTrue(lifecycle.Context.Intent.interact);
+                Assert.IsFalse(provider.Context.Intent.attack);
+                Assert.IsTrue(provider.Context.Intent.interact);
 
                 source.Intent.performedAction = "UseSkill";
                 source.Intent.performedSequence = 3;
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.IsFalse(lifecycle.Context.Intent.interact);
-                Assert.IsTrue(lifecycle.Context.Intent.useSkill);
+                Assert.IsFalse(provider.Context.Intent.interact);
+                Assert.IsTrue(provider.Context.Intent.useSkill);
 
                 Assert.IsNull(typeof(CharacterInputDriver).GetMethod(
                     "ChangeState",
@@ -766,7 +1249,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var root = new GameObject("Character Input Driver Service Test");
             try
             {
-                var lifecycle = root.AddComponent<CharacterLifeCycle>();
+                var provider = root.AddComponent<CharacterContextProvider>();
                 var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
 
@@ -776,8 +1259,8 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 CoCoServices.Register<ICoCoIntentSource<CoCoInputIntent>>(source);
 
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.AreEqual(Vector2.up, lifecycle.Context.Intent.move);
-                Assert.IsTrue(lifecycle.Context.Intent.jump);
+                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
+                Assert.IsTrue(provider.Context.Intent.jump);
             }
             finally
             {
@@ -786,31 +1269,35 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void CharacterLifeCycleProvidesDefaultCharacterContextAndKeepsEvents()
+        public void CharacterLifeCycleWritesProviderContextAndKeepsEvents()
         {
             var root = new GameObject("Character LifeCycle Test");
             var deathEventReceived = false;
 
             try
             {
+                var provider = root.AddComponent<CharacterContextProvider>();
                 var lifecycle = root.AddComponent<CharacterLifeCycle>();
-                var controller = root.AddComponent<CoCoStateMachineController>();
+                var controller = root.AddComponent<CoCoStateController>();
+                lifecycle.SetContextProvider(provider);
                 lifecycle.OnDeath += () => deathEventReceived = true;
 
-                lifecycle.TakeDamage(lifecycle.Context.Resources.MaxHealth);
+                lifecycle.TakeDamage(provider.Context.Resources.MaxHealth);
 
-                Assert.AreSame(lifecycle.Context, controller.Context);
+                Assert.IsFalse(typeof(ICoCoContextProvider<CharacterContext>).IsAssignableFrom(typeof(CharacterLifeCycle)));
+                Assert.AreSame(provider.Context, lifecycle.Context);
+                Assert.AreSame(provider.Context, controller.Context);
                 Assert.IsTrue(deathEventReceived);
                 Assert.IsTrue(lifecycle.IsDead);
                 Assert.AreEqual(0f, lifecycle.CurrentHealth);
-                Assert.AreEqual((int)CharacterSemanticState.Dead, lifecycle.Context.SemanticStateId);
-                Assert.AreEqual(CoCoLifecycleState.Disabled, lifecycle.Context.Lifecycle.State);
+                Assert.AreEqual((int)CharacterSemanticState.Dead, provider.Context.SemanticStateId);
+                Assert.AreEqual(CoCoLifecycleState.Disabled, provider.Context.Lifecycle.State);
 
                 lifecycle.Revive(0.5f);
 
                 Assert.IsFalse(lifecycle.IsDead);
-                Assert.AreEqual(CoCoLifecycleState.Active, lifecycle.Context.Lifecycle.State);
-                Assert.AreEqual(lifecycle.Context.Resources.MaxHealth * 0.5f, lifecycle.CurrentHealth);
+                Assert.AreEqual(CoCoLifecycleState.Active, provider.Context.Lifecycle.State);
+                Assert.AreEqual(provider.Context.Resources.MaxHealth * 0.5f, lifecycle.CurrentHealth);
             }
             finally
             {
@@ -832,9 +1319,13 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 provider.Context.Payload.itemId = "item.test";
                 provider.Context.SetLocked();
 
-                root.AddComponent<ItemIntentTestState>();
-                var controller = root.AddComponent<CoCoStateMachineController>();
+                var state = root.AddComponent<ItemIntentTestState>();
+                var controller = root.AddComponent<CoCoStateController>();
                 controller.SetContextProvider(provider);
+                controller.SetStateLayers(new[]
+                {
+                    new CoCoStateLayer("Main", state, new CoCoStateBase[] { state })
+                });
                 controller.ChangeState<ItemIntentTestState>();
 
                 agent.Subscribe<ItemOpenedEvent>((ref ItemOpenedEvent evt) =>
@@ -849,18 +1340,18 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 });
 
                 provider.Context.Intent.openRequested = true;
-                controller.UpdateStateMachine();
+                controller.UpdateState();
                 Assert.AreEqual(ItemSemanticState.Locked, provider.Context.ItemState);
 
                 provider.Context.Intent.unlockRequested = true;
                 provider.Context.Intent.openRequested = true;
-                controller.UpdateStateMachine();
+                controller.UpdateState();
 
                 Assert.AreEqual(ItemSemanticState.Opened, provider.Context.ItemState);
                 Assert.IsTrue(openedMatchesState);
 
                 provider.Context.Intent.useRequested = true;
-                controller.UpdateStateMachine();
+                controller.UpdateState();
 
                 Assert.AreEqual(ItemSemanticState.Consumed, provider.Context.ItemState);
                 Assert.AreEqual(CoCoLifecycleState.Consumed, provider.Context.Lifecycle.State);
@@ -894,13 +1385,20 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         #region Internal Logic
 
 
-        private sealed class LegacyTestStateA : CoCoStateMachineBase
+        private sealed class LegacyTestStateA : CoCoStateBase
         {
             public bool Initialized { get; private set; }
             public bool Entered { get; private set; }
             public bool Exited { get; private set; }
 
-            public override void Init(CoCoStateMachineController targetController)
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .UsesOperation<CoCoStateController>("Legacy lifecycle callback test")
+                    .CanTransitionTo<LegacyTestStateB>("Legacy state switch test");
+            }
+
+            public override void Init(CoCoStateController targetController)
             {
                 base.Init(targetController);
                 Initialized = true;
@@ -919,12 +1417,19 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
-        private sealed class LegacyTestStateB : CoCoStateMachineBase
+        private sealed class LegacyTestStateB : CoCoStateBase
         {
             public bool Initialized { get; private set; }
             public bool Entered { get; private set; }
 
-            public override void Init(CoCoStateMachineController targetController)
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .UsesOperation<CoCoStateController>("Legacy lifecycle callback test")
+                    .CanTransitionTo<LegacyTestStateA>("Legacy state switch test");
+            }
+
+            public override void Init(CoCoStateController targetController)
             {
                 base.Init(targetController);
                 Initialized = true;
@@ -1009,19 +1514,94 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             return (bool)method.Invoke(target, null);
         }
 
-        private sealed class TestCharacterProvider :
-            MonoBehaviour,
-            ICoCoContextProvider<TestCharacterContext>
+        private sealed class TestCharacterProvider : CharacterContextProvider<TestCharacterContext>
         {
-            public TestCharacterContext Context { get; } = new TestCharacterContext();
+            private readonly TestCharacterContext _context = new TestCharacterContext();
+
+            public override TestCharacterContext Context => _context;
         }
 
-        private sealed class ContextLifecycleState : CoCoStateMachineBase
+        private sealed class TestCharacterContextSource :
+            MonoBehaviour,
+            ICharacterContextSource
+        {
+            private int _priority;
+            private Vector2 _move;
+            private bool _attack;
+
+            public int Priority => _priority;
+
+            public void Configure(int priority, Vector2 move, bool attack)
+            {
+                _priority = priority;
+                _move = move;
+                _attack = attack;
+            }
+
+            public void WriteToContext(CharacterContext context)
+            {
+                context.Intent.move = _move;
+                context.Intent.attack = _attack;
+            }
+        }
+
+        private sealed class OrderedLifecycleState : CoCoStateBase
+        {
+            private string _name;
+            private System.Collections.Generic.List<string> _log;
+
+            public ICoCoContext EnterContext { get; private set; }
+
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .ReadsContext<CoCoEntityContext>("Lifecycle")
+                    .UsesOperation<CoCoStateController>("Ordered lifecycle callback test");
+            }
+
+            public void Configure(
+                string stateName,
+                System.Collections.Generic.List<string> log)
+            {
+                _name = stateName;
+                _log = log;
+            }
+
+            public override void Enter(ICoCoContext context)
+            {
+                EnterContext = context;
+                _log.Add($"{_name}.enter");
+            }
+
+            public override void OnStateUpdate(ICoCoContext context)
+            {
+                _log.Add($"{_name}.update");
+            }
+
+            public override void OnStateFixedUpdate(ICoCoContext context)
+            {
+                _log.Add($"{_name}.fixed");
+            }
+
+            public override void Exit(ICoCoContext context)
+            {
+                _log.Add($"{_name}.exit");
+            }
+        }
+
+        private sealed class ContextLifecycleState : CoCoStateBase
         {
             public ICoCoContext EnterContext { get; private set; }
             public ICoCoContext UpdateContext { get; private set; }
             public ICoCoContext FixedUpdateContext { get; private set; }
             public ICoCoContext ExitContext { get; private set; }
+
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .ReadsContext<CoCoEntityContext>("Lifecycle")
+                    .UsesOperation<CoCoStateController>("Context lifecycle callback test");
+            }
 
             public override void Enter(ICoCoContext context)
             {
@@ -1048,7 +1628,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
-        private sealed class TestDecisionStateMachineController : CoCoStateMachineController
+        private sealed class TestDecisionStateController : CoCoStateController
         {
             protected override Type EvaluateStateType(ICoCoContext context)
             {
@@ -1067,15 +1647,60 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
-        private sealed class CharacterIdleTestState : CoCoStateMachineBase { }
+        private sealed class LayerAwareDecisionStateController : CoCoStateController
+        {
+            private CoCoStateLayer _firstLayer;
+            private CoCoStateLayer _secondLayer;
+
+            public void Configure(
+                CoCoStateLayer firstLayer,
+                CoCoStateLayer secondLayer)
+            {
+                _firstLayer = firstLayer;
+                _secondLayer = secondLayer;
+            }
+
+            protected override Type EvaluateStateType(
+                CoCoStateLayer layer,
+                ICoCoContext context)
+            {
+                if (ReferenceEquals(layer, _firstLayer) ||
+                    ReferenceEquals(layer, _secondLayer))
+                {
+                    return typeof(LegacyTestStateA);
+                }
+
+                return null;
+            }
+        }
+
+        private sealed class CharacterIdleTestState : CoCoStateBase
+        {
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .ReadsContext<CharacterContext>("Intent.attack")
+                    .CanTransitionTo<CharacterAttackTestState>("Attack intent")
+                    .CanTransitionTo<CharacterIdleTestState>("No attack intent");
+            }
+        }
 
         private struct TestCharacterDamagedEvent
         {
             public CharacterContext Context;
         }
 
-        private sealed class CharacterAttackTestState : CoCoStateMachineBase
+        private sealed class CharacterAttackTestState : CoCoStateBase
         {
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .ReadsContext<CharacterContext>("Resources")
+                    .WritesContext<CharacterContext>("Resources.CurrentHealth")
+                    .WritesContext<CharacterContext>("Lifecycle")
+                    .UsesOperation<CoCoStateController>("Decision state transition test");
+            }
+
             public override void Enter(ICoCoContext context)
             {
                 base.Enter(context);
@@ -1092,8 +1717,18 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
-        private sealed class ItemIntentTestState : CoCoStateMachineBase
+        private sealed class ItemIntentTestState : CoCoStateBase
         {
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .ReadsContext<ItemContext>("Intent")
+                    .ReadsContext<ItemContext>("ItemState")
+                    .WritesContext<ItemContext>("ItemState")
+                    .WritesContext<ItemContext>("Intent")
+                    .UsesOperation<CoCoStateController>("Item intent state test");
+            }
+
             public override void OnStateUpdate(ICoCoContext context)
             {
                 base.OnStateUpdate(context);

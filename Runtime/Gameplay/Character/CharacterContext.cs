@@ -133,11 +133,13 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         [SerializeField] private CharacterMotionContext motion = new CharacterMotionContext();
         [SerializeField] private CharacterResourceContext resources = new CharacterResourceContext();
         [SerializeField] private CharacterPerceptionContext perception = new CharacterPerceptionContext();
+        [SerializeField] private CharacterNavigationContext navigation = new CharacterNavigationContext();
 
         public CharacterIntent Intent => intent;
         public CharacterMotionContext Motion => motion;
         public CharacterResourceContext Resources => resources;
         public CharacterPerceptionContext Perception => perception;
+        public CharacterNavigationContext Navigation => navigation;
 
         public void MarkAlive()
         {

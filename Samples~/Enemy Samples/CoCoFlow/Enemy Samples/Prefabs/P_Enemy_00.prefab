@@ -47,16 +47,21 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1f7f26bf1490413ca5232450e7236276, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Core::CoCoFlow.Runtime.Core.CoCoStateMachineController
-  defaultCoCoState: {fileID: 5454105866601838004}
+  m_Name:
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Core::CoCoFlow.Runtime.Core.CoCoStateController
   autoUpdate: 1
-  availableStates:
-  - {fileID: 5454105866601838004}
-  - {fileID: 759296787760053944}
-  - {fileID: 2123217506081712541}
-  - {fileID: 5199575708145766541}
-  - {fileID: 9145961437471673849}
+  stateLayers:
+  - name: Main
+    order: 0
+    update: 1
+    fixedUpdate: 1
+    defaultCoCoState: {fileID: 5454105866601838004}
+    availableStates:
+    - {fileID: 5454105866601838004}
+    - {fileID: 759296787760053944}
+    - {fileID: 2123217506081712541}
+    - {fileID: 5199575708145766541}
+    - {fileID: 9145961437471673849}
   contextProvider: {fileID: 7644779422061056625}
 --- !u!114 &5454105866601838004
 MonoBehaviour:
@@ -70,7 +75,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d86ecd44eeda45dfa4075925b9551d89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.EnemySamples::CoCoFlow.Runtime.Addon.EnemySamples.CCS_Enemy_Idle
-  subStateMachine: {fileID: 0}
   fleeHealthRatio: 0.25
   navigationPriority: 20
 --- !u!114 &759296787760053944
@@ -85,7 +89,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1da8f24052a04713ba5e957a83032d34, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.EnemySamples::CoCoFlow.Runtime.Addon.EnemySamples.CCS_Enemy_Patrol
-  subStateMachine: {fileID: 0}
   fleeHealthRatio: 0.25
   navigationPriority: 20
 --- !u!114 &2123217506081712541
@@ -100,7 +103,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 383e628be27c47b58efb3bb2c36113c4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.EnemySamples::CoCoFlow.Runtime.Addon.EnemySamples.CCS_Enemy_Approach
-  subStateMachine: {fileID: 0}
   fleeHealthRatio: 0.25
   navigationPriority: 20
   approachSpeed: 5
@@ -117,7 +119,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: efdc81d2331a4573a852290a381a0302, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.EnemySamples::CoCoFlow.Runtime.Addon.EnemySamples.CCS_Enemy_Combat
-  subStateMachine: {fileID: 0}
   fleeHealthRatio: 0.25
   navigationPriority: 20
 --- !u!114 &9145961437471673849
@@ -132,7 +133,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3276c22732724e8baad6f0bef5f085a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Addon.EnemySamples::CoCoFlow.Runtime.Addon.EnemySamples.CCS_Enemy_Flee
-  subStateMachine: {fileID: 0}
   fleeHealthRatio: 0.25
   navigationPriority: 20
   fleeSpeed: 6
@@ -241,7 +241,7 @@ GameObject:
   - component: {fileID: 2006384735097049106}
   - component: {fileID: 416553526508310098}
   - component: {fileID: 7644779422061056625}
-  - component: {fileID: 6124504755688295475}
+  - component: {fileID: 764367138100818110}
   - component: {fileID: 292413550692646841}
   - component: {fileID: 1742962961302021365}
   - component: {fileID: 6307659065620841919}
@@ -446,11 +446,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 5443357264125432078}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c50c4b16650a4b059b01e46114b92ca6, type: 3}
+  m_Script: {fileID: 11500000, guid: 37ba723939db474da8ed3f634d90a53c, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLifeCycle
-  maxHealth: 100
-  contextProvider: {fileID: 0}
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterContextProvider
   context:
     identity:
       stableEntityId: 
@@ -487,7 +485,23 @@ MonoBehaviour:
       currentTargetId: 
       lastKnownPosition: {x: 0, y: 0, z: 0}
       isTargetVisible: 0
---- !u!114 &6124504755688295475
+    navigation:
+      mode: 0
+      controlOwner:
+      controlPriority: 0
+      destination: {x: 0, y: 0, z: 0}
+      desiredVelocity: {x: 0, y: 0, z: 0}
+      desiredSpeed: 0
+      stoppingDistance: 0.1
+      hasDestination: 0
+      hasDesiredVelocity: 0
+      routePosition: {x: 0, y: 0, z: 0}
+      routeProgress: 0
+      reverseRoute: 0
+      hasRoute: 0
+      warpPosition: {x: 0, y: 0, z: 0}
+      hasWarpRequest: 0
+--- !u!114 &764367138100818110
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -496,25 +510,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 5443357264125432078}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 10ab383121e0434895a8915f92f881a0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigation
-  context:
-    mode: 0
-    controlOwner: 
-    controlPriority: 0
-    destination: {x: 0, y: 0, z: 0}
-    desiredVelocity: {x: 0, y: 0, z: 0}
-    desiredSpeed: 0
-    stoppingDistance: 0.1
-    hasDestination: 0
-    hasDesiredVelocity: 0
-    routePosition: {x: 0, y: 0, z: 0}
-    routeProgress: 0
-    reverseRoute: 0
-    hasRoute: 0
-    warpPosition: {x: 0, y: 0, z: 0}
-    hasWarpRequest: 0
+  m_Script: {fileID: 11500000, guid: c50c4b16650a4b059b01e46114b92ca6, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLifeCycle
+  maxHealth: 100
+  contextProvider: {fileID: 7644779422061056625}
 --- !u!114 &292413550692646841
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -550,7 +550,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 328e219cf9d34ccd8418720e39787823, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterNavigationMotor
-  navigationProvider: {fileID: 6124504755688295475}
+  contextProvider: {fileID: 7644779422061056625}
   locomotion: {fileID: 292413550692646841}
   navMeshAgent: {fileID: 2006384735097049106}
   updateAutomatically: 1
@@ -569,7 +569,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Enemy::CoCoFlow.Runtime.Gameplay.Enemy.EnemySpline
   splineContainer: {fileID: 416553526508310098}
   configData: {fileID: 11400000, guid: 37f3a8e84890d4e5dbaba627b87562f7, type: 2}
-  navigationProvider: {fileID: 6124504755688295475}
+  contextProvider: {fileID: 7644779422061056625}
   splineOwnerId: EnemySpline
   navigationPriority: 0
   updateAutomatically: 1
@@ -592,5 +592,4 @@ MonoBehaviour:
   engagementZone: {fileID: 0}
   enemySpline: {fileID: 6307659065620841919}
   characterContextProvider: {fileID: 7644779422061056625}
-  navigationProvider: {fileID: 6124504755688295475}
   updateAutomatically: 1

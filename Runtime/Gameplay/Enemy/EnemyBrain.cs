@@ -4,7 +4,10 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Enemy
 {
-    public class EnemyBrain : MonoBehaviour
+    public class EnemyBrain :
+        MonoBehaviour,
+        ICharacterContextSource,
+        ICharacterContextSourceUpdateMode
     {
         [Header("Intent")]
         [SerializeField] private EnemyIntentData intentData;
@@ -16,20 +19,31 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         [Header("Context")]
         [SerializeField] private MonoBehaviour characterContextProvider;
-        [SerializeField] private MonoBehaviour navigationProvider;
 
         [Header("Update")]
         [SerializeField] private bool updateAutomatically = true;
 
         private readonly Collider[] _hitBuffer = new Collider[32];
         private CharacterContext _characterContext;
-        private CharacterNavigationContext _navigationContext;
         private float _nextThinkTime;
         private float _lostTargetStartTime = -1f;
+        private bool _isProviderDriven;
 
         #region Public API
 
         public EnemyIntentData IntentData => intentData;
+        public int Priority => intentData != null ? intentData.NavigationPriority : 40;
+        public bool IsProviderDriven => _isProviderDriven;
+
+        public void WriteToContext(CharacterContext context)
+        {
+            Tick(context);
+        }
+
+        public void SetProviderDriven(bool providerDriven)
+        {
+            _isProviderDriven = providerDriven;
+        }
 
         public void SetIntentData(EnemyIntentData data)
         {
@@ -47,12 +61,6 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             _characterContext = null;
         }
 
-        public void SetNavigationProvider(MonoBehaviour provider)
-        {
-            navigationProvider = provider;
-            _navigationContext = null;
-        }
-
         public void SetEnemySpline(EnemySpline spline)
         {
             enemySpline = spline;
@@ -60,10 +68,14 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         public bool Tick(bool ignorePollInterval = false)
         {
+            return Tick(CharacterContext, ignorePollInterval);
+        }
+
+        public bool Tick(CharacterContext characterContext, bool ignorePollInterval = false)
+        {
             if (!ValidateIntentData()) return false;
             if (!ignorePollInterval && !CanThinkThisFrame()) return false;
 
-            var characterContext = CharacterContext;
             if (characterContext == null || configData == null) return false;
 
             Transform currentTarget = characterContext.Perception.currentTarget;
@@ -90,12 +102,10 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
         #region Internal Logic
 
         private CharacterContext CharacterContext => ResolveCharacterContext();
-        private CharacterNavigationContext NavigationContext => ResolveNavigationContext();
 
         private void Awake()
         {
             ResolveCharacterContext();
-            ResolveNavigationContext();
             if (enemySpline == null)
             {
                 enemySpline = GetComponent<EnemySpline>();
@@ -109,7 +119,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
         private void Update()
         {
-            if (updateAutomatically)
+            if (updateAutomatically && !_isProviderDriven)
             {
                 Tick();
             }
@@ -148,7 +158,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             characterContext.Intent.desiredTarget = target;
             characterContext.Intent.desiredTargetId = characterContext.Perception.currentTargetId;
 
-            var navigationContext = NavigationContext;
+            var navigationContext = characterContext.Navigation;
             bool canWriteNavigation = navigationContext == null;
             if (navigationContext != null && intentData.ClaimNavigationOnTargetVisible)
             {
@@ -216,7 +226,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                 characterContext.Intent.hasMovePosition = true;
                 characterContext.Intent.desiredMovePosition = characterContext.Perception.lastKnownPosition;
 
-                var navigationContext = NavigationContext;
+                var navigationContext = characterContext.Navigation;
                 if (navigationContext != null &&
                     navigationContext.HasControl(intentData.BrainOwnerId))
                 {
@@ -244,7 +254,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             characterContext.Intent.desiredMovePosition = Vector3.zero;
             characterContext.Intent.attack = false;
 
-            var navigationContext = NavigationContext;
+            var navigationContext = characterContext.Navigation;
             if (navigationContext != null &&
                 navigationContext.ReleaseControl(intentData.BrainOwnerId))
             {
@@ -274,7 +284,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                 return true;
             }
 
-            var navigationContext = NavigationContext;
+            var navigationContext = characterContext.Navigation;
             return navigationContext != null &&
                    navigationContext.HasControl(intentData.BrainOwnerId);
         }
@@ -311,51 +321,11 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             return null;
         }
 
-        private CharacterNavigationContext ResolveNavigationContext()
-        {
-            if (_navigationContext != null) return _navigationContext;
-
-            if (TryGetNavigationContextFromProvider(navigationProvider, out _navigationContext))
-            {
-                return _navigationContext;
-            }
-
-            var behaviours = GetComponents<MonoBehaviour>();
-            foreach (var behaviour in behaviours)
-            {
-                if (ReferenceEquals(behaviour, this)) continue;
-                if (TryGetNavigationContextFromProvider(behaviour, out _navigationContext))
-                {
-                    if (navigationProvider == null)
-                    {
-                        navigationProvider = behaviour;
-                    }
-                    return _navigationContext;
-                }
-            }
-
-            return null;
-        }
-
         private static bool TryGetContextFromProvider(
             object provider,
             out CharacterContext targetContext)
         {
             if (provider is ICoCoContextProvider<CharacterContext> typedProvider)
-            {
-                targetContext = typedProvider.Context;
-                return targetContext != null;
-            }
-
-            targetContext = null;
-            return false;
-        }
-
-        private static bool TryGetNavigationContextFromProvider(
-            object provider,
-            out CharacterNavigationContext targetContext)
-        {
-            if (provider is ICoCoContextProvider<CharacterNavigationContext> typedProvider)
             {
                 targetContext = typedProvider.Context;
                 return targetContext != null;
@@ -385,10 +355,6 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                 characterContextProvider = null;
             }
 
-            if (ReferenceEquals(navigationProvider, this))
-            {
-                navigationProvider = null;
-            }
         }
 
         #endregion

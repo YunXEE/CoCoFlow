@@ -1,6 +1,6 @@
 # CoCoFlow Player Samples
 
-Player Samples provides a small third-person style character sample wired to `CharacterContext`, `CharacterLocomotion`, `CharacterNavigation`, and `CoCoStateMachineController`.
+Player Samples provides a small third-person style character sample wired to `CharacterContext`, `CharacterLocomotion`, `CharacterNavigationMotor`, and `CoCoStateController`.
 
 ## Contents
 
@@ -14,5 +14,6 @@ Open `CoCoFlow/Setup/Setup Assistant`, select `Player Samples` in the `Add-ons` 
 ## Notes
 
 - The sample states read `CharacterContext.Intent` and drive `CharacterLocomotion`.
+- `P_Player_00` declares explicit `Main`, `FullBody`, and `UpperLayer` state layers under one `CoCoStateController` so the State Graph Viewer can show single-controller layered topology.
 - This sample does not include a complete camera, combat, weapon, IK, or input action setup.
-- `P_Player_00` is designed as a state machine wiring sample and can be extended with your own input driver or network context bridge.
+- `P_Player_00` is designed as a state wiring sample and can be extended with your own input driver or network context bridge.
