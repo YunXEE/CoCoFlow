@@ -20,8 +20,8 @@ namespace CoCoFlow.Editor.Modules.Animation
         private void OnGUI()
         {
             EditorGUILayout.Space(5);
-            GUILayout.Label("CoCoFlow 动画状态机 SMB 注入管线", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("该工具将遍历目标 Animator Controller 的所有层级和子状态机，一键注入 AnimationEventSmb。", MessageType.Info);
+            GUILayout.Label("CoCoFlow Animator SMB 注入管线", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("该工具将遍历目标 Animator Controller 的所有层级和子图，一键注入 AnimationEventSmb。", MessageType.Info);
 
             EditorGUILayout.Space(10);
             _targetController = (AnimatorController)EditorGUILayout.ObjectField("目标 Animator Controller", _targetController, typeof(AnimatorController), false);
@@ -54,13 +54,13 @@ namespace CoCoFlow.Editor.Modules.Animation
 
             try
             {
-                // 记录 Undo，防止操作失误导致状态机报废
+                // 记录 Undo，防止操作失误导致 Animator 图被错误修改。
                 Undo.RecordObject(_targetController, "Inject SMBs");
 
                 // 遍历所有的动画层 (Layers)
                 foreach (var layer in _targetController.layers)
                 {
-                    ProcessStateMachine(layer.stateMachine, ref injectedCount, ref clearedCount);
+                    ProcessAnimatorStateGraph(layer.stateMachine, ref injectedCount, ref clearedCount);
                 }
             }
             finally
@@ -76,19 +76,19 @@ namespace CoCoFlow.Editor.Modules.Animation
             }
         }
 
-        // 递归处理状态机 (应对 Sub-State Machines)
-        private void ProcessStateMachine(AnimatorStateMachine stateMachine, ref int injectedCount, ref int clearedCount)
+        // 递归处理 Animator 图 (应对 Sub-States)。
+        private void ProcessAnimatorStateGraph(AnimatorStateMachine animatorGraph, ref int injectedCount, ref int clearedCount)
         {
             // 1. 处理当前层级的所有独立 State
-            foreach (var childState in stateMachine.states)
+            foreach (var childState in animatorGraph.states)
             {
                 ProcessState(childState.state, ref injectedCount, ref clearedCount);
             }
 
-            // 2. 递归处理内部嵌套的子状态机
-            foreach (var childStateMachine in stateMachine.stateMachines)
+            // 2. 递归处理内部嵌套的子图。
+            foreach (var childState in animatorGraph.stateMachines)
             {
-                ProcessStateMachine(childStateMachine.stateMachine, ref injectedCount, ref clearedCount);
+                ProcessAnimatorStateGraph(childState.stateMachine, ref injectedCount, ref clearedCount);
             }
         }
 

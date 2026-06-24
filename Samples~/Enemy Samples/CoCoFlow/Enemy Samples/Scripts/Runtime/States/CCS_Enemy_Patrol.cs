@@ -26,7 +26,7 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
                 NavigationContext.Mode != CharacterNavigationMode.Patrol ||
                 !NavigationContext.HasDestination)
             {
-                Controller.ChangeState<CCS_Enemy_Idle>();
+                ChangeState<CCS_Enemy_Idle>();
             }
         }
 

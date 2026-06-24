@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Addon.EnemySamples
 {
-    public abstract class CCS_Enemy_StateBase : CoCoStateMachineBase
+    public abstract class CCS_Enemy_StateBase : CoCoStateBase
     {
         [Header("Transition")]
         [SerializeField] private float fleeHealthRatio = 0.25f;
@@ -12,22 +12,42 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
         [Header("Navigation")]
         [SerializeField] private int navigationPriority = 20;
 
-        protected CharacterNavigation Navigation { get; private set; }
-        protected CharacterNavigationContext NavigationContext => Navigation != null ? Navigation.Context : null;
+        protected CharacterNavigationContext NavigationContext => CharacterContext?.Navigation;
         protected Transform ActorTransform { get; private set; }
         protected CharacterContext CharacterContext => Controller != null ? Controller.Context as CharacterContext : null;
         protected abstract string NavigationOwner { get; }
         protected int NavigationPriority => navigationPriority;
 
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
+            builder
+                .ReadsContext<CharacterContext>("Intent.attack")
+                .ReadsContext<CharacterContext>("Intent.desiredTarget")
+                .ReadsContext<CharacterContext>("Intent.hasMovePosition")
+                .ReadsContext<CharacterContext>("Resources.CurrentHealth")
+                .ReadsContext<CharacterContext>("Resources.MaxHealth")
+                .ReadsContext<CharacterContext>("Navigation")
+                .WritesContext<CharacterContext>("Navigation")
+                .UsesOperation<CharacterNavigationMotor>("Consumes Navigation commands written by enemy states")
+                .CanTransitionTo<CCS_Enemy_Flee>("Shared enemy selector can flee on low health.")
+                .CanTransitionTo<CCS_Enemy_Combat>("Shared enemy selector can enter combat intent.")
+                .CanTransitionTo<CCS_Enemy_Approach>("Shared enemy selector can chase a target or move position.")
+                .CanTransitionTo<CCS_Enemy_Patrol>("Shared enemy selector can return to patrol navigation.")
+                .CanTransitionTo<CCS_Enemy_Idle>("Shared enemy selector can fall back to idle.");
+        }
+
+        #endregion
+
         #region Public API
 
-        public override void Init(CoCoStateMachineController targetController)
+        public override void Init(CoCoStateController targetController)
         {
             base.Init(targetController);
             ActorTransform = targetController.transform.parent != null
                 ? targetController.transform.parent
                 : targetController.transform;
-            Navigation = ActorTransform.GetComponent<CharacterNavigation>();
         }
 
         #endregion
@@ -67,36 +87,36 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
 
         protected void ChangeToBestAvailableState(CharacterContext context)
         {
-            if (ShouldFlee(context) && Controller.IfHasState<CCS_Enemy_Flee>())
+            if (ShouldFlee(context) && IfHasState<CCS_Enemy_Flee>())
             {
-                Controller.ChangeState<CCS_Enemy_Flee>();
+                ChangeState<CCS_Enemy_Flee>();
                 return;
             }
 
-            if (context != null && context.Intent.attack && Controller.IfHasState<CCS_Enemy_Combat>())
+            if (context != null && context.Intent.attack && IfHasState<CCS_Enemy_Combat>())
             {
-                Controller.ChangeState<CCS_Enemy_Combat>();
+                ChangeState<CCS_Enemy_Combat>();
                 return;
             }
 
-            if (HasTargetIntent(context) && Controller.IfHasState<CCS_Enemy_Approach>())
+            if (HasTargetIntent(context) && IfHasState<CCS_Enemy_Approach>())
             {
-                Controller.ChangeState<CCS_Enemy_Approach>();
+                ChangeState<CCS_Enemy_Approach>();
                 return;
             }
 
             if (NavigationContext != null &&
                 NavigationContext.Mode == CharacterNavigationMode.Patrol &&
                 NavigationContext.HasDestination &&
-                Controller.IfHasState<CCS_Enemy_Patrol>())
+                IfHasState<CCS_Enemy_Patrol>())
             {
-                Controller.ChangeState<CCS_Enemy_Patrol>();
+                ChangeState<CCS_Enemy_Patrol>();
                 return;
             }
 
-            if (Controller.IfHasState<CCS_Enemy_Idle>())
+            if (IfHasState<CCS_Enemy_Idle>())
             {
-                Controller.ChangeState<CCS_Enemy_Idle>();
+                ChangeState<CCS_Enemy_Idle>();
             }
         }
 

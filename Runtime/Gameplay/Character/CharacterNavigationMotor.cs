@@ -8,7 +8,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
     public class CharacterNavigationMotor : MonoBehaviour
     {
         [Header("Context")]
-        [SerializeField] private MonoBehaviour navigationProvider;
+        [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Components")]
         [SerializeField] private CharacterLocomotion locomotion;
@@ -23,9 +23,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
         #region Public API
 
-        public void SetNavigationProvider(MonoBehaviour provider)
+        public void SetContextProvider(MonoBehaviour provider)
         {
-            navigationProvider = provider;
+            contextProvider = provider;
             _navigationContext = null;
         }
 
@@ -145,7 +145,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         {
             if (_navigationContext != null) return _navigationContext;
 
-            if (TryGetContextFromProvider(navigationProvider, out _navigationContext))
+            if (TryGetContextFromProvider(contextProvider, out _navigationContext))
             {
                 return _navigationContext;
             }
@@ -156,9 +156,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
                 if (ReferenceEquals(behaviour, this)) continue;
                 if (TryGetContextFromProvider(behaviour, out _navigationContext))
                 {
-                    if (navigationProvider == null)
+                    if (contextProvider == null)
                     {
-                        navigationProvider = behaviour;
+                        contextProvider = behaviour;
                     }
                     return _navigationContext;
                 }
@@ -171,9 +171,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             object provider,
             out CharacterNavigationContext targetContext)
         {
-            if (provider is ICoCoContextProvider<CharacterNavigationContext> typedProvider)
+            if (provider is ICoCoContextProvider<CharacterContext> characterProvider)
             {
-                targetContext = typedProvider.Context;
+                targetContext = characterProvider.Context?.Navigation;
                 return targetContext != null;
             }
 
@@ -201,9 +201,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
         private void OnValidate()
         {
-            if (ReferenceEquals(navigationProvider, this))
+            if (ReferenceEquals(contextProvider, this))
             {
-                navigationProvider = null;
+                contextProvider = null;
             }
 
             ResolveComponents();
@@ -217,10 +217,10 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             foreach (var behaviour in behaviours)
             {
                 if (ReferenceEquals(behaviour, this)) continue;
-                if (navigationProvider == null &&
-                    behaviour is ICoCoContextProvider<CharacterNavigationContext>)
+                if (contextProvider == null &&
+                    behaviour is ICoCoContextProvider<CharacterContext>)
                 {
-                    navigationProvider = behaviour;
+                    contextProvider = behaviour;
                     break;
                 }
             }

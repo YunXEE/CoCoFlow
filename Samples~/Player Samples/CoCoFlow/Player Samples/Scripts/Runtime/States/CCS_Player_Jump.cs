@@ -38,5 +38,20 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
         }
 
         #endregion
+
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
+            base.DefineState(builder);
+            builder
+                .ReadsContext<CharacterContext>("Intent.move", "Air movement input")
+                .ReadsContext<CharacterContext>("Intent.look", "Air-facing direction")
+                .UsesOperation<CharacterLocomotion>("Jump / SetMovementVelocity / SetRotation / IsGrounded")
+                .CanTransitionTo<CCS_Player_Idle>("Grounded after minimum air time")
+                .CanTransitionTo<CCS_Player_Move>("Grounded after minimum air time with move input");
+        }
+
+        #endregion
     }
 }

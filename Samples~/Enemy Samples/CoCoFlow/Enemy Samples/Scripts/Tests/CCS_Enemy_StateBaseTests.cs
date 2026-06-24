@@ -18,24 +18,25 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples.Tests
             try
             {
                 stateRoot.transform.SetParent(root.transform, false);
-                var navigation = root.AddComponent<CharacterNavigation>();
-                var controller = stateRoot.AddComponent<CoCoStateMachineController>();
+                var provider = root.AddComponent<CharacterContextProvider>();
+                var controller = stateRoot.AddComponent<CoCoStateController>();
                 var state = stateRoot.AddComponent<NavigationReleaseProbeState>();
+                controller.SetContextProvider(provider);
                 state.Init(controller);
 
-                navigation.Context.TryClaimControl("Probe", 20);
-                navigation.Context.SetDestination(
+                provider.Context.Navigation.TryClaimControl("Probe", 20);
+                provider.Context.Navigation.SetDestination(
                     new Vector3(4f, 0f, 2f),
                     5f,
                     0.2f,
                     CharacterNavigationMode.Chase);
-                navigation.Context.SetDesiredVelocity(Vector3.forward * 5f);
+                provider.Context.Navigation.SetDesiredVelocity(Vector3.forward * 5f);
 
                 state.ReleaseForTest();
 
-                Assert.IsFalse(navigation.Context.HasAnyControl);
-                Assert.IsFalse(navigation.Context.HasDestination);
-                Assert.IsFalse(navigation.Context.HasDesiredVelocity);
+                Assert.IsFalse(provider.Context.Navigation.HasAnyControl);
+                Assert.IsFalse(provider.Context.Navigation.HasDestination);
+                Assert.IsFalse(provider.Context.Navigation.HasDesiredVelocity);
             }
             finally
             {

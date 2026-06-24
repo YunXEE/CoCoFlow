@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Addon.PlayerSamples
 {
-    public abstract class CCS_Player_StateBase : CoCoStateMachineBase
+    public abstract class CCS_Player_StateBase : CoCoStateBase
     {
         [Header("Movement")]
         [SerializeField] private float moveDeadZone = 0.05f;
@@ -12,19 +12,25 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
         protected CharacterContext CharacterContext => Controller != null ? Controller.Context as CharacterContext : null;
         protected Transform ActorTransform { get; private set; }
         protected CharacterLocomotion Locomotion { get; private set; }
-        protected CharacterNavigation Navigation { get; private set; }
-        protected CharacterNavigationContext NavigationContext => Navigation != null ? Navigation.Context : null;
+        protected CharacterNavigationContext NavigationContext => CharacterContext?.Navigation;
 
         #region Public API
 
-        public override void Init(CoCoStateMachineController targetController)
+        public override void Init(CoCoStateController targetController)
         {
             base.Init(targetController);
             ActorTransform = targetController.transform.parent != null
                 ? targetController.transform.parent
                 : targetController.transform;
             Locomotion = ActorTransform.GetComponent<CharacterLocomotion>();
-            Navigation = ActorTransform.GetComponent<CharacterNavigation>();
+        }
+
+        #endregion
+
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
         }
 
         #endregion
@@ -73,33 +79,33 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
 
         protected void ChangeToBestAvailableState(CharacterContext context)
         {
-            if (context != null && context.Intent.attack && Controller.IfHasState<CCS_Player_Attack>())
+            if (context != null && context.Intent.attack && IfHasState<CCS_Player_Attack>())
             {
-                Controller.ChangeState<CCS_Player_Attack>();
+                ChangeState<CCS_Player_Attack>();
                 return;
             }
 
-            if (context != null && context.Intent.interact && Controller.IfHasState<CCS_Player_Interact>())
+            if (context != null && context.Intent.interact && IfHasState<CCS_Player_Interact>())
             {
-                Controller.ChangeState<CCS_Player_Interact>();
+                ChangeState<CCS_Player_Interact>();
                 return;
             }
 
-            if (context != null && context.Intent.jump && Controller.IfHasState<CCS_Player_Jump>())
+            if (context != null && context.Intent.jump && IfHasState<CCS_Player_Jump>())
             {
-                Controller.ChangeState<CCS_Player_Jump>();
+                ChangeState<CCS_Player_Jump>();
                 return;
             }
 
-            if (HasMoveInput(context) && Controller.IfHasState<CCS_Player_Move>())
+            if (HasMoveInput(context) && IfHasState<CCS_Player_Move>())
             {
-                Controller.ChangeState<CCS_Player_Move>();
+                ChangeState<CCS_Player_Move>();
                 return;
             }
 
-            if (Controller.IfHasState<CCS_Player_Idle>())
+            if (IfHasState<CCS_Player_Idle>())
             {
-                Controller.ChangeState<CCS_Player_Idle>();
+                ChangeState<CCS_Player_Idle>();
             }
         }
 

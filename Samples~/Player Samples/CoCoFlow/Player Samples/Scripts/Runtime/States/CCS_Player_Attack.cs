@@ -37,5 +37,20 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
         }
 
         #endregion
+
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
+            base.DefineState(builder);
+            builder
+                .ReadsContext<CharacterContext>("Intent.move", "Optional attack movement")
+                .ReadsContext<CharacterContext>("Intent.look", "Optional attack-facing direction")
+                .UsesOperation<CharacterLocomotion>("Optional movement and rotation during attack")
+                .CanTransitionTo<CCS_Player_Idle>("Attack duration finished")
+                .CanTransitionTo<CCS_Player_Move>("Attack duration finished with move input");
+        }
+
+        #endregion
     }
 }

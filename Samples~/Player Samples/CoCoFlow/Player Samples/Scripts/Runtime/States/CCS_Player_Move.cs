@@ -29,5 +29,23 @@ namespace CoCoFlow.Runtime.Addon.PlayerSamples
         }
 
         #endregion
+
+        #region Protected API
+
+        protected override void DefineState(CoCoStateDefinitionBuilder builder)
+        {
+            base.DefineState(builder);
+            builder
+                .UsesOperation<CharacterLocomotion>("SetMovementVelocity / SetRotation")
+                .ReadsContext<CharacterContext>("Intent.move", "Stay in Move while movement input is active")
+                .ReadsContext<CharacterContext>("Intent.look", "Facing direction while moving")
+                .ReadsContext<CharacterContext>("Intent.attack / Intent.interact / Intent.jump", "Interrupt Move into action states")
+                .CanTransitionTo<CCS_Player_Attack>("Intent.attack interrupts Move")
+                .CanTransitionTo<CCS_Player_Interact>("Intent.interact interrupts Move")
+                .CanTransitionTo<CCS_Player_Jump>("Intent.jump interrupts Move")
+                .CanTransitionTo<CCS_Player_Idle>("Move input released");
+        }
+
+        #endregion
     }
 }

@@ -1,10 +1,10 @@
 # CoCoFlow Enemy Samples
 
-Enemy Samples 提供一套最小可运行的 Enemy 示例，用来验证包体 Enemy 基础层如何接入 `CharacterContext`、`CharacterNavigation` 和 `CoCoStateMachineController`。
+Enemy Samples 提供一套最小可运行的 Enemy 接线示例，用来验证包体 Enemy 基础层如何接入 `CharacterContextProvider`、`CharacterNavigationMotor` 和单个 `CoCoStateController`。
 
 ## Contents
 
-- `Prefabs/P_Enemy_00.prefab`: 已接入 `EnemyBrain`、`EnemySpline`、`CharacterNavigationMotor` 和示例状态机的 Enemy prefab。
+- `Prefabs/P_Enemy_00.prefab`: 已接入 `CharacterContextProvider`、`EnemyBrain`、`EnemySpline`、`CharacterNavigationMotor` 和示例状态控制器的 Enemy prefab。
 - `Assets/EnemyIntent_P_Enemy_00.asset`: `EnemyBrain` 必填意图 SO。
 - `Assets/EnemyConfig_P_Enemy_00.asset`: Enemy 基础参数 SO。
 - `Scripts/Runtime/States`: 示例状态脚本，属于 sample/add-on，不属于包体 Enemy Runtime。
@@ -15,6 +15,8 @@ Enemy Samples 提供一套最小可运行的 Enemy 示例，用来验证包体 E
 
 ## Notes
 
-- 这个 sample 不提供伤害、武器或完整 combat runtime。
-- 示例状态只演示如何读取 `CharacterContext.Intent` 并写入 `CharacterNavigation`。
+- 这个 sample 不提供伤害、武器、Animation Rigging、IK 或完整 combat runtime。
+- `EnemyBrain` 和 `EnemySpline` 是 `ICharacterContextSource`，由 `CharacterContextProvider` 在状态 tick 前按 priority 写入同一份 `CharacterContext`。
+- 示例状态只演示如何读取 `CharacterContext.Intent` 并写入 `CharacterContext.Navigation`。
+- `P_Enemy_00` 在 `CoCoStateController` 下显式声明 `Main` State Layer。
 - `P_Enemy_00` 需要可用 NavMesh 才能完整验证巡逻和追击移动。

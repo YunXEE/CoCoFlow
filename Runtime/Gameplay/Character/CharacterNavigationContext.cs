@@ -1,5 +1,4 @@
 using System;
-using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
@@ -14,7 +13,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
     }
 
     [Serializable]
-    public class CharacterNavigationContext : ICoCoContext
+    public class CharacterNavigationContext
     {
         [SerializeField] private CharacterNavigationMode mode = CharacterNavigationMode.None;
         [SerializeField] private string controlOwner = string.Empty;
@@ -169,47 +168,6 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             ClearRoute();
             hasWarpRequest = false;
             warpPosition = Vector3.zero;
-        }
-
-        #endregion
-    }
-
-    public class CharacterNavigation : MonoBehaviour, ICoCoContextProvider<CharacterNavigationContext>
-    {
-        [Header("Context")]
-        [SerializeField] private CharacterNavigationContext context = new CharacterNavigationContext();
-
-        #region Public API
-
-        public CharacterNavigationContext Context => context;
-
-        public bool TryClaimControl(string owner, int priority = 0, bool force = false)
-        {
-            return context.TryClaimControl(owner, priority, force);
-        }
-
-        public bool ReleaseControl(string owner)
-        {
-            return context.ReleaseControl(owner);
-        }
-
-        public void SetDestination(
-            Vector3 destination,
-            float speed = 0f,
-            float stoppingDistance = 0.1f,
-            CharacterNavigationMode mode = CharacterNavigationMode.None)
-        {
-            context.SetDestination(destination, speed, stoppingDistance, mode);
-        }
-
-        public void RequestWarp(Vector3 position)
-        {
-            context.RequestWarp(position);
-        }
-
-        public void ResetContext()
-        {
-            context = new CharacterNavigationContext();
         }
 
         #endregion

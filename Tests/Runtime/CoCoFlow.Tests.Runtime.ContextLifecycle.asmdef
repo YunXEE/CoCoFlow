@@ -7,7 +7,9 @@
         "CoCoFlow.Runtime.Gameplay.Enemy",
         "CoCoFlow.Runtime.Gameplay.Item",
         "CoCoFlow.Runtime.Modules.Input",
-        "CoCoFlow.Runtime.Modules.Persistence"
+        "CoCoFlow.Runtime.Modules.Persistence",
+        "Unity.Splines",
+        "Unity.Mathematics"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

@@ -28,7 +28,7 @@ namespace CoCoFlow.Runtime.Addon.EnemySamples
             if (ShouldFlee(characterContext))
             {
                 ReleaseNavigation();
-                Controller.ChangeState<CCS_Enemy_Flee>();
+                ChangeState<CCS_Enemy_Flee>();
                 return;
             }
 
