@@ -293,6 +293,136 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void UpdateStateSkipsTransitionEvaluationForUpdateDisabledLayers()
+        {
+            var root = new GameObject("Update Disabled Layer Transition Test");
+            try
+            {
+                var first = root.AddComponent<LegacyTestStateA>();
+                var second = root.AddComponent<LegacyTestStateB>();
+                var controller = root.AddComponent<TransitionDecisionStateController>();
+                var layer = new CoCoStateLayer(
+                    "FixedOnly",
+                    first,
+                    new CoCoStateBase[] { first, second },
+                    0,
+                    false,
+                    true);
+
+                controller.SelectSecondState = true;
+                controller.SetStateLayers(new[] { layer });
+
+                controller.UpdateState();
+
+                Assert.IsNull(controller.GetCurrentState(layer));
+                Assert.AreEqual(0, controller.EvaluationCount);
+
+                controller.FixedUpdateState();
+
+                Assert.AreEqual(typeof(LegacyTestStateB), controller.GetCurrentStateType(layer));
+                Assert.AreEqual(1, controller.EvaluationCount);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void FixedUpdateStateSkipsTransitionEvaluationForFixedUpdateDisabledLayers()
+        {
+            var root = new GameObject("FixedUpdate Disabled Layer Transition Test");
+            try
+            {
+                var first = root.AddComponent<LegacyTestStateA>();
+                var second = root.AddComponent<LegacyTestStateB>();
+                var controller = root.AddComponent<TransitionDecisionStateController>();
+                var layer = new CoCoStateLayer(
+                    "UpdateOnly",
+                    first,
+                    new CoCoStateBase[] { first, second },
+                    0,
+                    true,
+                    false);
+
+                controller.SetStateLayers(new[] { layer });
+
+                controller.UpdateState();
+
+                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(layer));
+                Assert.AreEqual(1, controller.EvaluationCount);
+
+                controller.SelectSecondState = true;
+                controller.FixedUpdateState();
+
+                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(layer));
+                Assert.AreEqual(1, controller.EvaluationCount);
+
+                controller.UpdateState();
+
+                Assert.AreEqual(typeof(LegacyTestStateB), controller.GetCurrentStateType(layer));
+                Assert.AreEqual(2, controller.EvaluationCount);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void UpdateStateDoesNotRestartExplicitlyExitedLayers()
+        {
+            var root = new GameObject("Explicit Exit Restart Test");
+            var log = new System.Collections.Generic.List<string>();
+
+            try
+            {
+                var provider = root.AddComponent<TestCharacterProvider>();
+                var state = root.AddComponent<OrderedLifecycleState>();
+                var controller = root.AddComponent<CoCoStateController>();
+                var layer = new CoCoStateLayer(
+                    "Main",
+                    state,
+                    new CoCoStateBase[] { state });
+                state.Configure("main", log);
+                controller.SetContextProvider(provider);
+                controller.SetStateLayers(new[] { layer });
+
+                controller.UpdateState();
+                controller.ExitState();
+                controller.UpdateState();
+                controller.FixedUpdateState();
+
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "main.enter",
+                        "main.update",
+                        "main.exit"
+                    },
+                    log);
+                Assert.IsNull(controller.GetCurrentState(layer));
+
+                controller.EnterState();
+
+                Assert.AreSame(state, controller.GetCurrentState(layer));
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "main.enter",
+                        "main.update",
+                        "main.exit",
+                        "main.enter"
+                    },
+                    log);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void ControllerRunsExplicitStateLayersInOrderWithSharedContext()
         {
             var root = new GameObject("State Layer Controller Test");
@@ -767,6 +897,49 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.AreEqual(CharacterNavigationMode.Chase, provider.Context.Navigation.Mode);
                 Assert.AreEqual("EnemyBrain", provider.Context.Navigation.ControlOwner);
                 Assert.IsTrue(provider.Context.Navigation.HasDestination);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainWritesNavigationWithoutTakingControlWhenClaimDisabled()
+        {
+            var enemy = new GameObject("Enemy Brain No Claim Navigation Test");
+            var target = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                target.layer = 6;
+                enemy.transform.position = Vector3.zero;
+                target.transform.position = new Vector3(0f, 0f, 4f);
+                SetPrivateField(intent, "claimNavigationOnTargetVisible", false);
+
+                var provider = enemy.AddComponent<CharacterContextProvider>();
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(provider);
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.AreSame(target.transform, provider.Context.Perception.currentTarget);
+                Assert.IsTrue(provider.Context.Intent.hasMovePosition);
+                Assert.AreEqual(CharacterNavigationMode.Chase, provider.Context.Navigation.Mode);
+                Assert.IsTrue(provider.Context.Navigation.HasDestination);
+                Assert.IsFalse(provider.Context.Navigation.HasAnyControl);
             }
             finally
             {
@@ -1662,6 +1835,20 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 }
 
                 return typeof(CharacterIdleTestState);
+            }
+        }
+
+        private sealed class TransitionDecisionStateController : CoCoStateController
+        {
+            public bool SelectSecondState { get; set; }
+            public int EvaluationCount { get; private set; }
+
+            protected override Type EvaluateStateType(ICoCoContext context)
+            {
+                EvaluationCount++;
+                return SelectSecondState
+                    ? typeof(LegacyTestStateB)
+                    : typeof(LegacyTestStateA);
             }
         }
 

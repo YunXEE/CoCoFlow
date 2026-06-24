@@ -171,6 +171,7 @@ namespace CoCoFlow.Runtime.Core
                 var globalEvaluatedType = EvaluateStateType(context);
                 foreach (var layer in _orderedTopLevelLayers)
                 {
+                    layer.HasExited = false;
                     var evaluatedType = ResolveEvaluatedStateType(layer, globalEvaluatedType, context);
                     var preferredType = layer.ContainsState(evaluatedType) ? evaluatedType : null;
                     EnterLayer(layer, context, preferredType);
@@ -220,11 +221,11 @@ namespace CoCoFlow.Runtime.Core
 
                 var context = PrepareContextForTick();
                 BeforeStateTick(context);
-                TryApplyEvaluatedTransition(context);
+                TryApplyEvaluatedTransition(context, false);
 
                 foreach (var layer in _orderedTopLevelLayers)
                 {
-                    if (!layer.Update) continue;
+                    if (!ShouldTickLayer(layer, false)) continue;
                     UpdateLayer(layer, context, false);
                 }
             }
@@ -248,11 +249,11 @@ namespace CoCoFlow.Runtime.Core
 
                 var context = PrepareContextForTick();
                 BeforeStateTick(context);
-                TryApplyEvaluatedTransition(context);
+                TryApplyEvaluatedTransition(context, true);
 
                 foreach (var layer in _orderedTopLevelLayers)
                 {
-                    if (!layer.FixedUpdate) continue;
+                    if (!ShouldTickLayer(layer, true)) continue;
                     UpdateLayer(layer, context, true);
                 }
             }
@@ -526,6 +527,7 @@ namespace CoCoFlow.Runtime.Core
             Type preferredType)
         {
             if (layer.CurrentState != null) return;
+            if (layer.HasExited) return;
 
             Type initialType = preferredType ?? layer.DefaultState?.GetType();
             if (initialType == null) return;
@@ -538,6 +540,8 @@ namespace CoCoFlow.Runtime.Core
             ICoCoContext context,
             bool fixedUpdate)
         {
+            if (layer.HasExited) return;
+
             if (layer.CurrentState == null)
             {
                 EnterLayer(layer, context, null);
@@ -559,6 +563,7 @@ namespace CoCoFlow.Runtime.Core
 
             layer.CurrentState = null;
             layer.CurrentStateType = null;
+            layer.HasExited = true;
         }
 
         private void ChangeLayerState(
@@ -579,16 +584,21 @@ namespace CoCoFlow.Runtime.Core
                 InvokeStateExit(layer.CurrentState, context);
             }
 
+            layer.HasExited = false;
             layer.CurrentState = newState;
             layer.CurrentStateType = newStateType;
             InvokeStateEnter(layer.CurrentState, context);
         }
 
-        private void TryApplyEvaluatedTransition(ICoCoContext context)
+        private void TryApplyEvaluatedTransition(ICoCoContext context, bool fixedUpdate)
         {
+            if (!HasTransitionEvaluationLayer(fixedUpdate)) return;
+
             var globalEvaluatedType = EvaluateStateType(context);
             foreach (var layer in _orderedTopLevelLayers)
             {
+                if (!ShouldTickLayer(layer, fixedUpdate)) continue;
+
                 var nextStateType = ResolveEvaluatedStateType(layer, globalEvaluatedType, context);
                 if (nextStateType == null || !layer.ContainsState(nextStateType)) continue;
 
@@ -625,6 +635,21 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return false;
+        }
+
+        private bool HasTransitionEvaluationLayer(bool fixedUpdate)
+        {
+            foreach (var layer in _orderedTopLevelLayers)
+            {
+                if (ShouldTickLayer(layer, fixedUpdate)) return true;
+            }
+
+            return false;
+        }
+
+        private static bool ShouldTickLayer(StateLayerRuntime layer, bool fixedUpdate)
+        {
+            return !layer.HasExited && (fixedUpdate ? layer.FixedUpdate : layer.Update);
         }
 
         private ICoCoContext PushContextOverride(ICoCoContext contextOverride)
@@ -763,6 +788,7 @@ namespace CoCoFlow.Runtime.Core
             public CoCoStateLayer SourceLayer { get; }
             public CoCoStateBase CurrentState;
             public Type CurrentStateType;
+            public bool HasExited;
             public readonly List<CoCoStateBase> AvailableStates = new List<CoCoStateBase>();
             public readonly Dictionary<Type, CoCoStateBase> States = new Dictionary<Type, CoCoStateBase>();
 

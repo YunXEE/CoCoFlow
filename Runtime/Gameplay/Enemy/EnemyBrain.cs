@@ -159,7 +159,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             characterContext.Intent.desiredTargetId = characterContext.Perception.currentTargetId;
 
             var navigationContext = characterContext.Navigation;
-            bool canWriteNavigation = navigationContext == null;
+            bool canWriteNavigation = navigationContext != null;
             if (navigationContext != null && intentData.ClaimNavigationOnTargetVisible)
             {
                 canWriteNavigation = navigationContext.TryClaimControl(
