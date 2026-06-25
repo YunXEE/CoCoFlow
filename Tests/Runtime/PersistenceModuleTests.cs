@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Gameplay.Character;
 using CoCoFlow.Runtime.Gameplay.Item;
 using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
+using CoCoFlow.Runtime.Modules.Persistence.Context;
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 using NUnit.Framework;
-using System.Reflection;
 using UnityEngine;
 
 namespace CoCoFlow.Tests.Runtime.ContextLifecycle
@@ -307,6 +310,81 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                     "item.gem.red",
                     1));
                 Assert.AreEqual(1, store.GetItemCount("container.source.stash", "item.gem.red"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(catalog);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ContainerStoreKeepsExistingContainerTypeWhenCommandIsRejected()
+        {
+            var root = new GameObject("Persistence Container Type Guard Test");
+            var catalog = ScriptableObject.CreateInstance<PersistenceContainerCatalog>();
+            try
+            {
+                ConfigureContainerCatalog(catalog);
+                var store = root.AddComponent<PersistenceContainerStore>();
+                store.SetCatalog(catalog);
+                store.EnsureContainer(
+                    PersistenceContainerStore.DefaultQuestBookContainerId,
+                    PersistenceContainerStore.DefaultQuestBookDefinitionId,
+                    PersistenceContainerType.QuestBook);
+
+                Assert.IsFalse(store.AddItemToContainer(
+                    PersistenceContainerStore.DefaultQuestBookContainerId,
+                    "item.gem.red",
+                    1));
+                Assert.IsTrue(store.TryGetContainer(
+                    PersistenceContainerStore.DefaultQuestBookContainerId,
+                    out var record));
+                Assert.AreEqual(PersistenceContainerType.QuestBook, record.containerType);
+                Assert.AreEqual(PersistenceContainerStore.DefaultQuestBookDefinitionId, record.definitionId);
+                Assert.AreEqual(0, record.entries.Count);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(catalog);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ContainerStoreRejectsNewItemStackWhenCapacityIsFull()
+        {
+            var root = new GameObject("Persistence Container Capacity Test");
+            var catalog = ScriptableObject.CreateInstance<PersistenceContainerCatalog>();
+            try
+            {
+                ConfigureContainerCatalog(catalog);
+                catalog.FindContainerDefinition(PersistenceContainerStore.DefaultItemStorageDefinitionId).capacity = 1;
+
+                var store = root.AddComponent<PersistenceContainerStore>();
+                store.SetCatalog(catalog);
+                store.EnsureContainer(
+                    PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                    PersistenceContainerStore.DefaultItemStorageDefinitionId,
+                    PersistenceContainerType.ItemStorage);
+
+                Assert.IsTrue(store.AddItemToContainer(
+                    PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                    "item.medkit.basic",
+                    10));
+                Assert.IsFalse(store.AddItemToContainer(
+                    PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                    "item.medkit.basic",
+                    1));
+                Assert.IsTrue(store.TryGetContainer(
+                    PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                    out var record));
+                Assert.AreEqual(1, record.entries.Count);
+                Assert.AreEqual(
+                    10,
+                    store.GetItemCount(
+                        PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                        "item.medkit.basic"));
             }
             finally
             {

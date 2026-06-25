@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Addon.ChestSamples

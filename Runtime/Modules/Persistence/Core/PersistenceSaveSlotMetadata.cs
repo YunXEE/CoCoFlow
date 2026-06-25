@@ -1,6 +1,6 @@
 using System;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Core
 {
     [Serializable]
     public sealed class PersistenceSaveSlotMetadata

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     public static class PersistenceContextRegistry
     {

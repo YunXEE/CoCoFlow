@@ -1,6 +1,8 @@
 using System;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
+using CoCoFlow.Runtime.Modules.Persistence.Context;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Core
 {
     [Serializable]
     public sealed class PersistenceSaveDocument

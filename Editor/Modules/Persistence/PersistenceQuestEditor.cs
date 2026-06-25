@@ -1,4 +1,4 @@
-using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
 using UnityEditor;
 using UnityEngine;
 
@@ -20,11 +20,11 @@ namespace CoCoFlow.Editor.Modules.Persistence
             new CatalogTab("Tags", "gameplayTags", "Gameplay tag registry.")
         };
 
-        private PersistenceContainerCatalog catalog;
-        private SerializedObject serializedCatalog;
-        private Vector2 tabScroll;
-        private Vector2 contentScroll;
-        private int selectedTab;
+        private PersistenceContainerCatalog _catalog;
+        private SerializedObject _serializedCatalog;
+        private Vector2 _tabScroll;
+        private Vector2 _contentScroll;
+        private int _selectedTab;
 
         #region Public API
 
@@ -48,7 +48,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
             window.SetCatalog(nextCatalog != null
                 ? nextCatalog
                 : Selection.activeObject as PersistenceContainerCatalog);
-            window.selectedTab = Mathf.Clamp(tabIndex, 0, Tabs.Length - 1);
+            window._selectedTab = Mathf.Clamp(tabIndex, 0, Tabs.Length - 1);
             window.Show();
         }
 
@@ -58,7 +58,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
         private void OnEnable()
         {
-            if (catalog == null)
+            if (_catalog == null)
             {
                 SetCatalog(Selection.activeObject as PersistenceContainerCatalog);
             }
@@ -77,13 +77,13 @@ namespace CoCoFlow.Editor.Modules.Persistence
         {
             DrawToolbar();
 
-            if (serializedCatalog == null)
+            if (_serializedCatalog == null)
             {
                 DrawEmptyState();
                 return;
             }
 
-            serializedCatalog.Update();
+            _serializedCatalog.Update();
 
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -91,7 +91,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
                 DrawSelectedTab();
             }
 
-            serializedCatalog.ApplyModifiedProperties();
+            _serializedCatalog.ApplyModifiedProperties();
         }
 
         private void DrawToolbar()
@@ -99,11 +99,11 @@ namespace CoCoFlow.Editor.Modules.Persistence
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
                 var nextCatalog = (PersistenceContainerCatalog)EditorGUILayout.ObjectField(
-                    catalog,
+                    _catalog,
                     typeof(PersistenceContainerCatalog),
                     false,
                     GUILayout.MinWidth(220f));
-                if (nextCatalog != catalog)
+                if (nextCatalog != _catalog)
                 {
                     SetCatalog(nextCatalog);
                 }
@@ -115,11 +115,11 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
                 GUILayout.FlexibleSpace();
 
-                using (new EditorGUI.DisabledScope(catalog == null))
+                using (new EditorGUI.DisabledScope(_catalog == null))
                 {
                     if (GUILayout.Button("Validate", EditorStyles.toolbarButton, GUILayout.Width(72f)))
                     {
-                        PersistenceContainerValidator.Validate(catalog);
+                        PersistenceContainerValidator.Validate(_catalog);
                     }
                 }
             }
@@ -137,7 +137,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
         {
             using (new EditorGUILayout.VerticalScope(GUILayout.Width(170f)))
             {
-                tabScroll = EditorGUILayout.BeginScrollView(tabScroll, GUI.skin.box);
+                _tabScroll = EditorGUILayout.BeginScrollView(_tabScroll, GUI.skin.box);
                 for (int i = 0; i < Tabs.Length; i++)
                 {
                     var tab = Tabs[i];
@@ -145,10 +145,10 @@ namespace CoCoFlow.Editor.Modules.Persistence
                         ? string.Empty
                         : $" ({GetArraySize(tab.PropertyName)})";
                     var content = new GUIContent(tab.Title + count, tab.Description);
-                    var style = selectedTab == i ? EditorStyles.miniButtonMid : EditorStyles.miniButton;
-                    if (GUILayout.Toggle(selectedTab == i, content, style))
+                    var style = _selectedTab == i ? EditorStyles.miniButtonMid : EditorStyles.miniButton;
+                    if (GUILayout.Toggle(_selectedTab == i, content, style))
                     {
-                        selectedTab = i;
+                        _selectedTab = i;
                     }
                 }
 
@@ -160,11 +160,11 @@ namespace CoCoFlow.Editor.Modules.Persistence
         {
             using (new EditorGUILayout.VerticalScope())
             {
-                var tab = Tabs[selectedTab];
+                var tab = Tabs[_selectedTab];
                 EditorGUILayout.LabelField(tab.Title, EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(tab.Description, MessageType.None);
 
-                contentScroll = EditorGUILayout.BeginScrollView(contentScroll);
+                _contentScroll = EditorGUILayout.BeginScrollView(_contentScroll);
                 if (string.IsNullOrEmpty(tab.PropertyName))
                 {
                     DrawOverview();
@@ -193,7 +193,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
             EditorGUILayout.Space(8f);
             if (GUILayout.Button("Validate Catalog"))
             {
-                PersistenceContainerValidator.Validate(catalog);
+                PersistenceContainerValidator.Validate(_catalog);
             }
         }
 
@@ -206,7 +206,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
         private void DrawPropertyTab(string propertyName)
         {
-            var property = serializedCatalog.FindProperty(propertyName);
+            var property = _serializedCatalog.FindProperty(propertyName);
             if (property == null)
             {
                 EditorGUILayout.HelpBox($"Missing property: {propertyName}", MessageType.Warning);
@@ -219,10 +219,10 @@ namespace CoCoFlow.Editor.Modules.Persistence
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("Add", GUILayout.Width(64f)))
                 {
-                    Undo.RecordObject(catalog, $"Add {property.displayName}");
+                    Undo.RecordObject(_catalog, $"Add {property.displayName}");
                     property.arraySize++;
-                    serializedCatalog.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(catalog);
+                    _serializedCatalog.ApplyModifiedProperties();
+                    EditorUtility.SetDirty(_catalog);
                 }
             }
 
@@ -231,16 +231,16 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
         private int GetArraySize(string propertyName)
         {
-            if (serializedCatalog == null) return 0;
+            if (_serializedCatalog == null) return 0;
 
-            var property = serializedCatalog.FindProperty(propertyName);
+            var property = _serializedCatalog.FindProperty(propertyName);
             return property != null && property.isArray ? property.arraySize : 0;
         }
 
         private void SetCatalog(PersistenceContainerCatalog nextCatalog)
         {
-            catalog = nextCatalog;
-            serializedCatalog = catalog != null ? new SerializedObject(catalog) : null;
+            _catalog = nextCatalog;
+            _serializedCatalog = _catalog != null ? new SerializedObject(_catalog) : null;
         }
 
         private static PersistenceContainerCatalog FindFirstCatalog()

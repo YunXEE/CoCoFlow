@@ -1,7 +1,7 @@
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     public sealed class PersistenceCharacterContextAdapter : IPersistenceContextAdapter
     {

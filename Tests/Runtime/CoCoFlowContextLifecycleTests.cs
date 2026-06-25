@@ -7,7 +7,7 @@ using CoCoFlow.Runtime.Gameplay.Character;
 using CoCoFlow.Runtime.Gameplay.Enemy;
 using CoCoFlow.Runtime.Gameplay.Item;
 using CoCoFlow.Runtime.Modules.Input;
-using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Context;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
@@ -1315,6 +1315,53 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.IsTrue(consumedEventMatches);
                 Assert.IsTrue(consumedEnvelopeObserved);
                 Assert.AreEqual(2, provider.Context.LastEventSequence);
+            }
+            finally
+            {
+                agent.UnsubscribeAll();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ItemLifeCyclePublishesIntentActorBeforeClearingIntent()
+        {
+            var root = new GameObject("Item Lifecycle Intent Actor Test");
+            var agent = new EventAgent();
+            string openedSourceEntityId = string.Empty;
+            string consumedSourceEntityId = string.Empty;
+
+            try
+            {
+                var provider = root.AddComponent<ItemContextProvider>();
+                provider.Context.Identity.StableEntityId = "item.scene.intent_actor";
+                provider.Context.Payload.itemId = "loot.intent";
+
+                var lifecycle = root.AddComponent<ItemLifeCycle>();
+                lifecycle.SetContextProvider(provider);
+
+                agent.Subscribe<CoCoEventEnvelope>((ref CoCoEventEnvelope envelope) =>
+                {
+                    if (envelope.eventTypeId == "Item.Opened")
+                    {
+                        openedSourceEntityId = envelope.sourceEntityId;
+                    }
+
+                    if (envelope.eventTypeId == "Item.Consumed")
+                    {
+                        consumedSourceEntityId = envelope.sourceEntityId;
+                    }
+                });
+
+                provider.RequestOpen("actor.intent");
+                lifecycle.SetOpened();
+                Assert.AreEqual(string.Empty, provider.Context.Intent.actorId);
+                Assert.AreEqual("actor.intent", openedSourceEntityId);
+
+                provider.RequestUse("actor.intent");
+                lifecycle.SetConsumed();
+                Assert.AreEqual(string.Empty, provider.Context.Intent.actorId);
+                Assert.AreEqual("actor.intent", consumedSourceEntityId);
             }
             finally
             {

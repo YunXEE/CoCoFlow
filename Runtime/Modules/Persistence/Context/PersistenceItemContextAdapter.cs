@@ -1,6 +1,6 @@
 using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     public sealed class PersistenceItemContextAdapter : IPersistenceContextAdapter
     {

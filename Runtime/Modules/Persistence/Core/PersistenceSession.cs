@@ -1,4 +1,7 @@
-namespace CoCoFlow.Runtime.Modules.Persistence
+using CoCoFlow.Runtime.Modules.Persistence.Container;
+using CoCoFlow.Runtime.Modules.Persistence.Context;
+
+namespace CoCoFlow.Runtime.Modules.Persistence.Core
 {
     public static class PersistenceSession
     {

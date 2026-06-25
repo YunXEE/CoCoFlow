@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Persistence

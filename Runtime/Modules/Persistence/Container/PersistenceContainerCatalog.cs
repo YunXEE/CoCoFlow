@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Container
 {
     [CreateAssetMenu(fileName = "PersistenceContainerCatalog", menuName = "CoCoFlow/Persistence/Container Catalog")]
     public sealed class PersistenceContainerCatalog : ScriptableObject

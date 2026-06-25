@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Container
 {
     public sealed class PersistenceContainerStore : MonoBehaviour
     {
@@ -21,7 +22,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
         [SerializeField] private PersistenceContainerCatalog catalog;
         [SerializeField] private PersistenceContainerSection section = new PersistenceContainerSection();
 
-        private readonly EventAgent eventAgent = new EventAgent();
+        private readonly EventAgent _eventAgent = new EventAgent();
         private static PersistenceContainerStore _activeStore;
 
         public static PersistenceContainerStore ActiveStore => _activeStore;
@@ -172,12 +173,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence
                 slotIndex = slotIndex
             };
 
-            if (!CanAcceptEntry(container, entryTemplate)) return false;
-
             var itemDefinition = catalog != null ? catalog.FindItem(itemId) : null;
-            if (itemDefinition == null || itemDefinition.stackable)
+            if (!CanAcceptItemCount(container, entryTemplate, itemDefinition)) return false;
+
+            if (IsStackable(itemDefinition))
             {
-                int maxStack = itemDefinition != null ? Mathf.Max(1, itemDefinition.maxStack) : int.MaxValue;
+                int maxStack = ResolveMaxStack(itemDefinition);
                 while (count > 0)
                 {
                     var stack = FindOpenItemStack(container, itemId, slotIndex, maxStack);
@@ -193,8 +194,8 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
             while (count > 0)
             {
-                int nextCount = itemDefinition != null && itemDefinition.stackable
-                    ? Mathf.Min(Mathf.Max(1, itemDefinition.maxStack), count)
+                int nextCount = IsStackable(itemDefinition)
+                    ? Mathf.Min(ResolveMaxStack(itemDefinition), count)
                     : 1;
                 entryTemplate.count = nextCount;
                 container.entries.Add(CreateEntry(entryTemplate));
@@ -552,7 +553,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
         private void OnEnable()
         {
             _activeStore = this;
-            eventAgent.Subscribe<PersistenceContainerCommandRequested>(OnCommandRequested);
+            _eventAgent.Subscribe<PersistenceContainerCommandRequested>(OnCommandRequested);
             if (PersistenceSession.PendingDocument?.containerSection != null)
             {
                 section = PersistenceSession.PendingDocument.containerSection;
@@ -561,7 +562,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
         private void OnDisable()
         {
-            eventAgent.UnsubscribeAll();
+            _eventAgent.UnsubscribeAll();
             if (ReferenceEquals(_activeStore, this))
             {
                 _activeStore = null;
@@ -698,6 +699,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             if (container == null || entry == null) return false;
 
             var definition = ResolveDefinition(container);
+            PersistenceItemDefinition itemDefinition = null;
+            if (entry.entryType == PersistenceContainerEntryType.Item && catalog != null)
+            {
+                itemDefinition = catalog.FindItem(entry.definitionId);
+            }
+
             if (!AcceptsEntryType(definition, container.containerType, entry.entryType))
             {
                 return false;
@@ -705,13 +712,20 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
             if (definition.capacity >= 0 && container.entries.Count >= definition.capacity)
             {
-                var existing = FindEntry(container, entry.entryType, entry.definitionId);
-                if (existing == null) return false;
+                if (entry.entryType == PersistenceContainerEntryType.Item)
+                {
+                    if (!CanStackIntoExistingItemEntry(container, entry, itemDefinition)) return false;
+                }
+                else
+                {
+                    var existing = FindEntry(container, entry.entryType, entry.definitionId);
+                    if (existing == null) return false;
+                }
             }
 
-            if (entry.entryType == PersistenceContainerEntryType.Item && catalog != null)
+            if (entry.entryType == PersistenceContainerEntryType.Item &&
+                catalog != null)
             {
-                var itemDefinition = catalog.FindItem(entry.definitionId);
                 if (!definition.acceptedItemTags.Matches(itemDefinition?.tags))
                 {
                     return false;
@@ -719,6 +733,43 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             }
 
             return true;
+        }
+
+        private bool CanAcceptItemCount(
+            PersistenceContainerRecord container,
+            PersistenceContainerEntryTemplate entry,
+            PersistenceItemDefinition itemDefinition)
+        {
+            if (!CanAcceptEntry(container, entry)) return false;
+
+            var definition = ResolveDefinition(container);
+            if (definition.capacity < 0) return true;
+
+            int remainingCount = entry.count;
+            if (IsStackable(itemDefinition))
+            {
+                int maxStack = ResolveMaxStack(itemDefinition);
+                for (int i = 0; i < container.entries.Count && remainingCount > 0; i++)
+                {
+                    var existingEntry = container.entries[i];
+                    if (existingEntry == null ||
+                        existingEntry.entryType != PersistenceContainerEntryType.Item ||
+                        existingEntry.definitionId != entry.definitionId ||
+                        (entry.slotIndex >= 0 && existingEntry.slotIndex != entry.slotIndex))
+                    {
+                        continue;
+                    }
+
+                    remainingCount -= Mathf.Max(0, maxStack - existingEntry.count);
+                }
+            }
+
+            if (remainingCount <= 0) return true;
+
+            int requiredNewEntries = IsStackable(itemDefinition)
+                ? Mathf.CeilToInt((float)remainingCount / ResolveMaxStack(itemDefinition))
+                : remainingCount;
+            return container.entries.Count + requiredNewEntries <= definition.capacity;
         }
 
         private bool CanTransferBetween(
@@ -779,6 +830,29 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             }
 
             return !definition.sameTypeTransfersOnly || sourceType == targetType;
+        }
+
+        private static bool CanStackIntoExistingItemEntry(
+            PersistenceContainerRecord container,
+            PersistenceContainerEntryTemplate entry,
+            PersistenceItemDefinition itemDefinition)
+        {
+            if (!IsStackable(itemDefinition)) return false;
+            return FindOpenItemStack(
+                container,
+                entry.definitionId,
+                entry.slotIndex,
+                ResolveMaxStack(itemDefinition)) != null;
+        }
+
+        private static bool IsStackable(PersistenceItemDefinition itemDefinition)
+        {
+            return itemDefinition == null || itemDefinition.stackable;
+        }
+
+        private static int ResolveMaxStack(PersistenceItemDefinition itemDefinition)
+        {
+            return itemDefinition != null ? Mathf.Max(1, itemDefinition.maxStack) : int.MaxValue;
         }
 
         private static PersistenceContainerEntryRecord FindEntry(

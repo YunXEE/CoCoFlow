@@ -9,7 +9,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
 #endif
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     [ExecuteAlways]
     public sealed class PersistenceContext :

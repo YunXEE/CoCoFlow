@@ -3,7 +3,7 @@ using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     public interface IPersistenceContextAdapter
     {

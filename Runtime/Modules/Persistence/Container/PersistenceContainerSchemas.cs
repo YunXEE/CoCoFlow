@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Container
 {
     [Serializable]
     public sealed class PersistenceGameplayTag

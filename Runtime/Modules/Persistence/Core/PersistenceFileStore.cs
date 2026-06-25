@@ -3,7 +3,7 @@ using System.IO;
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Core
 {
     public static class PersistenceFileStore
     {

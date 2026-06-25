@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CoCoFlow.Runtime.Modules.Persistence
+namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     [Serializable]
     public struct PersistenceVector3Data

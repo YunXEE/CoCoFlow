@@ -1,18 +1,19 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
 using Newtonsoft.Json;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Persistence
 {
-    public class PersistenceContainerBridge : MonoBehaviour
+    public sealed class PersistenceContainerBridge : MonoBehaviour
     {
         [SerializeField] private string actorId = string.Empty;
         [SerializeField] private string containerId = string.Empty;
         [SerializeField] private bool reliable = true;
 
-        private int sequence;
+        private int _sequence;
 
         public string ActorId => ResolveActorId();
         public string ContainerId => ResolveContainerId();
@@ -169,7 +170,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
         #region Internal Logic
 
-        protected bool PublishCommand(PersistenceContainerCommandRequested command)
+        private bool PublishCommand(PersistenceContainerCommandRequested command)
         {
             if (command == null) return false;
 
@@ -188,7 +189,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             return true;
         }
 
-        protected void PrepareCommand(PersistenceContainerCommandRequested command)
+        private void PrepareCommand(PersistenceContainerCommandRequested command)
         {
             if (string.IsNullOrEmpty(command.commandId))
             {
@@ -202,13 +203,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
             if (command.sequence <= 0)
             {
-                command.sequence = ++sequence;
+                command.sequence = ++_sequence;
             }
 
             command.reliable = reliable;
         }
 
-        protected string ResolveContainerId()
+        private string ResolveContainerId()
         {
             return !string.IsNullOrEmpty(containerId)
                 ? containerId

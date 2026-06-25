@@ -182,7 +182,7 @@ Use `CoCoFlow/Persistence/Validate Selected Catalog` to validate duplicate IDs a
 ### Materialize Startup Containers
 
 ```csharp
-using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
 using UnityEngine;
 
 public sealed class GameBootstrap : MonoBehaviour

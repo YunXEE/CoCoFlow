@@ -65,12 +65,13 @@ namespace CoCoFlow.Runtime.Gameplay.Item
             if (targetContext == null) return;
 
             bool wasOpened = targetContext.ItemState == ItemSemanticState.Opened;
+            string resolvedActorId = ResolveActorId(targetContext, sourceActorId);
             ApplyState(targetContext, ItemSemanticState.Opened, targetContext.SetOpened);
             targetContext.Intent.Clear();
 
             if (!wasOpened)
             {
-                PublishOpened(targetContext, sourceActorId);
+                PublishOpened(targetContext, resolvedActorId);
                 OnOpened?.Invoke(targetContext);
             }
         }
@@ -81,12 +82,13 @@ namespace CoCoFlow.Runtime.Gameplay.Item
             if (targetContext == null) return;
 
             bool wasConsumed = targetContext.ItemState == ItemSemanticState.Consumed;
+            string resolvedActorId = ResolveActorId(targetContext, sourceActorId);
             ApplyState(targetContext, ItemSemanticState.Consumed, targetContext.SetConsumed);
             targetContext.Intent.Clear();
 
             if (!wasConsumed)
             {
-                PublishConsumed(targetContext, sourceActorId);
+                PublishConsumed(targetContext, resolvedActorId);
                 OnConsumed?.Invoke(targetContext);
             }
         }
