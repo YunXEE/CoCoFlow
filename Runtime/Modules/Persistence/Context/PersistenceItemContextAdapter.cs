@@ -26,15 +26,15 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             object itemState = PersistenceContextReflection.GetPropertyValue(entityContext, "ItemState");
             if (itemState != null)
             {
-                record.stringFacts["item.state"] = itemState.ToString();
+                record.StringFacts["item.state"] = itemState.ToString();
             }
 
             object payload = PersistenceContextReflection.GetPropertyValue(entityContext, "Payload");
             if (payload != null)
             {
-                record.stringFacts["item.payload.itemId"] =
+                record.StringFacts["item.payload.itemId"] =
                     (string)PersistenceContextReflection.GetFieldValue(payload, "itemId") ?? string.Empty;
-                record.intFacts["item.payload.count"] =
+                record.IntFacts["item.payload.count"] =
                     (int)PersistenceContextReflection.GetFieldValue(payload, "count");
             }
 
@@ -46,7 +46,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             var entityContext = (CoCoEntityContext)context;
             PersistenceContextReflection.ApplyEntityBase(record, entityContext);
 
-            if (record.stringFacts.TryGetValue("item.state", out string state))
+            if (record.StringFacts.TryGetValue("item.state", out string state))
             {
                 switch (state)
                 {
@@ -74,12 +74,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             object payload = PersistenceContextReflection.GetPropertyValue(entityContext, "Payload");
             if (payload != null)
             {
-                if (record.stringFacts.TryGetValue("item.payload.itemId", out string itemId))
+                if (record.StringFacts.TryGetValue("item.payload.itemId", out string itemId))
                 {
                     PersistenceContextReflection.SetFieldValue(payload, "itemId", itemId);
                 }
 
-                if (record.intFacts.TryGetValue("item.payload.count", out int count))
+                if (record.IntFacts.TryGetValue("item.payload.count", out int count))
                 {
                     PersistenceContextReflection.SetFieldValue(payload, "count", count);
                 }

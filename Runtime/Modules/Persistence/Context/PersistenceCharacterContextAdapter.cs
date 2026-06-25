@@ -27,22 +27,22 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             object motion = PersistenceContextReflection.GetPropertyValue(entityContext, "Motion");
             if (motion != null)
             {
-                record.vector3Facts["motion.position"] =
+                record.Vector3Facts["motion.position"] =
                     PersistenceContextReflection.ToData((Vector3)PersistenceContextReflection.GetFieldValue(motion, "position"));
-                record.quaternionFacts["motion.rotation"] =
+                record.QuaternionFacts["motion.rotation"] =
                     PersistenceContextReflection.ToData((Quaternion)PersistenceContextReflection.GetFieldValue(motion, "rotation"));
-                record.vector3Facts["motion.velocity"] =
+                record.Vector3Facts["motion.velocity"] =
                     PersistenceContextReflection.ToData((Vector3)PersistenceContextReflection.GetFieldValue(motion, "velocity"));
-                record.boolFacts["motion.isGrounded"] =
+                record.BoolFacts["motion.isGrounded"] =
                     (bool)PersistenceContextReflection.GetFieldValue(motion, "isGrounded");
             }
 
             object resources = PersistenceContextReflection.GetPropertyValue(entityContext, "Resources");
             if (resources != null)
             {
-                record.floatFacts["resources.maxHealth"] =
+                record.FloatFacts["resources.maxHealth"] =
                     (float)PersistenceContextReflection.GetPropertyValue(resources, "MaxHealth");
-                record.floatFacts["resources.currentHealth"] =
+                record.FloatFacts["resources.currentHealth"] =
                     (float)PersistenceContextReflection.GetPropertyValue(resources, "CurrentHealth");
             }
 
@@ -57,7 +57,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             object motion = PersistenceContextReflection.GetPropertyValue(entityContext, "Motion");
             if (motion != null)
             {
-                if (record.vector3Facts.TryGetValue("motion.position", out var position))
+                if (record.Vector3Facts.TryGetValue("motion.position", out var position))
                 {
                     PersistenceContextReflection.SetFieldValue(
                         motion,
@@ -65,7 +65,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                         PersistenceContextReflection.ToVector3(position));
                 }
 
-                if (record.quaternionFacts.TryGetValue("motion.rotation", out var rotation))
+                if (record.QuaternionFacts.TryGetValue("motion.rotation", out var rotation))
                 {
                     PersistenceContextReflection.SetFieldValue(
                         motion,
@@ -73,7 +73,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                         PersistenceContextReflection.ToQuaternion(rotation));
                 }
 
-                if (record.vector3Facts.TryGetValue("motion.velocity", out var velocity))
+                if (record.Vector3Facts.TryGetValue("motion.velocity", out var velocity))
                 {
                     PersistenceContextReflection.SetFieldValue(
                         motion,
@@ -81,7 +81,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                         PersistenceContextReflection.ToVector3(velocity));
                 }
 
-                if (record.boolFacts.TryGetValue("motion.isGrounded", out bool isGrounded))
+                if (record.BoolFacts.TryGetValue("motion.isGrounded", out bool isGrounded))
                 {
                     PersistenceContextReflection.SetFieldValue(motion, "isGrounded", isGrounded);
                 }
@@ -90,12 +90,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             object resources = PersistenceContextReflection.GetPropertyValue(entityContext, "Resources");
             if (resources != null)
             {
-                if (record.floatFacts.TryGetValue("resources.maxHealth", out float maxHealth))
+                if (record.FloatFacts.TryGetValue("resources.maxHealth", out float maxHealth))
                 {
                     resources.GetType().GetProperty("MaxHealth")?.SetValue(resources, maxHealth);
                 }
 
-                if (record.floatFacts.TryGetValue("resources.currentHealth", out float currentHealth))
+                if (record.FloatFacts.TryGetValue("resources.currentHealth", out float currentHealth))
                 {
                     resources.GetType().GetProperty("CurrentHealth")?.SetValue(resources, currentHealth);
                 }

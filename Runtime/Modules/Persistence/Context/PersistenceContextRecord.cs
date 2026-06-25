@@ -32,12 +32,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         public int semanticStateId;
         public int actionStateId;
         public int lastEventSequence;
-        public Dictionary<string, string> stringFacts = new Dictionary<string, string>();
-        public Dictionary<string, int> intFacts = new Dictionary<string, int>();
-        public Dictionary<string, float> floatFacts = new Dictionary<string, float>();
-        public Dictionary<string, bool> boolFacts = new Dictionary<string, bool>();
-        public Dictionary<string, PersistenceVector3Data> vector3Facts = new Dictionary<string, PersistenceVector3Data>();
-        public Dictionary<string, PersistenceQuaternionData> quaternionFacts =
+        public Dictionary<string, string> StringFacts = new Dictionary<string, string>();
+        public Dictionary<string, int> IntFacts = new Dictionary<string, int>();
+        public Dictionary<string, float> FloatFacts = new Dictionary<string, float>();
+        public Dictionary<string, bool> BoolFacts = new Dictionary<string, bool>();
+        public Dictionary<string, PersistenceVector3Data> Vector3Facts = new Dictionary<string, PersistenceVector3Data>();
+        public Dictionary<string, PersistenceQuaternionData> QuaternionFacts =
             new Dictionary<string, PersistenceQuaternionData>();
     }
 }

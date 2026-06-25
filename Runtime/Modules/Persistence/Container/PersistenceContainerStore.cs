@@ -457,7 +457,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
                 factSet.entries.Add(entry);
             }
 
-            entry.boolValues["value"] = value;
+            entry.BoolValues["value"] = value;
             entry.revision++;
             factSet.revision++;
             return true;
@@ -471,7 +471,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
             if (!section.TryGetRecord(factContainerId, out var factSet)) return defaultValue;
             var entry = FindEntry(factSet, PersistenceContainerEntryType.Fact, factId);
             if (entry == null) return defaultValue;
-            return entry.boolValues.TryGetValue("value", out bool value) ? value : defaultValue;
+            return entry.BoolValues.TryGetValue("value", out bool value) ? value : defaultValue;
         }
 
         public bool GrantRewardToContainer(
@@ -923,10 +923,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
                 };
             }
 
-            entry.stringValues["value"] = template.stringValue;
-            entry.intValues["value"] = template.intValue;
-            entry.floatValues["value"] = template.floatValue;
-            entry.boolValues["value"] = template.boolValue;
+            entry.StringValues["value"] = template.stringValue;
+            entry.IntValues["value"] = template.intValue;
+            entry.FloatValues["value"] = template.floatValue;
+            entry.BoolValues["value"] = template.boolValue;
             return entry;
         }
 

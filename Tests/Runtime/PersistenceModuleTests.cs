@@ -409,7 +409,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                     lifecycleState = (int)CoCoLifecycleState.Active,
                     semanticStateId = (int)ItemSemanticState.Opened
                 };
-                record.stringFacts["item.state"] = "Opened";
+                record.StringFacts["item.state"] = "Opened";
 
                 var contextSection = new PersistenceContextSection();
                 contextSection.AddOrReplace(record);

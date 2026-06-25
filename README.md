@@ -1,5 +1,7 @@
 # CoCoFlow
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
 
 > **Version**: 0.3.6 · **Unity**: 6000+
