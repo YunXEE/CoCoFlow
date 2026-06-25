@@ -39,19 +39,20 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
             string json = JsonConvert.SerializeObject(document, Formatting.Indented);
 
             File.WriteAllText(tempPath, json);
-            if (File.Exists(targetPath))
-            {
-                File.Delete(targetPath);
-            }
-
-            File.Move(tempPath, targetPath);
+            ReplaceSaveFile(tempPath, targetPath);
         }
 
         public static bool TryReadDocument(int slotIndex, out PersistenceSaveDocument document)
         {
             document = null;
             string path = GetSaveFilePath(slotIndex);
-            if (!File.Exists(path)) return false;
+            if (!File.Exists(path))
+            {
+                string backupPath = GetBackupFilePath(path);
+                if (!File.Exists(backupPath)) return false;
+
+                path = backupPath;
+            }
 
             string json = File.ReadAllText(path);
             document = JsonConvert.DeserializeObject<PersistenceSaveDocument>(json);
@@ -76,7 +77,79 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
                 File.Delete(file);
             }
 
+            foreach (string file in Directory.GetFiles(directory, "savegame_slot_*.json.bak"))
+            {
+                File.Delete(file);
+            }
+
             return deleted;
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static string GetBackupFilePath(string targetPath)
+        {
+            return targetPath + ".bak";
+        }
+
+        private static void ReplaceSaveFile(string tempPath, string targetPath)
+        {
+            if (!File.Exists(targetPath))
+            {
+                File.Move(tempPath, targetPath);
+                return;
+            }
+
+            string backupPath = GetBackupFilePath(targetPath);
+            DeleteBackupFile(backupPath);
+
+            try
+            {
+                File.Replace(tempPath, targetPath, backupPath, true);
+                DeleteBackupFile(backupPath);
+            }
+            catch (NotSupportedException)
+            {
+                ReplaceSaveFileWithBackup(tempPath, targetPath, backupPath);
+            }
+            catch (NotImplementedException)
+            {
+                ReplaceSaveFileWithBackup(tempPath, targetPath, backupPath);
+            }
+        }
+
+        private static void ReplaceSaveFileWithBackup(
+            string tempPath,
+            string targetPath,
+            string backupPath)
+        {
+            DeleteBackupFile(backupPath);
+            File.Move(targetPath, backupPath);
+
+            try
+            {
+                File.Move(tempPath, targetPath);
+                DeleteBackupFile(backupPath);
+            }
+            catch
+            {
+                if (!File.Exists(targetPath) && File.Exists(backupPath))
+                {
+                    File.Move(backupPath, targetPath);
+                }
+
+                throw;
+            }
+        }
+
+        private static void DeleteBackupFile(string backupPath)
+        {
+            if (File.Exists(backupPath))
+            {
+                File.Delete(backupPath);
+            }
         }
 
         #endregion

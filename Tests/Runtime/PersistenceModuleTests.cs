@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Gameplay.Character;
@@ -57,6 +58,87 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             Assert.IsNotNull(document.contextSection);
             Assert.IsNotNull(document.containerSection);
             Assert.IsNotNull(document.metadata);
+        }
+
+        [Test]
+        public void FileStoreOverwritesExistingSlotWithoutLeavingTemporaryFiles()
+        {
+            string previousOverride = PersistenceFileStore.SaveDirectoryOverride;
+            string directory = CreateTempSaveDirectory();
+            try
+            {
+                PersistenceFileStore.SaveDirectoryOverride = directory;
+                var firstSection = new PersistenceContextSection();
+                firstSection.AddOrReplace(new PersistenceContextRecord
+                {
+                    stableEntityId = "scene.item.first"
+                });
+                var secondSection = new PersistenceContextSection();
+                secondSection.AddOrReplace(new PersistenceContextRecord
+                {
+                    stableEntityId = "scene.item.second"
+                });
+
+                PersistenceFileStore.WriteDocument(
+                    1,
+                    PersistenceSaveDocument.Create(
+                        1,
+                        firstSection,
+                        new PersistenceContainerSection()));
+                PersistenceFileStore.WriteDocument(
+                    1,
+                    PersistenceSaveDocument.Create(
+                        1,
+                        secondSection,
+                        new PersistenceContainerSection()));
+
+                Assert.IsTrue(PersistenceFileStore.TryReadDocument(1, out var loaded));
+                Assert.IsFalse(loaded.contextSection.TryGetRecord("scene.item.first", out _));
+                Assert.IsTrue(loaded.contextSection.TryGetRecord("scene.item.second", out _));
+
+                string savePath = PersistenceFileStore.GetSaveFilePath(1);
+                Assert.IsFalse(File.Exists(savePath + ".tmp"));
+                Assert.IsFalse(File.Exists(savePath + ".bak"));
+            }
+            finally
+            {
+                PersistenceFileStore.SaveDirectoryOverride = previousOverride;
+                DeleteTempSaveDirectory(directory);
+            }
+        }
+
+        [Test]
+        public void FileStoreReadsBackupWhenTargetFileIsMissing()
+        {
+            string previousOverride = PersistenceFileStore.SaveDirectoryOverride;
+            string directory = CreateTempSaveDirectory();
+            try
+            {
+                PersistenceFileStore.SaveDirectoryOverride = directory;
+                var contextSection = new PersistenceContextSection();
+                contextSection.AddOrReplace(new PersistenceContextRecord
+                {
+                    stableEntityId = "scene.item.backup"
+                });
+
+                PersistenceFileStore.WriteDocument(
+                    2,
+                    PersistenceSaveDocument.Create(
+                        2,
+                        contextSection,
+                        new PersistenceContainerSection()));
+
+                string savePath = PersistenceFileStore.GetSaveFilePath(2);
+                File.Move(savePath, savePath + ".bak");
+
+                Assert.IsTrue(PersistenceFileStore.TryReadDocument(2, out var loaded));
+                Assert.IsTrue(loaded.contextSection.TryGetRecord("scene.item.backup", out _));
+            }
+            finally
+            {
+                PersistenceFileStore.SaveDirectoryOverride = previousOverride;
+                DeleteTempSaveDirectory(directory);
+            }
         }
 
         [Test]
@@ -521,6 +603,22 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 factId = "fact.village.door_open",
                 displayName = "Village Door Open"
             });
+        }
+
+        private static string CreateTempSaveDirectory()
+        {
+            return Path.Combine(
+                Path.GetTempPath(),
+                "CoCoFlowPersistenceTests",
+                System.Guid.NewGuid().ToString("N"));
+        }
+
+        private static void DeleteTempSaveDirectory(string directory)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)
