@@ -1,6 +1,6 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "displayName": "CoCoFlow",
   "description": "A modular Unity game development framework with Context-driven State Layers, Character/Enemy gameplay foundations, optional samples, and Editor tooling.",
   "unity": "6000.0",
