@@ -10,6 +10,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         private CharacterController _characterController;
 
         [Header("Context")]
+        [CoCoContextProvider(typeof(CharacterContext))]
         [SerializeField] private MonoBehaviour contextProvider;
         [SerializeField] private bool writeMotionToContext = true;
 

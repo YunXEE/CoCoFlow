@@ -483,6 +483,79 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void ControllerRunsHfsmChildMachinesInsideOneStateLayer()
+        {
+            var root = new GameObject("HFSM State Layer Test");
+            var log = new System.Collections.Generic.List<string>();
+
+            try
+            {
+                var provider = root.AddComponent<TestCharacterProvider>();
+                var parentA = root.AddComponent<HfsmParentAState>();
+                var parentB = root.AddComponent<HfsmParentBState>();
+                var childA = root.AddComponent<HfsmChildAState>();
+                var childB = root.AddComponent<HfsmChildBState>();
+                var leafA = root.AddComponent<HfsmLeafAState>();
+                var leafB = root.AddComponent<HfsmLeafBState>();
+                parentA.Configure("parent-a", log);
+                parentB.Configure("parent-b", log);
+                childA.Configure("child-a", log);
+                childB.Configure("child-b", log);
+                leafA.Configure("leaf-a", log);
+                leafB.Configure("leaf-b", log);
+
+                var controller = root.AddComponent<CoCoStateController>();
+                controller.SetContextProvider(provider);
+                var layer = new CoCoStateLayer(
+                    "main",
+                    parentA,
+                    new CoCoStateBase[] { parentA, parentB },
+                    0,
+                    true,
+                    true,
+                    new[]
+                    {
+                        new CoCoStateChildMachine(parentA, childA, new CoCoStateBase[] { childA, childB }),
+                        new CoCoStateChildMachine(childA, leafA, new CoCoStateBase[] { leafA, leafB })
+                    });
+                controller.SetStateLayers(new[] { layer });
+
+                controller.EnterState();
+                controller.UpdateState();
+                childA.RequestChange<HfsmChildBState>();
+                controller.UpdateState();
+                parentA.RequestChange<HfsmParentBState>();
+                Assert.AreSame(parentB, controller.GetCurrentState(layer));
+                controller.ExitState();
+
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "parent-a.enter",
+                        "child-a.enter",
+                        "leaf-a.enter",
+                        "parent-a.update",
+                        "child-a.update",
+                        "leaf-a.update",
+                        "leaf-a.exit",
+                        "child-a.exit",
+                        "child-b.enter",
+                        "parent-a.update",
+                        "child-b.update",
+                        "child-b.exit",
+                        "parent-a.exit",
+                        "parent-b.enter",
+                        "parent-b.exit"
+                    },
+                    log);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void CharacterContextProviderWritesSourcesByPriorityBeforeStateTick()
         {
             var root = new GameObject("Character Context Sources Test");
@@ -1155,6 +1228,102 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void ItemLifeCycleWritesProviderContextAndPublishesItemEvents()
+        {
+            var root = new GameObject("Item Lifecycle Test");
+            var agent = new EventAgent();
+            var openedEvents = 0;
+            var consumedEvents = 0;
+            var openedEventMatches = false;
+            var consumedEventMatches = false;
+            var openedEnvelopeObserved = false;
+            var consumedEnvelopeObserved = false;
+
+            try
+            {
+                var provider = root.AddComponent<ItemContextProvider>();
+                provider.Context.Identity.StableEntityId = "item.scene.container.01";
+                provider.Context.Payload.itemId = "loot.currency";
+                provider.Context.Payload.count = 5;
+
+                var lifecycle = root.AddComponent<ItemLifeCycle>();
+                lifecycle.SetContextProvider(provider);
+                lifecycle.SetActorId("actor.player");
+
+                agent.Subscribe<ItemOpenedEvent>((ref ItemOpenedEvent evt) =>
+                {
+                    openedEvents++;
+                    openedEventMatches =
+                        evt.Context == provider.Context &&
+                        evt.ItemId == "loot.currency" &&
+                        evt.EventSequence == 1;
+                });
+                agent.Subscribe<ItemConsumedEvent>((ref ItemConsumedEvent evt) =>
+                {
+                    consumedEvents++;
+                    consumedEventMatches =
+                        evt.Context == provider.Context &&
+                        evt.ItemId == "loot.currency" &&
+                        evt.EventSequence == 2;
+                });
+                agent.Subscribe<CoCoEventEnvelope>((ref CoCoEventEnvelope envelope) =>
+                {
+                    if (envelope.eventTypeId == "Item.Opened")
+                    {
+                        openedEnvelopeObserved =
+                            envelope.sourceEntityId == "actor.player" &&
+                            envelope.targetEntityId == "item.scene.container.01" &&
+                            envelope.sequence == 1 &&
+                            envelope.payloadTypeId == nameof(ItemOpenedEvent) &&
+                            envelope.payload == "loot.currency";
+                    }
+
+                    if (envelope.eventTypeId == "Item.Consumed")
+                    {
+                        consumedEnvelopeObserved =
+                            envelope.sourceEntityId == "actor.player" &&
+                            envelope.targetEntityId == "item.scene.container.01" &&
+                            envelope.sequence == 2 &&
+                            envelope.payloadTypeId == nameof(ItemConsumedEvent) &&
+                            envelope.payload == "loot.currency";
+                    }
+                });
+
+                lifecycle.SetAvailable();
+                Assert.AreEqual(ItemSemanticState.Available, provider.Context.ItemState);
+                Assert.AreSame(provider.Context, lifecycle.Context);
+
+                provider.RequestOpen("actor.player");
+                lifecycle.SetOpening();
+                lifecycle.SetOpened();
+                lifecycle.SetOpened();
+
+                Assert.AreEqual(ItemSemanticState.Opened, provider.Context.ItemState);
+                Assert.IsFalse(provider.Context.Intent.openRequested);
+                Assert.AreEqual(string.Empty, provider.Context.Intent.actorId);
+                Assert.AreEqual(1, openedEvents);
+                Assert.IsTrue(openedEventMatches);
+                Assert.IsTrue(openedEnvelopeObserved);
+
+                provider.RequestUse("actor.player");
+                lifecycle.SetConsumed();
+
+                Assert.AreEqual(ItemSemanticState.Consumed, provider.Context.ItemState);
+                Assert.AreEqual(CoCoLifecycleState.Consumed, provider.Context.Lifecycle.State);
+                Assert.IsFalse(provider.Context.Intent.useRequested);
+                Assert.AreEqual(1, consumedEvents);
+                Assert.IsTrue(consumedEventMatches);
+                Assert.IsTrue(consumedEnvelopeObserved);
+                Assert.AreEqual(2, provider.Context.LastEventSequence);
+            }
+            finally
+            {
+                agent.UnsubscribeAll();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void ItemInputDriverMapsExternalItemIntentIntoItemContext()
         {
             var root = new GameObject("Item Input Driver Test");
@@ -1292,14 +1461,14 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var root = new GameObject("Persistence Identity Test");
             try
             {
-                var savable = root.AddComponent<TestSavableEntity>();
-                SetPrivateField(savable, "uniqueID", "scene.item.001");
+                var persistenceContext = root.AddComponent<PersistenceContext>();
+                SetPrivateField(persistenceContext, "stableEntityId", "scene.item.001");
 
-                Assert.IsInstanceOf<ICoCoStableEntityIdProvider>(savable);
-                Assert.AreEqual(savable.UniqueID, savable.StableEntityId);
+                Assert.IsInstanceOf<ICoCoStableEntityIdProvider>(persistenceContext);
+                Assert.AreEqual("scene.item.001", persistenceContext.StableEntityId);
 
                 var context = new ItemContext();
-                context.Identity.StableEntityId = savable.StableEntityId;
+                context.Identity.StableEntityId = persistenceContext.StableEntityId;
                 context.Identity.RuntimeInstanceId = "runtime.host.42";
 
                 Assert.IsTrue(context.Identity.HasStableEntityId);
@@ -1667,12 +1836,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             public ItemIntent Intent { get; } = new ItemIntent();
         }
 
-        private sealed class TestSavableEntity : SavableEntityBase
-        {
-            public override void LoadState() { }
-            public override void SaveState() { }
-        }
-
         private static void SetPrivateField(object target, string fieldName, object value)
         {
             var field = FindPrivateField(target.GetType(), fieldName);
@@ -1818,6 +1981,58 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 ExitContext = context;
             }
         }
+
+        private abstract class HfsmLifecycleState : CoCoStateBase
+        {
+            private string _name;
+            private System.Collections.Generic.List<string> _log;
+
+            public void Configure(
+                string stateName,
+                System.Collections.Generic.List<string> log)
+            {
+                _name = stateName;
+                _log = log;
+            }
+
+            public void RequestChange<TState>() where TState : CoCoStateBase
+            {
+                ChangeState<TState>();
+            }
+
+            protected override void DefineState(CoCoStateDefinitionBuilder builder)
+            {
+                builder
+                    .UsesOperation<CoCoStateController>("HFSM lifecycle callback test");
+            }
+
+            public override void Enter(ICoCoContext context)
+            {
+                _log.Add($"{_name}.enter");
+            }
+
+            public override void OnStateUpdate(ICoCoContext context)
+            {
+                _log.Add($"{_name}.update");
+            }
+
+            public override void Exit(ICoCoContext context)
+            {
+                _log.Add($"{_name}.exit");
+            }
+        }
+
+        private sealed class HfsmParentAState : HfsmLifecycleState { }
+
+        private sealed class HfsmParentBState : HfsmLifecycleState { }
+
+        private sealed class HfsmChildAState : HfsmLifecycleState { }
+
+        private sealed class HfsmChildBState : HfsmLifecycleState { }
+
+        private sealed class HfsmLeafAState : HfsmLifecycleState { }
+
+        private sealed class HfsmLeafBState : HfsmLifecycleState { }
 
         private sealed class TestDecisionStateController : CoCoStateController
         {

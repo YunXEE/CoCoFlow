@@ -6,6 +6,7 @@ namespace CoCoFlow.Runtime.Gameplay.Item
     public class ItemInputDriver : MonoBehaviour
     {
         [Header("Context")]
+        [CoCoContextProvider(typeof(ItemContext))]
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Intent Source")]

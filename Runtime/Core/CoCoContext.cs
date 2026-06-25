@@ -3,6 +3,19 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
 {
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class CoCoContextProviderAttribute : PropertyAttribute
+    {
+        public CoCoContextProviderAttribute() { }
+
+        public CoCoContextProviderAttribute(Type requiredContextType)
+        {
+            RequiredContextType = requiredContextType;
+        }
+
+        public Type RequiredContextType { get; }
+    }
+
     public interface ICoCoContext { }
 
     public interface ICoCoContextProvider<out TContext> where TContext : class, ICoCoContext

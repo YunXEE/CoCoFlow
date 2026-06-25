@@ -137,7 +137,7 @@ CoCoEventBus.PublishWithEnvelope(ref typedEvent, ref envelope)
 - `RuntimeInstanceId`：单局运行时实例，适合玩家、动态敌人、掉落物。网络模式下应由 Host 或 StateAuthority 分配。
 - `EventSequenceId`：单个 source 的事件序号，用于去重、排序和回放。
 
-`SavableEntityBase.UniqueID` 通过 `ICoCoStableEntityIdProvider.StableEntityId` 暴露给 Core identity。Persistence 不分配 RuntimeInstanceId，也不驱动实时 gameplay。
+`PersistenceContext.StableEntityId` 通过 `ICoCoStableEntityIdProvider.StableEntityId` 暴露给 Core identity。Persistence 不分配 RuntimeInstanceId，也不驱动实时 gameplay。
 
 ## Network Adapter Boundary
 

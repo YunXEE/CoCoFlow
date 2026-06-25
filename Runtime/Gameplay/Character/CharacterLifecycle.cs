@@ -11,6 +11,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
         [Header("Context")]
         [Tooltip("CharacterContext Provider。若为空，会在当前 GameObject 上自动查找匹配的 Provider。")]
+        [CoCoContextProvider(typeof(CharacterContext))]
         [SerializeField] private MonoBehaviour contextProvider;
 
         private CharacterContext _context;

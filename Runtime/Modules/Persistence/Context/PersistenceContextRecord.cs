@@ -1,0 +1,43 @@
+using System;
+using System.Collections.Generic;
+
+namespace CoCoFlow.Runtime.Modules.Persistence
+{
+    [Serializable]
+    public struct PersistenceVector3Data
+    {
+        public float x;
+        public float y;
+        public float z;
+    }
+
+    [Serializable]
+    public struct PersistenceQuaternionData
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float w;
+    }
+
+    [Serializable]
+    public sealed class PersistenceContextRecord
+    {
+        public string stableEntityId = string.Empty;
+        public string contextType = string.Empty;
+        public string ownerId = string.Empty;
+        public string entityTypeId = string.Empty;
+        public string prefabKey = string.Empty;
+        public int lifecycleState;
+        public int semanticStateId;
+        public int actionStateId;
+        public int lastEventSequence;
+        public Dictionary<string, string> stringFacts = new Dictionary<string, string>();
+        public Dictionary<string, int> intFacts = new Dictionary<string, int>();
+        public Dictionary<string, float> floatFacts = new Dictionary<string, float>();
+        public Dictionary<string, bool> boolFacts = new Dictionary<string, bool>();
+        public Dictionary<string, PersistenceVector3Data> vector3Facts = new Dictionary<string, PersistenceVector3Data>();
+        public Dictionary<string, PersistenceQuaternionData> quaternionFacts =
+            new Dictionary<string, PersistenceQuaternionData>();
+    }
+}
