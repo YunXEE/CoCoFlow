@@ -218,7 +218,9 @@ namespace CoCoFlow.Runtime.Modules.Camera
                 return;
             }
 
-            var subjectRig = request.SubjectRig ?? ResolveFallbackRig();
+            var subjectRig = request.SubjectRig != null
+                ? request.SubjectRig
+                : ResolveFallbackRig();
 
             _activeProfileId = profile.ProfileId;
             _activeRig = subjectRig;

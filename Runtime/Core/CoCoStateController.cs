@@ -409,7 +409,7 @@ namespace CoCoFlow.Runtime.Core
             if (result == StateResolveResult.Ambiguous)
             {
                 CoCoLog.Warning(
-                    $"{gameObject.name} 尝试切换到存在于多个 State Machine 的状态: {newStateType.Name}。请指定目标 State Layer 或从当前状态发起切换。");
+                    $"{gameObject.name} 尝试切换到存在于多个 State Layer 的状态: {newStateType.Name}。请指定目标 State Layer 或从当前状态发起切换。");
                 return;
             }
 

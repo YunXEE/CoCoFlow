@@ -125,15 +125,19 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         private ICameraDirector ResolveDirector()
         {
-            if (_director != null) return _director;
+            if (IsDirectorAvailable(_director)) return _director;
 
-            if (cameraDirector is ICameraDirector explicitDirector)
+            _director = null;
+
+            if (cameraDirector is ICameraDirector explicitDirector &&
+                IsDirectorAvailable(explicitDirector))
             {
                 _director = explicitDirector;
                 return _director;
             }
 
-            if (CoCoServices.TryGet(out ICameraDirector serviceDirector))
+            if (CoCoServices.TryGet(out ICameraDirector serviceDirector) &&
+                IsDirectorAvailable(serviceDirector))
             {
                 _director = serviceDirector;
             }
@@ -147,6 +151,8 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
             _directorWait = CoCoServices.WaitFor<ICameraDirector>(director =>
             {
+                if (!IsDirectorAvailable(director)) return;
+
                 _director = director;
                 _directorWait = null;
 
@@ -168,6 +174,23 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
             {
                 cameraDirector = null;
             }
+        }
+
+        private static bool IsDirectorAvailable(ICameraDirector director)
+        {
+            if (director == null) return false;
+
+            if (director is Behaviour behaviour)
+            {
+                return behaviour != null && behaviour.isActiveAndEnabled;
+            }
+
+            if (director is UnityEngine.Object unityObject)
+            {
+                return unityObject != null;
+            }
+
+            return true;
         }
     }
 }

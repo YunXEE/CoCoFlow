@@ -135,6 +135,41 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
+        [Test]
+        public void DestroyedRequestRigFallsBackToDefaultRig()
+        {
+            var fixture = CreateFixture();
+            var defaultRigObject = new GameObject("Default Rig");
+            var defaultRig = defaultRigObject.AddComponent<CameraRig>();
+            var transientRigObject = new GameObject("Transient Request Rig");
+            var transientRig = transientRigObject.AddComponent<CameraRig>();
+            try
+            {
+                fixture.Director.SetDefaultRig(defaultRig);
+                fixture.Director.Request(
+                    CameraProfileKeys.Aim,
+                    transientRig,
+                    priority: 10);
+
+                Object.DestroyImmediate(transientRigObject);
+                fixture.Director.SetDefaultRig(defaultRig);
+
+                Assert.AreSame(defaultRig, fixture.Director.ActiveRig);
+                Assert.AreSame(defaultRig.FollowTarget, fixture.AimCamera.Follow);
+                Assert.AreSame(defaultRig.LookAtTarget, fixture.AimCamera.LookAt);
+            }
+            finally
+            {
+                if (transientRigObject != null)
+                {
+                    Object.DestroyImmediate(transientRigObject);
+                }
+
+                Object.DestroyImmediate(defaultRigObject);
+                fixture.Destroy();
+            }
+        }
+
         private static CameraFixture CreateFixture()
         {
             var directorObject = new GameObject("Camera Director");
