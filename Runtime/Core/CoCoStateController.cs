@@ -13,6 +13,8 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private bool fixedUpdate = true;
         [SerializeField] private CoCoStateBase defaultCoCoState;
         [SerializeField] private List<CoCoStateBase> availableStates = new List<CoCoStateBase>();
+        [SerializeField] private List<CoCoStateChildMachine> childMachines =
+            new List<CoCoStateChildMachine>();
 
         public CoCoStateLayer() { }
 
@@ -22,7 +24,8 @@ namespace CoCoFlow.Runtime.Core
             IEnumerable<CoCoStateBase> availableStates,
             int order = 0,
             bool update = true,
-            bool fixedUpdate = true)
+            bool fixedUpdate = true,
+            IEnumerable<CoCoStateChildMachine> childMachines = null)
         {
             this.name = name;
             this.defaultCoCoState = defaultCoCoState;
@@ -30,12 +33,60 @@ namespace CoCoFlow.Runtime.Core
             this.update = update;
             this.fixedUpdate = fixedUpdate;
             SetAvailableStates(availableStates);
+            SetChildMachines(childMachines);
         }
 
         public string Name => string.IsNullOrWhiteSpace(name) ? "State Layer" : name;
         public int Order => order;
         public bool Update => update;
         public bool FixedUpdate => fixedUpdate;
+        public CoCoStateBase DefaultCoCoState => defaultCoCoState;
+        public IReadOnlyList<CoCoStateBase> AvailableStates => availableStates;
+        public IReadOnlyList<CoCoStateChildMachine> ChildMachines => childMachines;
+
+        public void SetAvailableStates(IEnumerable<CoCoStateBase> states)
+        {
+            availableStates.Clear();
+            if (states == null) return;
+
+            foreach (var state in states)
+            {
+                availableStates.Add(state);
+            }
+        }
+
+        public void SetChildMachines(IEnumerable<CoCoStateChildMachine> machines)
+        {
+            childMachines.Clear();
+            if (machines == null) return;
+
+            foreach (var machine in machines)
+            {
+                childMachines.Add(machine);
+            }
+        }
+    }
+
+    [Serializable]
+    public class CoCoStateChildMachine
+    {
+        [SerializeField] private CoCoStateBase parentCoCoState;
+        [SerializeField] private CoCoStateBase defaultCoCoState;
+        [SerializeField] private List<CoCoStateBase> availableStates = new List<CoCoStateBase>();
+
+        public CoCoStateChildMachine() { }
+
+        public CoCoStateChildMachine(
+            CoCoStateBase parentCoCoState,
+            CoCoStateBase defaultCoCoState,
+            IEnumerable<CoCoStateBase> availableStates)
+        {
+            this.parentCoCoState = parentCoCoState;
+            this.defaultCoCoState = defaultCoCoState;
+            SetAvailableStates(availableStates);
+        }
+
+        public CoCoStateBase ParentCoCoState => parentCoCoState;
         public CoCoStateBase DefaultCoCoState => defaultCoCoState;
         public IReadOnlyList<CoCoStateBase> AvailableStates => availableStates;
 
@@ -62,12 +113,15 @@ namespace CoCoFlow.Runtime.Core
 
         [Header("Context (Optional)")]
         [Tooltip("Optional Context Provider. If empty, the controller searches the current GameObject.")]
+        [CoCoContextProvider]
         [SerializeField] private MonoBehaviour contextProvider;
 
         private readonly Dictionary<CoCoStateBase, StateLayerRuntime> _layerByState =
             new Dictionary<CoCoStateBase, StateLayerRuntime>();
-        private readonly Dictionary<Type, List<StateLayerRuntime>> _layersByStateType =
-            new Dictionary<Type, List<StateLayerRuntime>>();
+        private readonly Dictionary<CoCoStateBase, StateMachineRuntime> _machineByState =
+            new Dictionary<CoCoStateBase, StateMachineRuntime>();
+        private readonly Dictionary<Type, List<StateMachineRuntime>> _machinesByStateType =
+            new Dictionary<Type, List<StateMachineRuntime>>();
         private readonly List<StateLayerRuntime> _orderedTopLevelLayers =
             new List<StateLayerRuntime>();
         private readonly HashSet<CoCoStateBase> _initializedStates =
@@ -107,7 +161,7 @@ namespace CoCoFlow.Runtime.Core
         public bool IfHasState<T>() where T : CoCoStateBase
         {
             RegisterDeclaredLayers();
-            return ResolveTargetLayer(typeof(T), null, out _) == StateLayerResolveResult.Found;
+            return ResolveTargetMachine(typeof(T), null, null, out _) == StateResolveResult.Found;
         }
 
         public bool IfHasState<T>(CoCoStateLayer layer) where T : CoCoStateBase
@@ -121,14 +175,14 @@ namespace CoCoFlow.Runtime.Core
         {
             RegisterDeclaredLayers();
             var runtime = FindLayerRuntime(layer);
-            return runtime?.CurrentState;
+            return runtime?.RootMachine.CurrentState;
         }
 
         public Type GetCurrentStateType(CoCoStateLayer layer)
         {
             RegisterDeclaredLayers();
             var runtime = FindLayerRuntime(layer);
-            return runtime?.CurrentStateType;
+            return runtime?.RootMachine.CurrentStateType;
         }
 
         public void SetContextProvider(MonoBehaviour provider)
@@ -173,7 +227,7 @@ namespace CoCoFlow.Runtime.Core
                 {
                     layer.HasExited = false;
                     var evaluatedType = ResolveEvaluatedStateType(layer, globalEvaluatedType, context);
-                    var preferredType = layer.ContainsState(evaluatedType) ? evaluatedType : null;
+                    var preferredType = layer.RootMachine.ContainsState(evaluatedType) ? evaluatedType : null;
                     EnterLayer(layer, context, preferredType);
                 }
             }
@@ -330,7 +384,7 @@ namespace CoCoFlow.Runtime.Core
         internal bool IfHasStateFrom(CoCoStateBase sourceState, Type stateType)
         {
             RegisterDeclaredLayers();
-            return ResolveTargetLayer(stateType, sourceState, out _) == StateLayerResolveResult.Found;
+            return ResolveTargetMachine(stateType, sourceState, null, out _) == StateResolveResult.Found;
         }
 
         #endregion
@@ -345,21 +399,21 @@ namespace CoCoFlow.Runtime.Core
             if (newStateType == null) return;
             RegisterDeclaredLayers();
 
-            var result = ResolveTargetLayer(newStateType, sourceState, out var layer);
-            if (result == StateLayerResolveResult.Missing)
+            var result = ResolveTargetMachine(newStateType, sourceState, null, out var machine);
+            if (result == StateResolveResult.Missing)
             {
                 CoCoLog.Warning($"{gameObject.name} 尝试切换到未注册的状态: {newStateType.Name}。已忽略。");
                 return;
             }
 
-            if (result == StateLayerResolveResult.Ambiguous)
+            if (result == StateResolveResult.Ambiguous)
             {
                 CoCoLog.Warning(
-                    $"{gameObject.name} 尝试切换到存在于多个 State Layer 的状态: {newStateType.Name}。请指定目标 State Layer。");
+                    $"{gameObject.name} 尝试切换到存在于多个 State Layer 的状态: {newStateType.Name}。请指定目标 State Layer 或从当前状态发起切换。");
                 return;
             }
 
-            ChangeLayerState(layer, newStateType, context);
+            ChangeMachineState(machine, newStateType, context);
         }
 
         private void ChangeStateInLayer(
@@ -377,7 +431,21 @@ namespace CoCoFlow.Runtime.Core
                 return;
             }
 
-            ChangeLayerState(runtime, newStateType, context);
+            var result = ResolveTargetMachine(newStateType, null, runtime, out var machine);
+            if (result == StateResolveResult.Missing)
+            {
+                CoCoLog.Warning($"{gameObject.name} 的 State Layer {runtime.Name} 未注册可切换状态: {newStateType.Name}。已忽略。");
+                return;
+            }
+
+            if (result == StateResolveResult.Ambiguous)
+            {
+                CoCoLog.Warning(
+                    $"{gameObject.name} 的 State Layer {runtime.Name} 存在多个可切换状态: {newStateType.Name}。请从当前状态发起切换。");
+                return;
+            }
+
+            ChangeMachineState(machine, newStateType, context);
         }
 
         private void RegisterDeclaredLayers()
@@ -409,7 +477,7 @@ namespace CoCoFlow.Runtime.Core
                 layer.FixedUpdate,
                 layer.DefaultCoCoState,
                 layer.AvailableStates,
-                0,
+                layer.ChildMachines,
                 declarationIndex,
                 layer);
             RegisterLayer(runtime);
@@ -418,32 +486,41 @@ namespace CoCoFlow.Runtime.Core
 
         private void RegisterLayer(StateLayerRuntime layer)
         {
-            foreach (var state in layer.AvailableStates)
+            RegisterMachineStates(layer.RootMachine);
+            foreach (var machine in layer.ChildMachines)
             {
-                if (state == null) continue;
-                RegisterState(layer, state);
+                RegisterMachineStates(machine);
             }
 
-            if (layer.DefaultState != null &&
-                layer.AvailableStates.Count > 0 &&
-                !layer.AvailableStates.Contains(layer.DefaultState))
+            LinkChildMachines(layer);
+            ValidateMachine(layer.RootMachine);
+            foreach (var machine in layer.ChildMachines)
             {
-                CoCoLog.Warning($"{gameObject.name} 的 State Layer {layer.Name} 默认状态未包含在显式状态列表中。");
+                ValidateMachine(machine);
             }
         }
 
-        private void RegisterState(StateLayerRuntime layer, CoCoStateBase state)
+        private void RegisterMachineStates(StateMachineRuntime machine)
+        {
+            foreach (var state in machine.AvailableStates)
+            {
+                if (state == null) continue;
+                RegisterState(machine, state);
+            }
+        }
+
+        private void RegisterState(StateMachineRuntime machine, CoCoStateBase state)
         {
             if (_layerByState.ContainsKey(state))
             {
-                CoCoLog.Warning($"状态 {state.GetType().Name} 被多个 State Layer 复用，后续声明已忽略。");
+                CoCoLog.Warning($"状态 {state.GetType().Name} 被多个 State Machine 复用，后续声明已忽略。");
                 return;
             }
 
             var stateType = state.GetType();
-            if (layer.States.ContainsKey(stateType))
+            if (machine.States.ContainsKey(stateType))
             {
-                CoCoLog.Warning($"State Layer {layer.Name} 中状态 {stateType.Name} 重复注册，已忽略。");
+                CoCoLog.Warning($"State Machine {machine.Name} 中状态 {stateType.Name} 重复注册，已忽略。");
                 return;
             }
 
@@ -452,61 +529,171 @@ namespace CoCoFlow.Runtime.Core
                 state.Init(this);
             }
 
-            layer.States.Add(stateType, state);
-            _layerByState[state] = layer;
-            if (!_layersByStateType.TryGetValue(stateType, out var layers))
+            machine.States.Add(stateType, state);
+            _layerByState[state] = machine.Layer;
+            _machineByState[state] = machine;
+            if (!_machinesByStateType.TryGetValue(stateType, out var machines))
             {
-                layers = new List<StateLayerRuntime>();
-                _layersByStateType[stateType] = layers;
+                machines = new List<StateMachineRuntime>();
+                _machinesByStateType[stateType] = machines;
             }
-            layers.Add(layer);
+            machines.Add(machine);
+        }
+
+        private void LinkChildMachines(StateLayerRuntime layer)
+        {
+            foreach (var machine in layer.ChildMachines)
+            {
+                var parentState = machine.ParentState;
+                if (parentState == null)
+                {
+                    CoCoLog.Warning($"State Layer {layer.Name} 中存在缺少父状态的子状态机，已忽略。");
+                    continue;
+                }
+
+                if (!_machineByState.TryGetValue(parentState, out var parentMachine) ||
+                    parentMachine.Layer != layer)
+                {
+                    CoCoLog.Warning($"State Layer {layer.Name} 的子状态机父状态未注册: {parentState.GetType().Name}。已忽略。");
+                    continue;
+                }
+
+                if (layer.ChildMachineByParentState.ContainsKey(parentState))
+                {
+                    CoCoLog.Warning($"状态 {parentState.GetType().Name} 声明了多个子状态机，后续声明已忽略。");
+                    continue;
+                }
+
+                machine.ParentMachine = parentMachine;
+                machine.Depth = parentMachine.Depth + 1;
+                layer.ChildMachineByParentState.Add(parentState, machine);
+            }
+        }
+
+        private void ValidateMachine(StateMachineRuntime machine)
+        {
+            if (machine.DefaultState != null &&
+                machine.AvailableStates.Count > 0 &&
+                !machine.AvailableStates.Contains(machine.DefaultState))
+            {
+                CoCoLog.Warning($"{gameObject.name} 的 State Machine {machine.Name} 默认状态未包含在显式状态列表中。");
+            }
         }
 
         private void ResetLayerRegistration()
         {
             _layerByState.Clear();
-            _layersByStateType.Clear();
+            _machineByState.Clear();
+            _machinesByStateType.Clear();
             _orderedTopLevelLayers.Clear();
             _initializedStates.Clear();
             _layersRegistered = false;
         }
 
-        private StateLayerResolveResult ResolveTargetLayer(
+        private StateResolveResult ResolveTargetMachine(
             Type targetStateType,
             CoCoStateBase sourceState,
-            out StateLayerRuntime layer)
+            StateLayerRuntime explicitLayer,
+            out StateMachineRuntime machine)
         {
-            layer = null;
-            if (targetStateType == null) return StateLayerResolveResult.Missing;
+            machine = null;
+            if (targetStateType == null) return StateResolveResult.Missing;
 
             if (sourceState != null)
             {
-                if (!_layerByState.TryGetValue(sourceState, out var sourceLayer))
+                if (!_machineByState.TryGetValue(sourceState, out var sourceMachine))
                 {
-                    return StateLayerResolveResult.Missing;
+                    return StateResolveResult.Missing;
                 }
 
-                if (!sourceLayer.ContainsState(targetStateType))
+                if (sourceMachine.ContainsState(targetStateType))
                 {
-                    return StateLayerResolveResult.Missing;
+                    machine = sourceMachine;
+                    return StateResolveResult.Found;
                 }
 
-                layer = sourceLayer;
-                return StateLayerResolveResult.Found;
+                if (sourceMachine.Layer.ChildMachineByParentState.TryGetValue(sourceState, out var childMachine) &&
+                    childMachine.ContainsState(targetStateType) &&
+                    IsMachinePathActive(childMachine))
+                {
+                    machine = childMachine;
+                    return StateResolveResult.Found;
+                }
+
+                if (sourceMachine.Layer.RootMachine.ContainsState(targetStateType))
+                {
+                    machine = sourceMachine.Layer.RootMachine;
+                    return StateResolveResult.Found;
+                }
+
+                return StateResolveResult.Missing;
             }
 
-            if (!_layersByStateType.TryGetValue(targetStateType, out var layers) || layers.Count == 0)
+            if (explicitLayer != null)
             {
-                return StateLayerResolveResult.Missing;
+                return ResolveTargetMachineInLayer(explicitLayer, targetStateType, out machine);
             }
 
-            if (layers.Count == 1)
+            if (!_machinesByStateType.TryGetValue(targetStateType, out var machines) || machines.Count == 0)
             {
-                layer = layers[0];
-                return StateLayerResolveResult.Found;
+                return StateResolveResult.Missing;
             }
 
-            return StateLayerResolveResult.Ambiguous;
+            StateMachineRuntime resolved = null;
+            foreach (var candidate in machines)
+            {
+                if (!CanChangeMachine(candidate)) continue;
+
+                if (resolved != null && !ReferenceEquals(resolved, candidate))
+                {
+                    return StateResolveResult.Ambiguous;
+                }
+
+                resolved = candidate;
+            }
+
+            if (resolved == null)
+            {
+                return StateResolveResult.Missing;
+            }
+
+            machine = resolved;
+            return StateResolveResult.Found;
+        }
+
+        private StateResolveResult ResolveTargetMachineInLayer(
+            StateLayerRuntime layer,
+            Type targetStateType,
+            out StateMachineRuntime machine)
+        {
+            machine = null;
+            if (layer.RootMachine.ContainsState(targetStateType))
+            {
+                machine = layer.RootMachine;
+                return StateResolveResult.Found;
+            }
+
+            StateMachineRuntime resolved = null;
+            foreach (var candidate in layer.ChildMachines)
+            {
+                if (!candidate.ContainsState(targetStateType)) continue;
+                if (!CanChangeMachine(candidate)) continue;
+
+                if (resolved != null && !ReferenceEquals(resolved, candidate))
+                {
+                    return StateResolveResult.Ambiguous;
+                }
+
+                resolved = candidate;
+            }
+
+            if (resolved == null)
+            {
+                return StateResolveResult.Missing;
+            }
+
+            machine = resolved;
+            return StateResolveResult.Found;
         }
 
         private StateLayerRuntime FindLayerRuntime(CoCoStateLayer layer)
@@ -526,13 +713,9 @@ namespace CoCoFlow.Runtime.Core
             ICoCoContext context,
             Type preferredType)
         {
-            if (layer.CurrentState != null) return;
             if (layer.HasExited) return;
 
-            Type initialType = preferredType ?? layer.DefaultState?.GetType();
-            if (initialType == null) return;
-
-            ChangeLayerState(layer, initialType, context);
+            EnterMachine(layer.RootMachine, context, preferredType);
         }
 
         private void UpdateLayer(
@@ -542,52 +725,113 @@ namespace CoCoFlow.Runtime.Core
         {
             if (layer.HasExited) return;
 
-            if (layer.CurrentState == null)
+            if (layer.RootMachine.CurrentState == null)
             {
                 EnterLayer(layer, context, null);
             }
 
-            if (layer.CurrentState != null)
-            {
-                if (fixedUpdate) InvokeStateFixedUpdate(layer.CurrentState, context);
-                else InvokeStateUpdate(layer.CurrentState, context);
-            }
+            UpdateMachine(layer.RootMachine, context, fixedUpdate);
         }
 
         private void ExitLayer(StateLayerRuntime layer, ICoCoContext context)
         {
-            if (layer.CurrentState != null)
-            {
-                InvokeStateExit(layer.CurrentState, context);
-            }
-
-            layer.CurrentState = null;
-            layer.CurrentStateType = null;
+            ExitMachine(layer.RootMachine, context);
             layer.HasExited = true;
         }
 
-        private void ChangeLayerState(
-            StateLayerRuntime layer,
+        private void EnterMachine(
+            StateMachineRuntime machine,
+            ICoCoContext context,
+            Type preferredType)
+        {
+            if (machine.CurrentState != null) return;
+
+            Type initialType = preferredType ?? machine.DefaultState?.GetType();
+            if (initialType == null) return;
+
+            ChangeMachineState(machine, initialType, context);
+        }
+
+        private void UpdateMachine(
+            StateMachineRuntime machine,
+            ICoCoContext context,
+            bool fixedUpdate)
+        {
+            if (machine.HasExited) return;
+
+            if (machine.CurrentState == null)
+            {
+                EnterMachine(machine, context, null);
+            }
+
+            var currentState = machine.CurrentState;
+            if (currentState == null) return;
+
+            if (fixedUpdate) InvokeStateFixedUpdate(currentState, context);
+            else InvokeStateUpdate(currentState, context);
+
+            if (!ReferenceEquals(machine.CurrentState, currentState)) return;
+            if (!machine.Layer.ChildMachineByParentState.TryGetValue(currentState, out var childMachine)) return;
+
+            if (childMachine.CurrentState == null)
+            {
+                EnterMachine(childMachine, context, null);
+            }
+
+            UpdateMachine(childMachine, context, fixedUpdate);
+        }
+
+        private void ExitMachine(StateMachineRuntime machine, ICoCoContext context)
+        {
+            if (machine.CurrentState != null)
+            {
+                ExitActiveChildMachine(machine.CurrentState, context);
+                InvokeStateExit(machine.CurrentState, context);
+            }
+
+            machine.CurrentState = null;
+            machine.CurrentStateType = null;
+            machine.HasExited = true;
+        }
+
+        private void ChangeMachineState(
+            StateMachineRuntime machine,
             Type newStateType,
             ICoCoContext context)
         {
-            if (layer.CurrentStateType == newStateType) return;
+            if (machine == null || machine.CurrentStateType == newStateType) return;
 
-            if (!layer.States.TryGetValue(newStateType, out var newState))
+            if (!machine.States.TryGetValue(newStateType, out var newState))
             {
-                CoCoLog.Warning($"{gameObject.name} 的 State Layer {layer.Name} 未注册状态: {newStateType.Name}。已忽略。");
+                CoCoLog.Warning($"{gameObject.name} 的 State Machine {machine.Name} 未注册状态: {newStateType.Name}。已忽略。");
                 return;
             }
 
-            if (layer.CurrentState != null)
+            if (machine.CurrentState != null)
             {
-                InvokeStateExit(layer.CurrentState, context);
+                ExitActiveChildMachine(machine.CurrentState, context);
+                InvokeStateExit(machine.CurrentState, context);
             }
 
-            layer.HasExited = false;
-            layer.CurrentState = newState;
-            layer.CurrentStateType = newStateType;
-            InvokeStateEnter(layer.CurrentState, context);
+            machine.HasExited = false;
+            machine.Layer.HasExited = false;
+            machine.CurrentState = newState;
+            machine.CurrentStateType = newStateType;
+            InvokeStateEnter(machine.CurrentState, context);
+
+            if (machine.Layer.ChildMachineByParentState.TryGetValue(newState, out var childMachine))
+            {
+                EnterMachine(childMachine, context, null);
+            }
+        }
+
+        private void ExitActiveChildMachine(CoCoStateBase parentState, ICoCoContext context)
+        {
+            if (parentState == null) return;
+            if (!_machineByState.TryGetValue(parentState, out var parentMachine)) return;
+            if (!parentMachine.Layer.ChildMachineByParentState.TryGetValue(parentState, out var childMachine)) return;
+
+            ExitMachine(childMachine, context);
         }
 
         private void TryApplyEvaluatedTransition(ICoCoContext context, bool fixedUpdate)
@@ -600,9 +844,10 @@ namespace CoCoFlow.Runtime.Core
                 if (!ShouldTickLayer(layer, fixedUpdate)) continue;
 
                 var nextStateType = ResolveEvaluatedStateType(layer, globalEvaluatedType, context);
-                if (nextStateType == null || !layer.ContainsState(nextStateType)) continue;
+                if (nextStateType == null) continue;
+                if (ResolveTargetMachine(nextStateType, null, layer, out var machine) != StateResolveResult.Found) continue;
 
-                ChangeLayerState(layer, nextStateType, context);
+                ChangeMachineState(machine, nextStateType, context);
             }
         }
 
@@ -631,7 +876,7 @@ namespace CoCoFlow.Runtime.Core
         {
             foreach (var layer in _orderedTopLevelLayers)
             {
-                if (layer.CurrentState != null) return true;
+                if (layer.RootMachine.CurrentState != null) return true;
             }
 
             return false;
@@ -650,6 +895,21 @@ namespace CoCoFlow.Runtime.Core
         private static bool ShouldTickLayer(StateLayerRuntime layer, bool fixedUpdate)
         {
             return !layer.HasExited && (fixedUpdate ? layer.FixedUpdate : layer.Update);
+        }
+
+        private static bool CanChangeMachine(StateMachineRuntime machine)
+        {
+            return machine.ParentState == null || IsMachinePathActive(machine);
+        }
+
+        private static bool IsMachinePathActive(StateMachineRuntime machine)
+        {
+            if (machine.ParentState == null) return true;
+            var parentMachine = machine.ParentMachine;
+            if (parentMachine == null) return false;
+            if (!ReferenceEquals(parentMachine.CurrentState, machine.ParentState)) return false;
+
+            return IsMachinePathActive(parentMachine);
         }
 
         private ICoCoContext PushContextOverride(ICoCoContext contextOverride)
@@ -742,7 +1002,7 @@ namespace CoCoFlow.Runtime.Core
 
         #endregion
 
-        private enum StateLayerResolveResult
+        private enum StateResolveResult
         {
             Found,
             Missing,
@@ -758,7 +1018,7 @@ namespace CoCoFlow.Runtime.Core
                 bool fixedUpdate,
                 CoCoStateBase defaultState,
                 IReadOnlyList<CoCoStateBase> availableStates,
-                int depth,
+                IReadOnlyList<CoCoStateChildMachine> childMachines,
                 int declarationIndex,
                 CoCoStateLayer sourceLayer = null)
             {
@@ -766,10 +1026,76 @@ namespace CoCoFlow.Runtime.Core
                 Order = order;
                 Update = update;
                 FixedUpdate = fixedUpdate;
-                DefaultState = defaultState;
-                Depth = depth;
                 DeclarationIndex = declarationIndex;
                 SourceLayer = sourceLayer;
+                RootMachine = new StateMachineRuntime(
+                    this,
+                    null,
+                    Name,
+                    defaultState,
+                    availableStates,
+                    0);
+
+                if (childMachines == null) return;
+                for (int i = 0; i < childMachines.Count; i++)
+                {
+                    var childMachine = childMachines[i];
+                    if (childMachine == null) continue;
+                    ChildMachines.Add(new StateMachineRuntime(
+                        this,
+                        childMachine.ParentCoCoState,
+                        $"{Name}/{ResolveStateName(childMachine.ParentCoCoState)}",
+                        childMachine.DefaultCoCoState,
+                        childMachine.AvailableStates,
+                        1));
+                }
+            }
+
+            public string Name { get; }
+            public int Order { get; }
+            public bool Update { get; }
+            public bool FixedUpdate { get; }
+            public int DeclarationIndex { get; }
+            public CoCoStateLayer SourceLayer { get; }
+            public bool HasExited;
+            public StateMachineRuntime RootMachine { get; }
+            public readonly List<StateMachineRuntime> ChildMachines = new List<StateMachineRuntime>();
+            public readonly Dictionary<CoCoStateBase, StateMachineRuntime> ChildMachineByParentState =
+                new Dictionary<CoCoStateBase, StateMachineRuntime>();
+
+            public bool ContainsState(Type stateType)
+            {
+                if (RootMachine.ContainsState(stateType)) return true;
+
+                foreach (var machine in ChildMachines)
+                {
+                    if (machine.ContainsState(stateType)) return true;
+                }
+
+                return false;
+            }
+
+            private static string ResolveStateName(CoCoStateBase state)
+            {
+                return state != null ? state.GetType().Name : "Unbound";
+            }
+        }
+
+        private sealed class StateMachineRuntime
+        {
+            public StateMachineRuntime(
+                StateLayerRuntime layer,
+                CoCoStateBase parentState,
+                string name,
+                CoCoStateBase defaultState,
+                IReadOnlyList<CoCoStateBase> availableStates,
+                int depth)
+            {
+                Layer = layer;
+                ParentState = parentState;
+                Name = string.IsNullOrWhiteSpace(name) ? "State Machine" : name;
+                DefaultState = defaultState;
+                Depth = depth;
 
                 if (availableStates == null) return;
                 foreach (var state in availableStates)
@@ -778,14 +1104,12 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
+            public StateLayerRuntime Layer { get; }
+            public CoCoStateBase ParentState { get; }
+            public StateMachineRuntime ParentMachine { get; set; }
             public string Name { get; }
-            public int Order { get; }
-            public bool Update { get; }
-            public bool FixedUpdate { get; }
             public CoCoStateBase DefaultState { get; }
-            public int Depth { get; }
-            public int DeclarationIndex { get; }
-            public CoCoStateLayer SourceLayer { get; }
+            public int Depth { get; set; }
             public CoCoStateBase CurrentState;
             public Type CurrentStateType;
             public bool HasExited;

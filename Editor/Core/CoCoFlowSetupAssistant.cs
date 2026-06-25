@@ -42,6 +42,14 @@ namespace CoCoFlow.Editor.Core
                 new[] { FusionDefine },
                 new[] { FusionAssemblyName }),
             new AddonDefinition(
+                "chest-samples",
+                "Chest Samples",
+                "Samples~/Chest Samples/CoCoFlow/Chest Samples",
+                "Samples~/Chest Samples/README.md",
+                "Assets/CoCoFlow/Chest",
+                new string[0],
+                new string[0]),
+            new AddonDefinition(
                 "enemy-samples",
                 "Enemy Samples",
                 "Samples~/Enemy Samples/CoCoFlow/Enemy Samples",

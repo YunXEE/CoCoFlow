@@ -24,6 +24,7 @@ The Fusion layer should preserve that shape. It should bridge network data into 
 |---|---|---|
 | `NetInputReaderBridge` | `ICoCoIntentSource<CoCoInputIntent>` | Convert Fusion input into CoCoFlow input intent. |
 | `NetCharacterContextBridge` | `ICoCoContextProvider<CharacterContext>` | Replace or feed the local `CharacterContextProvider` by synchronizing identity, lifecycle, semantic/action state, motion, resources, perception ids, character intent facts, and `CharacterContext.Navigation` facts. |
+| `NetworkCameraRigBinder` | `ICameraDirector` bridge | Bind or clear the local `CameraRig` for the client that owns, controls, or spectates a subject. |
 | `NetEntityReferenceResolver` | optional helper | Resolve stable ids or Fusion object refs into local transforms. |
 
 ## Player Flow
@@ -58,3 +59,9 @@ Proxies should not run `EnemyBrain` or `EnemySpline`; they apply synchronized Co
 - A character should expose one synchronized `CharacterContext`; navigation facts are part of that payload, not a second State context.
 - A character state system should keep one `CoCoStateController` with explicit ordered State Layers. Network adapters should not create parallel controller trees.
 - Animation Rigging and IK data should enter through explicit Context facts or operation components only after the business project stabilizes that contract.
+
+## Camera 边界
+
+Camera 故意保持本地化。Network adapter 不应该把 `CameraDirector` 请求同步成权威 gameplay state；本地客户端只需要在自己拥有、控制或观战某个 subject 时，把对应 `CameraRig` 绑定到场景内的本地 `CameraDirector`。
+
+`NetworkCameraRigBinder` 是 sample 侧的桥接脚本。Fusion 侧代码可以在 network object spawn 或 authority 变化时调用 `SetLocalCameraAuthority(Object.HasInputAuthority)`，或者传入等价的本地观察者判断。

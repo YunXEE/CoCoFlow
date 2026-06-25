@@ -6,8 +6,10 @@
         "CoCoFlow.Runtime.Gameplay.Character",
         "CoCoFlow.Runtime.Gameplay.Enemy",
         "CoCoFlow.Runtime.Gameplay.Item",
+        "CoCoFlow.Runtime.Modules.Camera",
         "CoCoFlow.Runtime.Modules.Input",
         "CoCoFlow.Runtime.Modules.Persistence",
+        "Unity.Cinemachine",
         "Unity.Splines",
         "Unity.Mathematics"
     ],

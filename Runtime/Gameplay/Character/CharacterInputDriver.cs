@@ -9,6 +9,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         ICharacterContextSourceUpdateMode
     {
         [Header("Context")]
+        [CoCoContextProvider(typeof(CharacterContext))]
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Input Source")]

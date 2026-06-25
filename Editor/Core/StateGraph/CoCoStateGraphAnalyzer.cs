@@ -138,6 +138,28 @@ namespace CoCoFlow.Editor.Core.StateGraph
                 return;
             }
 
+            var childMachinesByParent = BuildChildMachineLookup(layer?.ChildMachines);
+            AnalyzeMachineStates(
+                model,
+                layerId,
+                name,
+                depth,
+                defaultState,
+                states,
+                layerNode.CurrentState,
+                childMachinesByParent);
+        }
+
+        private static void AnalyzeMachineStates(
+            CoCoStateGraphModel model,
+            string layerId,
+            string layerName,
+            int depth,
+            CoCoStateBase defaultState,
+            IReadOnlyList<CoCoStateBase> states,
+            CoCoStateBase currentState,
+            Dictionary<CoCoStateBase, CoCoStateChildMachine> childMachinesByParent)
+        {
             foreach (var state in states)
             {
                 if (state == null) continue;
@@ -152,7 +174,7 @@ namespace CoCoFlow.Editor.Core.StateGraph
                     State = state,
                     Definition = definition,
                     IsDefault = state == defaultState,
-                    IsCurrent = Application.isPlaying && state == layerNode.CurrentState,
+                    IsCurrent = Application.isPlaying && state == currentState,
                     HasDefinition = definition.HasDeclarations
                 };
                 model.States.Add(stateNode);
@@ -162,7 +184,7 @@ namespace CoCoFlow.Editor.Core.StateGraph
                     {
                         LayerId = layerId,
                         StateId = stateNode.Id,
-                        LayerName = name,
+                        LayerName = layerName,
                         StateName = stateNode.Name,
                         IsDefault = true
                     });
@@ -172,7 +194,38 @@ namespace CoCoFlow.Editor.Core.StateGraph
                 {
                     model.Warnings.Add($"{state.GetType().Name} has no state definition declarations.");
                 }
+
+                if (childMachinesByParent.TryGetValue(state, out var childMachine))
+                {
+                    AnalyzeMachineStates(
+                        model,
+                        layerId,
+                        layerName,
+                        depth + 1,
+                        childMachine.DefaultCoCoState,
+                        childMachine.AvailableStates,
+                        null,
+                        childMachinesByParent);
+                }
             }
+        }
+
+        private static Dictionary<CoCoStateBase, CoCoStateChildMachine> BuildChildMachineLookup(
+            IReadOnlyList<CoCoStateChildMachine> childMachines)
+        {
+            var lookup = new Dictionary<CoCoStateBase, CoCoStateChildMachine>();
+            if (childMachines == null) return lookup;
+
+            foreach (var childMachine in childMachines)
+            {
+                if (childMachine?.ParentCoCoState == null) continue;
+                if (!lookup.ContainsKey(childMachine.ParentCoCoState))
+                {
+                    lookup.Add(childMachine.ParentCoCoState, childMachine);
+                }
+            }
+
+            return lookup;
         }
 
         private static CoCoStateBase ResolveCurrentState(

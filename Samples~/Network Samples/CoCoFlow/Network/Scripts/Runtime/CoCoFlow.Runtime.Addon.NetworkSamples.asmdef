@@ -1,0 +1,18 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.NetworkSamples",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.NetworkSamples",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Camera",
+        "CoCoFlow.Runtime.Modules.Persistence"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

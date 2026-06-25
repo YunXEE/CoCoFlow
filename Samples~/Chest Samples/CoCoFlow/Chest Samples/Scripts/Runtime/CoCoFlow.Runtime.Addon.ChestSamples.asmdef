@@ -1,0 +1,18 @@
+{
+    "name": "CoCoFlow.Runtime.Addon.ChestSamples",
+    "rootNamespace": "CoCoFlow.Runtime.Addon.ChestSamples",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Gameplay.Item",
+        "CoCoFlow.Runtime.Modules.Persistence"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
