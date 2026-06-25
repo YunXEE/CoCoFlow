@@ -1,148 +1,148 @@
 # CoCoFlow
 
-模块化 Unity 游戏开发框架。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**: 0.3.5 · **Unity**: 6000+
+CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
 
----
+> **Version**: 0.3.6 · **Unity**: 6000+
 
-## 当前骨架
+## Package Scope
 
-CoCoFlow 0.3.5 的 gameplay 主线已经收紧到一套可预测的骨架：
+CoCoFlow provides a runtime foundation for gameplay code that is organized around explicit Context contracts and state-machine topology. The package focuses on reusable framework surfaces rather than complete game features.
 
-- 一个角色或实体使用一份权威 `ICoCoContext`。
-- 本地角色默认由 `CharacterContextProvider` 持有 `CharacterContext`。
-- `CharacterContextProvider` 可以显式接入多个 `ICharacterContextSource`，按 `Priority` 从低到高写入；相同 Priority 按 Inspector List 声明顺序写入；disabled 或 inactive source 会被跳过。
-- 一个状态系统使用一个 `CoCoStateController`。
-- `CoCoStateController` 持有一组显式声明的 `CoCoStateLayer`。每个 Layer 是一个独立状态面，按 `Order` 从上到下执行。
-- `CoCoStateBase` 通过 `DefineState` 声明 Context 读写、外部操作依赖和可能的状态跳转。
-- State Graph Viewer 是只读拓扑查看器，用于查看 Controller、State Layer、State、Context、Operation 和 transition 关系。
+The current package includes:
 
-这个版本不再依赖自动扫描子状态或嵌套 controller。所有可运行状态必须显式放进对应的 `CoCoStateLayer`。
+- Core services, event bus, Context contracts, and State Layer runtime.
+- Character, Enemy, and Item gameplay foundations.
+- Input, Camera, UI, Animation, Map, Rendering, and Persistence modules.
+- Editor tooling for setup, state graph inspection, persistence save slots, and catalog editing.
+- Optional samples for Player, Enemy, Chest, and Network integration planning.
 
----
-
-## 架构拓扑
+## Runtime Topology
 
 ```text
-CoCoFlow v0.3.5
+CoCoFlow
 │
-├── CoCoFlow.Runtime
+├── Runtime
 │   ├── Core
 │   │   ├── CoCoServices
 │   │   ├── CoCoEventBus
+│   │   ├── ICoCoContext / ICoCoContextProvider<TContext>
 │   │   ├── CoCoStateController / CoCoStateLayer / CoCoStateBase
-│   │   ├── CoCoStateDefinition
-│   │   └── CoCoLog
+│   │   └── CoCoStateDefinition
 │   │
 │   ├── Modules
-│   │   ├── Input        - InputReader + CoCoInputIntent
-│   │   ├── Camera       - ThirdPersonCamera / CameraRig / CameraController
-│   │   ├── UI           - UIController / UIViewManager / panel stack
-│   │   ├── Animation    - AnimHandler / AnimEventSmb / SMB injector support
-│   │   ├── Map          - MapManager / chunk loading
-│   │   ├── Rendering    - URP quality helpers
-│   │   └── Persistence  - SaveManager / JSON save data
+│   │   ├── Input
+│   │   ├── Camera
+│   │   ├── UI
+│   │   ├── Animation
+│   │   ├── Map
+│   │   ├── Rendering
+│   │   └── Persistence
 │   │
 │   └── Gameplay
-│       ├── Character    - CharacterContextProvider / CharacterContext / CharacterInputDriver
-│       │                  CharacterLifeCycle / CharacterNavigationMotor / CharacterLocomotion
-│       ├── Enemy        - EnemyBrain / EnemySpline / EnemyVisionQuery / EngagementZone
-│       └── Item         - ItemContext / ItemInputDriver / item lifecycle facts
+│       ├── Character
+│       ├── Enemy
+│       └── Item
 │
-└── CoCoFlow.Editor
-    ├── Core             - State Graph Viewer
+└── Editor
+    ├── Core
     ├── AssetPipeline
-    ├── Animation        - AnimEventSmb editor / injector
-    ├── Persistence
-    └── UI
+    ├── Modules
+    └── Gameplay
 ```
 
----
+## Core Concepts
 
-## 模块状态
+| Concept | Description |
+|---|---|
+| Context | A durable, typed gameplay data contract exposed through `ICoCoContextProvider<TContext>`. |
+| State Layer | A named state machine surface owned by one `CoCoStateController`. Multiple layers can update in explicit order. |
+| State Definition | Metadata declared by states to describe Context reads/writes, operations, and transitions. |
+| Event Bus | Typed event dispatch with optional event envelopes for cross-system communication. |
+| Persistence Context | Scene entity snapshot path for restoring Context-backed state machines. |
+| Persistence Container | Catalog-backed runtime data path for inventories, quests, events, facts, rewards, and tags. |
 
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| Core | 稳定骨架 | ServiceLocator、EventBus、Context、State Layer controller 已收紧。 |
-| Input | 基本可用 | `InputReader` 输出 Core 级输入事实，不直接绑定 Character。 |
-| Camera | 基本可用 | 第三人称相机和 Cinemachine 绑定仍保持轻量。 |
-| UI | 基本可用 | 面板栈和 View 生命周期可用。 |
-| Animation | 薄封装 | 当前只包含 Animator 操作封装、SMB 帧事件和注入工具；不包含 Animation Rigging / IK runtime。 |
-| Gameplay | 开发中 | Character、Enemy、Item 的 Context 主线和 samples 已建立，战斗/技能/完整 NPC 行为仍应在业务层扩展。 |
-| Editor | 开发中 | Setup Assistant 和 State Graph Viewer 已可用于当前骨架。 |
-| Network Samples | 文档样本 | 只固定 Fusion 接入边界，不提供可编译 runtime。 |
-| Enemy Samples | 可选样本 | Enemy Brain/Spline/State/Prefab 接入示例。 |
-| Player Samples | 可选样本 | Player State Layers/Context/Locomotion 接入示例。 |
+## Modules
 
----
+| Module | Status | Summary |
+|---|---|---|
+| Core | Stable foundation | Service locator, event bus, Context contracts, State Layer controller, state definitions, and logging. |
+| Input | Usable foundation | Input reader and input intent contracts. |
+| Camera | Usable foundation | Third-person camera and Cinemachine-oriented camera helpers. |
+| UI | Usable foundation | View/controller abstractions and panel stack management. |
+| Animation | Utility layer | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
+| Map | Usable foundation | Map manager and chunk loading support. |
+| Rendering | Utility layer | Rendering quality helpers. |
+| Persistence | Active module | Versioned save documents, temporary-file JSON writes, Context snapshots, Container data, catalog editing, and save-slot editor tooling. |
+| Gameplay.Character | Active foundation | Character context provider, input driver, lifecycle writer, locomotion, and navigation motor. |
+| Gameplay.Enemy | Active foundation | Enemy brain, spline navigation source, vision query, and engagement zone. |
+| Gameplay.Item | Active foundation | Item context, item context provider, input driver, and item lifecycle writer. |
 
-## Animation Rigging / IK 策略
+## Persistence
 
-当前建议是先在业务项目里继续开发 Animation Rigging 和手部 IK，再吸纳进包。
+Persistence stores two sections in each save document:
 
-原因很简单：包里的 Animation 模块现在只有 `AnimHandler`、`AnimEventSmb` 和编辑器注入工具，还没有形成稳定的 rig contract。手部 IK 虽然已经在业务项目完成，但它需要经过真实角色、武器、交互物、动画层和状态层的压力测试，确认哪些东西是通用骨架，哪些只是业务 prefab 约定。
+- `contextSection`: scene entity Context snapshots captured through `PersistenceContext`.
+- `containerSection`: runtime container data captured from `PersistenceContainerStore`.
 
-后续适合吸纳进包的条件：
+The module includes manual save/load entry points, save slot metadata, schema migration entry, temporary-file replacement, a catalog editor, and a command bridge for container operations.
 
-- 需要调用的外部组件契约稳定，例如 `CharacterRigDriver` 或 `ICharacterRigOperation`。
-- 需要读写的 Context facts 明确，例如 hand target、grip weight、aim weight、interaction anchor。
-- 缺少 Animation Rigging package 或 rig 组件时能安全降级。
-- 不把业务项目的具体骨骼命名、武器结构、prefab 路径硬编码进 Runtime。
-- 最好以可选 add-on 或 sample 形式进入，而不是直接塞进 Core/Character 主线。
+See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and usage examples.
 
-在这些条件满足前，业务项目先行更合适；包里只保留能稳定复用的薄工具。
+## Dependencies
 
----
+| Package | Version | Required by |
+|---|---:|---|
+| Addressables | 2.9.1 | package runtime/editor workflows |
+| Input System | 1.18.0 | Input module |
+| Newtonsoft Json | 3.2.2 | Persistence |
+| Cinemachine | 3.1.6 | Camera module |
+| AI Navigation | 2.0.0 | Character navigation and Enemy samples |
+| Mathematics | 1.3.3 | Enemy and spline-related workflows |
+| Splines | 2.6.0 | Enemy spline support |
 
-## 依赖
+Optional third-party packages can be installed by a project when a sample or business module requires them. They are not bundled into the core runtime surface.
 
-| Package | 版本 | 是否必须 |
-|---------|------|----------|
-| Addressables | 2.9.1+ | 必须 |
-| Input System | 1.18.0+ | 必须 |
-| Newtonsoft Json | 3.2.2+ | Persistence 必须 |
-| Cinemachine | 3.1.6+ | Camera 模块必须 |
-| AI Navigation | 2.0.0+ | CharacterNavigationMotor / Enemy Samples 必须 |
-| Splines | 2.6.0+ | EnemySpline / Enemy Samples 必须 |
-| Mathematics | 1.3.3+ | Splines / Enemy 必须 |
-| UniTask | 2.5.11 | 由 Setup Assistant 通过 Git URL 安装 |
-| DOTween | 最新 | 可选，依赖 DOTween 的模块需要手动安装 |
-| Photon Fusion | 2.x | 仅 Network Samples 设计目标 |
-| Animation Rigging | 1.x/2.x | 当前不属于包依赖，建议先留在业务项目 |
+## Installation
 
-导入后可执行 `CoCoFlow/Setup/Setup Assistant` 检查依赖、配置 scripting defines，并安装 Network / Enemy / Player Samples。
+Install the package through Unity Package Manager using a Git URL, or place the package in a Unity project's `Packages/` directory.
 
----
+After installation:
+
+1. Open `CoCoFlow/Setup/Setup Assistant`.
+2. Review required package dependencies.
+3. Install optional samples as needed.
+4. Use `CoCoFlow/State/State Graph Viewer` to inspect a `CoCoStateController`.
+5. Use `CoCoFlow/Persistence/Catalog Editor` to edit persistence catalog assets.
 
 ## Samples
 
-| Sample | 默认安装位置 | 当前用途 |
-|--------|--------------|----------|
-| Network Samples | `Assets/CoCoFlow/Network` | Fusion input bridge、Context snapshot、EventEnvelope 的设计文档。 |
-| Enemy Samples | `Assets/CoCoFlow/Enemy` | `P_Enemy_00` 演示 `CharacterContextProvider`、`EnemyBrain`、`EnemySpline`、`Main` State Layer。 |
-| Player Samples | `Assets/CoCoFlow/Player` | `P_Player_00` 演示 `Main`、`FullBody`、`UpperLayer` 三个 State Layer 和 Player 状态声明。 |
+| Sample | Import Path | Purpose |
+|---|---|---|
+| Player Samples | `Assets/CoCoFlow/Player` | Demonstrates a player prefab with `CharacterContextProvider`, locomotion, and explicit State Layers. |
+| Enemy Samples | `Assets/CoCoFlow/Enemy` | Demonstrates enemy context, brain, spline navigation, state scripts, and prefab wiring. |
+| Chest Samples | `Assets/CoCoFlow/Chest` | Demonstrates Persistence Context and Container paths with a chest prefab and runtime container store. |
+| Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes a container event bridge sample without adding a network package dependency. |
 
-Samples 是接线参考，不是完整游戏功能。Player sample 不包含完整 camera、combat、weapon、IK 或输入 action 配置；Enemy sample 需要可用 NavMesh 才能完整验证巡逻和追击移动。
+Samples are integration references. They are not complete game templates.
 
----
+## Editor Tools
 
-## 安装
+| Menu | Purpose |
+|---|---|
+| `CoCoFlow/Setup/Setup Assistant` | Dependency status and optional sample setup. |
+| `CoCoFlow/State/State Graph Viewer` | Read-only graph view for controllers, layers, states, Context usage, operations, and transitions. |
+| `CoCoFlow/Persistence/Save Editor` | Manual save/load slot tooling for local testing. |
+| `CoCoFlow/Persistence/Catalog Editor` | Tabbed editor for Persistence catalog definitions. |
+| `CoCoFlow/Persistence/Validate Selected Catalog` | Catalog ID and reference validation. |
 
-1. 将本仓库克隆到 Unity 项目的 `Packages/` 目录下，或通过 Package Manager Git URL 安装。
-2. 安装必需依赖。
-3. 打开 `CoCoFlow/Setup/Setup Assistant` 检查依赖和可选 samples。
-4. 在需要查看状态拓扑时打开 `CoCoFlow/State/State Graph Viewer`，指定目标 `CoCoStateController`。
+## Documentation
 
----
+- [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [Module: Persistence](Docs/Module-Persistence.md)
+- [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
 
-## 架构文档
-
-- [Context / Network Boundary](Docs/ContextNetworkBoundary.md) - Context、Intent、State、EventEnvelope、Persistence ID 与网络 adapter 边界。
-- `Samples~/Network Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md` - Network Samples 的后续实现计划。
-
----
-
-## 许可证
+## License
 
 MIT

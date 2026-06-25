@@ -5,7 +5,9 @@
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Gameplay.Character",
         "Unity.Splines",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "CoCoFlow.Runtime.Modules.Map",
+        "CoCoFlow.Runtime.Modules.UI"
     ],
     "defineConstraints": []
 }

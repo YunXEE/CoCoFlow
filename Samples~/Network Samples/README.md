@@ -1,6 +1,6 @@
 # CoCoFlow Network Samples
 
-Network Samples 记录 CoCoFlow 在 Fusion 技术栈下的最小兼容层设计。本 sample 不恢复旧 NetworkSamples，也不在本轮提供可编译的 Fusion runtime；它先固定新的接入边界，后续实现应围绕这里的脚本命名和拓扑展开。
+Network Samples 记录 CoCoFlow 在 Fusion 技术栈下的最小兼容层设计。本 sample 不恢复旧 NetworkSamples，也不在本轮提供 Fusion runtime；它先固定新的接入边界，并提供一个无 Fusion 依赖的 Persistence container event bridge 作为事件同步示例。
 
 ## Direction
 

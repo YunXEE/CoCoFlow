@@ -16,6 +16,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
         [SerializeField] private EnemyConfigData configData;
 
         [Header("Context")]
+        [CoCoContextProvider(typeof(CharacterContext))]
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Navigation Control")]

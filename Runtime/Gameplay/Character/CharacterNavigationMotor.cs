@@ -8,6 +8,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
     public class CharacterNavigationMotor : MonoBehaviour
     {
         [Header("Context")]
+        [CoCoContextProvider(typeof(CharacterContext))]
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Components")]
