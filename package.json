@@ -1,6 +1,6 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "displayName": "CoCoFlow",
   "description": "A modular Unity game development framework with Context-driven State Layers, Character/Enemy gameplay foundations, optional samples, and Editor tooling.",
   "unity": "6000.0",
@@ -30,7 +30,7 @@
   "samples": [
     {
       "displayName": "Add-on: Network Samples",
-      "description": "Fusion-oriented network compatibility plan based on input bridges, context snapshots, and event envelopes.",
+      "description": "Fusion-oriented network compatibility plan based on input bridges, context snapshots, local camera rig binding, and event envelopes.",
       "path": "Samples~/Network Samples"
     },
     {

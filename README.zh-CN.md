@@ -4,7 +4,7 @@
 
 CoCoFlow 是一个面向 Unity 的模块化游戏开发框架，围绕 Context 驱动的 gameplay、显式 State Layer、可复用组件、持久化、编辑器工具和可选 samples 构建。
 
-> **版本**: 0.3.6 · **Unity**: 6000+
+> **版本**: 0.3.7 · **Unity**: 6000+
 
 ## 包范围
 
@@ -69,7 +69,7 @@ CoCoFlow
 |---|---|---|
 | Core | 稳定基础 | Service locator、事件总线、Context 契约、State Layer controller、state definition 和日志。 |
 | Input | 可用基础 | Input reader 和 input intent 契约。 |
-| Camera | 可用基础 | 第三人称相机和面向 Cinemachine 的相机辅助能力。 |
+| Camera | 活跃基础 | 本地第三人称 Cinemachine profile 调度、CameraRig 绑定、状态请求、观战和 cutscene 接管边界。 |
 | UI | 可用基础 | View/controller 抽象和 panel stack 管理。 |
 | Animation | 工具层 | Animator 辅助、animation event state machine behaviour 和编辑器注入工具。 |
 | Map | 可用基础 | Map manager 和 chunk loading 支持。 |
@@ -89,6 +89,12 @@ Persistence 在每个存档文档中维护两个 section：
 这个模块提供手动存读档入口、存档槽位 metadata、schema migration 入口、临时文件替换写入、Catalog 编辑器，以及用于 container command 的 bridge。
 
 更多设置、数据流和示例用法见 [Module: Persistence](Docs/Module-Persistence.md)。
+
+## Camera
+
+Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法；它只把 State Layer 或业务脚本发出的 profile 请求映射到预配置的 `CinemachineCamera`，并通过 `CameraDirector`、`CameraRig`、`CameraProfileEntry` 管理本地 rig 绑定、请求优先级、观战目标和 cutscene 交接。
+
+详细拓扑、Scene 组装、profile 建议、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
 
 ## 依赖
 
@@ -123,7 +129,7 @@ Persistence 在每个存档文档中维护两个 section：
 | Player Samples | `Assets/CoCoFlow/Player` | 演示带有 `CharacterContextProvider`、locomotion 和显式 State Layers 的 player prefab。 |
 | Enemy Samples | `Assets/CoCoFlow/Enemy` | 演示 enemy context、brain、spline navigation、state scripts 和 prefab 接线。 |
 | Chest Samples | `Assets/CoCoFlow/Chest` | 演示 chest prefab 和 runtime container store 下的 Persistence Context / Container 双路径。 |
-| Network Samples | `Assets/CoCoFlow/Network` | 记录 network adapter 边界，并提供 container event bridge sample，不引入 network package 依赖。 |
+| Network Samples | `Assets/CoCoFlow/Network` | 记录 network adapter 边界，并提供 container event bridge 和本地 camera rig binding samples，不引入 network package 依赖。 |
 
 Samples 是集成参考，不是完整游戏模板。
 
@@ -140,6 +146,7 @@ Samples 是集成参考，不是完整游戏模板。
 ## 文档
 
 - [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
 - [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
 

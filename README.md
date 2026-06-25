@@ -4,7 +4,7 @@
 
 CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
 
-> **Version**: 0.3.6 · **Unity**: 6000+
+> **Version**: 0.3.7 · **Unity**: 6000+
 
 ## Package Scope
 
@@ -69,7 +69,7 @@ CoCoFlow
 |---|---|---|
 | Core | Stable foundation | Service locator, event bus, Context contracts, State Layer controller, state definitions, and logging. |
 | Input | Usable foundation | Input reader and input intent contracts. |
-| Camera | Usable foundation | Third-person camera and Cinemachine-oriented camera helpers. |
+| Camera | Active foundation | 本地第三人称 Cinemachine profile 调度、CameraRig 绑定、状态请求、观战和 cutscene 接管边界。 |
 | UI | Usable foundation | View/controller abstractions and panel stack management. |
 | Animation | Utility layer | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
 | Map | Usable foundation | Map manager and chunk loading support. |
@@ -89,6 +89,12 @@ Persistence stores two sections in each save document:
 The module includes manual save/load entry points, save slot metadata, schema migration entry, temporary-file replacement, a catalog editor, and a command bridge for container operations.
 
 See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and usage examples.
+
+## Camera
+
+Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法；它只把 State Layer 或业务脚本发出的 profile 请求映射到预配置的 `CinemachineCamera`，并通过 `CameraDirector`、`CameraRig`、`CameraProfileEntry` 管理本地 rig 绑定、请求优先级、观战目标和 cutscene 交接。
+
+详细拓扑、Scene 组装、profile 建议、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
 
 ## Dependencies
 
@@ -123,7 +129,7 @@ After installation:
 | Player Samples | `Assets/CoCoFlow/Player` | Demonstrates a player prefab with `CharacterContextProvider`, locomotion, and explicit State Layers. |
 | Enemy Samples | `Assets/CoCoFlow/Enemy` | Demonstrates enemy context, brain, spline navigation, state scripts, and prefab wiring. |
 | Chest Samples | `Assets/CoCoFlow/Chest` | Demonstrates Persistence Context and Container paths with a chest prefab and runtime container store. |
-| Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes a container event bridge sample without adding a network package dependency. |
+| Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes container event and local camera rig binding samples without adding a network package dependency. |
 
 Samples are integration references. They are not complete game templates.
 
@@ -140,6 +146,7 @@ Samples are integration references. They are not complete game templates.
 ## Documentation
 
 - [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
 - [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
 
