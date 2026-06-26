@@ -23,22 +23,6 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         public void SetLocalCameraAuthority(bool hasAuthority)
         {
-            if (hasLocalCameraAuthority == hasAuthority)
-            {
-                if (!isActiveAndEnabled) return;
-
-                if (hasLocalCameraAuthority && !_isBound)
-                {
-                    ActivateRig();
-                }
-                else if (!hasLocalCameraAuthority && _isBound)
-                {
-                    DeactivateRig();
-                }
-
-                return;
-            }
-
             hasLocalCameraAuthority = hasAuthority;
             if (!isActiveAndEnabled) return;
 
@@ -62,10 +46,17 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
             cameraRig = rig;
 
-            if (wasBound && hasLocalCameraAuthority)
+            if (hasLocalCameraAuthority)
             {
-                ActivateRig();
+                if (isActiveAndEnabled)
+                {
+                    ActivateRig();
+                }
+
+                return;
             }
+
+            DeactivateRig();
         }
 
         public void ActivateRig()
@@ -93,11 +84,18 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         public void DeactivateRig()
         {
+            _directorWait?.Dispose();
+            _directorWait = null;
+
             var rig = ResolveRig();
+            if (rig != null)
+            {
+                rig.SetActive(false);
+            }
+
             var director = ResolveDirector();
             if (rig != null && director != null)
             {
-                rig.SetActive(false);
                 director.RefreshRig(rig);
             }
 
@@ -106,10 +104,15 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         private void OnEnable()
         {
-            if (bindOnEnable && hasLocalCameraAuthority)
+            if (!bindOnEnable) return;
+
+            if (hasLocalCameraAuthority)
             {
                 ActivateRig();
+                return;
             }
+
+            DeactivateRig();
         }
 
         private void OnDisable()
