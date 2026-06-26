@@ -4,7 +4,7 @@
 
 CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
 
-> **Version**: 0.3.8 · **Unity**: 6000+
+> **Version**: 0.3.9 · **Unity**: 6000+
 
 ## Package Scope
 
@@ -16,7 +16,7 @@ The current package includes:
 - Character, Enemy, and Item gameplay foundations.
 - Input, Camera, UI, Animation, Map, Rendering, and Persistence modules.
 - Editor tooling for setup, state graph inspection, persistence save slots, and catalog editing.
-- Optional samples for Player, Enemy, Chest, and Network integration planning.
+- Optional samples for Player, Enemy, Chest, Rigging, and Network integration planning.
 
 ## Runtime Topology
 
@@ -71,7 +71,7 @@ CoCoFlow
 | Input | Usable foundation | Input reader and input intent contracts. |
 | Camera | Active foundation | Local third-person Cinemachine rig scheduling, embedded player cameras, AimCore coupling, spectate priority, and cutscene handoff boundaries. |
 | UI | Usable foundation | View/controller abstractions and panel stack management. |
-| Animation | Utility layer | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
+| Animation | Active foundation | Animator helpers, animation event state machine behaviour, editor injection tooling, and Rig foot IK/lock operation components. |
 | Map | Usable foundation | Map manager and chunk loading support. |
 | Rendering | Utility layer | Rendering quality helpers. |
 | Persistence | Active module | Versioned save documents, temporary-file JSON writes, Context snapshots, Container data, catalog editing, and save-slot editor tooling. |
@@ -92,11 +92,17 @@ See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and u
 
 ## Camera
 
-Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns its Free/Aim/Lock/Spectate/Focus/Custom Cinemachine virtual cameras and exposes the current one to the Director.
+Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns a manually configured list of custom mode ids and Cinemachine virtual cameras.
 
-TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
+TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode id and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
 
 See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore setup, spectate priority, network binding, and cutscene handoff.
+
+## Animation
+
+Animation contains a thin Animator/SMB utility layer plus the 0.3.9 Rig sub-capability for foot IK target driving and foot lock. Rig follows the same operation-component model as `CharacterLocomotion`: State Layer scripts explicitly enable foot IK when a state needs it, while `AnimRigCharacterController` exposes the facade API and `AnimRigFootDriver` updates target transforms, animation-curve foot lock state, and debug gizmos.
+
+See [Module-Animation](Docs/Module-Animation.md) for topology, prefab setup, and State Layer integration.
 
 ## Dependencies
 
@@ -109,6 +115,7 @@ See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore
 | AI Navigation | 2.0.0 | Character navigation and Enemy samples |
 | Mathematics | 1.3.3 | Enemy and spline-related workflows |
 | Splines | 2.6.0 | Enemy spline support |
+| Animation Rigging | project-installed | projects or samples that wire Animation Rig targets to Unity constraints |
 
 Optional third-party packages can be installed by a project when a sample or business module requires them. They are not bundled into the core runtime surface.
 
@@ -132,6 +139,7 @@ After installation:
 | Enemy Samples | `Assets/CoCoFlow/Enemy` | Demonstrates enemy context, brain, spline navigation, state scripts, and prefab wiring. |
 | Chest Samples | `Assets/CoCoFlow/Chest` | Demonstrates Persistence Context and Container paths with a chest prefab and runtime container store. |
 | Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes container event and local camera rig binding samples without adding a network package dependency. |
+| Rigging Samples | `Assets/CoCoFlow/Rigging` | Demonstrates Animation module foot IK and foot lock operation calls from State Layer-style scripts. |
 
 Samples are integration references. They are not complete game templates.
 
@@ -148,6 +156,7 @@ Samples are integration references. They are not complete game templates.
 ## Documentation
 
 - [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
 - [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)

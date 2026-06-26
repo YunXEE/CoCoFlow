@@ -99,25 +99,28 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void CameraRigModeSwitchesCurrentCameraWithoutTargetMutation()
+        public void StringModeIdSwitchesCurrentCameraWithoutTargetMutation()
         {
             var fixture = CreateDirectorFixture();
             var playerRig = CreateRig("Player", fixture.Director, 70);
             try
             {
                 Assert.AreSame(playerRig.FreeCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual("Explore", playerRig.Rig.CurrentModeId);
 
-                playerRig.Rig.SetMode(CameraRigMode.Aim);
+                playerRig.Rig.SetMode("Aim");
 
                 Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual("Aim", playerRig.Rig.CurrentModeId);
                 Assert.AreSame(playerRig.FreeFollowTarget, playerRig.FreeCamera.Follow);
                 Assert.AreSame(playerRig.FreeLookAtTarget, playerRig.FreeCamera.LookAt);
                 Assert.AreSame(playerRig.AimFollowTarget, playerRig.AimCamera.Follow);
                 Assert.AreSame(playerRig.AimLookAtTarget, playerRig.AimCamera.LookAt);
 
-                playerRig.Rig.SetMode(CameraRigMode.Lock);
+                playerRig.Rig.SetMode("Lock");
 
                 Assert.AreSame(playerRig.LockCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual("Lock", playerRig.Rig.CurrentModeId);
                 Assert.AreSame(playerRig.LockFollowTarget, playerRig.LockCamera.Follow);
                 Assert.AreSame(playerRig.LockLookAtTarget, playerRig.LockCamera.LookAt);
             }
@@ -135,7 +138,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var playerRig = CreateRig("Player", fixture.Director, 70);
             try
             {
-                playerRig.Rig.SetMode(CameraRigMode.Aim);
+                playerRig.Rig.SetMode("Aim");
 
                 Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
                 Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
@@ -150,6 +153,91 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void SetCameraAddsAndUpdatesArbitraryModeId()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
+            var bossCamera = CreateCamera(
+                playerRig.RootObject.transform,
+                "Player Boss Combat Camera");
+            var replacementCamera = CreateCamera(
+                playerRig.RootObject.transform,
+                "Player Replacement Boss Combat Camera");
+            try
+            {
+                Assert.IsFalse(playerRig.Rig.TryGetCamera("BossCombat", out _));
+
+                playerRig.Rig.SetCamera("BossCombat", bossCamera);
+
+                Assert.IsTrue(playerRig.Rig.TryGetCamera(
+                    "BossCombat",
+                    out var configuredCamera));
+                Assert.AreSame(bossCamera, configuredCamera);
+                Assert.AreSame(bossCamera, playerRig.Rig.GetCamera("BossCombat"));
+
+                playerRig.Rig.SetMode("BossCombat");
+
+                Assert.AreSame(bossCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(70, GetPriority(bossCamera));
+
+                playerRig.Rig.SetCamera("BossCombat", replacementCamera);
+
+                Assert.AreSame(replacementCamera, playerRig.Rig.GetCamera("BossCombat"));
+                Assert.AreSame(replacementCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(bossCamera));
+                Assert.AreEqual(70, GetPriority(replacementCamera));
+            }
+            finally
+            {
+                playerRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        [Test]
+        public void UnknownOrEmptyModeMakesRigUnavailableAndDirectorFallsBack()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
+            var fallbackRig = CreateRig("Fallback", fixture.Director, 60);
+            try
+            {
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+
+                playerRig.Rig.SetMode("explore");
+
+                Assert.AreSame(fallbackRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(fallbackRig.FreeCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(60, GetPriority(fallbackRig.FreeCamera));
+
+                playerRig.Rig.SetMode("Aim");
+
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+
+                playerRig.Rig.SetMode(" ");
+
+                Assert.AreEqual(string.Empty, playerRig.Rig.CurrentModeId);
+                Assert.AreSame(fallbackRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(0, GetPriority(playerRig.AimCamera));
+                Assert.AreEqual(60, GetPriority(fallbackRig.FreeCamera));
+
+                fallbackRig.Rig.SetActive(false);
+
+                Assert.IsNull(fixture.Director.ActiveRig);
+                Assert.IsNull(fixture.Director.ActiveVirtualCamera);
+            }
+            finally
+            {
+                fallbackRig.Destroy();
+                playerRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        [Test]
         public void CutsceneRigOverridesAndReturnsToPlayerMode()
         {
             var fixture = CreateDirectorFixture();
@@ -157,7 +245,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var cutsceneRig = CreateRig("Cutscene", fixture.Director, 100, active: false);
             try
             {
-                playerRig.Rig.SetMode(CameraRigMode.Aim);
+                playerRig.Rig.SetMode("Aim");
                 Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
 
                 fixture.Director.SetRigActive(cutsceneRig.Rig, true);
@@ -191,6 +279,8 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             {
                 Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
                 Assert.AreEqual(70, GetPriority(playerRig.FreeCamera));
+                playerRig.AimCamera.Priority = 25;
+                playerRig.LockCamera.Priority = 35;
 
                 fixture.Director.SetSchedulingSuspended(true);
 
@@ -198,12 +288,16 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.IsNull(fixture.Director.ActiveRig);
                 Assert.IsNull(fixture.Director.ActiveVirtualCamera);
                 Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(0, GetPriority(playerRig.AimCamera));
+                Assert.AreEqual(0, GetPriority(playerRig.LockCamera));
 
                 fixture.Director.SetSchedulingSuspended(false);
 
                 Assert.IsFalse(fixture.Director.IsSchedulingSuspended);
                 Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
                 Assert.AreEqual(70, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(0, GetPriority(playerRig.AimCamera));
+                Assert.AreEqual(0, GetPriority(playerRig.LockCamera));
             }
             finally
             {
@@ -517,11 +611,12 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             lockCamera.LookAt = lockLookAtTarget;
 
             rig.SetCameraDirector(director);
-            rig.SetCamera(CameraRigMode.Free, freeCamera);
-            rig.SetCamera(CameraRigMode.Aim, aimCamera);
-            rig.SetCamera(CameraRigMode.Lock, lockCamera);
-            rig.SetCamera(CameraRigMode.Spectate, spectateCamera);
-            rig.SetCamera(CameraRigMode.Focus, focusCamera);
+            rig.SetCamera("Explore", freeCamera);
+            rig.SetCamera("Aim", aimCamera);
+            rig.SetCamera("Lock", lockCamera);
+            rig.SetCamera("Spectate", spectateCamera);
+            rig.SetCamera("Focus", focusCamera);
+            rig.SetMode("Explore");
             rig.SetPriority(priority);
             rig.SetActive(active);
             rig.RegisterRig();

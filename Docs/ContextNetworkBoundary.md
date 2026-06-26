@@ -156,4 +156,4 @@ Core 不包含 Fusion 依赖。Fusion 或其他网络实现应作为可选 adapt
 - 新状态优先使用 `Enter(ICoCoContext)`、`OnStateUpdate(ICoCoContext)`、`OnStateFixedUpdate(ICoCoContext)`、`Exit(ICoCoContext)`。
 - 所有可运行状态必须显式声明到 `CoCoStateLayer.AvailableStates`；不再依赖自动扫描或嵌套 controller。
 - Character / Item 逻辑应通过 Context 和 Intent 接入，不再依赖具体 PlayerController、EnemyController 或 Chest 命名。
-- Animation Rigging、IK、武器挂点、完整战斗和技能系统仍属于业务项目或未来 add-on，不是当前 Runtime 主包的一部分。
+- Animation 模块包含基础 Foot IK / Foot Lock operation；武器挂点、全身 IK、完整战斗和技能系统仍属于业务项目或未来 add-on，不是当前 Runtime 主包的一部分。
