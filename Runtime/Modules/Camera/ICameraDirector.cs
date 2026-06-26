@@ -1,23 +1,41 @@
+using System;
+using Unity.Cinemachine;
+
 namespace CoCoFlow.Runtime.Modules.Camera
 {
+    public readonly struct CameraRigChangedEvent
+    {
+        public CameraRigChangedEvent(
+            CameraRig previousRig,
+            CameraRig activeRig,
+            CinemachineVirtualCameraBase previousVirtualCamera,
+            CinemachineVirtualCameraBase activeVirtualCamera)
+        {
+            PreviousRig = previousRig;
+            ActiveRig = activeRig;
+            PreviousVirtualCamera = previousVirtualCamera;
+            ActiveVirtualCamera = activeVirtualCamera;
+        }
+
+        public CameraRig PreviousRig { get; }
+        public CameraRig ActiveRig { get; }
+        public CinemachineVirtualCameraBase PreviousVirtualCamera { get; }
+        public CinemachineVirtualCameraBase ActiveVirtualCamera { get; }
+    }
+
     public interface ICameraDirector
     {
-        string ActiveProfileId { get; }
-        CameraRig LocalRig { get; }
         CameraRig ActiveRig { get; }
+        CinemachineVirtualCameraBase ActiveVirtualCamera { get; }
+        bool IsSchedulingSuspended { get; }
 
-        int Request(CameraModeRequest request);
-        int Request(
-            string profileId,
-            CameraRig subjectRig = null,
-            UnityEngine.Transform focusTarget = null,
-            object owner = null,
-            int priority = 0,
-            float duration = 0f);
-        bool Release(int requestId);
-        int ReleaseOwner(object owner);
-        void BindLocalRig(CameraRig rig);
-        void ClearLocalRig(CameraRig rig);
-        void SetGameplayRequestsSuspended(bool suspended);
+        event Action<CameraRigChangedEvent> ActiveRigChanged;
+
+        void RegisterRig(CameraRig rig);
+        void UnregisterRig(CameraRig rig);
+        void RefreshRig(CameraRig rig);
+        void SetRigActive(CameraRig rig, bool active);
+        void SetRigPriority(CameraRig rig, int priority);
+        void SetSchedulingSuspended(bool suspended);
     }
 }

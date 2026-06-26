@@ -4,7 +4,7 @@
 
 CoCoFlow 是一个面向 Unity 的模块化游戏开发框架，围绕 Context 驱动的 gameplay、显式 State Layer、可复用组件、持久化、编辑器工具和可选 samples 构建。
 
-> **版本**: 0.3.7 · **Unity**: 6000+
+> **版本**: 0.3.8 · **Unity**: 6000+
 
 ## 包范围
 
@@ -69,7 +69,7 @@ CoCoFlow
 |---|---|---|
 | Core | 稳定基础 | Service locator、事件总线、Context 契约、State Layer controller、state definition 和日志。 |
 | Input | 可用基础 | Input reader 和 input intent 契约。 |
-| Camera | 活跃基础 | 本地第三人称 Cinemachine profile 调度、CameraRig 绑定、状态请求、观战和 cutscene 接管边界。 |
+| Camera | 活跃基础 | 本地第三人称 Cinemachine rig 调度、玩家内置相机、AimCore 耦合、观战优先级和 cutscene 接管边界。 |
 | UI | 可用基础 | View/controller 抽象和 panel stack 管理。 |
 | Animation | 工具层 | Animator 辅助、animation event state machine behaviour 和编辑器注入工具。 |
 | Map | 可用基础 | Map manager 和 chunk loading 支持。 |
@@ -92,9 +92,11 @@ Persistence 在每个存档文档中维护两个 section：
 
 ## Camera
 
-Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法；它只把 State Layer 或业务脚本发出的 profile 请求映射到预配置的 `CinemachineCamera`，并通过 `CameraDirector`、`CameraRig`、`CameraProfileEntry` 管理本地 rig 绑定、请求优先级、观战目标和 cutscene 交接。
+Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法。当前模型收束为 Director/Rig：`CameraDirector` 按 active + priority 调度一组 `CameraRig`，每个 `CameraRig` 持有 Free/Aim/Lock/Spectate/Focus/Custom 等 Cinemachine virtual cameras，并把当前相机暴露给 Director。
 
-详细拓扑、Scene 组装、profile 建议、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
+TPS Aim 通过玩家内部 AimCore 上的 `CameraAimCoupler` 处理。State Layer 显式切换 rig mode 和 coupled 开关；每台 Cinemachine camera 的 Follow/LookAt/ThirdPersonFollow target 仍在 Inspector 里直接配置。
+
+详细拓扑、Scene 组装、AimCore 设置、观战优先级、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
 
 ## 依赖
 

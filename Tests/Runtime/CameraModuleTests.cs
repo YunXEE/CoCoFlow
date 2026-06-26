@@ -1,3 +1,5 @@
+using System.Reflection;
+using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Camera;
 using NUnit.Framework;
 using Unity.Cinemachine;
@@ -7,288 +9,655 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 {
     public class CameraModuleTests
     {
-        [Test]
-        public void DirectorActivatesDefaultProfileForBoundLocalRig()
+        [SetUp]
+        public void SetUp()
         {
-            var fixture = CreateFixture();
+            CoCoServices.ClearAll();
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            CoCoServices.ClearAll();
+        }
+
+        [Test]
+        public void DirectorActivatesHighestPriorityActiveRig()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 50);
+            var spectateRig = CreateRig("Spectate", fixture.Director, 65);
             try
             {
-                fixture.Director.BindLocalRig(fixture.Rig);
-
-                Assert.AreEqual(CameraProfileKeys.Default, fixture.Director.ActiveProfileId);
-                Assert.AreSame(fixture.Rig, fixture.Director.ActiveRig);
-                Assert.AreEqual(20, GetPriority(fixture.DefaultCamera));
-                Assert.AreEqual(0, GetPriority(fixture.AimCamera));
-                Assert.AreSame(fixture.FollowTarget, fixture.DefaultCamera.Follow);
-                Assert.AreSame(fixture.LookAtTarget, fixture.DefaultCamera.LookAt);
+                Assert.AreSame(spectateRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(spectateRig.FreeCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(65, GetPriority(spectateRig.FreeCamera));
             }
             finally
             {
+                spectateRig.Destroy();
+                playerRig.Destroy();
                 fixture.Destroy();
             }
         }
 
         [Test]
-        public void HigherPriorityRequestOverridesAndReleaseRestoresDefault()
+        public void InactiveRigDoesNotParticipateUntilActivated()
         {
-            var fixture = CreateFixture();
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 60);
+            var remoteRig = CreateRig("Remote", fixture.Director, 90, active: false);
             try
             {
-                fixture.Director.BindLocalRig(fixture.Rig);
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(60, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(0, GetPriority(remoteRig.FreeCamera));
 
-                int requestId = fixture.Director.Request(
-                    CameraProfileKeys.Aim,
-                    focusTarget: fixture.FocusTarget,
-                    priority: 10);
+                fixture.Director.SetRigActive(remoteRig.Rig, true);
 
-                Assert.AreEqual(CameraProfileKeys.Aim, fixture.Director.ActiveProfileId);
-                Assert.AreEqual(30, GetPriority(fixture.AimCamera));
-                Assert.AreEqual(0, GetPriority(fixture.DefaultCamera));
-                Assert.AreSame(fixture.FollowTarget, fixture.AimCamera.Follow);
-                Assert.AreSame(fixture.FocusTarget, fixture.AimCamera.LookAt);
-
-                Assert.IsTrue(fixture.Director.Release(requestId));
-                Assert.AreEqual(CameraProfileKeys.Default, fixture.Director.ActiveProfileId);
-                Assert.AreEqual(20, GetPriority(fixture.DefaultCamera));
-                Assert.AreEqual(0, GetPriority(fixture.AimCamera));
+                Assert.AreSame(remoteRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(90, GetPriority(remoteRig.FreeCamera));
             }
             finally
             {
+                remoteRig.Destroy();
+                playerRig.Destroy();
                 fixture.Destroy();
             }
         }
 
         [Test]
-        public void ReleaseOwnerClearsOnlyOwnedRequests()
+        public void RigPriorityChangeReordersDirector()
         {
-            var fixture = CreateFixture();
-            var ownerA = new object();
-            var ownerB = new object();
+            var fixture = CreateDirectorFixture();
+            var localRig = CreateRig("Local Player", fixture.Director, 70);
+            var teammateRig = CreateRig("Teammate", fixture.Director, 65);
             try
             {
-                fixture.Director.BindLocalRig(fixture.Rig);
-                fixture.Director.Request(CameraProfileKeys.Aim, owner: ownerA, priority: 10);
-                fixture.Director.Request(CameraProfileKeys.Focus, owner: ownerB, priority: 20);
+                Assert.AreSame(localRig.Rig, fixture.Director.ActiveRig);
 
-                Assert.AreEqual(CameraProfileKeys.Focus, fixture.Director.ActiveProfileId);
-                Assert.AreEqual(1, fixture.Director.ReleaseOwner(ownerB));
-                Assert.AreEqual(CameraProfileKeys.Aim, fixture.Director.ActiveProfileId);
-                Assert.AreEqual(1, fixture.Director.ReleaseOwner(ownerA));
-                Assert.AreEqual(CameraProfileKeys.Default, fixture.Director.ActiveProfileId);
+                fixture.Director.SetRigPriority(localRig.Rig, 60);
+
+                Assert.AreSame(teammateRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(0, GetPriority(localRig.FreeCamera));
+                Assert.AreEqual(65, GetPriority(teammateRig.FreeCamera));
+
+                fixture.Director.SetRigPriority(localRig.Rig, 80);
+
+                Assert.AreSame(localRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(80, GetPriority(localRig.FreeCamera));
+                Assert.AreEqual(0, GetPriority(teammateRig.FreeCamera));
             }
             finally
             {
+                teammateRig.Destroy();
+                localRig.Destroy();
                 fixture.Destroy();
             }
         }
 
         [Test]
-        public void SuspendedGameplayRequestsLeaveProfilesAtStandby()
+        public void CameraRigModeSwitchesCurrentCameraWithoutTargetMutation()
         {
-            var fixture = CreateFixture();
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
             try
             {
-                fixture.Director.BindLocalRig(fixture.Rig);
-                fixture.Director.Request(CameraProfileKeys.Aim, priority: 10);
+                Assert.AreSame(playerRig.FreeCamera, fixture.Director.ActiveVirtualCamera);
 
-                fixture.Director.SetGameplayRequestsSuspended(true);
+                playerRig.Rig.SetMode(CameraRigMode.Aim);
 
-                Assert.AreEqual(string.Empty, fixture.Director.ActiveProfileId);
+                Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreSame(playerRig.FreeFollowTarget, playerRig.FreeCamera.Follow);
+                Assert.AreSame(playerRig.FreeLookAtTarget, playerRig.FreeCamera.LookAt);
+                Assert.AreSame(playerRig.AimFollowTarget, playerRig.AimCamera.Follow);
+                Assert.AreSame(playerRig.AimLookAtTarget, playerRig.AimCamera.LookAt);
+
+                playerRig.Rig.SetMode(CameraRigMode.Lock);
+
+                Assert.AreSame(playerRig.LockCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreSame(playerRig.LockFollowTarget, playerRig.LockCamera.Follow);
+                Assert.AreSame(playerRig.LockLookAtTarget, playerRig.LockCamera.LookAt);
+            }
+            finally
+            {
+                playerRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        [Test]
+        public void DirectorUsesRigCurrentCameraAsWinnerOutput()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
+            try
+            {
+                playerRig.Rig.SetMode(CameraRigMode.Aim);
+
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
+                Assert.AreEqual(70, GetPriority(playerRig.AimCamera));
+            }
+            finally
+            {
+                playerRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        [Test]
+        public void CutsceneRigOverridesAndReturnsToPlayerMode()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
+            var cutsceneRig = CreateRig("Cutscene", fixture.Director, 100, active: false);
+            try
+            {
+                playerRig.Rig.SetMode(CameraRigMode.Aim);
+                Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+
+                fixture.Director.SetRigActive(cutsceneRig.Rig, true);
+
+                Assert.AreSame(cutsceneRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(cutsceneRig.FreeCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.AimCamera));
+                Assert.AreEqual(100, GetPriority(cutsceneRig.FreeCamera));
+
+                fixture.Director.SetRigActive(cutsceneRig.Rig, false);
+
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreSame(playerRig.AimCamera, fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(70, GetPriority(playerRig.AimCamera));
+                Assert.AreEqual(0, GetPriority(cutsceneRig.FreeCamera));
+            }
+            finally
+            {
+                cutsceneRig.Destroy();
+                playerRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        [Test]
+        public void SuspendedSchedulingClearsRigPrioritiesAndRestores()
+        {
+            var fixture = CreateDirectorFixture();
+            var playerRig = CreateRig("Player", fixture.Director, 70);
+            try
+            {
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(70, GetPriority(playerRig.FreeCamera));
+
+                fixture.Director.SetSchedulingSuspended(true);
+
+                Assert.IsTrue(fixture.Director.IsSchedulingSuspended);
                 Assert.IsNull(fixture.Director.ActiveRig);
-                Assert.AreEqual(0, GetPriority(fixture.DefaultCamera));
-                Assert.AreEqual(0, GetPriority(fixture.AimCamera));
+                Assert.IsNull(fixture.Director.ActiveVirtualCamera);
+                Assert.AreEqual(0, GetPriority(playerRig.FreeCamera));
 
-                fixture.Director.SetGameplayRequestsSuspended(false);
+                fixture.Director.SetSchedulingSuspended(false);
 
-                Assert.AreEqual(CameraProfileKeys.Aim, fixture.Director.ActiveProfileId);
-                Assert.AreEqual(30, GetPriority(fixture.AimCamera));
+                Assert.IsFalse(fixture.Director.IsSchedulingSuspended);
+                Assert.AreSame(playerRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(70, GetPriority(playerRig.FreeCamera));
             }
             finally
             {
+                playerRig.Destroy();
                 fixture.Destroy();
             }
         }
 
         [Test]
-        public void ClearingLocalRigFallsBackToDefaultRig()
+        public void SamePriorityUsesMostRecentlyRegisteredRig()
         {
-            var fixture = CreateFixture();
-            var defaultRigObject = new GameObject("Default Rig");
-            var defaultRig = defaultRigObject.AddComponent<CameraRig>();
+            var fixture = CreateDirectorFixture();
+            var firstRig = CreateRig("First", fixture.Director, 50);
+            var secondRig = CreateRig("Second", fixture.Director, 50);
             try
             {
-                fixture.Director.SetDefaultRig(defaultRig);
-                fixture.Director.BindLocalRig(fixture.Rig);
-
-                Assert.AreSame(fixture.Rig, fixture.Director.ActiveRig);
-
-                fixture.Director.ClearLocalRig(null);
-
-                Assert.AreSame(defaultRig, fixture.Director.ActiveRig);
-                Assert.AreSame(defaultRig.FollowTarget, fixture.DefaultCamera.Follow);
-                Assert.AreSame(defaultRig.LookAtTarget, fixture.DefaultCamera.LookAt);
+                Assert.AreSame(secondRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(0, GetPriority(firstRig.FreeCamera));
+                Assert.AreEqual(50, GetPriority(secondRig.FreeCamera));
             }
             finally
             {
-                Object.DestroyImmediate(defaultRigObject);
+                secondRig.Destroy();
+                firstRig.Destroy();
                 fixture.Destroy();
             }
         }
 
         [Test]
-        public void DestroyedRequestRigFallsBackToDefaultRig()
+        public void UnregisterRigRemovesItFromDirectorSelection()
         {
-            var fixture = CreateFixture();
-            var defaultRigObject = new GameObject("Default Rig");
-            var defaultRig = defaultRigObject.AddComponent<CameraRig>();
-            var transientRigObject = new GameObject("Transient Request Rig");
-            var transientRig = transientRigObject.AddComponent<CameraRig>();
+            var fixture = CreateDirectorFixture();
+            var firstRig = CreateRig("First", fixture.Director, 50);
+            var secondRig = CreateRig("Second", fixture.Director, 60);
             try
             {
-                fixture.Director.SetDefaultRig(defaultRig);
-                fixture.Director.Request(
-                    CameraProfileKeys.Aim,
-                    transientRig,
-                    priority: 10);
+                Assert.AreSame(secondRig.Rig, fixture.Director.ActiveRig);
 
-                Object.DestroyImmediate(transientRigObject);
-                fixture.Director.SetDefaultRig(defaultRig);
+                secondRig.Rig.UnregisterRig();
 
-                Assert.AreSame(defaultRig, fixture.Director.ActiveRig);
-                Assert.AreSame(defaultRig.FollowTarget, fixture.AimCamera.Follow);
-                Assert.AreSame(defaultRig.LookAtTarget, fixture.AimCamera.LookAt);
+                Assert.IsFalse(secondRig.Rig.IsRegistered);
+                Assert.AreSame(firstRig.Rig, fixture.Director.ActiveRig);
+                Assert.AreEqual(0, GetPriority(secondRig.FreeCamera));
+                Assert.AreEqual(50, GetPriority(firstRig.FreeCamera));
             }
             finally
             {
-                if (transientRigObject != null)
-                {
-                    Object.DestroyImmediate(transientRigObject);
-                }
-
-                Object.DestroyImmediate(defaultRigObject);
+                secondRig.Destroy();
+                firstRig.Destroy();
                 fixture.Destroy();
             }
         }
 
-        private static CameraFixture CreateFixture()
+        [Test]
+        public void CameraAimCouplerRotatesAimCoreFromLookInput()
         {
-            var directorObject = new GameObject("Camera Director");
-            var rigObject = new GameObject("Camera Rig");
-            var defaultCameraObject = new GameObject("Default Camera");
-            var aimCameraObject = new GameObject("Aim Camera");
-            var focusCameraObject = new GameObject("Focus Camera");
-            var followTarget = new GameObject("Follow Target").transform;
-            var lookAtTarget = new GameObject("Look At Target").transform;
-            var focusTarget = new GameObject("Focus Target").transform;
-
-            var rig = rigObject.AddComponent<CameraRig>();
-            rig.SetTargets(rigObject.transform, followTarget, lookAtTarget);
-
-            var defaultCamera = defaultCameraObject.AddComponent<CinemachineCamera>();
-            var aimCamera = aimCameraObject.AddComponent<CinemachineCamera>();
-            var focusCamera = focusCameraObject.AddComponent<CinemachineCamera>();
-
-            var director = directorObject.AddComponent<CameraDirector>();
-            director.SetProfileEntries(new[]
+            var root = new GameObject("Aim Coupler Input Test");
+            var aimCore = new GameObject("Aim Core");
+            try
             {
-                new CameraProfileEntry(
-                    CameraProfileKeys.Default,
-                    defaultCamera),
-                new CameraProfileEntry(
-                    CameraProfileKeys.Aim,
-                    aimCamera,
-                    activePriority: 30,
-                    lookAtTarget: CameraTargetRole.RequestFocus),
-                new CameraProfileEntry(
-                    CameraProfileKeys.Focus,
-                    focusCamera,
-                    activePriority: 40,
-                    lookAtTarget: CameraTargetRole.RequestFocus)
-            });
+                aimCore.transform.SetParent(root.transform);
+                var input = root.AddComponent<TestInputStateProvider>();
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetInputStateProvider(input);
+                input.LookInputValue = Vector2.right;
 
-            return new CameraFixture(
-                directorObject,
-                rigObject,
-                defaultCameraObject,
-                aimCameraObject,
-                focusCameraObject,
-                followTarget.gameObject,
-                lookAtTarget.gameObject,
-                focusTarget.gameObject,
-                director,
+                SampleInput(coupler, 1f);
+
+                AssertQuaternionApproximately(
+                    Quaternion.Euler(0f, 180f, 0f),
+                    aimCore.transform.localRotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(aimCore);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CameraAimCouplerDoesNotSyncTargetWhenDecoupled()
+        {
+            var root = new GameObject("Aim Coupler Decoupled Test");
+            var aimCore = new GameObject("Aim Core");
+            var syncTarget = new GameObject("Sync Target");
+            try
+            {
+                aimCore.transform.SetParent(root.transform);
+                syncTarget.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
+                var expectedTargetRotation = syncTarget.transform.rotation;
+
+                var input = root.AddComponent<TestInputStateProvider>();
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetInputStateProvider(input);
+                coupler.SetSyncTarget(syncTarget.transform);
+                coupler.SetCoupled(false);
+                input.LookInputValue = Vector2.right;
+
+                SampleInput(coupler, 1f);
+
+                AssertQuaternionApproximately(
+                    expectedTargetRotation,
+                    syncTarget.transform.rotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(syncTarget);
+                Object.DestroyImmediate(aimCore);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CameraAimCouplerWritesFullGlobalRotationWhenCoupled()
+        {
+            var root = new GameObject("Aim Coupler Coupled Test");
+            var aimCore = new GameObject("Aim Core");
+            var syncTarget = new GameObject("Sync Target");
+            try
+            {
+                root.transform.rotation = Quaternion.Euler(0f, 25f, 10f);
+                aimCore.transform.SetParent(root.transform);
+
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetSyncTarget(syncTarget.transform);
+                coupler.SetCoupled(true);
+
+                coupler.SetLookAngles(30f, 10f);
+
+                AssertQuaternionApproximately(
+                    aimCore.transform.rotation,
+                    syncTarget.transform.rotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(syncTarget);
+                Object.DestroyImmediate(aimCore);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CameraAimCouplerRebasesAncestorSyncWithoutDoubleApplyingYaw()
+        {
+            var root = new GameObject("Aim Coupler Ancestor Sync Test");
+            var aimCore = new GameObject("Aim Core");
+            try
+            {
+                aimCore.transform.SetParent(root.transform);
+
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetSyncTarget(root.transform);
+                coupler.SetCoupled(true);
+
+                coupler.SetLookAngles(45f, 10f);
+
+                AssertQuaternionApproximately(
+                    Quaternion.Euler(0f, 45f, 0f),
+                    root.transform.rotation);
+                AssertQuaternionApproximately(
+                    Quaternion.Euler(10f, 45f, 0f),
+                    aimCore.transform.rotation);
+                AssertQuaternionApproximately(
+                    Quaternion.Euler(10f, 0f, 0f),
+                    aimCore.transform.localRotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(aimCore);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CameraAimCouplerDoesNotDriftWhenAncestorSyncHasNoInput()
+        {
+            var root = new GameObject("Aim Coupler Ancestor No Input Test");
+            var aimCore = new GameObject("Aim Core");
+            try
+            {
+                aimCore.transform.SetParent(root.transform);
+                var input = root.AddComponent<TestInputStateProvider>();
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetInputStateProvider(input);
+                coupler.SetSyncTarget(root.transform);
+                coupler.SetCoupled(true);
+
+                input.LookInputValue = Vector2.right;
+                SampleInput(coupler, 0.25f);
+
+                var expectedRootRotation = root.transform.rotation;
+                var expectedAimWorldRotation = aimCore.transform.rotation;
+                var expectedAimLocalRotation = aimCore.transform.localRotation;
+
+                input.LookInputValue = Vector2.zero;
+                SampleInput(coupler, 1f);
+
+                AssertQuaternionApproximately(
+                    expectedRootRotation,
+                    root.transform.rotation);
+                AssertQuaternionApproximately(
+                    expectedAimWorldRotation,
+                    aimCore.transform.rotation);
+                AssertQuaternionApproximately(
+                    expectedAimLocalRotation,
+                    aimCore.transform.localRotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(aimCore);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CameraAimCouplerDoesNothingWithoutInputProvider()
+        {
+            var aimCore = new GameObject("Aim Core");
+            var syncTarget = new GameObject("Sync Target");
+            try
+            {
+                aimCore.transform.localRotation = Quaternion.Euler(0f, 20f, 0f);
+                syncTarget.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
+                var expectedAimRotation = aimCore.transform.localRotation;
+                var expectedTargetRotation = syncTarget.transform.rotation;
+
+                var coupler = aimCore.AddComponent<CameraAimCoupler>();
+                coupler.SetSyncTarget(syncTarget.transform);
+                coupler.SetCoupled(true);
+
+                SampleInput(coupler, 1f);
+
+                AssertQuaternionApproximately(
+                    expectedAimRotation,
+                    aimCore.transform.localRotation);
+                AssertQuaternionApproximately(
+                    expectedTargetRotation,
+                    syncTarget.transform.rotation);
+            }
+            finally
+            {
+                Object.DestroyImmediate(syncTarget);
+                Object.DestroyImmediate(aimCore);
+            }
+        }
+
+        [Test]
+        public void ActiveRigChangedReportsPreviousAndCurrentSelection()
+        {
+            var fixture = CreateDirectorFixture();
+            var firstRig = CreateRig("First", fixture.Director, 50);
+            CameraRigChangedEvent receivedEvent = default;
+            bool received = false;
+            fixture.Director.ActiveRigChanged += changeEvent =>
+            {
+                receivedEvent = changeEvent;
+                received = true;
+            };
+
+            var secondRig = CreateRig("Second", fixture.Director, 60);
+            try
+            {
+                Assert.IsTrue(received);
+                Assert.AreSame(firstRig.Rig, receivedEvent.PreviousRig);
+                Assert.AreSame(secondRig.Rig, receivedEvent.ActiveRig);
+                Assert.AreSame(firstRig.FreeCamera, receivedEvent.PreviousVirtualCamera);
+                Assert.AreSame(secondRig.FreeCamera, receivedEvent.ActiveVirtualCamera);
+            }
+            finally
+            {
+                secondRig.Destroy();
+                firstRig.Destroy();
+                fixture.Destroy();
+            }
+        }
+
+        private static DirectorFixture CreateDirectorFixture()
+        {
+            var rootObject = new GameObject("Camera Director Test");
+            var director = rootObject.AddComponent<CameraDirector>();
+            return new DirectorFixture(rootObject, director);
+        }
+
+        private static CameraRigFixture CreateRig(
+            string name,
+            CameraDirector director,
+            int priority,
+            bool active = true)
+        {
+            var rootObject = new GameObject(name);
+            var rig = rootObject.AddComponent<CameraRig>();
+
+            var freeCamera = CreateCamera(rootObject.transform, $"{name} Free Camera");
+            var aimCamera = CreateCamera(rootObject.transform, $"{name} Aim Camera");
+            var lockCamera = CreateCamera(rootObject.transform, $"{name} Lock Camera");
+            var spectateCamera = CreateCamera(rootObject.transform, $"{name} Spectate Camera");
+            var focusCamera = CreateCamera(rootObject.transform, $"{name} Focus Camera");
+
+            var freeFollowTarget = CreateChildTransform(rootObject.transform, $"{name} Free Follow");
+            var freeLookAtTarget = CreateChildTransform(rootObject.transform, $"{name} Free LookAt");
+            var aimFollowTarget = CreateChildTransform(rootObject.transform, $"{name} Aim Follow");
+            var aimLookAtTarget = CreateChildTransform(rootObject.transform, $"{name} Aim LookAt");
+            var lockFollowTarget = CreateChildTransform(rootObject.transform, $"{name} Lock Follow");
+            var lockLookAtTarget = CreateChildTransform(rootObject.transform, $"{name} Lock LookAt");
+
+            freeCamera.Follow = freeFollowTarget;
+            freeCamera.LookAt = freeLookAtTarget;
+            aimCamera.Follow = aimFollowTarget;
+            aimCamera.LookAt = aimLookAtTarget;
+            lockCamera.Follow = lockFollowTarget;
+            lockCamera.LookAt = lockLookAtTarget;
+
+            rig.SetCameraDirector(director);
+            rig.SetCamera(CameraRigMode.Free, freeCamera);
+            rig.SetCamera(CameraRigMode.Aim, aimCamera);
+            rig.SetCamera(CameraRigMode.Lock, lockCamera);
+            rig.SetCamera(CameraRigMode.Spectate, spectateCamera);
+            rig.SetCamera(CameraRigMode.Focus, focusCamera);
+            rig.SetPriority(priority);
+            rig.SetActive(active);
+            rig.RegisterRig();
+
+            return new CameraRigFixture(
+                rootObject,
                 rig,
-                defaultCamera,
+                freeFollowTarget,
+                freeLookAtTarget,
+                aimFollowTarget,
+                aimLookAtTarget,
+                lockFollowTarget,
+                lockLookAtTarget,
+                freeCamera,
                 aimCamera,
-                focusCamera,
-                followTarget,
-                lookAtTarget,
-                focusTarget);
+                lockCamera,
+                spectateCamera,
+                focusCamera);
         }
 
-        private static int GetPriority(CinemachineCamera camera)
+        private static Transform CreateChildTransform(Transform parent, string name)
+        {
+            var child = new GameObject(name);
+            child.transform.SetParent(parent);
+            return child.transform;
+        }
+
+        private static CinemachineCamera CreateCamera(Transform parent, string name)
+        {
+            var cameraObject = new GameObject(name);
+            cameraObject.transform.SetParent(parent);
+            return cameraObject.AddComponent<CinemachineCamera>();
+        }
+
+        private static int GetPriority(CinemachineVirtualCameraBase camera)
         {
             return camera.Priority;
         }
 
-        private sealed class CameraFixture
+        private static void SampleInput(CameraAimCoupler coupler, float deltaTime)
         {
-            private readonly GameObject[] _objects;
+            var method = typeof(CameraAimCoupler).GetMethod(
+                "SampleInput",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(method);
+            method.Invoke(coupler, new object[] { deltaTime });
+        }
 
-            public CameraFixture(
-                GameObject directorObject,
-                GameObject rigObject,
-                GameObject defaultCameraObject,
-                GameObject aimCameraObject,
-                GameObject focusCameraObject,
-                GameObject followTargetObject,
-                GameObject lookAtTargetObject,
-                GameObject focusTargetObject,
-                CameraDirector director,
-                CameraRig rig,
-                CinemachineCamera defaultCamera,
-                CinemachineCamera aimCamera,
-                CinemachineCamera focusCamera,
-                Transform followTarget,
-                Transform lookAtTarget,
-                Transform focusTarget)
+        private static void AssertQuaternionApproximately(
+            Quaternion expected,
+            Quaternion actual)
+        {
+            Assert.LessOrEqual(Quaternion.Angle(expected, actual), 0.01f);
+        }
+
+        private sealed class DirectorFixture
+        {
+            public DirectorFixture(GameObject rootObject, CameraDirector director)
             {
-                _objects = new[]
-                {
-                    directorObject,
-                    rigObject,
-                    defaultCameraObject,
-                    aimCameraObject,
-                    focusCameraObject,
-                    followTargetObject,
-                    lookAtTargetObject,
-                    focusTargetObject
-                };
+                RootObject = rootObject;
                 Director = director;
-                Rig = rig;
-                DefaultCamera = defaultCamera;
-                AimCamera = aimCamera;
-                FocusCamera = focusCamera;
-                FollowTarget = followTarget;
-                LookAtTarget = lookAtTarget;
-                FocusTarget = focusTarget;
             }
 
+            public GameObject RootObject { get; }
             public CameraDirector Director { get; }
-            public CameraRig Rig { get; }
-            public CinemachineCamera DefaultCamera { get; }
-            public CinemachineCamera AimCamera { get; }
-            public CinemachineCamera FocusCamera { get; }
-            public Transform FollowTarget { get; }
-            public Transform LookAtTarget { get; }
-            public Transform FocusTarget { get; }
 
             public void Destroy()
             {
-                foreach (var targetObject in _objects)
+                if (RootObject != null)
                 {
-                    Object.DestroyImmediate(targetObject);
+                    Object.DestroyImmediate(RootObject);
                 }
             }
+        }
+
+        private sealed class CameraRigFixture
+        {
+            public CameraRigFixture(
+                GameObject rootObject,
+                CameraRig rig,
+                Transform freeFollowTarget,
+                Transform freeLookAtTarget,
+                Transform aimFollowTarget,
+                Transform aimLookAtTarget,
+                Transform lockFollowTarget,
+                Transform lockLookAtTarget,
+                CinemachineCamera freeCamera,
+                CinemachineCamera aimCamera,
+                CinemachineCamera lockCamera,
+                CinemachineCamera spectateCamera,
+                CinemachineCamera focusCamera)
+            {
+                RootObject = rootObject;
+                Rig = rig;
+                FreeFollowTarget = freeFollowTarget;
+                FreeLookAtTarget = freeLookAtTarget;
+                AimFollowTarget = aimFollowTarget;
+                AimLookAtTarget = aimLookAtTarget;
+                LockFollowTarget = lockFollowTarget;
+                LockLookAtTarget = lockLookAtTarget;
+                FreeCamera = freeCamera;
+                AimCamera = aimCamera;
+                LockCamera = lockCamera;
+                SpectateCamera = spectateCamera;
+                FocusCamera = focusCamera;
+            }
+
+            public GameObject RootObject { get; }
+            public CameraRig Rig { get; }
+            public Transform FreeFollowTarget { get; }
+            public Transform FreeLookAtTarget { get; }
+            public Transform AimFollowTarget { get; }
+            public Transform AimLookAtTarget { get; }
+            public Transform LockFollowTarget { get; }
+            public Transform LockLookAtTarget { get; }
+            public CinemachineCamera FreeCamera { get; }
+            public CinemachineCamera AimCamera { get; }
+            public CinemachineCamera LockCamera { get; }
+            public CinemachineCamera SpectateCamera { get; }
+            public CinemachineCamera FocusCamera { get; }
+
+            public void Destroy()
+            {
+                if (RootObject != null)
+                {
+                    Object.DestroyImmediate(RootObject);
+                }
+            }
+        }
+
+        private sealed class TestInputStateProvider : MonoBehaviour, IInputStateProvider
+        {
+            public Vector2 MoveInput => Vector2.zero;
+            public Vector2 LookInput => LookInputValue;
+            public Vector2 ZoomInput => Vector2.zero;
+            public Vector2 LookInputValue { get; set; }
         }
     }
 }

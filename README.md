@@ -4,7 +4,7 @@
 
 CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
 
-> **Version**: 0.3.7 · **Unity**: 6000+
+> **Version**: 0.3.8 · **Unity**: 6000+
 
 ## Package Scope
 
@@ -69,7 +69,7 @@ CoCoFlow
 |---|---|---|
 | Core | Stable foundation | Service locator, event bus, Context contracts, State Layer controller, state definitions, and logging. |
 | Input | Usable foundation | Input reader and input intent contracts. |
-| Camera | Active foundation | 本地第三人称 Cinemachine profile 调度、CameraRig 绑定、状态请求、观战和 cutscene 接管边界。 |
+| Camera | Active foundation | Local third-person Cinemachine rig scheduling, embedded player cameras, AimCore coupling, spectate priority, and cutscene handoff boundaries. |
 | UI | Usable foundation | View/controller abstractions and panel stack management. |
 | Animation | Utility layer | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
 | Map | Usable foundation | Map manager and chunk loading support. |
@@ -92,9 +92,11 @@ See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and u
 
 ## Camera
 
-Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法；它只把 State Layer 或业务脚本发出的 profile 请求映射到预配置的 `CinemachineCamera`，并通过 `CameraDirector`、`CameraRig`、`CameraProfileEntry` 管理本地 rig 绑定、请求优先级、观战目标和 cutscene 交接。
+Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns its Free/Aim/Lock/Spectate/Focus/Custom Cinemachine virtual cameras and exposes the current one to the Director.
 
-详细拓扑、Scene 组装、profile 建议、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
+TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
+
+See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore setup, spectate priority, network binding, and cutscene handoff.
 
 ## Dependencies
 

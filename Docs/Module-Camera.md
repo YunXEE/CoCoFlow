@@ -1,56 +1,51 @@
 # Module: Camera
 
-Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称游戏。它不负责同步玩法状态，不替代 Cinemachine，也不自己实现 orbit、碰撞、阻尼、构图或 Timeline blend。它的职责很窄：把 State Layer 或业务脚本发出的“我要某个镜头模式”翻译成一组预配置的 Cinemachine 3 camera profile。
+> Updated for CoCoFlow 0.3.8.
 
-当前版本目标是 Camera v1 地基：够接入 TPS、瞄准、Boss 战拉远、聚焦动画、死亡观战和 cutscene handoff，但不把复杂战斗镜头系统塞进框架。
+Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称游戏。它不负责同步玩法状态，不替代 Cinemachine，也不自己实现 orbit、碰撞、阻尼、构图或 Timeline blend。它的职责很窄：收集一组 `CameraRig`，按 active + priority 选择当前 winner，然后把 winner 的当前 Cinemachine virtual camera 提升到运行时 priority。
+
+当前 Camera 模块收束为调度、相机容器和可选 AimCore 末端脚本：
+
+- `CameraDirector`：场景级调度器，只负责注册 rig、过滤 active/available、按 priority 仲裁 winner。
+- `CameraRig`：挂在玩家、观战对象、cutscene anchor 或特殊镜头对象上，内部持有 Free/Aim/Lock/Spectate/Focus/Custom 等模式相机，并产出当前 virtual camera。
+- `CameraAimCoupler`：挂在 AimCore 上，读取 `IInputStateProvider.LookInput` 旋转 AimCore，并可把 AimCore 的旋转同步给一个绑定 Transform。同步目标是 AimCore 祖先时只搬运水平 yaw，并回写 AimCore 本地旋转，避免父子层级二次叠加。
+
+核心原则：State Layer 决定玩法状态，`CameraRig` 暴露表现参数，`CameraDirector` 只仲裁谁生效。
 
 ## 运行拓扑
 
 ```mermaid
 flowchart TD
-  State["CoCoState / 业务脚本"] -->|"ICameraDirector.Request(profile)"| Director["CameraDirector"]
+  Input["InputReader / IInputStateProvider"] -->|"LookInput"| AimCore["AimCore / CameraAimCoupler"]
+  State["State Layer / 业务脚本"] -->|"SetMode / SetPriority"| PlayerRig["Player CameraRig"]
+  State -->|"SetCoupled(true/false)"| AimCore
+  State -->|"SetActive / SetPriority"| OtherRig["Spectate / Cutscene CameraRig"]
 
-  Director --> Stack["本地请求栈"]
-  Stack -->|"priority 高者优先；同优先级后请求优先"| Director
+  AimCore -->|"optional yaw rebase or world rotation sync"| PlayerRoot["PlayerRoot / Sync Target"]
+  PlayerRig -->|"RegisterRig"| Director["CameraDirector"]
+  OtherRig -->|"RegisterRig"| Director
 
-  Director -->|"profileId"| Entry["CameraProfileEntry"]
-  Entry -->|"Priority + Follow + LookAt"| CmCamera["CinemachineCamera"]
-  CmCamera --> Brain["Main Camera / CinemachineBrain"]
-
-  Rig["CameraRig：本地玩家或观战对象"] -->|"BindLocalRig / ClearLocalRig"| Director
-  Entry -->|"CameraTargetRole"| Rig
+  Director -->|"active && available"| Filter["候选集合"]
+  Filter -->|"priority 高者优先；同 priority 后注册者优先"| Winner["ActiveRig"]
+  Winner -->|"CurrentCamera.Priority = Rig.Priority"| VCam["CinemachineVirtualCameraBase"]
+  VCam --> Brain["Main Camera / CinemachineBrain"]
 
   Network["本地输入权 / 观战目标"] --> Binder["NetworkCameraRigBinder"]
-  Binder -->|"只绑定本地 rig，不同步镜头状态"| Director
+  Binder -->|"ActivateRig / DeactivateRig"| OtherRig
 
-  Timeline["Timeline / Cutscene Camera"] -->|"SetGameplayRequestsSuspended(true)"| Director
+  Timeline["Timeline / authored camera"] -->|"SetSchedulingSuspended(true)"| Director
 ```
-
-核心原则：CoCoFlow 选 profile，Cinemachine 负责镜头表现。
 
 ## 核心组件
 
 | 组件 | 作用 |
 |---|---|
-| `CameraDirector` | 场景里的本地相机调度器。保存 profile 表、请求栈、默认 rig、本地 rig，并默认注册成 `ICameraDirector` 服务。 |
-| `CameraRig` | 挂在玩家、观战对象或可聚焦对象上的相机目标点集合。提供 root/follow/look-at/aim/spectate 这些 Transform。 |
-| `CameraProfileEntry` | profile 表的一行：`profileId`、`CinemachineCamera`、standby/active priority、Follow/LookAt 绑定角色。 |
-| `CameraModeRequest` | 运行时请求。包含 profile id、可选 subject rig、可选 focus target、owner、priority、duration。 |
-| `ICameraDirector` | 给状态机和业务脚本使用的轻接口。默认通过 `CoCoServices` 获取。 |
-| `NetworkCameraRigBinder` | Network Samples 里的示例桥接。把本地相机权威翻译成 `BindLocalRig` / `ClearLocalRig`。 |
-
-## 内置 Profile Key
-
-`CameraProfileKeys` 只提供常用字符串，不是封闭 enum。项目可以直接加自己的字符串 profile。
-
-| Key | 预期用途 |
-|---|---|
-| `Default` | 常规第三人称跑图镜头。 |
-| `Aim` | TPS 肩射、瞄准、举枪状态。 |
-| `BossCombat` | Boss 战或大型目标战斗，通常距离更远、FOV 更宽，或看向 target group。 |
-| `Focus` | 短时间聚焦动画，例如看门、战利品、撤离点、任务物。 |
-| `Spectate` | 死亡观战或旁观镜头。 |
-| `Cutscene` | 预留给 authored camera / Timeline handoff。实际 cutscene 可以完全交给 Timeline。 |
+| `CameraDirector` | 场景里的本地相机调度器。默认注册成 `ICameraDirector` 服务，接受任意数量的 `CameraRig`，按 priority 选择当前 rig。 |
+| `CameraRig` | 相机表现单元。保存 rig id、priority、active 和 Free/Aim/Lock/Spectate/Focus/Custom 子相机，并提供运行时 setter。 |
+| `CameraRigMode` | rig 内部模式枚举。它只是表现选择，不是玩法状态机。 |
+| `CameraAimCoupler` | AimCore 末端脚本。显式绑定 `IInputStateProvider`，读取 Look 输入旋转自身；`Coupled` 开启时同步旋转给绑定 Transform。非祖先目标会收到完整 world rotation；祖先目标会收到水平 yaw，并让 AimCore 保持原 world aim。 |
+| `ICameraDirector` | 给业务层或 sample adapter 使用的轻接口。提供 rig 注册、激活、priority 调整、暂停调度和 active rig 事件。 |
+| `NetworkCameraRigBinder` | Network Samples 里的示例桥接。把本地相机权威翻译成 rig active/priority，而不是同步 camera mode。 |
 
 ## Scene 组装
 
@@ -64,140 +59,154 @@ Main Camera
 CameraSystem
   CameraDirector
 
-CM Cameras
-  VCam_Default
-  VCam_Aim
-  VCam_BossCombat
-  VCam_Focus
-  VCam_Spectate
-
-Player
+Player Prefab
+  AimCore
+    CameraAimCoupler
+    CameraFollow
+    FireOrigin
   CameraRig
-  CameraRoot
-  CameraFollow
-  CameraLookAt
-  CameraAim
-  CameraSpectate
+  VCam_Free
+  VCam_Aim
+  VCam_Lock
+
+CutsceneAnchor / SpectateAnchor / BossCameraAnchor
+  CameraRig
+  VCam_Free 或 VCam_Custom
 ```
 
 组装步骤：
 
 1. `Main Camera` 挂 `Camera` 和 `CinemachineBrain`。
-2. 新建 `CameraSystem`，挂 `CameraDirector`。
-3. 在场景里建多台 `CinemachineCamera`，每台相机调好自己的 Cinemachine 组件和 lens 参数。
-4. 在 `CameraDirector.profiles` 里添加 `CameraProfileEntry`：
-   - `Profile Id`: `Default` / `Aim` / `BossCombat` / `Focus` / `Spectate`
-   - `Camera`: 对应的 `VCam_*`
-   - `Standby Priority`: 通常 `0`
-   - `Active Priority`: 比 standby 高，例如 `20`、`30`、`40`
-   - `Follow Target`: 选择 `SubjectFollow`、`SubjectAim`、`SubjectSpectate` 等
-   - `Look At Target`: 选择 `SubjectLookAt`、`SubjectAim`、`RequestFocus` 等
-5. 玩家 prefab 上挂 `CameraRig`，把几个子节点拖到 root/follow/look-at/aim/spectate 字段。
-6. 单机可以直接把 `CameraDirector.defaultRig` 指向玩家 rig，或 spawn 后调用 `BindLocalRig(playerRig)`。
-7. 联机不要同步镜头模式；只在本地有输入权或观战目标变化时绑定本地 rig。
+2. 场景里建一个 `CameraSystem`，挂 `CameraDirector`，保持 `Register As Service` 开启。
+3. 玩家 prefab 内建 `AimCore`，在 AimCore 上挂 `CameraAimCoupler`，显式绑定实现 `IInputStateProvider` 的输入源和可选同步目标。
+4. 玩家 prefab 上挂 `CameraRig`，把玩家内部的 Cinemachine virtual cameras 拖到 Free/Aim/Lock/Spectate/Focus 字段。
+5. 在每台 Cinemachine virtual camera Inspector 里直接配置 Follow/LookAt/ThirdPersonFollow target，例如指向 `AimCore` 或其子节点；`CameraRig` 不会运行时重绑 target。
+6. 玩家 spawn 后，让本地玩家 rig 保持 active，并设置默认 priority，例如 `70`。
+7. 远端玩家、观战目标、cutscene anchor 也可以各自带 `CameraRig`，但默认 inactive 或较低 priority。
+8. State Layer 只操作本玩家 rig 的 mode/priority，以及 AimCore coupler 的 coupled 开关；Director 自动决定当前使用哪个 rig。
 
-## 推荐 Cinemachine Profile
+## 运行时用法
 
-| Profile | 推荐 CM 配置 | 说明 |
-|---|---|---|
-| `Default` | `FreeLook Camera` 或普通 `CinemachineCamera + ThirdPersonFollow/Follow` | 常规移动镜头。项目早期可以先用 Follow，后面再细调 FreeLook。 |
-| `Aim` | `Third Person Aim Camera` | TPS 肩射。位置由 `ThirdPersonFollow` 的肩部 rig 决定，准星稳定由 `ThirdPersonAim` 处理。 |
-| `BossCombat` | 距离更远/FOV 更宽的 Follow camera，或 `Target Group Camera` | 用于打 Boss 自动拉远、同时看玩家和 Boss。 |
-| `Focus` | 普通 `CinemachineCamera`，LookAt 设为 `RequestFocus` | 业务请求传 `focusTarget`，适合聚焦动画。 |
-| `Spectate` | Follow camera 或 FreeLook camera | 绑定到活着的队友或旁观目标。 |
-| `Cutscene` | Timeline 控制的 Cinemachine camera，或单独 authored camera | 一般通过暂停 gameplay requests 让 Timeline 接管。 |
-
-`CinemachineBlenderSettings` 属于 Cinemachine 自己的混合配置，挂在 `CinemachineBrain.Custom Blends` 上。CoCoFlow 不保存 blend 表，只通过 priority 激活 profile。Custom Blend 是按 camera 名字匹配的，所以 `VCam_Default`、`VCam_Aim` 这类命名要稳定。
-
-## 状态机用法
-
-状态进入时发请求，状态退出时释放。`owner` 建议传状态脚本本身，方便异常切状态时按 owner 清理。
+玩家状态脚本不要向 Director 请求 “Aim profile”。它应该控制自己身上的 rig：
 
 ```csharp
-private int _cameraRequestId;
-
 public override void Enter(ICoCoContext context)
 {
     base.Enter(context);
 
-    var director = CoCoServices.Get<ICameraDirector>();
-    _cameraRequestId = director?.Request(
-        CameraProfileKeys.Aim,
-        owner: this,
-        priority: 10) ?? 0;
+    _cameraRig.SetMode(CameraRigMode.Aim);
+    _cameraRig.SetPriority(70);
+    _aimCoupler.SetCoupled(true);
 }
 
 public override void Exit(ICoCoContext context)
 {
-    var director = CoCoServices.Get<ICameraDirector>();
-    if (_cameraRequestId != 0)
-    {
-        director?.Release(_cameraRequestId);
-    }
+    _cameraRig.SetMode(CameraRigMode.Free);
+    _aimCoupler.SetCoupled(false);
 
     base.Exit(context);
 }
 ```
 
-聚焦或 Boss 战可以传 `focusTarget`：
+锁定或聚焦目标：
 
 ```csharp
-_cameraRequestId = director?.Request(
-    CameraProfileKeys.Focus,
-    focusTarget: interactable.FocusPoint,
-    owner: this,
-    priority: 20,
-    duration: 1.2f) ?? 0;
+_cameraRig.SetMode(CameraRigMode.Lock);
 ```
 
-对应 profile 的 `Look At Target` 设成 `RequestFocus`。
+Lock camera 的 Follow/LookAt 目标由对应 Cinemachine camera 自己在 Inspector 配置，或由项目业务脚本直接设置该 camera 的 target；`CameraRig` 不负责 target 写入。
 
-## TPS 瞄准注意点
+死亡后降低本地玩家相机优先级，把观战 rig 打开：
 
-`Third Person Aim Camera` 不是自由绕角色转的 camera。它通常是固定肩射 rig：
+```csharp
+localPlayerRig.SetPriority(60);
 
-- `ThirdPersonFollow` 负责相机相对 Tracking Target 的肩部偏移、距离、阻尼和碰撞。
-- `ThirdPersonAim` 负责沿 camera forward 做 raycast，得到屏幕中心瞄准点，并在开启 noise cancellation 时稳定准星。
-- 真正的相机输入应该旋转一个玩家子节点，例如 `CameraAim` 或 `AimPivot`，而不是让 Cinemachine 自己读业务输入。
+spectateRig.SetActive(true);
+spectateRig.SetPriority(65);
+spectateRig.SetMode(CameraRigMode.Spectate);
+```
 
-TPS 射击逻辑可以读取 `CinemachineThirdPersonAim.AimTarget` 作为准星命中点，再从枪口朝这个点修正弹道，避免第三人称视差导致子弹偏离准星。
+这会让 Director 选中观战 rig。复活时把本地玩家 priority 恢复到 `70`，并关闭观战 rig 即可。
+
+## Priority 约定
+
+Priority 是声明式抢占权。Director 每次刷新时只看 active rig：
+
+- priority 高者胜出。
+- priority 相同则后注册者胜出。
+- inactive、disabled、没有 current camera 的 rig 不参与。
+- winner 的 `CurrentCamera.Priority` 会被设为 rig priority，其他已注册 rig 的子相机会被清到 `0`。
+
+建议项目层约定一组区间：
+
+| 区间 | 建议用途 |
+|---|---|
+| `100+` | Timeline/cutscene/authored camera anchor。 |
+| `80-99` | 强制特写、强制 Boss 机制镜头。 |
+| `70` | 本地玩家默认控制镜头。 |
+| `65` | 死亡观战、队友幽灵跟随。 |
+| `60` | 本地玩家死亡后保留的低优先级兜底镜头。 |
+| `0-50` | 调试、远端默认、inactive 前的备用值。 |
+
+这些数值不是框架规则，只是推荐。框架规则只有 active + priority。
+
+## TPS Aim 模式
+
+Aim 模式保留在 `CameraRig` 内部，原因是它是第三人称游戏常见表现模式，不应该变成 Director 的全局 request。
+
+推荐结构是玩家 prefab 内部有一个可由输入旋转的 `AimCore`：
+
+- Free 模式下，`AimCore` 可以跟随输入旋转，但角色 prefab 不一定跟着转。
+- Aim 模式下，`AimCore` 继续控制镜头朝向，`CameraAimCoupler.Coupled` 可以把 AimCore 的旋转同步给绑定 Transform。绑定 Root/父级这类祖先目标时，Coupler 只把水平 yaw 搬到 Root，并修正 AimCore 本地 yaw；绑定非祖先目标时才写完整 world rotation。
+- Cinemachine 只负责相机位置、肩部偏移、阻尼、碰撞和准星辅助，不承载玩法状态转移。
+
+这接近 Cinemachine ThirdPerson with Aimmode demo 的关键思路：相机绕的是玩家内部的 aim core，而不是让全局 camera orbit 状态机直接驱动玩家。
+
+`CameraAimCoupler` 不做 fallback：不会自动找 `InputReader`、父级 Root、`CameraRig` 或 Cinemachine camera。缺少 `inputStateProvider` 时不读取输入也不旋转；缺少 `syncTarget` 时只旋转 AimCore，不同步任何对象。
 
 ## 联机边界
 
 Camera 是本地表现，不是权威 gameplay state：
 
-- 不要把 `CameraDirector` 当前 profile 同步进 `CharacterContext`。
+- 不要把当前 camera mode 同步进 `CharacterContext`。
 - 不要同步 Unity `Transform` 引用。
 - 不要让 StateAuthority 决定客户端镜头。
-- 网络层只负责决定“这个客户端当前应该看谁”，然后本地绑定对应 `CameraRig`。
+- 网络层只负责决定“这个客户端当前应该看谁”，然后本地激活对应 `CameraRig` 并调整 priority。
 
-Network Samples 里的 `NetworkCameraRigBinder` 做的就是这件事。Fusion adapter 可以在 spawn 或 authority 变化时调用：
+Network Samples 里的 `NetworkCameraRigBinder` 做的就是这件事。Fusion adapter 可以在 spawn、authority 变化或观战目标变化时调用：
 
 ```csharp
 cameraRigBinder.SetLocalCameraAuthority(Object.HasInputAuthority);
 ```
 
-死亡观战也走同一条路：把 rig 换成被观战目标的 `CameraRig`，再请求 `Spectate` profile。
+观战不是同步别人的视角，而是在本地把相机挂到队友身上的 `CameraRig` 或 spectate anchor。这样每个客户端仍然有自己的 Cinemachine 视角控制和阻尼。
 
 ## Cutscene 交接
 
-Timeline 或 authored cutscene 接管前：
+如果 cutscene 自己也是一个 `CameraRig`，直接让它 active 并给更高 priority：
 
 ```csharp
-director.SetGameplayRequestsSuspended(true);
+cutsceneRig.SetActive(true);
+cutsceneRig.SetPriority(100);
 ```
 
-恢复 gameplay camera 时：
+如果 Timeline 或 authored camera 要完全接管，可以暂停 Director 调度：
 
 ```csharp
-director.SetGameplayRequestsSuspended(false);
+director.SetSchedulingSuspended(true);
 ```
 
-暂停期间，CoCoFlow profile cameras 会回到 standby priority，让 Timeline 或更高优先级的 Cinemachine camera 接管。恢复后，`CameraDirector` 会重新按当前请求栈选择 gameplay profile。
+恢复 gameplay camera：
+
+```csharp
+director.SetSchedulingSuspended(false);
+```
+
+暂停期间，Director 会把已注册 rig 的子相机 priority 清到 `0`。恢复后，它会重新按当前 active + priority 选择 winner。
 
 ## v1 暂不做的事
 
 - 不写自己的 orbit/碰撞/遮挡算法，交给 Cinemachine。
 - 不把镜头状态同步成网络权威状态。
 - 不在框架里定义战斗镜头、震屏、IK、枪口校正的完整业务系统。
-- 不直接支持 `CinemachineClearShot` / `Mixing Camera` / `StateDrivenCamera` 作为 profile entry。当前 `CameraProfileEntry` 指向 `CinemachineCamera`；以后真需要 manager camera 时再把字段扩成 `CinemachineVirtualCameraBase`。
+- 不把 Camera 变成第二套 State Layer。Aim/Lock/Spectate 是 rig 的表现模式，状态转移仍由项目已有 State Layer 管。

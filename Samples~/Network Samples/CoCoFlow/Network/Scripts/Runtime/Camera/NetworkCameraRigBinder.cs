@@ -23,32 +23,16 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         public void SetLocalCameraAuthority(bool hasAuthority)
         {
-            if (hasLocalCameraAuthority == hasAuthority)
-            {
-                if (!isActiveAndEnabled) return;
-
-                if (hasLocalCameraAuthority && !_isBound)
-                {
-                    BindLocalRig();
-                }
-                else if (!hasLocalCameraAuthority && _isBound)
-                {
-                    UnbindLocalRig();
-                }
-
-                return;
-            }
-
             hasLocalCameraAuthority = hasAuthority;
             if (!isActiveAndEnabled) return;
 
             if (hasLocalCameraAuthority)
             {
-                BindLocalRig();
+                ActivateRig();
             }
             else
             {
-                UnbindLocalRig();
+                DeactivateRig();
             }
         }
 
@@ -57,18 +41,25 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
             bool wasBound = _isBound;
             if (wasBound)
             {
-                UnbindLocalRig();
+                DeactivateRig();
             }
 
             cameraRig = rig;
 
-            if (wasBound && hasLocalCameraAuthority)
+            if (hasLocalCameraAuthority)
             {
-                BindLocalRig();
+                if (isActiveAndEnabled)
+                {
+                    ActivateRig();
+                }
+
+                return;
             }
+
+            DeactivateRig();
         }
 
-        public void BindLocalRig()
+        public void ActivateRig()
         {
             var rig = ResolveRig();
             var director = ResolveDirector();
@@ -80,17 +71,32 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
                 return;
             }
 
-            director.BindLocalRig(rig);
+            if (cameraDirector != null)
+            {
+                rig.SetCameraDirector(cameraDirector);
+            }
+
+            rig.RegisterRig();
+            rig.SetActive(true);
+            director.RefreshRig(rig);
             _isBound = true;
         }
 
-        public void UnbindLocalRig()
+        public void DeactivateRig()
         {
+            _directorWait?.Dispose();
+            _directorWait = null;
+
             var rig = ResolveRig();
+            if (rig != null)
+            {
+                rig.SetActive(false);
+            }
+
             var director = ResolveDirector();
             if (rig != null && director != null)
             {
-                director.ClearLocalRig(rig);
+                director.RefreshRig(rig);
             }
 
             _isBound = false;
@@ -98,10 +104,15 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
         private void OnEnable()
         {
-            if (bindOnEnable && hasLocalCameraAuthority)
+            if (!bindOnEnable) return;
+
+            if (hasLocalCameraAuthority)
             {
-                BindLocalRig();
+                ActivateRig();
+                return;
             }
+
+            DeactivateRig();
         }
 
         private void OnDisable()
@@ -111,7 +122,7 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
             if (_isBound)
             {
-                UnbindLocalRig();
+                DeactivateRig();
             }
         }
 
@@ -158,7 +169,7 @@ namespace CoCoFlow.Runtime.Addon.NetworkSamples
 
                 if (isActiveAndEnabled && hasLocalCameraAuthority && !_isBound)
                 {
-                    BindLocalRig();
+                    ActivateRig();
                 }
             });
         }
