@@ -92,6 +92,33 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
+        public void AnimRigFootDriverAlignsSlopeFromCurrentFootUpVector()
+        {
+            var fixture = CreateRigFixture("Foot Rig Slope Alignment Test");
+            var slope = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            slope.name = "Aligned Slope";
+            slope.transform.rotation = Quaternion.Euler(25f, 0f, 0f);
+            fixture.LeftFoot.transform.rotation = Quaternion.Euler(0f, 0f, 30f);
+            try
+            {
+                fixture.Controller.SetFootRigEnabled(true);
+                Physics.SyncTransforms();
+                fixture.Controller.TickRig(0.2f);
+
+                var pose = fixture.Driver.GetFootPose(AnimRigFootSlot.Left);
+                var targetUp = pose.TargetRotation * Vector3.up;
+
+                Assert.IsTrue(pose.HasGround);
+                Assert.That(Vector3.Angle(targetUp, pose.GroundNormal), Is.LessThan(0.1f));
+            }
+            finally
+            {
+                fixture.Destroy();
+                Object.DestroyImmediate(slope);
+            }
+        }
+
+        [Test]
         public void ExplicitFootLockPlantsLocksAndReleases()
         {
             var fixture = CreateRigFixture("Foot Lock Transition Test");

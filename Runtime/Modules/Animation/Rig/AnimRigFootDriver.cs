@@ -184,7 +184,7 @@ namespace CoCoFlow.Runtime.Modules.Animation.Rig
                     groundNormal = hit.normal;
                     targetPosition = hit.point + hit.normal * profile.FootOffset;
                     targetRotation = profile.AlignToGroundNormal
-                        ? Quaternion.FromToRotation(Vector3.up, hit.normal) * baseRotation
+                        ? Quaternion.FromToRotation(baseRotation * Vector3.up, hit.normal) * baseRotation
                         : baseRotation;
                     targetWeight = 1f;
                 }
