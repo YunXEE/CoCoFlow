@@ -1,18 +1,34 @@
 using System;
+using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using Unity.Cinemachine;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Camera
 {
-    public enum CameraRigMode
+    [Serializable]
+    public class CameraRigCameraEntry
     {
-        Free,
-        Aim,
-        Lock,
-        Spectate,
-        Focus,
-        Custom
+        [SerializeField] private string modeId;
+        [SerializeField] private CinemachineVirtualCameraBase camera;
+
+        public CameraRigCameraEntry() { }
+
+        public CameraRigCameraEntry(
+            string modeId,
+            CinemachineVirtualCameraBase camera)
+        {
+            this.modeId = modeId;
+            this.camera = camera;
+        }
+
+        public string ModeId => modeId;
+        public CinemachineVirtualCameraBase Camera => camera;
+
+        internal void SetCamera(CinemachineVirtualCameraBase virtualCamera)
+        {
+            camera = virtualCamera;
+        }
     }
 
     public class CameraRig : MonoBehaviour
@@ -26,16 +42,12 @@ namespace CoCoFlow.Runtime.Modules.Camera
         [SerializeField] private bool registerOnEnable = true;
         [SerializeField] private MonoBehaviour cameraDirector;
 
-        [Header("Mode")]
-        [SerializeField] private CameraRigMode mode = CameraRigMode.Free;
+        [Header("Current Mode")]
+        [SerializeField] private string currentModeId;
 
         [Header("Virtual Cameras")]
-        [SerializeField] private CinemachineVirtualCameraBase freeCamera;
-        [SerializeField] private CinemachineVirtualCameraBase aimCamera;
-        [SerializeField] private CinemachineVirtualCameraBase lockCamera;
-        [SerializeField] private CinemachineVirtualCameraBase spectateCamera;
-        [SerializeField] private CinemachineVirtualCameraBase focusCamera;
-        [SerializeField] private CinemachineVirtualCameraBase customCamera;
+        [SerializeField] private List<CameraRigCameraEntry> cameras =
+            new List<CameraRigCameraEntry>();
 
         private ICameraDirector _director;
         private IDisposable _directorWait;
@@ -46,8 +58,21 @@ namespace CoCoFlow.Runtime.Modules.Camera
         public bool IsActive => isActive;
         public bool IsAvailable => isActive && isActiveAndEnabled && CurrentCamera != null;
         public bool IsRegistered => _isRegistered;
-        public CameraRigMode Mode => mode;
-        public CinemachineVirtualCameraBase CurrentCamera => ResolveCamera(mode);
+        public string CurrentModeId => currentModeId;
+        public CinemachineVirtualCameraBase CurrentCamera => ResolveCamera(currentModeId);
+
+        private List<CameraRigCameraEntry> Cameras
+        {
+            get
+            {
+                if (cameras == null)
+                {
+                    cameras = new List<CameraRigCameraEntry>();
+                }
+
+                return cameras;
+            }
+        }
 
         public void SetRigId(string id)
         {
@@ -71,12 +96,15 @@ namespace CoCoFlow.Runtime.Modules.Camera
             NotifyRigChanged();
         }
 
-        public void SetMode(CameraRigMode value)
+        public void SetMode(string modeId)
         {
-            if (mode == value) return;
+            var nextModeId = string.IsNullOrWhiteSpace(modeId)
+                ? string.Empty
+                : modeId;
+            if (string.Equals(currentModeId, nextModeId, StringComparison.Ordinal)) return;
 
             var previousCamera = CurrentCamera;
-            mode = value;
+            currentModeId = nextModeId;
             if (previousCamera != CurrentCamera && previousCamera != null)
             {
                 previousCamera.Priority = 0;
@@ -86,32 +114,20 @@ namespace CoCoFlow.Runtime.Modules.Camera
         }
 
         public void SetCamera(
-            CameraRigMode targetMode,
+            string modeId,
             CinemachineVirtualCameraBase virtualCamera)
         {
-            var previousCamera = ResolveCamera(targetMode);
-            switch (targetMode)
+            if (string.IsNullOrWhiteSpace(modeId)) return;
+
+            var previousCamera = ResolveCamera(modeId);
+            var entry = FindCameraEntry(modeId);
+            if (entry != null)
             {
-                case CameraRigMode.Free:
-                    freeCamera = virtualCamera;
-                    break;
-                case CameraRigMode.Aim:
-                    aimCamera = virtualCamera;
-                    break;
-                case CameraRigMode.Lock:
-                    lockCamera = virtualCamera;
-                    break;
-                case CameraRigMode.Spectate:
-                    spectateCamera = virtualCamera;
-                    break;
-                case CameraRigMode.Focus:
-                    focusCamera = virtualCamera;
-                    break;
-                case CameraRigMode.Custom:
-                    customCamera = virtualCamera;
-                    break;
-                default:
-                    return;
+                entry.SetCamera(virtualCamera);
+            }
+            else
+            {
+                Cameras.Add(new CameraRigCameraEntry(modeId, virtualCamera));
             }
 
             if (previousCamera != virtualCamera && previousCamera != null)
@@ -122,9 +138,17 @@ namespace CoCoFlow.Runtime.Modules.Camera
             NotifyRigChanged();
         }
 
-        public CinemachineVirtualCameraBase GetCamera(CameraRigMode targetMode)
+        public CinemachineVirtualCameraBase GetCamera(string modeId)
         {
-            return ResolveCamera(targetMode);
+            return ResolveCamera(modeId);
+        }
+
+        public bool TryGetCamera(
+            string modeId,
+            out CinemachineVirtualCameraBase virtualCamera)
+        {
+            virtualCamera = ResolveCamera(modeId);
+            return virtualCamera != null;
         }
 
         public void SetCameraDirector(MonoBehaviour director)
@@ -196,12 +220,10 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
         internal void ClearRuntimePriorities()
         {
-            ClearCameraPriority(freeCamera);
-            ClearCameraPriority(aimCamera);
-            ClearCameraPriority(lockCamera);
-            ClearCameraPriority(spectateCamera);
-            ClearCameraPriority(focusCamera);
-            ClearCameraPriority(customCamera);
+            foreach (var entry in Cameras)
+            {
+                ClearCameraPriority(entry?.Camera);
+            }
         }
 
         private void OnEnable()
@@ -225,25 +247,26 @@ namespace CoCoFlow.Runtime.Modules.Camera
             director?.RefreshRig(this);
         }
 
-        private CinemachineVirtualCameraBase ResolveCamera(CameraRigMode targetMode)
+        private CinemachineVirtualCameraBase ResolveCamera(string modeId)
         {
-            switch (targetMode)
+            var entry = FindCameraEntry(modeId);
+            return entry?.Camera;
+        }
+
+        private CameraRigCameraEntry FindCameraEntry(string modeId)
+        {
+            if (string.IsNullOrWhiteSpace(modeId)) return null;
+
+            foreach (var entry in Cameras)
             {
-                case CameraRigMode.Free:
-                    return freeCamera;
-                case CameraRigMode.Aim:
-                    return aimCamera;
-                case CameraRigMode.Lock:
-                    return lockCamera;
-                case CameraRigMode.Spectate:
-                    return spectateCamera;
-                case CameraRigMode.Focus:
-                    return focusCamera;
-                case CameraRigMode.Custom:
-                    return customCamera;
-                default:
-                    return null;
+                if (entry != null &&
+                    string.Equals(entry.ModeId, modeId, StringComparison.Ordinal))
+                {
+                    return entry;
+                }
             }
+
+            return null;
         }
 
         private ICameraDirector ResolveDirector()

@@ -92,9 +92,9 @@ See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and u
 
 ## Camera
 
-Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns its Free/Aim/Lock/Spectate/Focus/Custom Cinemachine virtual cameras and exposes the current one to the Director.
+Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns a manually configured list of custom mode ids and Cinemachine virtual cameras.
 
-TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
+TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode id and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
 
 See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore setup, spectate priority, network binding, and cutscene handoff.
 
