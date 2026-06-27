@@ -86,11 +86,15 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         private void OnEnable()
         {
-            if (Application.isPlaying || ShouldGenerateEditorId())
+#if UNITY_EDITOR
+            if (!Application.isPlaying && !ShouldGenerateEditorId())
             {
-                EnsureStableEntityId();
-                PersistenceContextRegistry.Register(this);
+                return;
             }
+#endif
+
+            EnsureStableEntityId();
+            PersistenceContextRegistry.Register(this);
         }
 
         private void OnDisable()
