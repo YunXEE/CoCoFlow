@@ -64,7 +64,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                 Transform target = hitCollider.transform;
                 if (target == observer || target.IsChildOf(observer)) continue;
 
-                if (IsTargetVisible(observer, target, config, targetLayerMask, out var candidate) &&
+                if (IsTargetVisible(observer, target, config, targetLayerMask, hitCollider, out var candidate) &&
                     candidate.Distance < bestDistance)
                 {
                     bestDistance = candidate.Distance;
@@ -86,10 +86,32 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             LayerMask targetLayerMask,
             out EnemyVisionQueryResult result)
         {
+            return IsTargetVisible(
+                observer,
+                target,
+                config,
+                targetLayerMask,
+                ResolveTargetCollider(target),
+                out result);
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static bool IsTargetVisible(
+            Transform observer,
+            Transform target,
+            EnemyConfigData config,
+            LayerMask targetLayerMask,
+            Collider targetCollider,
+            out EnemyVisionQueryResult result)
+        {
             result = default;
             if (observer == null || target == null || config == null) return false;
 
-            Vector3 direction = target.position - observer.position;
+            Vector3 targetPoint = ResolveTargetPoint(target, targetCollider);
+            Vector3 direction = targetPoint - observer.position;
             float distance = direction.magnitude;
             if (distance <= 0.001f || distance > config.AggroRadius) return false;
 
@@ -116,13 +138,9 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
             if (!IsTargetHit(hit.transform, target)) return false;
 
-            result = new EnemyVisionQueryResult(target, target.position, distance, true);
+            result = new EnemyVisionQueryResult(target, targetPoint, distance, true);
             return true;
         }
-
-        #endregion
-
-        #region Internal Logic
 
         private static int ResolveTargetMask(LayerMask targetLayerMask)
         {
@@ -130,6 +148,24 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
             int playerMask = LayerMask.GetMask("Player");
             return playerMask != 0 ? playerMask : 1 << 6;
+        }
+
+        private static Collider ResolveTargetCollider(Transform target)
+        {
+            if (target == null) return null;
+
+            var targetCollider = target.GetComponent<Collider>();
+            if (targetCollider != null) return targetCollider;
+
+            targetCollider = target.GetComponentInParent<Collider>();
+            if (targetCollider != null) return targetCollider;
+
+            return target.GetComponentInChildren<Collider>();
+        }
+
+        private static Vector3 ResolveTargetPoint(Transform target, Collider targetCollider)
+        {
+            return targetCollider != null ? targetCollider.bounds.center : target.position;
         }
 
         private static bool IsTargetHit(Transform hitTransform, Transform target)
