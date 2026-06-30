@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Core;
@@ -11,6 +12,7 @@ using CoCoFlow.Runtime.Modules.Persistence.Context;
 using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Splines;
 using UnityEngine.TestTools;
 
@@ -916,6 +918,88 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void CharacterNavigationMotorUsesFallbackVelocityWithoutNavMeshAgent()
+        {
+            var root = new GameObject("Character Navigation Motor Fallback Test");
+
+            try
+            {
+                root.SetActive(false);
+                root.AddComponent<CharacterController>();
+                var provider = root.AddComponent<CharacterContextProvider>();
+                root.AddComponent<CharacterLocomotion>();
+                var motor = root.AddComponent<CharacterNavigationMotor>();
+                motor.SetContextProvider(provider);
+                SetPrivateField(motor, "updateAutomatically", false);
+                root.SetActive(true);
+
+                provider.Context.Navigation.SetDestination(
+                    new Vector3(0f, 0f, 4f),
+                    2f,
+                    0.1f,
+                    CharacterNavigationMode.Patrol);
+
+                Assert.IsTrue(motor.ExecuteNavigation(0f));
+                Assert.IsTrue(provider.Context.Navigation.HasDesiredVelocity);
+                Assert.Less(
+                    Vector3.Distance(Vector3.forward * 2f, provider.Context.Navigation.DesiredVelocity),
+                    0.0001f);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void CharacterNavigationMotorSyncsAgentNextPositionBeforeReadingVelocity()
+        {
+            var root = new GameObject("Character Navigation Motor Agent Sync Test");
+            NavMeshData navMeshData = null;
+            NavMeshDataInstance navMeshInstance = default;
+
+            try
+            {
+                navMeshData = BuildFlatNavMeshData();
+                Assert.IsNotNull(navMeshData);
+                navMeshInstance = NavMesh.AddNavMeshData(navMeshData);
+
+                root.SetActive(false);
+                root.transform.position = new Vector3(2f, 0f, 0f);
+                root.AddComponent<CharacterController>();
+                var provider = root.AddComponent<CharacterContextProvider>();
+                root.AddComponent<CharacterLocomotion>();
+                var agent = root.AddComponent<NavMeshAgent>();
+                var motor = root.AddComponent<CharacterNavigationMotor>();
+                motor.SetContextProvider(provider);
+                SetPrivateField(motor, "updateAutomatically", false);
+                root.SetActive(true);
+
+                Assert.IsTrue(agent.Warp(Vector3.zero));
+                agent.updatePosition = false;
+                root.transform.position = new Vector3(2f, 0f, 0f);
+                agent.nextPosition = Vector3.zero;
+                float staleDistance = Vector3.Distance(root.transform.position, agent.nextPosition);
+                provider.Context.Navigation.SetDestination(
+                    new Vector3(2f, 0f, 6f),
+                    3f,
+                    0.1f,
+                    CharacterNavigationMode.Patrol);
+
+                Assert.IsTrue(motor.ExecuteNavigation(0f));
+                float syncedDistance = Vector3.Distance(root.transform.position, agent.nextPosition);
+                Assert.Less(syncedDistance, staleDistance);
+                Assert.Less(syncedDistance, agent.radius);
+            }
+            finally
+            {
+                navMeshInstance.Remove();
+                UnityEngine.Object.DestroyImmediate(navMeshData);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void EnemyBrainRequiresIntentData()
         {
             LogAssert.Expect(
@@ -970,6 +1054,208 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.AreEqual(CharacterNavigationMode.Chase, provider.Context.Navigation.Mode);
                 Assert.AreEqual("EnemyBrain", provider.Context.Navigation.ControlOwner);
                 Assert.IsTrue(provider.Context.Navigation.HasDestination);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
+        public void EnemyVisionQueryUsesColliderCenterForOffsetTargetRoot()
+        {
+            var observer = new GameObject("Enemy Vision Offset Observer");
+            var target = new GameObject("Enemy Vision Offset Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = new Vector3(0f, 1f, 0f);
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 4f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    null,
+                    new Collider[4],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsTrue(found);
+                Assert.AreSame(target.transform, result.Target);
+                Assert.Less(Vector3.Distance(targetCollider.bounds.center, result.LastKnownPosition), 0.0001f);
+                Assert.AreEqual(4f, result.Distance, 0.0001f);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
+        public void EnemyVisionQueryUsesResolvedColliderForCurrentTarget()
+        {
+            var observer = new GameObject("Enemy Vision Current Observer");
+            var target = new GameObject("Enemy Vision Current Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = new Vector3(0f, 1f, 0f);
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 4f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    target.transform,
+                    new Collider[0],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsTrue(found);
+                Assert.AreSame(target.transform, result.Target);
+                Assert.Less(Vector3.Distance(targetCollider.bounds.center, result.LastKnownPosition), 0.0001f);
+                Assert.AreEqual(4f, result.Distance, 0.0001f);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
+        public void EnemyVisionQueryRejectsCurrentTargetOutsideThreeDimensionalAggroRadius()
+        {
+            var observer = new GameObject("Enemy Vision Aggro Observer");
+            var target = new GameObject("Enemy Vision Elevated Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = Vector3.zero;
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 8f, 9f);
+                target.AddComponent<BoxCollider>();
+                SetPrivateField(config, "aggroRadius", 10f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    target.transform,
+                    new Collider[0],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsFalse(found);
+                Assert.IsFalse(result.IsVisible);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
+        public void EnemyVisionQueryReturnsRootHorizontalDistanceForAttackRange()
+        {
+            var observer = new GameObject("Enemy Vision Attack Range Observer");
+            var target = new GameObject("Enemy Vision Attack Range Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = new Vector3(0f, 0f, 0f);
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 2f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    null,
+                    new Collider[4],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsTrue(found);
+                Assert.AreSame(target.transform, result.Target);
+                Assert.Less(Vector3.Distance(targetCollider.bounds.center, result.LastKnownPosition), 0.0001f);
+                Assert.AreEqual(2f, result.Distance, 0.0001f);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainUsesRootHorizontalDistanceForAttackRange()
+        {
+            var enemy = new GameObject("Enemy Brain Offset Attack Range Test");
+            var target = new GameObject("Offset Attack Range Target");
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                enemy.transform.position = Vector3.zero;
+                enemy.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 2f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                var provider = enemy.AddComponent<CharacterContextProvider>();
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(provider);
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.AreSame(target.transform, provider.Context.Perception.currentTarget);
+                Assert.IsTrue(provider.Context.Intent.attack);
+                Assert.IsFalse(provider.Context.Intent.hasMovePosition);
+                Assert.AreEqual(CharacterNavigationMode.Combat, provider.Context.Navigation.Mode);
             }
             finally
             {
@@ -1881,6 +2167,24 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             ICoCoIntentSource<ItemIntent>
         {
             public ItemIntent Intent { get; } = new ItemIntent();
+        }
+
+        private static NavMeshData BuildFlatNavMeshData()
+        {
+            var source = new NavMeshBuildSource
+            {
+                shape = NavMeshBuildSourceShape.Box,
+                size = new Vector3(20f, 0.1f, 20f),
+                transform = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one),
+                area = 0
+            };
+
+            return NavMeshBuilder.BuildNavMeshData(
+                NavMesh.GetSettingsByID(0),
+                new List<NavMeshBuildSource> { source },
+                new Bounds(Vector3.zero, new Vector3(20f, 5f, 20f)),
+                Vector3.zero,
+                Quaternion.identity);
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

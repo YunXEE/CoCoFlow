@@ -64,7 +64,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                 Transform target = hitCollider.transform;
                 if (target == observer || target.IsChildOf(observer)) continue;
 
-                if (IsTargetVisible(observer, target, config, targetLayerMask, out var candidate) &&
+                if (IsTargetVisible(observer, target, config, targetLayerMask, hitCollider, out var candidate) &&
                     candidate.Distance < bestDistance)
                 {
                     bestDistance = candidate.Distance;
@@ -86,14 +86,41 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             LayerMask targetLayerMask,
             out EnemyVisionQueryResult result)
         {
+            return IsTargetVisible(
+                observer,
+                target,
+                config,
+                targetLayerMask,
+                ResolveTargetCollider(target),
+                out result);
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static bool IsTargetVisible(
+            Transform observer,
+            Transform target,
+            EnemyConfigData config,
+            LayerMask targetLayerMask,
+            Collider targetCollider,
+            out EnemyVisionQueryResult result)
+        {
             result = default;
             if (observer == null || target == null || config == null) return false;
 
-            Vector3 direction = target.position - observer.position;
-            float distance = direction.magnitude;
-            if (distance <= 0.001f || distance > config.AggroRadius) return false;
+            Vector3 targetPoint = ResolveTargetPoint(target, targetCollider);
+            Vector3 direction = targetPoint - observer.position;
+            float sightDistance = direction.magnitude;
+            if (sightDistance <= 0.001f) return false;
 
-            Vector3 normalizedDirection = direction / distance;
+            float aggroDistance = Vector3.Distance(observer.position, target.position);
+            if (aggroDistance > config.AggroRadius) return false;
+
+            float rangeDistance = ResolveRangeDistance(observer.position, target.position);
+
+            Vector3 normalizedDirection = direction / sightDistance;
             float angle = Vector3.Angle(observer.forward, normalizedDirection);
             if (angle > config.FieldOfView * 0.5f) return false;
 
@@ -107,7 +134,7 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
                     observer.position,
                     normalizedDirection,
                     out RaycastHit hit,
-                    distance,
+                    sightDistance,
                     raycastMask,
                     QueryTriggerInteraction.Ignore))
             {
@@ -116,13 +143,9 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
             if (!IsTargetHit(hit.transform, target)) return false;
 
-            result = new EnemyVisionQueryResult(target, target.position, distance, true);
+            result = new EnemyVisionQueryResult(target, targetPoint, rangeDistance, true);
             return true;
         }
-
-        #endregion
-
-        #region Internal Logic
 
         private static int ResolveTargetMask(LayerMask targetLayerMask)
         {
@@ -130,6 +153,31 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
 
             int playerMask = LayerMask.GetMask("Player");
             return playerMask != 0 ? playerMask : 1 << 6;
+        }
+
+        private static Collider ResolveTargetCollider(Transform target)
+        {
+            if (target == null) return null;
+
+            var targetCollider = target.GetComponent<Collider>();
+            if (targetCollider != null) return targetCollider;
+
+            targetCollider = target.GetComponentInParent<Collider>();
+            if (targetCollider != null) return targetCollider;
+
+            return target.GetComponentInChildren<Collider>();
+        }
+
+        private static Vector3 ResolveTargetPoint(Transform target, Collider targetCollider)
+        {
+            return targetCollider != null ? targetCollider.bounds.center : target.position;
+        }
+
+        private static float ResolveRangeDistance(Vector3 observerPosition, Vector3 targetPosition)
+        {
+            Vector3 offset = targetPosition - observerPosition;
+            offset.y = 0f;
+            return offset.magnitude;
         }
 
         private static bool IsTargetHit(Transform hitTransform, Transform target)

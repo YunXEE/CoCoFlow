@@ -120,6 +120,7 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
             navMeshAgent.updatePosition = false;
             navMeshAgent.updateRotation = false;
+            navMeshAgent.nextPosition = transform.position;
             if (context.DesiredSpeed > 0f)
             {
                 navMeshAgent.speed = context.DesiredSpeed;

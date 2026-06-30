@@ -1,6 +1,10 @@
+using System;
+using System.IO;
 using System.Reflection;
 using CoCoFlow.Editor.Gameplay.Enemy;
+using CoCoFlow.Runtime.Gameplay.Character;
 using NUnit.Framework;
+using UnityEditor.PackageManager;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Splines;
@@ -9,6 +13,9 @@ namespace CoCoFlow.Tests.Editor.Enemy
 {
     public class SplinePatrolProjectorEditorTests
     {
+        private const string EnemySamplePrefabPath =
+            "Samples~/Enemy Samples/CoCoFlow/Enemy Samples/Prefabs/P_Enemy_00.prefab";
+
         #region Public API
 
         [Test]
@@ -37,8 +44,31 @@ namespace CoCoFlow.Tests.Editor.Enemy
             }
             finally
             {
-                Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(root);
             }
+        }
+
+        [Test]
+        public void EnemySamplePrefabKeepsGravityWithGroundLayerMask()
+        {
+            string prefabPath = Path.Combine(ResolvePackagePath(), EnemySamplePrefabPath);
+            Assert.IsTrue(File.Exists(prefabPath), prefabPath);
+
+            string prefabText = File.ReadAllText(prefabPath);
+            int locomotionIndex = prefabText.IndexOf(
+                "m_EditorClassIdentifier: CoCoFlow.Runtime.Gameplay.Character::CoCoFlow.Runtime.Gameplay.Character.CharacterLocomotion",
+                StringComparison.Ordinal);
+            Assert.GreaterOrEqual(locomotionIndex, 0);
+
+            string locomotionSection = prefabText.Substring(locomotionIndex);
+            int nextComponentIndex = locomotionSection.IndexOf("--- !u!", StringComparison.Ordinal);
+            if (nextComponentIndex >= 0)
+            {
+                locomotionSection = locomotionSection.Substring(0, nextComponentIndex);
+            }
+
+            Assert.That(locomotionSection, Does.Contain("isUsingGravity: 1"));
+            Assert.That(locomotionSection, Does.Contain("m_Bits: 1"));
         }
 
         #endregion
@@ -52,6 +82,13 @@ namespace CoCoFlow.Tests.Editor.Enemy
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.IsNotNull(method);
             return (Vector3)method.Invoke(null, new object[] { container, progress });
+        }
+
+        private static string ResolvePackagePath()
+        {
+            var packageInfo = PackageInfo.FindForAssembly(typeof(CharacterLocomotion).Assembly);
+            Assert.IsNotNull(packageInfo);
+            return packageInfo.resolvedPath;
         }
 
         #endregion

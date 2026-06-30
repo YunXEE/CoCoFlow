@@ -538,7 +538,7 @@ MonoBehaviour:
   baseGravityMultiplier: 2
   groundLayer:
     serializedVersion: 2
-    m_Bits: 0
+    m_Bits: 1
   groundCheckRadius: 0.2
   groundCheckOffset: {x: 0, y: 0.1, z: 0}
   rotationSmoothTime: 0.1
