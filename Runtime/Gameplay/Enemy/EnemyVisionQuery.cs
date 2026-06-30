@@ -115,8 +115,10 @@ namespace CoCoFlow.Runtime.Gameplay.Enemy
             float sightDistance = direction.magnitude;
             if (sightDistance <= 0.001f) return false;
 
+            float aggroDistance = Vector3.Distance(observer.position, target.position);
+            if (aggroDistance > config.AggroRadius) return false;
+
             float rangeDistance = ResolveRangeDistance(observer.position, target.position);
-            if (rangeDistance > config.AggroRadius) return false;
 
             Vector3 normalizedDirection = direction / sightDistance;
             float angle = Vector3.Angle(observer.forward, normalizedDirection);

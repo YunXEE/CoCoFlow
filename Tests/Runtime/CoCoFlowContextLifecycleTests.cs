@@ -1145,6 +1145,43 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void EnemyVisionQueryRejectsCurrentTargetOutsideThreeDimensionalAggroRadius()
+        {
+            var observer = new GameObject("Enemy Vision Aggro Observer");
+            var target = new GameObject("Enemy Vision Elevated Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = Vector3.zero;
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 8f, 9f);
+                target.AddComponent<BoxCollider>();
+                SetPrivateField(config, "aggroRadius", 10f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    target.transform,
+                    new Collider[0],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsFalse(found);
+                Assert.IsFalse(result.IsVisible);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
         public void EnemyVisionQueryReturnsRootHorizontalDistanceForAttackRange()
         {
             var observer = new GameObject("Enemy Vision Attack Range Observer");
