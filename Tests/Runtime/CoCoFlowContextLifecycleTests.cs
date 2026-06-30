@@ -1145,6 +1145,91 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void EnemyVisionQueryReturnsRootHorizontalDistanceForAttackRange()
+        {
+            var observer = new GameObject("Enemy Vision Attack Range Observer");
+            var target = new GameObject("Enemy Vision Attack Range Target");
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                observer.transform.position = new Vector3(0f, 0f, 0f);
+                observer.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 2f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                Physics.SyncTransforms();
+
+                bool found = EnemyVisionQuery.TryFindVisibleTarget(
+                    observer.transform,
+                    config,
+                    1 << 6,
+                    null,
+                    new Collider[4],
+                    out EnemyVisionQueryResult result);
+
+                Assert.IsTrue(found);
+                Assert.AreSame(target.transform, result.Target);
+                Assert.Less(Vector3.Distance(targetCollider.bounds.center, result.LastKnownPosition), 0.0001f);
+                Assert.AreEqual(2f, result.Distance, 0.0001f);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(observer);
+            }
+        }
+
+        [Test]
+        public void EnemyBrainUsesRootHorizontalDistanceForAttackRange()
+        {
+            var enemy = new GameObject("Enemy Brain Offset Attack Range Test");
+            var target = new GameObject("Offset Attack Range Target");
+            var intent = ScriptableObject.CreateInstance<EnemyIntentData>();
+            var config = ScriptableObject.CreateInstance<EnemyConfigData>();
+
+            try
+            {
+                enemy.SetActive(false);
+                enemy.transform.position = Vector3.zero;
+                enemy.transform.rotation = Quaternion.identity;
+                target.layer = 6;
+                target.transform.position = new Vector3(0f, 0f, 2f);
+                var targetCollider = target.AddComponent<BoxCollider>();
+                targetCollider.center = new Vector3(0f, 1f, 0f);
+                targetCollider.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+                var provider = enemy.AddComponent<CharacterContextProvider>();
+                var lifecycle = enemy.AddComponent<CharacterLifeCycle>();
+                var brain = enemy.AddComponent<EnemyBrain>();
+                lifecycle.SetContextProvider(provider);
+                brain.SetIntentData(intent);
+                brain.SetConfigData(config);
+                brain.SetCharacterContextProvider(provider);
+
+                enemy.SetActive(true);
+                Physics.SyncTransforms();
+
+                Assert.IsTrue(brain.Tick(true));
+                Assert.AreSame(target.transform, provider.Context.Perception.currentTarget);
+                Assert.IsTrue(provider.Context.Intent.attack);
+                Assert.IsFalse(provider.Context.Intent.hasMovePosition);
+                Assert.AreEqual(CharacterNavigationMode.Combat, provider.Context.Navigation.Mode);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(config);
+                UnityEngine.Object.DestroyImmediate(intent);
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(enemy);
+            }
+        }
+
+        [Test]
         public void EnemyBrainWritesNavigationWithoutTakingControlWhenClaimDisabled()
         {
             var enemy = new GameObject("Enemy Brain No Claim Navigation Test");
