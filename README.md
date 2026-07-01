@@ -16,7 +16,7 @@ The current package includes:
 - Character, Enemy, and Item gameplay foundations.
 - Input, Camera, UI, Animation, Map, Rendering, and Persistence modules.
 - Editor tooling for setup, state graph inspection, persistence save slots, and catalog editing.
-- Optional samples for Player, Enemy, Chest, Rigging, and Network integration planning.
+- Optional samples for Player, Enemy, Chest, and Network integration planning.
 
 ## Runtime Topology
 
@@ -71,7 +71,7 @@ CoCoFlow
 | Input | Usable foundation | Input reader and input intent contracts. |
 | Camera | Active foundation | Local third-person Cinemachine rig scheduling, embedded player cameras, AimCore coupling, spectate priority, and cutscene handoff boundaries. |
 | UI | Usable foundation | View/controller abstractions and panel stack management. |
-| Animation | Active foundation | Animator helpers, animation event state machine behaviour, editor injection tooling, and Rig foot IK/lock operation components. |
+| Animation | Usable foundation | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
 | Map | Usable foundation | Map manager and chunk loading support. |
 | Rendering | Utility layer | Rendering quality helpers. |
 | Persistence | Active module | Versioned save documents, temporary-file JSON writes, Context snapshots, Container data, catalog editing, and save-slot editor tooling. |
@@ -100,9 +100,11 @@ See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore
 
 ## Animation
 
-Animation contains a thin Animator/SMB utility layer plus the 0.3.9 Rig sub-capability for foot IK target driving and foot lock. Rig follows the same operation-component model as `CharacterLocomotion`: State Layer scripts explicitly enable foot IK when a state needs it, while `AnimRigCharacterController` exposes the facade API and `AnimRigFootDriver` updates target transforms, animation-curve foot lock state, and debug gizmos.
+Animation contains a thin Animator/SMB utility layer. It wraps common Animator calls through `AnimHandler`, relays normalized-time SMB events through `AnimEventSmb`, and includes editor tooling for injecting the SMB into Animator Controller states.
 
-See [Module-Animation](Docs/Module-Animation.md) for topology, prefab setup, and State Layer integration.
+Rig solvers, Foot IK, weapon mounts, and full-body animation are project-level or add-on responsibilities. CoCoFlow does not ship a built-in IK solver in the main runtime package.
+
+See [Module-Animation](Docs/Module-Animation.md) for topology and usage boundaries.
 
 ## Dependencies
 
@@ -115,7 +117,6 @@ See [Module-Animation](Docs/Module-Animation.md) for topology, prefab setup, and
 | AI Navigation | 2.0.0 | Character navigation and Enemy samples |
 | Mathematics | 1.3.3 | Enemy and spline-related workflows |
 | Splines | 2.6.0 | Enemy spline support |
-| Animation Rigging | project-installed | projects or samples that wire Animation Rig targets to Unity constraints |
 
 Optional third-party packages can be installed by a project when a sample or business module requires them. They are not bundled into the core runtime surface.
 
@@ -139,7 +140,6 @@ After installation:
 | Enemy Samples | `Assets/CoCoFlow/Enemy` | Demonstrates enemy context, brain, spline navigation, state scripts, and prefab wiring. |
 | Chest Samples | `Assets/CoCoFlow/Chest` | Demonstrates Persistence Context and Container paths with a chest prefab and runtime container store. |
 | Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes container event and local camera rig binding samples without adding a network package dependency. |
-| Rigging Samples | `Assets/CoCoFlow/Rigging` | Demonstrates Animation module foot IK and foot lock operation calls from State Layer-style scripts. |
 
 Samples are integration references. They are not complete game templates.
 

@@ -47,11 +47,6 @@
       "displayName": "Add-on: Player Samples",
       "description": "Sample player states and a prefab wired to CharacterContextProvider, CharacterLocomotion, and explicit Main/FullBody/UpperLayer State Layers.",
       "path": "Samples~/Player Samples"
-    },
-    {
-      "displayName": "Add-on: Rigging Samples",
-      "description": "Sample foot IK and foot lock State Layer operation integration for the Animation module Rig capability.",
-      "path": "Samples~/Rigging Samples"
     }
   ]
 }

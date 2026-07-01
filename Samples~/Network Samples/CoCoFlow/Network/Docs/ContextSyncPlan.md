@@ -58,7 +58,7 @@ Proxies should not run `EnemyBrain` or `EnemySpline`; they apply synchronized Co
 - No direct network ownership of Animator, Locomotion, or Combat scripts.
 - A character should expose one synchronized `CharacterContext`; navigation facts are part of that payload, not a second State context.
 - A character state system should keep one `CoCoStateController` with explicit ordered State Layers. Network adapters should not create parallel controller trees.
-- Animation Rigging and IK data should enter through explicit Context facts or operation components only after the business project stabilizes that contract.
+- External rig/IK presentation data should enter through explicit Context facts or operation components only after the business project stabilizes that contract.
 
 ## Camera 边界
 
