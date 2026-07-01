@@ -44,7 +44,7 @@ flowchart TD
 - Do not synchronize `Transform` references directly. Sync stable ids or `NetworkObject` references, then resolve local `Transform` references on each client.
 - Preserve discrete input sequence fields such as `performedSequence`; do not sync one-frame actions as bare bools.
 - Keep one `CoCoStateController` per character state system. Ordered State Layers are local gameplay topology, not separate network controllers.
-- Animation Rigging and IK should be driven through explicit synchronized facts or local-only operation components after the business contract is stable.
+- External rig/IK presentation should be driven through explicit synchronized facts or local-only operation components after the business contract is stable.
 - Camera 是本地表现层。不要把 camera mode id 同步成 `CharacterContext`；只在拥有或观察目标的客户端激活本地 `CameraRig` 并调整 priority。
 
 ## Future Runtime Script Layout

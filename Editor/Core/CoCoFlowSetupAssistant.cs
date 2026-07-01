@@ -22,7 +22,6 @@ namespace CoCoFlow.Editor.Core
         private const string NewtonsoftMinimumVersion = "3.2.2";
         private const string CinemachineAssemblyName = "Unity.Cinemachine";
         private const string SplinesAssemblyName = "Unity.Splines";
-        private const string AnimationRiggingAssemblyName = "Unity.Animation.Rigging";
         private const string FusionAssemblyName = "Fusion.Unity";
         private const string OpenUpmRegistryName = "package.openupm.com";
         private const string OpenUpmRegistryUrl = "https://package.openupm.com";
@@ -65,15 +64,7 @@ namespace CoCoFlow.Editor.Core
                 "Samples~/Player Samples/README.md",
                 "Assets/CoCoFlow/Player",
                 new string[0],
-                new string[0]),
-            new AddonDefinition(
-                "rigging-samples",
-                "Rigging Samples",
-                "Samples~/Rigging Samples/CoCoFlow/Rigging Samples",
-                "Samples~/Rigging Samples/README.md",
-                "Assets/CoCoFlow/Rigging",
-                new string[0],
-                new[] { AnimationRiggingAssemblyName })
+                new string[0])
         };
 
         private static readonly ModuleDefinition[] Modules =
@@ -107,7 +98,7 @@ namespace CoCoFlow.Editor.Core
                 "Animation",
                 new string[0],
                 new string[0],
-                "Animator helpers, SMB event bridge, and Rig foot IK/lock operation components."),
+                "Animator helpers, SMB event bridge, and editor injection tooling."),
             new ModuleDefinition(
                 "UI",
                 new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
@@ -183,7 +174,6 @@ namespace CoCoFlow.Editor.Core
                 DrawStatusLine("Newtonsoft", _status.NewtonsoftMessage, _status.NewtonsoftState);
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("Animation Rigging", _status.AnimationRiggingInstalled ? "Detected. Used by projects that wire Animation module Rig targets to Unity constraints." : "Missing. Only needed when a project wires Animation module Rig targets to Unity constraints.", MessageType.Info);
                 DrawStatusLine("DOTween", _status.DotweenMessage, _status.DotweenModulesInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Photon Fusion", _status.FusionInstalled ? "Detected." : "Missing. Required only by Network Samples.", _status.FusionInstalled ? MessageType.Info : MessageType.Warning);
 
@@ -824,7 +814,6 @@ namespace CoCoFlow.Editor.Core
             status.UniTaskInstalled = IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
             status.CinemachineInstalled = IsAssemblyInstalled(CinemachineAssemblyName) || IsTypeAvailable("Unity.Cinemachine.CinemachineCamera, Unity.Cinemachine");
             status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
-            status.AnimationRiggingInstalled = IsAnimationRiggingInstalled();
             status.DotweenInstalled = IsDotweenInstalled();
             status.DotweenModulesInstalled = IsDotweenModuleInstalled();
             status.FusionInstalled = IsFusionInstalled();
@@ -837,7 +826,6 @@ namespace CoCoFlow.Editor.Core
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
             status.AssemblyStates[CinemachineAssemblyName] = status.CinemachineInstalled;
             status.AssemblyStates[SplinesAssemblyName] = status.SplinesInstalled;
-            status.AssemblyStates[AnimationRiggingAssemblyName] = status.AnimationRiggingInstalled;
             status.AssemblyStates["Unity.Addressables"] = IsAssemblyInstalled("Unity.Addressables");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
@@ -877,12 +865,6 @@ namespace CoCoFlow.Editor.Core
             return IsAssemblyInstalled("DOTween") ||
                    IsAssemblyInstalled("DOTween.Modules") ||
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
-        }
-
-        private static bool IsAnimationRiggingInstalled()
-        {
-            return IsAssemblyInstalled(AnimationRiggingAssemblyName) ||
-                   IsTypeAvailable("UnityEngine.Animations.Rigging.RigBuilder, Unity.Animation.Rigging");
         }
 
         private static bool IsDotweenModuleInstalled()
@@ -1157,7 +1139,6 @@ namespace CoCoFlow.Editor.Core
             public bool UniTaskInstalled { get; set; }
             public bool CinemachineInstalled { get; set; }
             public bool SplinesInstalled { get; set; }
-            public bool AnimationRiggingInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
             public bool DotweenModulesInstalled { get; set; }
             public bool FusionInstalled { get; set; }

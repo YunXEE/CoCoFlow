@@ -16,5 +16,5 @@ Open `CoCoFlow/Setup/Setup Assistant`, select `Player Samples` in the `Add-ons` 
 - The sample states read `CharacterContext.Intent`, write lightweight navigation facts, and drive `CharacterLocomotion`.
 - `P_Player_00` declares explicit `Main`, `FullBody`, and `UpperLayer` State Layers under one `CoCoStateController` so the State Graph Viewer can show the current single-controller layered topology.
 - `Main` contains the visible sample states. `FullBody` and `UpperLayer` are placeholder layers that demonstrate parallel layer wiring.
-- This sample does not include complete camera, combat, weapon, Animation Rigging, hand IK, or input action setup.
-- `P_Player_00` is designed as a state wiring sample and can be extended with your own input driver, network context bridge, or business-side rig driver.
+- This sample does not include complete camera, combat, weapon, external rig/IK, or input action setup.
+- `P_Player_00` is designed as a state wiring sample and can be extended with your own input driver, network context bridge, or project-side presentation driver.
