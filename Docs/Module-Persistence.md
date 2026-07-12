@@ -1,11 +1,20 @@
 # Module: Persistence
 
+> Pre1 transition note (`0.4.0-pre.1`): this page documents the Persistence
+> implementation retained from 0.3.9. Persistence V2 will reconnect these durable
+> concepts to Context V2 and StateGraph snapshots in its dedicated Pre. The
+> concrete adapters and `MonoBehaviour` workflow below are not frozen 0.4 APIs.
+
 CoCoFlow Persistence is a save/load module built around two durable data paths:
 
 - **Context path**: scene entity snapshots, used to restore state-machine driven runtime entities.
 - **Container path**: indexed gameplay data, used to store inventories, quests, facts, event states, rewards, and catalog-backed definitions.
 
 The module does not allocate runtime gameplay IDs, does not drive frame-level gameplay, and does not serialize transient intent. Runtime behavior remains owned by Context providers, state machines, gameplay components, and container commands.
+
+For the 0.4 target, Persistence may only capture a completed Frozen Context Frame
+or a completed runtime snapshot. It must not observe an intermediate Layer,
+Operation write-back, or partially processed Tick.
 
 ## Runtime Structure
 
@@ -133,7 +142,7 @@ using CoCoFlow.Runtime.Modules.Persistence;
 bool loaded = PersistenceSaveLoadSystem.LoadGame(0);
 ```
 
-## Scene Setup
+## Legacy 0.3.9 Scene Setup
 
 A minimal scene uses the following MonoBehaviours:
 
@@ -143,8 +152,8 @@ A minimal scene uses the following MonoBehaviours:
 | Scene runtime root | project installer or bootstrap | Assigns a `PersistenceContainerCatalog` and materializes startup containers. |
 | Persistent entity root | `PersistenceContext` | Provides stable scene identity and captures/applies Context. |
 | Persistent entity root | `ICoCoContextProvider<TContext>` implementation | Owns the actual runtime Context, such as `CharacterContextProvider` or `ItemContextProvider`. |
-| Persistent entity root or child | `CoCoStateController` | Drives state restoration through the Context path. |
-| Entity or operation object | `PersistenceContainerBridge` | Publishes container commands from gameplay code or states. |
+| Persistent entity root or child | `CoCoStateController` | Legacy Mono-State restoration through the old Context path. |
+| Entity or operation object | `PersistenceContainerBridge` | Publishes commands from legacy gameplay code or Mono State scripts. |
 
 For prefabs, `PersistenceContext.stableEntityId` should remain empty. Scene instances generate or receive stable IDs; prefab assets should not share a serialized scene-instance ID.
 
@@ -219,16 +228,23 @@ store.TransferItem(
     1);
 ```
 
-### Grant Reward Through Bridge
+### Legacy 0.3.9 Grant Reward Through Bridge
+
+The following bridge call documents retained 0.3.9 code only. A 0.4 StateLogic
+must submit through its declared Persistence Operation Port instead of resolving
+the bridge or publishing directly to the event bus.
 
 ```csharp
 var bridge = GetComponent<PersistenceContainerBridge>();
 bridge.RequestGrantReward(
-    "reward.chest_sample.gem_cache",
+    "reward.world.gem_cache",
     PersistenceContainerStore.DefaultPlayerInventoryContainerId);
 ```
 
-`PersistenceContainerBridge` publishes a `PersistenceContainerCommandRequested` event. The active `PersistenceContainerStore` applies the command and publishes an applied or rejected result.
+In the retained 0.3.9 implementation, `PersistenceContainerBridge` publishes a
+`PersistenceContainerCommandRequested` event. The active
+`PersistenceContainerStore` applies the command and publishes an applied or
+rejected result.
 
 ### Sequential Quest Progress
 
@@ -251,22 +267,6 @@ bridge.RequestItemDelivered(
 
 Future complex quest trees should evolve as Container schemas, not as a third save section.
 
-## Chest Sample
-
-`Samples~/Chest Samples` demonstrates both persistence paths:
-
-- `P_Chest_00.prefab`
-  - `PersistenceContext` captures the chest `ItemContext`.
-  - `ItemContextProvider`, `ItemLifeCycle`, and `ItemInputDriver` drive item state.
-  - `CoCoStateController` restores the chest into Available, Opening, or Opened states.
-  - `PersistenceContainerBridge` grants rewards and writes world facts/events.
-
-- `ChestSample_Runtime.prefab`
-  - `PersistenceContainerStore` owns runtime container state.
-  - `ChestSampleSceneInstaller` creates a small runtime catalog and materializes startup containers.
-
-The sample intentionally keeps prefab `stableEntityId` empty. Scene instances receive stable IDs when they are placed in a saved scene.
-
 ## Boundaries
 
 Persistence owns durable save contracts and file IO. It does not own:
@@ -276,5 +276,6 @@ Persistence owns durable save contracts and file IO. It does not own:
 - frame input or one-frame intent
 - network authority
 - runtime spawn reconstruction for arbitrary prefab clones
+- partial-Tick or mid-Layer capture
 
 Runtime-generated prefab clones can receive temporary IDs, but cross-save reconstruction of arbitrary spawned entities requires a future spawn contract using fields such as `prefabKey` and a spawn/container record.

@@ -1,10 +1,8 @@
 {
-    "name": "CoCoFlow.Tests.Editor.Enemy",
-    "rootNamespace": "CoCoFlow.Tests.Editor.Enemy",
+    "name": "CoCoFlow.Tests.Editor.CoreContracts",
+    "rootNamespace": "CoCoFlow.Runtime.Core.Tests",
     "references": [
-        "CoCoFlow.Editor.Gameplay.Enemy",
-        "Unity.Splines",
-        "Unity.Mathematics"
+        "CoCoFlow.Runtime.Core.Contracts"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

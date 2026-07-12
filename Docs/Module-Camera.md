@@ -1,6 +1,9 @@
 # Module: Camera
 
-> Updated for CoCoFlow 0.3.8.
+> Pre1 transition note (`0.4.0-pre.1`): this page describes the Camera runtime
+> currently retained from 0.3.9. Its concrete APIs are not frozen 0.4 contracts.
+> Future StateLogic must reach camera presentation through declared Operations,
+> rather than holding or resolving `CameraRig` directly.
 
 Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称游戏。它不负责同步玩法状态，不替代 Cinemachine，也不自己实现 orbit、碰撞、阻尼、构图或 Timeline blend。它的职责很窄：收集一组 `CameraRig`，按 active + priority 选择当前 winner，然后把 winner 的当前 Cinemachine virtual camera 提升到运行时 priority。
 
@@ -10,14 +13,16 @@ Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称�
 - `CameraRig`：挂在玩家、观战对象、cutscene anchor 或特殊镜头对象上，内部持有项目自定义的 mode id -> virtual camera 条目，并产出当前 virtual camera。
 - `CameraAimCoupler`：挂在 AimCore 上，读取 `IInputStateProvider.LookInput` 旋转 AimCore，并可把 AimCore 的旋转同步给一个绑定 Transform。同步目标是 AimCore 祖先时只搬运水平 yaw，并回写 AimCore 本地旋转，避免父子层级二次叠加。
 
-核心原则：State Layer 决定玩法状态，`CameraRig` 暴露表现参数，`CameraDirector` 只仲裁谁生效。
+旧 0.3.9 核心原则：Mono State 脚本决定玩法状态，`CameraRig` 暴露表现
+参数，`CameraDirector` 只仲裁谁生效。0.4 StateLogic 只能经申明的 Camera
+Operation Port 提交命令。
 
-## 运行拓扑
+## Legacy 0.3.9 运行拓扑
 
 ```mermaid
 flowchart TD
   Input["InputReader / IInputStateProvider"] -->|"LookInput"| AimCore["AimCore / CameraAimCoupler"]
-  State["State Layer / 业务脚本"] -->|"SetMode(modeId) / SetPriority"| PlayerRig["Player CameraRig"]
+  State["Legacy Mono state script / 业务脚本"] -->|"SetMode(modeId) / SetPriority"| PlayerRig["Player CameraRig"]
   State -->|"SetCoupled(true/false)"| AimCore
   State -->|"SetActive / SetPriority"| OtherRig["Spectate / Cutscene CameraRig"]
 
@@ -30,9 +35,6 @@ flowchart TD
   Winner -->|"CurrentCamera.Priority = Rig.Priority"| VCam["CinemachineVirtualCameraBase"]
   VCam --> Brain["Main Camera / CinemachineBrain"]
 
-  Network["本地输入权 / 观战目标"] --> Binder["NetworkCameraRigBinder"]
-  Binder -->|"ActivateRig / DeactivateRig"| OtherRig
-
   Timeline["Timeline / authored camera"] -->|"SetSchedulingSuspended(true)"| Director
 ```
 
@@ -44,8 +46,7 @@ flowchart TD
 | `CameraRig` | 相机表现单元。保存 rig id、priority、active、当前 mode id 和任意数量的手动配置相机条目。 |
 | `CameraRigCameraEntry` | `CameraRig` 的一条相机配置：项目自定义 `Mode Id` + 一台 `CinemachineVirtualCameraBase`。Mode id 没有框架含义，例如 `Explore`、`Aim`、`BossCombat`、`Dialogue`。 |
 | `CameraAimCoupler` | AimCore 末端脚本。显式绑定 `IInputStateProvider`，读取 Look 输入旋转自身；`Coupled` 开启时同步旋转给绑定 Transform。非祖先目标会收到完整 world rotation；祖先目标会收到水平 yaw，并让 AimCore 保持原 world aim。 |
-| `ICameraDirector` | 给业务层或 sample adapter 使用的轻接口。提供 rig 注册、激活、priority 调整、暂停调度和 active rig 事件。 |
-| `NetworkCameraRigBinder` | Network Samples 里的示例桥接。把本地相机权威翻译成 rig active/priority，而不是同步 camera mode id。 |
+| `ICameraDirector` | 给项目业务层或表现 adapter 使用的轻接口。提供 rig 注册、激活、priority 调整、暂停调度和 active rig 事件。 |
 
 ## Scene 组装
 
@@ -83,9 +84,14 @@ CutsceneAnchor / SpectateAnchor / BossCameraAnchor
 5. 在每台 Cinemachine virtual camera Inspector 里直接配置 Follow/LookAt/ThirdPersonFollow target，例如指向 `AimCore` 或其子节点；`CameraRig` 不会运行时重绑 target。
 6. 玩家 spawn 后，让本地玩家 rig 保持 active，并设置默认 priority，例如 `70`。
 7. 远端玩家、观战目标、cutscene anchor 也可以各自带 `CameraRig`，但默认 inactive 或较低 priority。
-8. State Layer 只操作本玩家 rig 的 `modeId`/priority，以及 AimCore coupler 的 coupled 开关；Director 自动决定当前使用哪个 rig。
+8. 旧 Mono State 脚本只操作本玩家 rig 的 `modeId`/priority，以及 AimCore
+   coupler 的 coupled 开关；Director 自动决定当前使用哪个 rig。
 
-## 运行时用法
+## 过渡期运行时用法
+
+下面代码只说明当前 0.3.9 Camera API，不是 0.4 StateLogic 编写规范。新的
+StateLogic 不得直接持有这些 Unity 组件；对应调用会由后续 Camera Operation
+边界承接。
 
 玩家状态脚本不要向 Director 请求 “Aim profile”。它应该控制自己身上的 rig：
 
@@ -164,20 +170,15 @@ Priority 是声明式抢占权。Director 每次刷新时只看 active rig：
 
 `CameraAimCoupler` 不做 fallback：不会自动找 `InputReader`、父级 Root、`CameraRig` 或 Cinemachine camera。缺少 `inputStateProvider` 时不读取输入也不旋转；缺少 `syncTarget` 时只旋转 AimCore，不同步任何对象。
 
-## 联机边界
+## 外部权威边界
 
 Camera 是本地表现，不是权威 gameplay state：
 
 - 不要把当前 camera mode id 同步进 `CharacterContext`。
 - 不要同步 Unity `Transform` 引用。
 - 不要让 StateAuthority 决定客户端镜头。
-- 网络层只负责决定“这个客户端当前应该看谁”，然后本地激活对应 `CameraRig` 并调整 priority。
-
-Network Samples 里的 `NetworkCameraRigBinder` 做的就是这件事。Fusion adapter 可以在 spawn、authority 变化或观战目标变化时调用：
-
-```csharp
-cameraRigBinder.SetLocalCameraAuthority(Object.HasInputAuthority);
-```
+- 外部 authority 或观战系统只负责决定“本地客户端当前应该看谁”，再由项目表现 adapter 激活对应 `CameraRig` 并调整 priority。
+- adapter 不得从网络 callback 直接修改 StateGraph；相机选择仍是本地表现结果。
 
 观战不是同步别人的视角，而是在本地把相机挂到队友身上的 `CameraRig` 或 spectate anchor。这样每个客户端仍然有自己的 Cinemachine 视角控制和阻尼。
 
@@ -204,9 +205,10 @@ director.SetSchedulingSuspended(false);
 
 暂停期间，Director 会把已注册 rig 的子相机 priority 清到 `0`。恢复后，它会重新按当前 active + priority 选择 winner。
 
-## v1 暂不做的事
+## 当前过渡实现不负责的事
 
 - 不写自己的 orbit/碰撞/遮挡算法，交给 Cinemachine。
 - 不把镜头 mode id 同步成网络权威状态。
 - 不在框架里定义战斗镜头、震屏、IK、枪口校正的完整业务系统。
-- 不把 Camera 变成第二套 State Layer。Aim/Lock/Spectate 是 rig 的表现模式，状态转移仍由项目已有 State Layer 管。
+- 不把 Camera 变成第二套 State Layer。Aim/Lock/Spectate 是 rig 的表现模式；
+  旧 0.3.9 状态转移仍由项目已有 State Layer 管理。

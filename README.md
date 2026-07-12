@@ -2,156 +2,140 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CoCoFlow is a modular Unity framework for Context-driven gameplay, explicit State Layers, reusable gameplay components, persistence, editor tooling, and optional samples.
+> **Version**: 0.4.0-pre.1 · **Unity**: 6000+
+>
+> This is the Pre1 Core-contract release. It freezes architectural boundaries and
+> value semantics; it is not the finished 0.4 runtime or authoring workflow.
 
-> **Version**: 0.3.9 · **Unity**: 6000+
+CoCoFlow is a Unity 6 framework for layered hierarchical finite-state machines
+(Layered HFSM), Context-driven decisions, explicitly bounded Operations, and
+host-driven deterministic ticks. The 0.4 line targets new single-player 3D
+adventure and action projects.
 
-## Package Scope
+## What Pre1 Freezes
 
-CoCoFlow provides a runtime foundation for gameplay code that is organized around explicit Context contracts and state-machine topology. The package focuses on reusable framework surfaces rather than complete game features.
-
-The current package includes:
-
-- Core services, event bus, Context contracts, and State Layer runtime.
-- Character, Enemy, and Item gameplay foundations.
-- Input, Camera, UI, Animation, Map, Rendering, and Persistence modules.
-- Editor tooling for setup, state graph inspection, persistence save slots, and catalog editing.
-- Optional samples for Player, Enemy, Chest, and Network integration planning.
-
-## Runtime Topology
+Pre1 establishes the dependency direction that later prereleases must follow:
 
 ```text
-CoCoFlow
-│
-├── Runtime
-│   ├── Core
-│   │   ├── CoCoServices
-│   │   ├── CoCoEventBus
-│   │   ├── ICoCoContext / ICoCoContextProvider<TContext>
-│   │   ├── CoCoStateController / CoCoStateLayer / CoCoStateBase
-│   │   └── CoCoStateDefinition
-│   │
-│   ├── Modules
-│   │   ├── Input
-│   │   ├── Camera
-│   │   ├── UI
-│   │   ├── Animation
-│   │   ├── Map
-│   │   ├── Rendering
-│   │   └── Persistence
-│   │
-│   └── Gameplay
-│       ├── Character
-│       ├── Enemy
-│       └── Item
-│
-└── Editor
-    ├── Core
-    ├── AssetPipeline
-    ├── Modules
-    └── Gameplay
+manually bound Sources
+  -> Frozen Context Frame N
+  -> independent Layered HFSM Layers
+  -> declared Operation entry points
+  -> Operation write-back
+  -> Frozen Context Frame N + 1
 ```
 
-## Core Concepts
+The frozen Core surface covers:
 
-| Concept | Description |
-|---|---|
-| Context | A durable, typed gameplay data contract exposed through `ICoCoContextProvider<TContext>`. |
-| State Layer | A named state machine surface owned by one `CoCoStateController`. Multiple layers can update in explicit order. |
-| State Definition | Metadata declared by states to describe Context reads/writes, operations, and transitions. |
-| Event Bus | Typed event dispatch with optional event envelopes for cross-system communication. |
-| Persistence Context | Scene entity snapshot path for restoring Context-backed state machines. |
-| Persistence Container | Catalog-backed runtime data path for inventories, quests, events, facts, rewards, and tags. |
+- distinct graph, layer, state, transition, graph-instance, activation, and
+  timeline identities;
+- execution sequence, timeline tick/position, clock-domain, and tick-frame
+  value contracts;
+- explicit runtime lifecycle states;
+- structured diagnostic domains, codes, severities, and records;
+- pure-C# StateLogic roles and dependency declarations that do not expose
+  `MonoBehaviour`, `GameObject`, Animator, or Playable types.
 
-## Modules
+Core rules:
 
-| Module | Status | Summary |
-|---|---|---|
-| Core | Stable foundation | Service locator, event bus, Context contracts, State Layer controller, state definitions, and logging. |
-| Input | Usable foundation | Input reader and input intent contracts. |
-| Camera | Active foundation | Local third-person Cinemachine rig scheduling, embedded player cameras, AimCore coupling, spectate priority, and cutscene handoff boundaries. |
-| UI | Usable foundation | View/controller abstractions and panel stack management. |
-| Animation | Usable foundation | Animator helpers, animation event state machine behaviour, and editor injection tooling. |
-| Map | Usable foundation | Map manager and chunk loading support. |
-| Rendering | Utility layer | Rendering quality helpers. |
-| Persistence | Active module | Versioned save documents, temporary-file JSON writes, Context snapshots, Container data, catalog editing, and save-slot editor tooling. |
-| Gameplay.Character | Active foundation | Character context provider, input driver, lifecycle writer, locomotion, and navigation motor. |
-| Gameplay.Enemy | Active foundation | Enemy brain, spline navigation source, vision query, and engagement zone. |
-| Gameplay.Item | Active foundation | Item context, item context provider, input driver, and item lifecycle writer. |
+- StateLogic reads one frozen Context frame and cannot write it.
+- Context sections are declared as getter-only interfaces whose facts are
+  immutable strings or reference-free values. Section reads carry a matching
+  requirement token instead of exposing a mutable root, callback, Unity object,
+  collection, or concrete provider type.
+- Every Layer owns an independent HFSM and resolves one active leaf path.
+- Layers execute by explicit priority; a lifecycle phase completes for one
+  active path before the next Layer is processed.
+- Unity callbacks are host inputs, not the CoCo clock. Variable, Fixed, and
+  Manual drivers may produce CoCo ticks independently of Unity callback count.
+- Zero or negative delta is invalid. Suspend produces no tick and therefore no
+  frozen-frame sample.
+- Operations are the approved side-effect boundary. Their writes become visible
+  only in a later frozen frame. StateLogic submits unmanaged command values
+  through a declared Port requirement, so the submission has no callback,
+  shared-reference result, or synchronous gameplay return channel.
 
-## Persistence
+See [Context / Network Boundary](Docs/ContextNetworkBoundary.md) for the complete
+frame and adapter rules.
 
-Persistence stores two sections in each save document:
+## Transitional Repository State
 
-- `contextSection`: scene entity Context snapshots captured through `PersistenceContext`.
-- `containerSection`: runtime container data captured from `PersistenceContainerStore`.
+The existing 0.3.9 CCS Runtime remains in the repository temporarily so Pre1 can
+freeze contracts without combining that work with a runtime rewrite. It is
+scheduled to be replaced in Pre4 and is not a 0.4 compatibility promise, API
+baseline, or migration layer.
 
-The module includes manual save/load entry points, save slot metadata, schema migration entry, temporary-file replacement, a catalog editor, and a command bridge for container operations.
+In particular:
 
-See [Module-Persistence](Docs/Module-Persistence.md) for setup, data flow, and usage examples.
+- existing `CoCoStateController`, `CoCoStateLayer`, `CoCoStateBase`, and their
+  Unity-lifecycle behavior are legacy implementation evidence only;
+- 0.3.9 projects stay on the 0.3.9 revision; 0.4 does not ship a dual runtime;
+- Pre1 publishes no Samples or Add-on import surface;
+- the 0.3.9 read-only graph inspection tool was removed in Pre1; GraphAsset
+  compilation and graph editing arrive in their dedicated Pres.
 
-## Camera
+## Package Boundary
 
-Camera is a local presentation module for third-person games. It does not synchronize gameplay state and does not replace Cinemachine 3 camera behaviour. It now uses a compact Director/Rig model: `CameraDirector` schedules active `CameraRig` instances by priority, while each `CameraRig` owns a manually configured list of custom mode ids and Cinemachine virtual cameras.
+```text
+Runtime/Core/Contracts   frozen engine-independent contracts
+Runtime/Core             transitional 0.3.9 CCS Runtime until Pre4
+Runtime/Gameplay         transitional gameplay implementations
+Runtime/Modules          transitional presentation and service modules
+Editor                   dependency/setup and legacy module tooling
+Tests                    contract, architecture, and transition regressions
+```
 
-TPS aim is handled through an optional `CameraAimCoupler` on an AimCore. State Layer code switches rig mode id and coupling explicitly; Cinemachine cameras keep their Follow/LookAt/ThirdPersonFollow targets configured in the Inspector.
+The Core Contracts assembly must not depend on Gameplay, presentation modules,
+Editor code, project code, Animator, or Playables. Higher-level modules may
+depend on Core contracts; Core must never depend back on them.
 
-See [Module-Camera](Docs/Module-Camera.md) for topology, scene assembly, AimCore setup, spectate priority, network binding, and cutscene handoff.
+## Not Implemented in Pre1
 
-## Animation
+Pre1 intentionally does not implement:
 
-Animation contains a thin Animator/SMB utility layer. It wraps common Animator calls through `AnimHandler`, relays normalized-time SMB events through `AnimEventSmb`, and includes editor tooling for injecting the SMB into Animator Controller states.
+- Context V2 composition and runtime source resolution;
+- `StateGraphAsset`, graph compilation, transition editing, or runtime execution;
+- clock schedulers, time scaling, transition queues, or runtime snapshots;
+- Operation ownership/claim arbitration and write-back implementations;
+- temporal rewind;
+- Playable-based animation, a CoCo animation runtime, combo authoring, or root
+  motion ownership;
+- starter content, gameplay templates, or a golden-path project; replacement
+  Samples and the Adventure Starter are owned by Pre15/Pre16.
 
-Rig solvers, Foot IK, weapon mounts, and full-body animation are project-level or add-on responsibilities. CoCoFlow does not ship a built-in IK solver in the main runtime package.
-
-See [Module-Animation](Docs/Module-Animation.md) for topology and usage boundaries.
+Those features belong to later prereleases and must build on the contracts
+frozen here.
 
 ## Dependencies
 
-| Package | Version | Required by |
+The dependency set remains unchanged during Pre1 because the transitional
+0.3.9 modules still compile against it.
+
+| Package | Version | Current owner |
 |---|---:|---|
-| Addressables | 2.9.1 | package runtime/editor workflows |
+| Addressables | 2.9.1 | Map and UI runtime workflows |
 | Input System | 1.18.0 | Input module |
-| Newtonsoft Json | 3.2.2 | Persistence |
+| Newtonsoft Json | 3.2.2 | Persistence module |
 | Cinemachine | 3.1.6 | Camera module |
-| AI Navigation | 2.0.0 | Character navigation and Enemy samples |
-| Mathematics | 1.3.3 | Enemy and spline-related workflows |
+| AI Navigation | 2.0.0 | Character and Enemy navigation |
+| Mathematics | 1.3.3 | Enemy/spline assemblies |
 | Splines | 2.6.0 | Enemy spline support |
 
-Optional third-party packages can be installed by a project when a sample or business module requires them. They are not bundled into the core runtime surface.
+Dependency pruning belongs to the Pre that replaces each owning module, not to
+the Core-contract freeze.
 
-## Installation
+## Installation and Validation
 
-Install the package through Unity Package Manager using a Git URL, or place the package in a Unity project's `Packages/` directory.
+Install the package through Unity Package Manager with a Git revision, or place
+it in a Unity project's `Packages/` directory. Use an explicit prerelease tag or
+commit; do not treat a moving development branch as a production dependency.
 
-After installation:
+`CoCoFlow/Setup/Setup Assistant` is limited to dependency and support-define
+status during this phase. It does not install project content.
 
-1. Open `CoCoFlow/Setup/Setup Assistant`.
-2. Review required package dependencies.
-3. Install optional samples as needed.
-4. Use `CoCoFlow/State/State Graph Viewer` to inspect a `CoCoStateController`.
-5. Use `CoCoFlow/Persistence/Catalog Editor` to edit persistence catalog assets.
-
-## Samples
-
-| Sample | Import Path | Purpose |
-|---|---|---|
-| Player Samples | `Assets/CoCoFlow/Player` | Demonstrates a player prefab with `CharacterContextProvider`, locomotion, and explicit State Layers. |
-| Enemy Samples | `Assets/CoCoFlow/Enemy` | Demonstrates enemy context, brain, spline navigation, state scripts, and prefab wiring. |
-| Chest Samples | `Assets/CoCoFlow/Chest` | Demonstrates Persistence Context and Container paths with a chest prefab and runtime container store. |
-| Network Samples | `Assets/CoCoFlow/Network` | Documents network adapter boundaries and includes container event and local camera rig binding samples without adding a network package dependency. |
-
-Samples are integration references. They are not complete game templates.
-
-## Editor Tools
-
-| Menu | Purpose |
-|---|---|
-| `CoCoFlow/Setup/Setup Assistant` | Dependency status and optional sample setup. |
-| `CoCoFlow/State/State Graph Viewer` | Read-only graph view for controllers, layers, states, Context usage, operations, and transitions. |
-| `CoCoFlow/Persistence/Save Editor` | Manual save/load slot tooling for local testing. |
-| `CoCoFlow/Persistence/Catalog Editor` | Tabbed editor for Persistence catalog definitions. |
-| `CoCoFlow/Persistence/Validate Selected Catalog` | Catalog ID and reference validation. |
+Because this repository is a UPM package rather than a complete Unity project,
+the release gate requires a clean Unity 6 host project to import the package and
+run its EditMode and PlayMode tests.
 
 ## Documentation
 
@@ -159,7 +143,18 @@ Samples are integration references. They are not complete game templates.
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
-- [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
+- [Changelog](CHANGELOG.md)
+
+Module documents describe transitional implementations unless they explicitly
+state that a 0.4 contract is frozen.
+
+## Versioning
+
+- Integration branch: `dev/0.4.0`
+- Work branches: `pre/NN-topic`
+- UPM prereleases: `0.4.0-pre.N`
+- 0.3.9 remains the historical runtime line; no migration runtime is bundled
+  into 0.4.
 
 ## License
 

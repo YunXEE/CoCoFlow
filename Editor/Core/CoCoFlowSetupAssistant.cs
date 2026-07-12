@@ -14,7 +14,6 @@ namespace CoCoFlow.Editor.Core
 {
     public sealed class CoCoFlowSetupAssistant : EditorWindow
     {
-        private const string PackageName = "com.yunxee.cocoflow";
         private const string ManifestPath = "Packages/manifest.json";
         private const string UniTaskPackageName = "com.cysharp.unitask";
         private const string RecommendedUniTaskGitUrl = "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11";
@@ -22,50 +21,12 @@ namespace CoCoFlow.Editor.Core
         private const string NewtonsoftMinimumVersion = "3.2.2";
         private const string CinemachineAssemblyName = "Unity.Cinemachine";
         private const string SplinesAssemblyName = "Unity.Splines";
-        private const string FusionAssemblyName = "Fusion.Unity";
         private const string OpenUpmRegistryName = "package.openupm.com";
         private const string OpenUpmRegistryUrl = "https://package.openupm.com";
         private const string UniTaskScope = "com.cysharp.unitask";
         private const string UniTaskDefine = "COCOFLOW_UNITASK_SUPPORT";
         private const string DotweenDefine = "COCOFLOW_DOTWEEN_SUPPORT";
         private const string UniTaskDotweenDefine = "UNITASK_DOTWEEN_SUPPORT";
-        private const string FusionDefine = "COCOFLOW_FUSION_SUPPORT";
-
-        private static readonly AddonDefinition[] Addons =
-        {
-            new AddonDefinition(
-                "network-samples",
-                "Network Samples",
-                "Samples~/Network Samples/CoCoFlow/Network",
-                "Samples~/Network Samples/README.md",
-                "Assets/CoCoFlow/Network",
-                new[] { FusionDefine },
-                new[] { FusionAssemblyName }),
-            new AddonDefinition(
-                "chest-samples",
-                "Chest Samples",
-                "Samples~/Chest Samples/CoCoFlow/Chest Samples",
-                "Samples~/Chest Samples/README.md",
-                "Assets/CoCoFlow/Chest",
-                new string[0],
-                new string[0]),
-            new AddonDefinition(
-                "enemy-samples",
-                "Enemy Samples",
-                "Samples~/Enemy Samples/CoCoFlow/Enemy Samples",
-                "Samples~/Enemy Samples/README.md",
-                "Assets/CoCoFlow/Enemy",
-                new string[0],
-                new[] { SplinesAssemblyName, "Unity.Mathematics" }),
-            new AddonDefinition(
-                "player-samples",
-                "Player Samples",
-                "Samples~/Player Samples/CoCoFlow/Player Samples",
-                "Samples~/Player Samples/README.md",
-                "Assets/CoCoFlow/Player",
-                new string[0],
-                new string[0])
-        };
 
         private static readonly ModuleDefinition[] Modules =
         {
@@ -103,16 +64,9 @@ namespace CoCoFlow.Editor.Core
                 "UI",
                 new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
                 new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro" },
-                "DOTween animated UI module."),
-            new ModuleDefinition(
-                "Network Samples",
-                new[] { FusionDefine },
-                new[] { FusionAssemblyName },
-                "Optional Fusion network compatibility sample.")
+                "DOTween animated UI module.")
         };
 
-        private readonly Dictionary<string, AddonInstallMode> _addonInstallModes = new Dictionary<string, AddonInstallMode>();
-        private readonly HashSet<string> _selectedAddonIds = new HashSet<string>();
         private readonly List<string> _log = new List<string>();
         private DependencyStatus _status;
         private Vector2 _scrollPosition;
@@ -149,7 +103,6 @@ namespace CoCoFlow.Editor.Core
             DrawDefines();
             DrawModules();
             DrawActions();
-            DrawAddons();
             DrawLog();
             EditorGUILayout.EndScrollView();
         }
@@ -159,7 +112,7 @@ namespace CoCoFlow.Editor.Core
             EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("CoCoFlow Setup Assistant", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Configure project dependencies, enable CoCoFlow support defines, and install optional add-ons.",
+                "Configure project dependencies and enable CoCoFlow support defines.",
                 MessageType.Info);
         }
 
@@ -175,7 +128,6 @@ namespace CoCoFlow.Editor.Core
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("DOTween", _status.DotweenMessage, _status.DotweenModulesInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("Photon Fusion", _status.FusionInstalled ? "Detected." : "Missing. Required only by Network Samples.", _status.FusionInstalled ? MessageType.Info : MessageType.Warning);
 
                 if (_status.HasUniTaskOpenUpmScope)
                     DrawStatusLine("OpenUPM", "UniTask scope is still present and will be removed by Apply Recommended Dependencies.", MessageType.Warning);
@@ -192,7 +144,6 @@ namespace CoCoFlow.Editor.Core
                 DrawDefineLine(UniTaskDefine);
                 DrawDefineLine(DotweenDefine);
                 DrawDefineLine(UniTaskDotweenDefine);
-                DrawDefineLine(FusionDefine);
             }
         }
 
@@ -228,80 +179,6 @@ namespace CoCoFlow.Editor.Core
 
                     if (GUILayout.Button("Refresh Status", GUILayout.Height(30f)))
                         RefreshStatus();
-                }
-            }
-        }
-
-        private void DrawAddons()
-        {
-            EnsureAddonState();
-
-            EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("Add-ons", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "Select add-ons to import. Each add-on installs into its own Assets/CoCoFlow folder.",
-                MessageType.Info);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                using (new EditorGUI.DisabledScope(_isBusy))
-                {
-                    if (GUILayout.Button("Select All", GUILayout.Height(24f)))
-                    {
-                        foreach (var addon in Addons)
-                            _selectedAddonIds.Add(addon.Id);
-                    }
-
-                    if (GUILayout.Button("Clear Selection", GUILayout.Height(24f)))
-                        _selectedAddonIds.Clear();
-
-                    using (new EditorGUI.DisabledScope(SelectedAddonInstallCount() == 0))
-                    {
-                        if (GUILayout.Button("Install Selected Add-ons", GUILayout.Height(24f)))
-                            InstallSelectedAddons();
-                    }
-                }
-            }
-
-            foreach (var addon in Addons)
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    SetAddonSelected(
-                        addon,
-                        EditorGUILayout.ToggleLeft(addon.DisplayName, IsAddonSelected(addon), EditorStyles.boldLabel));
-                    EditorGUILayout.LabelField("Destination", addon.DestinationAssetPath);
-                    EditorGUILayout.LabelField("Required Defines", FormatOptionalList(addon.RequiredSupportDefines));
-                    EditorGUILayout.LabelField("Required Assemblies", FormatOptionalList(addon.RequiredAssemblies));
-
-                    var missingDefines = addon.RequiredSupportDefines.Where(define => !_status.DefinePresentOnAllTargets(define)).ToArray();
-                    var missingAssemblies = addon.RequiredAssemblies.Where(assembly => !_status.AssemblyAvailable(assembly)).ToArray();
-                    if (missingDefines.Length == 0 && missingAssemblies.Length == 0)
-                    {
-                        EditorGUILayout.HelpBox("Dependencies are ready.", MessageType.Info);
-                    }
-                    else
-                    {
-                        if (missingAssemblies.Length > 0)
-                            EditorGUILayout.LabelField("Missing Assemblies", string.Join(", ", missingAssemblies), EditorStyles.wordWrappedLabel);
-                        if (missingDefines.Length > 0)
-                            EditorGUILayout.LabelField("Missing Defines", string.Join(", ", missingDefines), EditorStyles.wordWrappedLabel);
-                        var message = missingDefines.Length > 0
-                            ? "Can be installed now, but compilation stays disabled until missing dependencies/defines are ready."
-                            : "Can be installed now, but sample functionality may require the missing assemblies.";
-                        EditorGUILayout.HelpBox(message, MessageType.Warning);
-                    }
-
-                    var installMode = GetAddonInstallMode(addon);
-                    var nextInstallMode = (AddonInstallMode)EditorGUILayout.EnumPopup("Install Mode", installMode);
-                    if (nextInstallMode != installMode)
-                        _addonInstallModes[addon.Id] = nextInstallMode;
-
-                    using (new EditorGUI.DisabledScope(_isBusy || GetAddonInstallMode(addon) == AddonInstallMode.Skip))
-                    {
-                        if (GUILayout.Button("Install This Add-on", GUILayout.Height(28f)))
-                            InstallAddon(addon, GetAddonInstallMode(addon));
-                    }
                 }
             }
         }
@@ -383,11 +260,6 @@ namespace CoCoFlow.Editor.Core
                 return string.Join(", ", targets.ToArray());
 
             return string.Join(", ", targets.Take(maxVisibleTargets).ToArray()) + " +" + (targets.Count - maxVisibleTargets);
-        }
-
-        private static string FormatOptionalList(string[] values)
-        {
-            return values == null || values.Length == 0 ? "None" : string.Join(", ", values);
         }
 
         private void ApplyRecommendedDependencies()
@@ -529,9 +401,6 @@ namespace CoCoFlow.Editor.Core
                 defines.Add(UniTaskDotweenDefine);
             }
 
-            if (IsFusionInstalled())
-                defines.Add(FusionDefine);
-
             if (defines.Count == 0)
             {
                 AddLog("No support defines were added because dependencies are not available yet.");
@@ -575,212 +444,6 @@ namespace CoCoFlow.Editor.Core
                 AddLog("Skipped " + skippedTargets.Count + " unsupported target group(s): " + FormatTargetList(skippedTargets) + ".");
         }
 
-        private void InstallAddon(AddonDefinition addon, AddonInstallMode mode)
-        {
-            try
-            {
-                if (mode == AddonInstallMode.Skip)
-                {
-                    AddLog(addon.DisplayName + " install skipped.");
-                    return;
-                }
-
-                var source = FindInstallSource(addon);
-                if (source == null)
-                {
-                    AddLog("ERROR: Could not find source for " + addon.DisplayName + ".");
-                    return;
-                }
-
-                var destinationRoot = GetProjectAbsolutePath(addon.DestinationAssetPath);
-                if (Directory.Exists(destinationRoot) && mode == AddonInstallMode.ReplaceExisting)
-                {
-                    FileUtil.DeleteFileOrDirectory(addon.DestinationAssetPath);
-                    FileUtil.DeleteFileOrDirectory(addon.DestinationAssetPath + ".meta");
-                    AddLog("Removed existing " + addon.DestinationAssetPath + ".");
-                }
-
-                CopyDirectory(source.SourceRoot, destinationRoot, mode == AddonInstallMode.ReplaceExisting, addon.DisplayName);
-                CopyReadme(source.ReadmePath, Path.Combine(destinationRoot, "README.md"), mode == AddonInstallMode.ReplaceExisting);
-
-                AssetDatabase.Refresh();
-                var installedFolder = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(addon.DestinationAssetPath);
-                if (installedFolder != null)
-                {
-                    Selection.activeObject = installedFolder;
-                    EditorGUIUtility.PingObject(installedFolder);
-                }
-
-                AddLog(addon.DisplayName + " installed from " + source.Description + ".");
-                RefreshStatus();
-            }
-            catch (Exception ex)
-            {
-                AddLog("ERROR: " + addon.DisplayName + " install failed. " + ex.Message);
-                Debug.LogError("[CoCoFlow Setup] Add-on install failed:\n" + ex);
-            }
-        }
-
-        private void InstallSelectedAddons()
-        {
-            var installed = 0;
-            foreach (var addon in Addons)
-            {
-                if (!IsAddonSelected(addon)) continue;
-
-                var installMode = GetAddonInstallMode(addon);
-                if (installMode == AddonInstallMode.Skip) continue;
-
-                InstallAddon(addon, installMode);
-                installed++;
-            }
-
-            if (installed == 0)
-                AddLog("No add-ons selected for install.");
-        }
-
-        private int SelectedAddonInstallCount()
-        {
-            return Addons.Count(addon => IsAddonSelected(addon) && GetAddonInstallMode(addon) != AddonInstallMode.Skip);
-        }
-
-        private void EnsureAddonState()
-        {
-            foreach (var addon in Addons)
-            {
-                if (!_addonInstallModes.ContainsKey(addon.Id))
-                    _addonInstallModes[addon.Id] = AddonInstallMode.MergeMissing;
-            }
-        }
-
-        private bool IsAddonSelected(AddonDefinition addon)
-        {
-            return addon != null && _selectedAddonIds.Contains(addon.Id);
-        }
-
-        private void SetAddonSelected(AddonDefinition addon, bool selected)
-        {
-            if (addon == null) return;
-
-            if (selected)
-                _selectedAddonIds.Add(addon.Id);
-            else
-                _selectedAddonIds.Remove(addon.Id);
-        }
-
-        private AddonInstallMode GetAddonInstallMode(AddonDefinition addon)
-        {
-            if (addon == null) return AddonInstallMode.Skip;
-            if (_addonInstallModes.TryGetValue(addon.Id, out var mode)) return mode;
-
-            _addonInstallModes[addon.Id] = AddonInstallMode.MergeMissing;
-            return AddonInstallMode.MergeMissing;
-        }
-
-        private InstallSource FindInstallSource(AddonDefinition addon)
-        {
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CoCoFlowSetupAssistant).Assembly);
-            if (packageInfo != null && packageInfo.name == PackageName && !string.IsNullOrEmpty(packageInfo.resolvedPath))
-            {
-                var sourceRoot = Path.Combine(packageInfo.resolvedPath, addon.SourceRelativePath);
-                if (Directory.Exists(sourceRoot))
-                {
-                    return new InstallSource(
-                        sourceRoot,
-                        Path.Combine(packageInfo.resolvedPath, addon.ReadmeRelativePath),
-                        "package Samples~");
-                }
-            }
-
-            var samplesRoot = Path.Combine(Application.dataPath, "Samples", "CoCoFlow");
-            if (!Directory.Exists(samplesRoot))
-                return null;
-
-            var expectedSuffix = "/" + GetSampleContentRelativePath(addon.SourceRelativePath);
-
-            foreach (var sourceRoot in Directory.GetDirectories(samplesRoot, Path.GetFileName(addon.SourceRelativePath), SearchOption.AllDirectories))
-            {
-                if (!NormalizePath(sourceRoot).EndsWith(expectedSuffix, StringComparison.Ordinal))
-                    continue;
-
-                var sampleRoot = ResolveImportedSampleRoot(sourceRoot, expectedSuffix);
-                return new InstallSource(sourceRoot, Path.Combine(sampleRoot, "README.md"), "imported Assets/Samples copy");
-            }
-
-            return null;
-        }
-
-        private static string ResolveImportedSampleRoot(string sourceRoot, string sourceSuffix)
-        {
-            var normalizedSourceRoot = NormalizePath(sourceRoot);
-            if (!normalizedSourceRoot.EndsWith(sourceSuffix, StringComparison.Ordinal))
-                return Directory.GetParent(sourceRoot).FullName;
-
-            var sampleRootLength = normalizedSourceRoot.Length - sourceSuffix.Length;
-            return sourceRoot.Substring(0, sampleRootLength).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-
-        private static string GetSampleContentRelativePath(string sourceRelativePath)
-        {
-            var normalizedPath = NormalizePath(sourceRelativePath);
-            const string samplesPrefix = "Samples~/";
-            if (!normalizedPath.StartsWith(samplesPrefix, StringComparison.Ordinal))
-                return normalizedPath;
-
-            var contentPath = normalizedPath.Substring(samplesPrefix.Length);
-            var firstSlashIndex = contentPath.IndexOf('/');
-            return firstSlashIndex < 0 ? contentPath : contentPath.Substring(firstSlashIndex + 1);
-        }
-
-        private void CopyDirectory(string sourceRoot, string destinationRoot, bool overwrite, string label)
-        {
-            Directory.CreateDirectory(destinationRoot);
-
-            var copied = 0;
-            var skipped = 0;
-
-            foreach (var sourceFile in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = GetRelativePath(sourceRoot, sourceFile);
-                var destinationFile = Path.Combine(destinationRoot, relativePath);
-                var destinationDirectory = Path.GetDirectoryName(destinationFile);
-
-                if (!Directory.Exists(destinationDirectory))
-                    Directory.CreateDirectory(destinationDirectory);
-
-                if (File.Exists(destinationFile) && !overwrite)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                File.Copy(sourceFile, destinationFile, overwrite);
-                copied++;
-            }
-
-            AddLog(label + ": copied " + copied + " file(s).");
-            if (skipped > 0)
-                AddLog(label + ": skipped " + skipped + " existing file(s).");
-        }
-
-        private void CopyReadme(string sourceReadmePath, string destinationReadmePath, bool overwrite)
-        {
-            if (string.IsNullOrEmpty(sourceReadmePath) || !File.Exists(sourceReadmePath))
-            {
-                AddLog("README.md was not found in the add-on source.");
-                return;
-            }
-
-            if (File.Exists(destinationReadmePath) && !overwrite)
-            {
-                AddLog("Skipped existing README.md.");
-                return;
-            }
-
-            File.Copy(sourceReadmePath, destinationReadmePath, overwrite);
-            AddLog("Copied README.md.");
-        }
-
         private void RefreshStatus()
         {
             _status = BuildStatus();
@@ -816,10 +479,9 @@ namespace CoCoFlow.Editor.Core
             status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
             status.DotweenInstalled = IsDotweenInstalled();
             status.DotweenModulesInstalled = IsDotweenModuleInstalled();
-            status.FusionInstalled = IsFusionInstalled();
             var checkedTargets = GetCheckedBuildTargetGroups();
             status.CheckedTargetCount = checkedTargets.Count;
-            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine, FusionDefine }, checkedTargets);
+            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine }, checkedTargets);
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
             status.AssemblyStates["UniTask.Addressables"] = IsAssemblyInstalled("UniTask.Addressables");
@@ -832,7 +494,6 @@ namespace CoCoFlow.Editor.Core
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
             status.AssemblyStates["DOTween"] = status.DotweenInstalled;
             status.AssemblyStates["DOTween.Modules"] = status.DotweenModulesInstalled;
-            status.AssemblyStates[FusionAssemblyName] = status.FusionInstalled;
 
             status.UpdateMessages();
             return status;
@@ -870,12 +531,6 @@ namespace CoCoFlow.Editor.Core
         private static bool IsDotweenModuleInstalled()
         {
             return IsAssemblyInstalled("DOTween.Modules");
-        }
-
-        private static bool IsFusionInstalled()
-        {
-            return IsAssemblyInstalled(FusionAssemblyName) ||
-                   IsTypeAvailable("Fusion.NetworkRunner, Fusion.Unity");
         }
 
         private static bool IsAssemblyInstalled(string assemblyName)
@@ -996,28 +651,6 @@ namespace CoCoFlow.Editor.Core
             return obj;
         }
 
-        private static string GetProjectAbsolutePath(string assetPath)
-        {
-            var projectRoot = Directory.GetParent(Application.dataPath).FullName;
-            return Path.Combine(projectRoot, assetPath);
-        }
-
-        private static string GetRelativePath(string root, string file)
-        {
-            var normalizedRoot = NormalizePath(root).TrimEnd('/') + "/";
-            var normalizedFile = NormalizePath(file);
-
-            if (!normalizedFile.StartsWith(normalizedRoot, StringComparison.Ordinal))
-                throw new InvalidOperationException("File is outside source root: " + file);
-
-            return normalizedFile.Substring(normalizedRoot.Length);
-        }
-
-        private static string NormalizePath(string path)
-        {
-            return path.Replace('\\', '/');
-        }
-
         private static bool IsSemanticVersionLower(string current, string minimum)
         {
             if (!TryParseSemanticVersion(current, out var currentParts) ||
@@ -1060,42 +693,6 @@ namespace CoCoFlow.Editor.Core
             Repaint();
         }
 
-        private enum AddonInstallMode
-        {
-            MergeMissing,
-            ReplaceExisting,
-            Skip
-        }
-
-        private sealed class AddonDefinition
-        {
-            public AddonDefinition(
-                string id,
-                string displayName,
-                string sourceRelativePath,
-                string readmeRelativePath,
-                string destinationAssetPath,
-                string[] requiredSupportDefines,
-                string[] requiredAssemblies)
-            {
-                Id = id;
-                DisplayName = displayName;
-                SourceRelativePath = sourceRelativePath;
-                ReadmeRelativePath = readmeRelativePath;
-                DestinationAssetPath = destinationAssetPath;
-                RequiredSupportDefines = requiredSupportDefines;
-                RequiredAssemblies = requiredAssemblies;
-            }
-
-            public string Id { get; }
-            public string DisplayName { get; }
-            public string SourceRelativePath { get; }
-            public string ReadmeRelativePath { get; }
-            public string DestinationAssetPath { get; }
-            public string[] RequiredSupportDefines { get; }
-            public string[] RequiredAssemblies { get; }
-        }
-
         private sealed class ModuleDefinition
         {
             public ModuleDefinition(
@@ -1116,20 +713,6 @@ namespace CoCoFlow.Editor.Core
             public string Description { get; }
         }
 
-        private sealed class InstallSource
-        {
-            public InstallSource(string sourceRoot, string readmePath, string description)
-            {
-                SourceRoot = sourceRoot;
-                ReadmePath = readmePath;
-                Description = description;
-            }
-
-            public string SourceRoot { get; }
-            public string ReadmePath { get; }
-            public string Description { get; }
-        }
-
         private sealed class DependencyStatus
         {
             public string ManifestError { get; set; }
@@ -1141,7 +724,6 @@ namespace CoCoFlow.Editor.Core
             public bool SplinesInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
             public bool DotweenModulesInstalled { get; set; }
-            public bool FusionInstalled { get; set; }
             public string UniTaskMessage { get; private set; }
             public string NewtonsoftMessage { get; private set; }
             public string DotweenMessage { get; private set; }
