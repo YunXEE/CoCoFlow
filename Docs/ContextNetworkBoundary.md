@@ -1,159 +1,210 @@
 # CoCoFlow Context / Network Boundary
 
-编写日期：2026-06-19
+> Contract status: `0.4.0-pre.1` · Updated 2026-07-13
+>
+> This document defines the 0.4 dependency and frame boundary. Context V2,
+> StateGraph runtime, schedulers, Operations, network adapters, and snapshot
+> implementations arrive in later Pres.
 
 ## 目标
 
-CoCoFlow 的 gameplay 边界以 Context、Intent、State、Event、Persistence Identity 为核心。网络层不理解具体状态类、Animator、IK 或本地 Controller；网络 adapter 只搬运 Intent、Context snapshot 和 EventEnvelope。
+CoCoFlow 0.4 把 gameplay 计算收束成一个单向循环：Source 产出事实，Context 在
+Tick 边界冻结，独立 Layer 只读解释冻结帧，Operation 执行副作用并为下一帧写回。
+StateGraph 不拥有输入、Unity 生命周期、Animator、网络或持久化实现。
 
-## 信息流
-
-```text
-Input / AI / Timeline / Network / Replay
-  -> Context Provider / Context Source
-  -> Context.Intent / Context facts
-  -> CoCoStateController
-  -> ordered CoCoStateLayer ticks
-  -> CoCoStateBase lifecycle(context)
-  -> Operations: Motor / Combat / Interaction / Animation
-  -> Context facts + CoCoEventBus events
-  -> Presenter / Network Adapter / Persistence
-```
-
-关键规则：
-
-- `InputReader` 只表示输入端，不绑定 Character、Vehicle、UI 或具体 gameplay。
-- Character、Vehicle、Item 等对象在各自 gameplay 层把输入或交互请求翻译成自己的 Intent。
-- State 读取生命周期参数里的 `ICoCoContext`，不再为常规业务到处查找具体 Controller。
-- 一个状态系统只使用一个 `CoCoStateController`；Controller 持有显式声明的 `CoCoStateLayer` 列表，并按 `Order` 从上到下执行。
-- 常规状态切换优先在当前 State 所属 Layer 内发生；当同一状态类型存在于多个 Layer 时，调用方必须指定 Layer 或从源 State 发起切换。
-- `CoCoStateBase.DefineState` 声明 Context 读写、外部操作依赖和可能 transition，供只读 State Graph Viewer 分析。
-- Event 表示离散事实，重要 Event 必须对应可恢复的 Context 状态变化。
-
-## Core Contracts
-
-Core 提供以下边界：
-
-- `ICoCoContext`：Context 标记接口。
-- `ICoCoContextProvider<TContext>`：组件提供当前 Context。
-- `ICoCoIntent`：Intent 标记接口。
-- `ICoCoIntentSource<TIntent>`：输入、AI、网络、回放等意图来源。
-- `ICoCoStableEntityIdProvider`：存档系统提供稳定实体 ID。
-- `CoCoLifecycleContext`：实体生命周期事实。
-- `CoCoEntityIdentity`：稳定 ID、运行时 ID、owner、类型和 prefab key。
-- `CoCoEntityContext`：通用实体 Context，包含 identity、lifecycle、semantic/action state 和 event sequence。
-- `CoCoEventEnvelope`：网络 adapter 可搬运的事件信封。
-
-Core 不依赖 Fusion，也不依赖具体 gameplay 模块。
-
-## Character Boundary
-
-`CharacterContext : CoCoEntityContext` 是玩家、敌人、友方 NPC、Timeline 角色和网络代理角色的共同主线。
-
-包含：
-
-- `CharacterIntent`：Move、Look、Jump、Attack、Interact、UseSkill、目标点和目标实体。
-- `CharacterMotionContext`：位置、旋转、速度、grounded。
-- `CharacterResourceContext`：生命值和死亡判断。
-- `CharacterPerceptionContext`：当前目标、目标可见性、最后已知位置。
-- `CharacterNavigationContext`：`CharacterContext.Navigation` 下的导航和移动请求事实，记录控制权、目标点、期望速度、路线进度和 warp 请求。
-
-玩家不是单独的 Core 类型。玩家输入通过 `CharacterInputDriver` 把 `CoCoInputIntent` 写入 `CharacterContext.Intent`。敌人行为树、Sensor、Spline 巡逻、Timeline、Network adapter 后续也应写同一个 `CharacterContext`。`CharacterInputDriver` 是 Character 的意图写入层，不持有状态切换权威。
-
-`CharacterContextProvider` 是本地默认 `CharacterContext` 宿主。它可以显式接入多个 `ICharacterContextSource`，在状态 tick 前按 priority 写入同一份 Context。相同 priority 使用 Inspector List 声明顺序作为 tie-breaker；disabled 或 inactive source 不会被 provider 驱动。业务场景需要额外事实时，继承 `CharacterContext` 并通过 `CharacterContextProvider<TContext>` 提供派生 Context，例如特殊动画参数或业务标记；消费侧仍通过 `ICoCoContextProvider<CharacterContext>` 接入。
-
-`CharacterLifeCycle` 是兼容门面和生命周期写入组件：旧代码仍可调用 `TakeDamage/Heal/Revive`，但它只从 provider 读取 Context，并把权威事实写入 `CharacterContext.Resources` 和 `CharacterContext.Lifecycle`。它不再作为 `CharacterContext` provider。
-
-默认死亡规则：
+## 权威数据流
 
 ```text
-Health == 0
-  -> SemanticStateId = CharacterSemanticState.Dead
-  -> Lifecycle.State = Disabled
+Explicitly Bound Sources
+  -> framework-owned ContextRuntime sample / priority merge
+  -> Frozen Context Frame N
+  -> StateGraph
+       -> Independent Layer A (Layered HFSM)
+       -> Independent Layer B (Layered HFSM)
+       -> Independent Layer ...
+  -> Declared Operation Entry Points
+  -> Operation Execution / Write-back
+  -> ContextRuntime Next Frame Staging / commit
+  -> Frozen Context Frame N + 1
 ```
 
-复活回到 `Lifecycle.State = Active`。真正销毁才进入 `Destroyed`。
+网络、回放和 Timeline 不创建第二条执行链。它们和输入、AI 一样，只能作为
+Source 或 host driver 接入这条循环。
 
-## Item Boundary
-
-`ItemContext : CoCoEntityContext` 是宝箱、门、可拾取物、任务节点等可交互物的共同主线。宝箱只是 prefab/config，不创建 `ChestContext` 或 `ChestState`。
-
-包含：
-
-- `ItemIntent`：openRequested、unlockRequested、useRequested、actorId。
-- `ItemSemanticState`：Inactive、Available、Locked、Opening、Opened、Consumed。
-- `ItemInventoryPayload`：可选物品载荷。
-
-`ItemContextProvider` 提供 `ItemContext`，同时暴露 `RequestOpen/RequestUnlock/RequestUse` 作为最薄的 Item Intent 写入口。`ItemInputDriver` 可从 `ICoCoIntentSource<ItemIntent>` 采样，或被交互系统、网络 adapter、回放系统直接调用 `RequestOpen/RequestUnlock/RequestUse`。它们都不发布事件，也不切状态；Item 状态控制器读取 Context 后推进 Item 状态，并在状态事实落定后发布事件。
-
-默认规则：
+## 0. Asset、Host 与 Runtime 基数
 
 ```text
-Available / Locked / Opening / Opened -> Lifecycle.State = Active
-Consumed -> Lifecycle.State = Consumed
+CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
+GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame Stream
+CoCoContextRuntime       1 : N  Explicit Context Source Bindings
+Frozen Context Frame     1 : N  Independent Layers
 ```
 
-## Input Boundary
+同一个 `CoCoStateGraphAsset` 可以驱动多个 Actor，但不能保存任何场景 Source 或
+Operation 实例引用。每个 Actor 由唯一的 `CoCoStateGraphHost` 作为 Unity 装配入口；
+Host 持有 Asset、显式 Source/Operation Binding 与 Clock/Driver 配置，并在 Running 前
+原子验证和创建一对 GraphRuntimeInstance/CoCoContextRuntime。用户不编写聚合 Root
+Context，也不安装 Context Provider；Section Backing、只读 View、Registry 和 Frame
+Storage 由框架依据编译后的 Context Layout 构建。
 
-`InputReader` 属于输入模块，只输出 Core 级输入事实：
+Editor 可以在宿主自身及父子层级中建议候选，但必须保存用户确认后的显式 Binding。
+Running 后 Asset、Binding、priority、field ownership 与 Clock 配置固定；0.4.0 不提供
+ContextGraph 或运行中 graph/binding 热替换。上述 `CoCoStateGraphHost`、
+`CoCoContextRuntime`、Layout 与 Inspector 均由后续 Pre 实现，Pre1 只冻结边界。
 
-- `IInputStateProvider`
-- `IInputEventSource`
-- `IInputModeController`
-- `ICoCoIntentSource<CoCoInputIntent>`
+## 1. Source Boundary
 
-它不依赖 Character，不调用状态控制器，不理解 Player/Vehicle/Item。角色侧的 `CharacterInputDriver` 才负责将 `CoCoInputIntent` 翻译为 `CharacterIntent`。
+Source 是 Frozen Context Frame 形成前的事实来源，例如输入、AI 感知、网络快照、
+Timeline 指令或项目业务组件。
 
-离散输入通过 `PerformedSequence` 表示新事件，避免一个按钮事件在多个 frame 中重复触发。
+冻结规则：
 
-## Event Boundary
+- Source 必须由用户显式绑定，不允许 runtime 动态接入或全局扫描。
+- Source 必须来自 StateGraph 宿主所在对象或其父子层级上的脚本。
+- 每个 Source 显式声明 priority；相同 priority 使用绑定列表的声明顺序。
+- Source 只覆盖自己声明的 section/field，其余数据自动透传。
+- Context 通过组合承接 Operation 所需的只读接口，不通过继承某个具体 Source
+  类型来获得能力。
+- Source 不直接切换 State，不持有 Layer，不调用 StateLogic。
 
-本地事件仍使用 `CoCoEventBus.Publish<T>` 发布强类型事件。
+具体 Source API 和 Context V2 builder 不在 Pre1 实现；上述绑定与合并语义已经
+冻结。
 
-网络相关事件使用 `CoCoEventEnvelope` 描述：
+## 2. Frozen Context Frame
 
-- `EventTypeId`
-- `SourceEntityId`
-- `TargetEntityId`
-- `Sequence`
-- `Tick`
-- `Reliable`
-- `PayloadTypeId`
-- `Payload`
+StateGraph 的每次 Step 只接收一份冻结帧。冻结帧在整个 Step 内不可变：
 
-当一个事件既要服务本地系统又要服务网络桥时，使用：
+- StateLogic 只能读取，不能回写 Context。
+- 同一 Tick 内 Operation 产生的结果不会被后续 Layer 偷看到。
+- Context 没有更新时，StateGraph 仍读取上一份合法冻结帧并照常解释。
+- 没有任何合法 Context 时，StateGraph 拒绝启动；这属于启动诊断，不是运行中
+  的 StateLogic 异常。
+- Frozen Frame 是数据边界，不是 Unity `Update` 的别名。
 
-```text
-CoCoEventBus.PublishWithEnvelope(ref typedEvent, ref envelope)
-```
+这一规则保证 Layer 顺序只影响 State/Operation 调度顺序，不会制造同 Tick 的
+隐式数据竞争。
 
-本地表现系统可订阅强类型事件；网络 adapter 可订阅 `CoCoEventEnvelope`。
+## 3. Independent Layers
 
-## Identity Boundary
+StateGraph 驱动一组相互正交的 Layer。每个 Layer：
 
-必须区分三种 ID：
+- 独立维护一个 HFSM；
+- 在任意时刻至多拥有一条 active path；
+- active path 从 Root State 延伸到没有 active child State 的 Leaf State；
+- 在同一个生命周期阶段内按父到子处理 active path；退出/撤销阶段按确定性的
+  反向顺序收束；
+- 具有唯一显式 priority。
 
-- `StableEntityId`：跨存档、跨会话，适合静态场景实体，例如宝箱、门、任务触发器。
-- `RuntimeInstanceId`：单局运行时实例，适合玩家、动态敌人、掉落物。网络模式下应由 Host 或 StateAuthority 分配。
-- `EventSequenceId`：单个 source 的事件序号，用于去重、排序和回放。
+StateGraph 按 priority 从高到低完成一个 Layer 的当前阶段，再处理下一个 Layer。
+不同 Layer 不是继承关系，也不共享可变 State 实例。
 
-`PersistenceContext.StableEntityId` 通过 `ICoCoStableEntityIdProvider.StableEntityId` 暴露给 Core identity。Persistence 不分配 RuntimeInstanceId，也不驱动实时 gameplay。
+Layer 之间禁止通信、直接调用或提交针对另一个 Layer 的 transition。
+多个 Layer 的协调只能通过读取同一份 Frozen Context 完成，与 Animator
+Layer 读取同一组 Parameters 的原则一致。GraphAsset 中的跨 Layer 引用是
+编译/验证错误，不是 Runtime 调度功能。
 
-## Network Adapter Boundary
+## 4. StateLogic Boundary
 
-Core 不包含 Fusion 依赖。Fusion 或其他网络实现应作为可选 adapter：
+StateLogic 是解释冻结 Context 的纯 C# 逻辑：
 
-- 从网络输入构造 Intent。
-- 在 authority 侧推进 Context。
-- 将 identity、lifecycle、semantic/action state、motion facts、resources、event sequence 等关键事实写入 snapshot。
-- 将可靠离散事件桥接为 `CoCoEventEnvelope`。
-- 对 remote proxy 做 snapshot interpolation 或 correction。
+- 不继承 `MonoBehaviour` 或 `ScriptableObject`；
+- 不持有 `GameObject`、`Component`、Animator 或 Playable 对象；
+- 不访问 Unity callback；
+- 不修改 Context；
+- 只通过已声明的 Operation 类别和准入口表达副作用需求。
 
-不为每个 gameplay state 创建网络版本，例如 `NetEnemyStateChase` 或 `NetItemStateOpened`。网络围绕 Context snapshot 和 EventEnvelope 接入。
+StateLogic 声明“需要什么”，Context 通过组合实现对应只读能力，Operation registry
+提供允许调用的执行入口。StateLogic 不绑定具体项目组件，也不负责运行时搜索。
 
-## 当前实现边界
+`CoCoContextSectionRequirement` 只接受非根、仅声明 public abstract instance property
+的 Section interface；每个 property 必须是无参数 getter。Indexer、default/static
+member、field、event 和其他 method 均非法。getter 可以直接返回 immutable string；
+复合 value fact 必须递归不含托管引用，因此内部也不能包含 string。ref return、
+ref-like value、IntPtr/UIntPtr、callback、引用型或动态长度 collection、Unity Object 及
+其他 mutable reference 均非法。StateLogic 每次读取都必须携带与目标接口匹配的
+Requirement；`ICoCoContextSection` 是 Schema 声明，不是让项目实现并交给 Runtime 的
+mutable Root。具体 Context storage、Source、Writer 和 Frame Builder 不属于读取准入口。
 
-- 新状态优先使用 `Enter(ICoCoContext)`、`OnStateUpdate(ICoCoContext)`、`OnStateFixedUpdate(ICoCoContext)`、`Exit(ICoCoContext)`。
-- 所有可运行状态必须显式声明到 `CoCoStateLayer.AvailableStates`；不再依赖自动扫描或嵌套 controller。
-- Character / Item 逻辑应通过 Context 和 Intent 接入，不再依赖具体 PlayerController、EnemyController 或 Chest 命名。
-- Animation 模块只保留轻量 Animator / SMB 工具层；Foot IK、武器挂点、全身 IK、完整战斗和技能系统属于业务项目或未来 add-on，不是当前 Runtime 主包的一部分。
+缺少声明为必需的 Context 能力或 Operation 绑定时，Graph instance 必须在启动前
+给出结构化诊断并拒绝启动，不能等到某个 State 执行后再抛空引用。
+
+## 5. Operation Boundary
+
+Operation 是允许接触世界和产生副作用的层，例如 Locomotion、Navigation、
+Lifecycle、Animation presentation 或项目自定义 gameplay operation。
+
+Operation 可以：
+
+- 读取当前 Frozen Context Frame；
+- 接收 StateLogic 通过准入口提交的声明式请求；
+- 修改 Unity 对象或调用项目服务；
+- 把结果写入自己拥有的 Source/section，供下一次 Context composition 使用。
+
+Operation 不可以：
+
+- 回调正在执行的 StateLogic；
+- 在当前 Step 内修改 Frozen Context Frame；
+- 绕过 StateGraph 直接改写某个 Layer 的 active path；
+- 依赖未声明的全局查找结果。
+
+Pre1 的命令准入口必须携带已声明的 `CoCoOperationPortRequirement`，并按值接收实现
+`ICoCoOperationCommand` 的 unmanaged struct；因此托管引用与托管 delegate 不能跨越
+Submit，Submit 本身也没有同步返回值。`unmanaged` 不等于 handle-free：Pre5 必须缓存
+校验 Binding 支持的 Command 集合，并在派发前递归拒绝 IntPtr/UIntPtr、裸指针和函数
+指针；不匹配的 Port/Command 必须结构化拒绝。世界结果只能通过后续 Frozen Context
+Frame 重新进入 StateLogic。
+
+Operation 的 Claim/Ownership、冲突仲裁、执行阶段和 write-back API 属于后续 Pre，
+Pre1 只冻结这条依赖方向。
+
+## 6. Tick、Suspend 与 Unity Host
+
+CoCo Tick 与 Unity callback 可不一一对应。Host 可以由 Variable、Fixed 或 Manual
+driver 推进 StateGraph，从而支持独立频率、变速、测试和回放。
+
+- `CoCoTickFrame` 的 delta 必须是有限正数；零或负 delta 都非法。
+- 倒退不能通过负 delta 实现；必须从 Snapshot 恢复后再正向组织 Tick。
+- Suspend 期间 host 不提交 Tick，因此没有 StateLogic、Operation 或采样。
+- 对 StateGraph 而言，`GameObject.SetActive(false)` 与手动 Suspend 都表现为 host
+  停止供给 Tick；它们都不等于终态 `Disposed`。
+- 尚未进入 Running 的 Runtime 可以从 Created 直接 Dispose，确保启动取消、验证失败
+  或 Unity Host 提前销毁时仍有显式终止渠道。
+- Running/Suspended Runtime 必须先进入 Stopped，完成 Active Path 与 Operation 资源释放，
+  再进入 Disposed。
+- `Disposed` 必须走显式、不可逆的 runtime lifecycle 通道。
+
+调度器和 Unity adapter 的具体恢复/重建策略属于 Runtime Pre。
+
+## 7. Network Adapter Boundary
+
+Core 不依赖任何具体网络框架。网络实现只能放在项目 adapter：
+
+- 把 remote input、authority facts 或 snapshot 数据转换为已绑定 Source；
+- 在权威端使用与本地玩法相同的正向 Tick 规则；
+- 使用稳定的 graph/state/instance/activation/timeline identity 描述运行对象；
+- 在完整 Tick 边界采集或应用 snapshot，不读取中间 Layer 状态；
+- remote correction 在下一次 composition 生效，不回调当前 StateLogic；
+- 本地 Camera、Animator 和其他 presentation 不作为权威 gameplay snapshot。
+
+网络 adapter 不为每个 gameplay State 派生网络 State，也不能直接驱动某个 Layer
+的 State 实例。离散消息若会改变 gameplay，必须先落到带 Tick/Sequence/Epoch
+的 Transient Context Fact，再由 State 在后续 Frozen Frame 中读取事实并产生
+自身的同 Layer outgoing Transition Candidate。
+
+## 8. Persistence 与 Rewind Boundary
+
+Persistence 和 temporal rewind 都消费稳定边界：
+
+- Persistence 保存 durable Context facts，不保存一帧 Intent 或 Unity object 引用。
+- Runtime snapshot 在完整 Tick 结束后采集 Graph/Context/Operation 所需状态。
+- Rewind 从选定 Snapshot 恢复新的 timeline epoch，然后以有限正 delta
+  继续正向 Step。
+- Snapshot schema、恢复顺序和 temporal ownership 属于后续 Pre。
+
+## Pre1 与旧 CCS Runtime
+
+仓库中的 0.3.9 CCS Runtime 暂时保留到 Pre4，只用于维持过渡期编译和历史回归。
+它的 `MonoBehaviour` State、Unity `Update/FixedUpdate` 驱动、可变 Context 访问和
+现有 Layer order 都不是本文件定义的 0.4 契约。
+
+0.3.9 项目应继续锁定旧 revision。0.4 不提供双 Runtime 或自动迁移层。

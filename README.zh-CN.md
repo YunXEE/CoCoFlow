@@ -2,156 +2,153 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CoCoFlow 是一个面向 Unity 的模块化游戏开发框架，围绕 Context 驱动的 gameplay、显式 State Layer、可复用组件、持久化、编辑器工具和可选 samples 构建。
+> **版本**：0.4.0-pre.1 · **Unity**：6000+
+>
+> 当前版本是 Pre1 Core 契约阶段，只冻结架构边界和值语义，不代表 0.4
+> Runtime 和编辑工作流已经完成。
 
-> **版本**: 0.3.9 · **Unity**: 6000+
+CoCoFlow 是面向 Unity 6 的 Layered HFSM（分层层次有限状态机）框架，围绕
+Context 驱动决策、显式受控的 Operation，以及由宿主推进的确定性 Tick 构建。
+0.4 面向新的单机 3D 冒险与动作项目。
 
-## 包范围
+## Pre1 冻结什么
 
-CoCoFlow 提供一套 runtime 基础设施，用于把 gameplay 代码组织在明确的 Context 契约和状态机拓扑之上。这个包关注可复用的框架表面，不提供完整游戏功能。
-
-当前包包含：
-
-- Core services、事件总线、Context 契约和 State Layer runtime。
-- Character、Enemy、Item gameplay 基础能力。
-- Input、Camera、UI、Animation、Map、Rendering、Persistence 模块。
-- Setup、状态图查看、持久化存档槽位、Catalog 编辑等编辑器工具。
-- Player、Enemy、Chest、Network 相关可选 samples。
-
-## Runtime 拓扑
+Pre1 确立后续所有预发布版本必须遵守的依赖方向：
 
 ```text
-CoCoFlow
-│
-├── Runtime
-│   ├── Core
-│   │   ├── CoCoServices
-│   │   ├── CoCoEventBus
-│   │   ├── ICoCoContext / ICoCoContextProvider<TContext>
-│   │   ├── CoCoStateController / CoCoStateLayer / CoCoStateBase
-│   │   └── CoCoStateDefinition
-│   │
-│   ├── Modules
-│   │   ├── Input
-│   │   ├── Camera
-│   │   ├── UI
-│   │   ├── Animation
-│   │   ├── Map
-│   │   ├── Rendering
-│   │   └── Persistence
-│   │
-│   └── Gameplay
-│       ├── Character
-│       ├── Enemy
-│       └── Item
-│
-└── Editor
-    ├── Core
-    ├── AssetPipeline
-    ├── Modules
-    └── Gameplay
+显式绑定的 Sources
+  -> 框架托管的 ContextRuntime 采样与合并
+  -> Frozen Context Frame N
+  -> 相互独立的 Layered HFSM Layers
+  -> 已声明的 Operation 准入口
+  -> Operation 回写
+  -> Frozen Context Frame N + 1
 ```
 
-## 核心概念
+本阶段冻结的 Core 表面包括：
 
-| 概念 | 说明 |
-|---|---|
-| Context | 可持久化的类型化 gameplay 数据契约，通过 `ICoCoContextProvider<TContext>` 暴露。 |
-| State Layer | 由一个 `CoCoStateController` 拥有的命名状态机平面。多个 layer 可以按显式顺序执行。 |
-| State Definition | 状态声明的元数据，用于描述 Context 读写、外部操作依赖和状态跳转。 |
-| Event Bus | 类型化事件分发系统，可配合 event envelope 做跨系统通信。 |
-| Persistence Context | 场景实体快照路径，用于还原由 Context 驱动的状态机实体。 |
-| Persistence Container | 基于 Catalog 的 runtime 数据路径，用于 inventory、quest、event、fact、reward 和 tag。 |
+- 彼此独立的 graph、layer、state、transition、graph-instance、activation
+  和 timeline identity；
+- execution sequence、timeline tick/position、clock domain 和 tick frame
+  值契约；
+- 显式 runtime lifecycle state；
+- 结构化 diagnostic domain、code、severity 和 record；
+- 不暴露 `MonoBehaviour`、`GameObject`、Animator 或 Playable 类型的纯 C#
+  StateLogic 角色与依赖声明。
 
-## 模块
+Core 规则：
 
-| 模块 | 状态 | 摘要 |
-|---|---|---|
-| Core | 稳定基础 | Service locator、事件总线、Context 契约、State Layer controller、state definition 和日志。 |
-| Input | 可用基础 | Input reader 和 input intent 契约。 |
-| Camera | 活跃基础 | 本地第三人称 Cinemachine rig 调度、玩家内置相机、AimCore 耦合、观战优先级和 cutscene 接管边界。 |
-| UI | 可用基础 | View/controller 抽象和 panel stack 管理。 |
-| Animation | 可用基础 | Animator 辅助、animation event state machine behaviour 和编辑器注入工具。 |
-| Map | 可用基础 | Map manager 和 chunk loading 支持。 |
-| Rendering | 工具层 | Rendering quality 辅助能力。 |
-| Persistence | 活跃模块 | 版本化存档文档、临时文件 JSON 写入、Context 快照、Container 数据、Catalog 编辑器和存档槽位工具。 |
-| Gameplay.Character | 活跃基础 | Character context provider、input driver、lifecycle writer、locomotion 和 navigation motor。 |
-| Gameplay.Enemy | 活跃基础 | Enemy brain、spline navigation source、vision query 和 engagement zone。 |
-| Gameplay.Item | 活跃基础 | Item context、item context provider、input driver 和 item lifecycle writer。 |
+- StateLogic 只读取一份冻结的 Context Frame，不能回写 Context。
+- Context Section 只允许 public abstract instance property，并且必须是无参数 getter。
+  Indexer、default/static member、field、callback、Unity Object、引用型 collection、
+  native handle 与 stack-only value 都会被拒绝。直接 Fact 可以是 immutable string；
+  复合 value fact 必须递归不含引用，因此内部也不能包含 string。读取必须携带匹配的
+  `CoCoContextSectionRequirement`，不暴露 mutable root、Source、Writer 或具体
+  Provider 类型。
+- 每个 Layer 独立拥有一个 HFSM，并计算出一条以末端 State 结束的活跃路径。
+- Layer 按显式优先级执行；一条活跃路径完成当前生命周期阶段后，才处理下一
+  个 Layer。
+- Unity callback 只是宿主输入，不等于 CoCo 时钟。Variable、Fixed、Manual
+  driver 产生的 CoCo Tick 数量可以与 Unity callback 数量不同。
+- 零或负 delta 非法。Suspend 不产生 Tick，因此也没有 Frozen Frame 采样。
+- Runtime 在第一次 Running 前允许 `Created → Disposed`；已经 Running 或 Suspended
+  的实例必须先 Stop 再 Dispose。
+- Operation 是唯一受认可的副作用边界，其回写只能在后续 Frozen Frame 可见。
+  StateLogic 通过已声明的 `CoCoOperationPortRequirement` 按值提交 unmanaged Command，
+  因此 Submit 不携带托管引用、delegate、共享结果或同步玩法返回通道。Pre5 还必须在
+  派发前校验 Port/Command 匹配，并拒绝 native handle、裸指针或函数指针 Command Shape。
+- Pre1 冻结的是框架提供的 StateLogic 角色，不把任意项目 C# 代码伪装成 CLR 安全沙箱；
+  State 作者程序集与依赖限制由 StateGraph Compiler/作者验证对应 Pre 落实。
 
-## Persistence
+后续 Pre 必须遵守以下装配边界：
 
-Persistence 在每个存档文档中维护两个 section：
+```text
+CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
+GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame 流
+CoCoContextRuntime       1 : N  显式 Context Source Bindings
+Frozen Context Frame     1 : N  相互独立的 Layers
+```
 
-- `contextSection`：通过 `PersistenceContext` 捕获的场景实体 Context 快照。
-- `containerSection`：通过 `PersistenceContainerStore` 捕获的 runtime container 数据。
+项目不编写聚合 Root Context，也不把 Context Provider 手动接给 Graph。未来的
+`CoCoStateGraphHost` 是 Actor 上唯一的 Unity 框架入口：用户选择 Asset，并显式配置
+Source、Operation、priority、ownership 和 clock/driver。框架在 Running 前验证完整
+配置，Running 后保持固定；Context 不形成第二套节点图或 Visual Scripting。
 
-这个模块提供手动存读档入口、存档槽位 metadata、schema migration 入口、临时文件替换写入、Catalog 编辑器，以及用于 container command 的 bridge。
+完整 Frame 与 adapter 规则见
+[Context / Network Boundary](Docs/ContextNetworkBoundary.md)。
 
-更多设置、数据流和示例用法见 [Module: Persistence](Docs/Module-Persistence.md)。
+## 仓库过渡状态
 
-## Camera
+现有 0.3.9 CCS Runtime 暂时保留在仓库中，让 Pre1 可以单独冻结契约，而不把
+Runtime 重写混进同一个改动。它将在 Pre4 被替换，不是 0.4 的兼容承诺、API
+基线或迁移层。
 
-Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法。当前模型收束为 Director/Rig：`CameraDirector` 按 active + priority 调度一组 `CameraRig`，每个 `CameraRig` 持有 Free/Aim/Lock/Spectate/Focus/Custom 等 Cinemachine virtual cameras，并把当前相机暴露给 Director。
+具体来说：
 
-TPS Aim 通过玩家内部 AimCore 上的 `CameraAimCoupler` 处理。State Layer 显式切换 rig mode 和 coupled 开关；每台 Cinemachine camera 的 Follow/LookAt/ThirdPersonFollow target 仍在 Inspector 里直接配置。
+- 现有 `CoCoStateController`、`CoCoStateLayer`、`CoCoStateBase` 及其 Unity
+  生命周期行为只属于旧实现证据；
+- 0.3.9 项目继续锁定 0.3.9 revision，0.4 不提供双 Runtime；
+- Pre1 不发布 Samples，也不提供 Add-on 导入表面；
+- 0.3.9 的只读状态图检查工具已在 Pre1 移除；GraphAsset 编译和图编辑
+  会在对应的 Pre 中实现。
 
-详细拓扑、Scene 组装、AimCore 设置、观战优先级、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
+## 包边界
 
-## Animation
+```text
+Runtime/Core/Contracts   与引擎隔离的冻结契约
+Runtime/Core             过渡期 0.3.9 CCS Runtime，保留至 Pre4
+Runtime/Gameplay         过渡期 gameplay 实现
+Runtime/Modules          过渡期表现与服务模块
+Editor                   依赖/setup 与旧模块工具
+Tests                    契约、架构和过渡期回归测试
+```
 
-Animation 包含轻量 Animator/SMB 工具层。它通过 `AnimHandler` 封装常用 Animator 调用，通过 `AnimEventSmb` 转发 normalized-time SMB 事件，并提供把 SMB 注入 Animator Controller state 的编辑器工具。
+Core Contracts assembly 不得依赖 Gameplay、表现模块、Editor、项目代码、Animator
+或 Playables。上层模块可以依赖 Core contracts，Core 不得反向依赖上层模块。
 
-Rig solver、Foot IK、武器挂点和 full-body animation 属于项目层或未来 add-on。CoCoFlow 主 runtime 包不内置 IK solver。
+## Pre1 不实现什么
 
-详细拓扑和边界见 [Module-Animation](Docs/Module-Animation.md)。
+Pre1 明确不实现：
+
+- Context V2 runtime 组合、生成/编译的 Section View 与 source 解析；
+- `StateGraphAsset`、Graph 编译、Transition 编辑或 Runtime 执行；
+- 统一的 `CoCoStateGraphHost` 及其 Binding Inspector；
+- clock scheduler、变速、transition queue 或 runtime snapshot；
+- Operation ownership/claim 仲裁与回写实现；
+- temporal rewind；
+- 基于 Playable 的动画、自有动画 Runtime、Combo 编辑或 Root Motion 所有权；
+- starter content、gameplay 模板或 golden-path 项目；替代 Samples 与
+  Adventure Starter 由 Pre15/Pre16 负责。
+
+这些能力属于后续预发布版本，并且必须建立在本阶段冻结的契约之上。
 
 ## 依赖
 
-| Package | Version | 用途 |
+Pre1 不调整 dependency 集合，因为过渡期 0.3.9 模块仍需要它们参与编译。
+
+| Package | Version | 当前使用者 |
 |---|---:|---|
-| Addressables | 2.9.1 | 包 runtime/editor 工作流 |
+| Addressables | 2.9.1 | Map 和 UI runtime 工作流 |
 | Input System | 1.18.0 | Input 模块 |
-| Newtonsoft Json | 3.2.2 | Persistence |
+| Newtonsoft Json | 3.2.2 | Persistence 模块 |
 | Cinemachine | 3.1.6 | Camera 模块 |
-| AI Navigation | 2.0.0 | Character navigation 和 Enemy samples |
-| Mathematics | 1.3.3 | Enemy 和 spline 相关工作流 |
+| AI Navigation | 2.0.0 | Character 与 Enemy navigation |
+| Mathematics | 1.3.3 | Enemy/spline assemblies |
 | Splines | 2.6.0 | Enemy spline 支持 |
 
-项目可以按 sample 或业务模块需求自行安装可选第三方包。它们不属于 core runtime 的内置表面。
+依赖精简应由替换对应模块的 Pre 负责，不属于 Core 契约冻结。
 
-## 安装
+## 安装与验证
 
-可以通过 Unity Package Manager 使用 Git URL 安装，也可以把包放入 Unity 项目的 `Packages/` 目录。
+可以通过 Unity Package Manager 使用 Git revision 安装，也可以把包放入 Unity
+项目的 `Packages/` 目录。应锁定明确的 prerelease tag 或 commit，不要把持续
+变化的开发分支当作生产依赖。
 
-安装后：
+当前阶段的 `CoCoFlow/Setup/Setup Assistant` 只负责依赖与 support define 状态，
+不安装项目内容。
 
-1. 打开 `CoCoFlow/Setup/Setup Assistant`。
-2. 检查必需 package dependencies。
-3. 按需安装可选 samples。
-4. 使用 `CoCoFlow/State/State Graph Viewer` 查看 `CoCoStateController`。
-5. 使用 `CoCoFlow/Persistence/Catalog Editor` 编辑 persistence catalog asset。
-
-## Samples
-
-| Sample | 导入路径 | 用途 |
-|---|---|---|
-| Player Samples | `Assets/CoCoFlow/Player` | 演示带有 `CharacterContextProvider`、locomotion 和显式 State Layers 的 player prefab。 |
-| Enemy Samples | `Assets/CoCoFlow/Enemy` | 演示 enemy context、brain、spline navigation、state scripts 和 prefab 接线。 |
-| Chest Samples | `Assets/CoCoFlow/Chest` | 演示 chest prefab 和 runtime container store 下的 Persistence Context / Container 双路径。 |
-| Network Samples | `Assets/CoCoFlow/Network` | 记录 network adapter 边界，并提供 container event bridge 和本地 camera rig binding samples，不引入 network package 依赖。 |
-
-Samples 是集成参考，不是完整游戏模板。
-
-## 编辑器工具
-
-| 菜单 | 用途 |
-|---|---|
-| `CoCoFlow/Setup/Setup Assistant` | 依赖状态检查和可选 sample setup。 |
-| `CoCoFlow/State/State Graph Viewer` | 只读查看 controller、layer、state、Context 使用、operation 和 transition。 |
-| `CoCoFlow/Persistence/Save Editor` | 本地测试用的手动 save/load slot 工具。 |
-| `CoCoFlow/Persistence/Catalog Editor` | Persistence catalog definitions 的分页编辑器。 |
-| `CoCoFlow/Persistence/Validate Selected Catalog` | Catalog ID 和引用校验。 |
+本仓库是 UPM package，不是完整 Unity Project，因此 release gate 必须使用干净
+的 Unity 6 宿主工程完成包导入，并执行 EditMode 和 PlayMode 测试。
 
 ## 文档
 
@@ -159,7 +156,16 @@ Samples 是集成参考，不是完整游戏模板。
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
-- [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
+- [Changelog](CHANGELOG.md)
+
+除非明确标记为已冻结的 0.4 契约，模块文档描述的都是过渡期实现。
+
+## 版本约定
+
+- 集成分支：`dev/0.4.0`
+- 工作分支：`pre/NN-topic`
+- UPM 预发布版本：`0.4.0-pre.N`
+- 0.3.9 是历史 Runtime 线，0.4 不内置迁移 Runtime。
 
 ## License
 

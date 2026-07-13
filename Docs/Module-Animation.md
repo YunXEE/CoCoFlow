@@ -1,6 +1,12 @@
 # Module: Animation
 
-> Updated for CoCoFlow 0.3.9.
+> Pre1 transition note (`0.4.0-pre.1`): `AnimHandler`, `AnimEventSmb`, and the
+> current Animator Controller tooling are retained 0.3.9 implementations. They
+> remain historical/transition code until Animation V2 in Pre11 and are not
+> frozen 0.4 APIs.
+>
+> An Animator or `StateMachineBehaviour` callback must never call StateGraph,
+> request an immediate transition, or mutate the current Frozen Context Frame.
 
 Animation is a thin Animator / SMB utility layer. It does not contain a built-in
 IK solver, rig graph, weapon mount system, procedural locomotion system, or
@@ -10,10 +16,11 @@ full-body animation stack.
 
 ```mermaid
 flowchart TD
-  State["CoCoStateController / State Layers"] -->|"Play / CrossFade / Set parameter"| AnimHandler["AnimHandler"]
+  LegacyCaller["Legacy 0.3.9 gameplay caller"] -->|"Play / CrossFade / Set parameter"| AnimHandler["AnimHandler"]
   AnimHandler --> Animator["Animator"]
   Animator -->|"StateMachineBehaviour callbacks"| AnimEventSmb["AnimEventSmb"]
   AnimEventSmb -->|"normalized-time event"| AnimHandler
+  AnimHandler -->|"presentation notification only"| ProjectListener["Project presentation listener"]
   Injector["AnimEventSmbInjector"] -->|"editor-time injection"| AnimatorController["Animator Controller"]
   Editor["AnimEventSmbEditor"] -->|"event list editing"| AnimEventSmb
 ```
@@ -27,7 +34,7 @@ flowchart TD
 | `AnimEventSmbInjector` | Editor window that injects `AnimEventSmb` into all states of an Animator Controller, with an option to clear existing instances first. |
 | `AnimEventSmbEditor` | Custom inspector for editing `AnimEventSmb` event names and trigger times. |
 
-## Runtime Usage
+## Legacy 0.3.9 Runtime Usage
 
 Place `AnimHandler` beside the character `Animator`:
 
@@ -39,8 +46,10 @@ PlayerRoot
       AnimHandler
 ```
 
-Gameplay or State Layer code can resolve `AnimHandler` and call the small
-operation surface:
+The retained 0.3.9 runtime allows project gameplay code to call the small facade
+below. This example is documentation for existing transition code only. New 0.4
+StateLogic must use the Animation Operation boundary to be introduced in Pre11
+and must not resolve `AnimHandler` directly.
 
 ```csharp
 animHandler.CrossFadeAnimation("Move", 0.1f);
@@ -52,6 +61,9 @@ For animation-authored events, subscribe to `OnSpecificFrameEvent`,
 `OnAnimStateEnter`, or `OnAnimStateExit` from project-side code. CoCoFlow keeps
 the event payload as a string so projects can route it into their own gameplay
 contracts without the Animation module learning business-specific semantics.
+These callbacks may update presentation-local state or enqueue data for a later
+Operation/Source boundary. They may not call StateGraph or make a write visible
+inside the current Tick.
 
 ## Editor Workflow
 
@@ -66,6 +78,10 @@ inspector. `Trigger Time` is normalized state time in the `0..1` range.
 
 ## Boundaries
 
+- Current SMB callbacks are one-way presentation notifications; there is no
+  callback edge into StateGraph.
+- Pre11 owns the Playable graph, animation Operation contracts, transition
+  animation, combo timing, and root-motion ownership decisions.
 - Does not create a Rigging State Layer.
 - Does not extend `CharacterContext`.
 - Does not include Foot IK, hand IK, weapon mounts, full-body animation,
