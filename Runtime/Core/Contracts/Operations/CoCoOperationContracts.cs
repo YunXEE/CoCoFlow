@@ -12,7 +12,7 @@ namespace CoCoFlow.Runtime.Core
 
     public interface ICoCoOperationCommandSink
     {
-        void Submit<TCommand>(CoCoOperationRequirement requirement, TCommand command)
+        void Submit<TCommand>(CoCoOperationPortRequirement requirement, TCommand command)
             where TCommand : unmanaged, ICoCoOperationCommand;
     }
 
@@ -20,9 +20,9 @@ namespace CoCoFlow.Runtime.Core
     {
     }
 
-    public readonly struct CoCoOperationRequirement : IEquatable<CoCoOperationRequirement>
+    public readonly struct CoCoOperationPortRequirement : IEquatable<CoCoOperationPortRequirement>
     {
-        private CoCoOperationRequirement(Type portType)
+        private CoCoOperationPortRequirement(Type portType)
         {
             PortType = portType;
         }
@@ -30,18 +30,23 @@ namespace CoCoFlow.Runtime.Core
         public Type PortType { get; }
         public bool IsValid => PortType != null;
 
-        public static CoCoOperationRequirement For<TPort>()
+        public static CoCoOperationPortRequirement For<TPort>()
             where TPort : ICoCoOperationPort
         {
             return RequirementCache<TPort>.Value;
         }
 
-        public bool Equals(CoCoOperationRequirement other) => PortType == other.PortType;
-        public override bool Equals(object obj) => obj is CoCoOperationRequirement other && Equals(other);
+        public bool Equals(CoCoOperationPortRequirement other) => PortType == other.PortType;
+        public override bool Equals(object obj) => obj is CoCoOperationPortRequirement other && Equals(other);
         public override int GetHashCode() => PortType?.GetHashCode() ?? 0;
 
-        public static bool operator ==(CoCoOperationRequirement left, CoCoOperationRequirement right) => left.Equals(right);
-        public static bool operator !=(CoCoOperationRequirement left, CoCoOperationRequirement right) => !left.Equals(right);
+        public static bool operator ==(
+            CoCoOperationPortRequirement left,
+            CoCoOperationPortRequirement right) => left.Equals(right);
+
+        public static bool operator !=(
+            CoCoOperationPortRequirement left,
+            CoCoOperationPortRequirement right) => !left.Equals(right);
 
         private static bool IsPortInterface(Type portType)
         {
@@ -54,9 +59,9 @@ namespace CoCoFlow.Runtime.Core
         private static class RequirementCache<TPort>
             where TPort : ICoCoOperationPort
         {
-            public static readonly CoCoOperationRequirement Value =
+            public static readonly CoCoOperationPortRequirement Value =
                 IsPortInterface(typeof(TPort))
-                    ? new CoCoOperationRequirement(typeof(TPort))
+                    ? new CoCoOperationPortRequirement(typeof(TPort))
                     : default;
         }
     }

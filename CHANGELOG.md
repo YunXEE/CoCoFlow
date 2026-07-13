@@ -26,7 +26,14 @@ projects and does not include a migration runtime for 0.3.9 projects.
   the Pre3 StateGraph Asset/Compiler work.
 - Tightened Context Section validation to accept only parameterless abstract
   instance getters and reject indexers, default/static members, fields, native
-  handles, and by-ref-like fact values.
+  handles, by-ref-like fact values, and strings nested inside composite value
+  facts while continuing to allow a direct immutable string fact.
+- Renamed the public dependency tokens to `CoCoContextSectionRequirement` and
+  `CoCoOperationPortRequirement` before the Pre1 contract is merged.
+- Froze the later-Pre authoring boundary around one `CoCoStateGraphHost` per
+  actor, one ContextRuntime per GraphRuntime instance, framework-owned Context
+  composition, and explicit Source/Operation bindings instead of a user-authored
+  Root Context or Provider connection.
 - Made failed TimelinePosition creation return an invalid sentinel, rejected
   malformed Diagnostic domain/code values, and allowed Created Runtime values
   to Dispose explicitly before their first Run.

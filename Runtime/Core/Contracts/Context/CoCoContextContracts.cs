@@ -30,11 +30,11 @@ namespace CoCoFlow.Runtime.Core
     {
         CoCoContextRevision Revision { get; }
 
-        TSection GetSection<TSection>(CoCoContextRequirement requirement)
+        TSection GetSection<TSection>(CoCoContextSectionRequirement requirement)
             where TSection : class, ICoCoContextSection;
     }
 
-    public readonly struct CoCoContextRequirement : IEquatable<CoCoContextRequirement>
+    public readonly struct CoCoContextSectionRequirement : IEquatable<CoCoContextSectionRequirement>
     {
         private const BindingFlags DeclaredSurfaceFlags =
             BindingFlags.Public |
@@ -43,7 +43,7 @@ namespace CoCoFlow.Runtime.Core
             BindingFlags.Static |
             BindingFlags.DeclaredOnly;
 
-        private CoCoContextRequirement(Type sectionType)
+        private CoCoContextSectionRequirement(Type sectionType)
         {
             SectionType = sectionType;
         }
@@ -51,7 +51,7 @@ namespace CoCoFlow.Runtime.Core
         public Type SectionType { get; }
         public bool IsValid => SectionType != null;
 
-        public static CoCoContextRequirement For<TSection>()
+        public static CoCoContextSectionRequirement For<TSection>()
             where TSection : class, ICoCoContextSection
         {
             return RequirementCache<TSection>.Value;
@@ -63,12 +63,17 @@ namespace CoCoFlow.Runtime.Core
             return IsValid && SectionType == typeof(TSection);
         }
 
-        public bool Equals(CoCoContextRequirement other) => SectionType == other.SectionType;
-        public override bool Equals(object obj) => obj is CoCoContextRequirement other && Equals(other);
+        public bool Equals(CoCoContextSectionRequirement other) => SectionType == other.SectionType;
+        public override bool Equals(object obj) => obj is CoCoContextSectionRequirement other && Equals(other);
         public override int GetHashCode() => SectionType?.GetHashCode() ?? 0;
 
-        public static bool operator ==(CoCoContextRequirement left, CoCoContextRequirement right) => left.Equals(right);
-        public static bool operator !=(CoCoContextRequirement left, CoCoContextRequirement right) => !left.Equals(right);
+        public static bool operator ==(
+            CoCoContextSectionRequirement left,
+            CoCoContextSectionRequirement right) => left.Equals(right);
+
+        public static bool operator !=(
+            CoCoContextSectionRequirement left,
+            CoCoContextSectionRequirement right) => !left.Equals(right);
 
         private static bool IsSectionInterface(Type sectionType)
         {
@@ -95,7 +100,7 @@ namespace CoCoFlow.Runtime.Core
                     property.GetIndexParameters().Length != 0 ||
                     getter.GetParameters().Length != 0 ||
                     getter.ReturnParameter.ParameterType.IsByRef ||
-                    !IsFrozenFactType(property.PropertyType))
+                    !IsTopLevelFactType(property.PropertyType))
                 {
                     return false;
                 }
@@ -145,7 +150,12 @@ namespace CoCoFlow.Runtime.Core
             return false;
         }
 
-        private static bool IsFrozenFactType(Type factType)
+        private static bool IsTopLevelFactType(Type factType)
+        {
+            return factType == typeof(string) || IsReferenceFreeValueType(factType);
+        }
+
+        private static bool IsReferenceFreeValueType(Type factType)
         {
             if (factType == null ||
                 factType.IsByRef ||
@@ -157,7 +167,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (factType == typeof(string) || factType.IsPrimitive || factType.IsEnum)
+            if (factType.IsPrimitive || factType.IsEnum)
             {
                 return true;
             }
@@ -171,7 +181,7 @@ namespace CoCoFlow.Runtime.Core
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             for (int index = 0; index < fields.Length; index++)
             {
-                if (!IsFrozenFactType(fields[index].FieldType))
+                if (!IsReferenceFreeValueType(fields[index].FieldType))
                 {
                     return false;
                 }
@@ -183,9 +193,9 @@ namespace CoCoFlow.Runtime.Core
         private static class RequirementCache<TSection>
             where TSection : class, ICoCoContextSection
         {
-            public static readonly CoCoContextRequirement Value =
+            public static readonly CoCoContextSectionRequirement Value =
                 IsSectionInterface(typeof(TSection))
-                    ? new CoCoContextRequirement(typeof(TSection))
+                    ? new CoCoContextSectionRequirement(typeof(TSection))
                     : default;
         }
     }

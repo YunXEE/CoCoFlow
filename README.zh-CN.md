@@ -16,7 +16,8 @@ Context 驱动决策、显式受控的 Operation，以及由宿主推进的确�
 Pre1 确立后续所有预发布版本必须遵守的依赖方向：
 
 ```text
-手动绑定的 Sources
+显式绑定的 Sources
+  -> 框架托管的 ContextRuntime 采样与合并
   -> Frozen Context Frame N
   -> 相互独立的 Layered HFSM Layers
   -> 已声明的 Operation 准入口
@@ -40,9 +41,10 @@ Core 规则：
 - StateLogic 只读取一份冻结的 Context Frame，不能回写 Context。
 - Context Section 只允许 public abstract instance property，并且必须是无参数 getter。
   Indexer、default/static member、field、callback、Unity Object、引用型 collection、
-  native handle 与 stack-only value 都会被拒绝；事实只允许 immutable string 或不含
-  引用的 value。读取必须携带匹配 Requirement，不暴露 mutable root、Source、Writer
-  或具体 Provider 类型。
+  native handle 与 stack-only value 都会被拒绝。直接 Fact 可以是 immutable string；
+  复合 value fact 必须递归不含引用，因此内部也不能包含 string。读取必须携带匹配的
+  `CoCoContextSectionRequirement`，不暴露 mutable root、Source、Writer 或具体
+  Provider 类型。
 - 每个 Layer 独立拥有一个 HFSM，并计算出一条以末端 State 结束的活跃路径。
 - Layer 按显式优先级执行；一条活跃路径完成当前生命周期阶段后，才处理下一
   个 Layer。
@@ -52,11 +54,25 @@ Core 规则：
 - Runtime 在第一次 Running 前允许 `Created → Disposed`；已经 Running 或 Suspended
   的实例必须先 Stop 再 Dispose。
 - Operation 是唯一受认可的副作用边界，其回写只能在后续 Frozen Frame 可见。
-  StateLogic 通过已声明的 Port Requirement 按值提交 unmanaged Command，因此 Submit
-  不携带托管引用、delegate、共享结果或同步玩法返回通道。Pre5 还必须在派发前校验
-  Port/Command 匹配，并拒绝 native handle、裸指针或函数指针 Command Shape。
+  StateLogic 通过已声明的 `CoCoOperationPortRequirement` 按值提交 unmanaged Command，
+  因此 Submit 不携带托管引用、delegate、共享结果或同步玩法返回通道。Pre5 还必须在
+  派发前校验 Port/Command 匹配，并拒绝 native handle、裸指针或函数指针 Command Shape。
 - Pre1 冻结的是框架提供的 StateLogic 角色，不把任意项目 C# 代码伪装成 CLR 安全沙箱；
   State 作者程序集与依赖限制由 StateGraph Compiler/作者验证对应 Pre 落实。
+
+后续 Pre 必须遵守以下装配边界：
+
+```text
+CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
+GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame 流
+CoCoContextRuntime       1 : N  显式 Context Source Bindings
+Frozen Context Frame     1 : N  相互独立的 Layers
+```
+
+项目不编写聚合 Root Context，也不把 Context Provider 手动接给 Graph。未来的
+`CoCoStateGraphHost` 是 Actor 上唯一的 Unity 框架入口：用户选择 Asset，并显式配置
+Source、Operation、priority、ownership 和 clock/driver。框架在 Running 前验证完整
+配置，Running 后保持固定；Context 不形成第二套节点图或 Visual Scripting。
 
 完整 Frame 与 adapter 规则见
 [Context / Network Boundary](Docs/ContextNetworkBoundary.md)。
@@ -94,8 +110,9 @@ Core Contracts assembly 不得依赖 Gameplay、表现模块、Editor、项目�
 
 Pre1 明确不实现：
 
-- Context V2 组合和 runtime source 解析；
+- Context V2 runtime 组合、生成/编译的 Section View 与 source 解析；
 - `StateGraphAsset`、Graph 编译、Transition 编辑或 Runtime 执行；
+- 统一的 `CoCoStateGraphHost` 及其 Binding Inspector；
 - clock scheduler、变速、transition queue 或 runtime snapshot；
 - Operation ownership/claim 仲裁与回写实现；
 - temporal rewind；

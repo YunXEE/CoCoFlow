@@ -15,8 +15,8 @@ StateGraph 不拥有输入、Unity 生命周期、Animator、网络或持久化�
 ## 权威数据流
 
 ```text
-Manually Bound Sources
-  -> Context Composition
+Explicitly Bound Sources
+  -> framework-owned ContextRuntime sample / priority merge
   -> Frozen Context Frame N
   -> StateGraph
        -> Independent Layer A (Layered HFSM)
@@ -24,12 +24,33 @@ Manually Bound Sources
        -> Independent Layer ...
   -> Declared Operation Entry Points
   -> Operation Execution / Write-back
-  -> Context Composition
+  -> ContextRuntime Next Frame Staging / commit
   -> Frozen Context Frame N + 1
 ```
 
 网络、回放和 Timeline 不创建第二条执行链。它们和输入、AI 一样，只能作为
 Source 或 host driver 接入这条循环。
+
+## 0. Asset、Host 与 Runtime 基数
+
+```text
+CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
+GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame Stream
+CoCoContextRuntime       1 : N  Explicit Context Source Bindings
+Frozen Context Frame     1 : N  Independent Layers
+```
+
+同一个 `CoCoStateGraphAsset` 可以驱动多个 Actor，但不能保存任何场景 Source 或
+Operation 实例引用。每个 Actor 由唯一的 `CoCoStateGraphHost` 作为 Unity 装配入口；
+Host 持有 Asset、显式 Source/Operation Binding 与 Clock/Driver 配置，并在 Running 前
+原子验证和创建一对 GraphRuntimeInstance/CoCoContextRuntime。用户不编写聚合 Root
+Context，也不安装 Context Provider；Section Backing、只读 View、Registry 和 Frame
+Storage 由框架依据编译后的 Context Layout 构建。
+
+Editor 可以在宿主自身及父子层级中建议候选，但必须保存用户确认后的显式 Binding。
+Running 后 Asset、Binding、priority、field ownership 与 Clock 配置固定；0.4.0 不提供
+ContextGraph 或运行中 graph/binding 热替换。上述 `CoCoStateGraphHost`、
+`CoCoContextRuntime`、Layout 与 Inspector 均由后续 Pre 实现，Pre1 只冻结边界。
 
 ## 1. Source Boundary
 
@@ -95,13 +116,14 @@ StateLogic 是解释冻结 Context 的纯 C# 逻辑：
 StateLogic 声明“需要什么”，Context 通过组合实现对应只读能力，Operation registry
 提供允许调用的执行入口。StateLogic 不绑定具体项目组件，也不负责运行时搜索。
 
-Section Requirement 只接受非根、仅声明 public abstract instance property 的 Section
-interface；每个 property 必须是无参数 getter。Indexer、default/static member、field、
-event 和其他 method 均非法。getter 的事实只能是 immutable string 或递归不含托管
-引用的普通 value，不允许 ref return、ref-like value、IntPtr/UIntPtr、callback、引用型
-或动态长度 collection、Unity Object 及其他 mutable reference。StateLogic 每次读取都
-必须携带与目标接口匹配的 Requirement；具体 Context 实现、Source、Writer 和 mutable
-root 不属于读取准入口。
+`CoCoContextSectionRequirement` 只接受非根、仅声明 public abstract instance property
+的 Section interface；每个 property 必须是无参数 getter。Indexer、default/static
+member、field、event 和其他 method 均非法。getter 可以直接返回 immutable string；
+复合 value fact 必须递归不含托管引用，因此内部也不能包含 string。ref return、
+ref-like value、IntPtr/UIntPtr、callback、引用型或动态长度 collection、Unity Object 及
+其他 mutable reference 均非法。StateLogic 每次读取都必须携带与目标接口匹配的
+Requirement；`ICoCoContextSection` 是 Schema 声明，不是让项目实现并交给 Runtime 的
+mutable Root。具体 Context storage、Source、Writer 和 Frame Builder 不属于读取准入口。
 
 缺少声明为必需的 Context 能力或 Operation 绑定时，Graph instance 必须在启动前
 给出结构化诊断并拒绝启动，不能等到某个 State 执行后再抛空引用。
@@ -125,7 +147,7 @@ Operation 不可以：
 - 绕过 StateGraph 直接改写某个 Layer 的 active path；
 - 依赖未声明的全局查找结果。
 
-Pre1 的命令准入口必须携带已声明的 Port Requirement，并按值接收实现
+Pre1 的命令准入口必须携带已声明的 `CoCoOperationPortRequirement`，并按值接收实现
 `ICoCoOperationCommand` 的 unmanaged struct；因此托管引用与托管 delegate 不能跨越
 Submit，Submit 本身也没有同步返回值。`unmanaged` 不等于 handle-free：Pre5 必须缓存
 校验 Binding 支持的 Command 集合，并在派发前递归拒绝 IntPtr/UIntPtr、裸指针和函数

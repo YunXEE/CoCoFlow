@@ -74,17 +74,28 @@ namespace CoCoFlow.Editor.Core
                 return;
             }
 
-            if (selected is MonoBehaviour behaviour &&
-                IsValidContextProvider(behaviour, RequiredContextType, out _))
+            if (selected is not MonoBehaviour behaviour ||
+                !IsValidContextProvider(behaviour, RequiredContextType, out _))
             {
-                property.objectReferenceValue = selected;
+                EditorUtility.DisplayDialog(
+                    "Context Provider",
+                    "Selected component does not implement the required ICoCoContextProvider<TContext> contract.",
+                    "OK");
                 return;
             }
 
-            EditorUtility.DisplayDialog(
-                "Context Provider",
-                "Selected component does not implement the required ICoCoContextProvider<TContext> contract.",
-                "OK");
+            if (!IsContextProviderInScopeForAllTargets(
+                    property.serializedObject.targetObjects,
+                    behaviour))
+            {
+                EditorUtility.DisplayDialog(
+                    "Context Provider",
+                    "Selected component must be on the same GameObject, an ancestor, or a descendant of every edited component.",
+                    "OK");
+                return;
+            }
+
+            property.objectReferenceValue = selected;
         }
 
         private void DrawPickerButtons(
@@ -300,21 +311,43 @@ namespace CoCoFlow.Editor.Core
                 "Child",
                 100);
 
-            var root = sourceTransform.root;
-            if (root != null && root != sourceTransform)
-            {
-                AddProvidersFromChildren(
-                    candidates,
-                    seen,
-                    sourceTransform,
-                    root,
-                    requiredContextType,
-                    "Hierarchy",
-                    200);
-            }
-
             candidates.Sort(CompareContextProviderCandidates);
             return candidates;
+        }
+
+        private static bool IsContextProviderInScopeForAllTargets(
+            UnityEngine.Object[] targetObjects,
+            MonoBehaviour provider)
+        {
+            if (targetObjects == null || targetObjects.Length == 0 || provider == null)
+            {
+                return false;
+            }
+
+            foreach (var targetObject in targetObjects)
+            {
+                if (targetObject is not Component component ||
+                    !IsContextProviderInScope(component.transform, provider.transform))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IsContextProviderInScope(
+            Transform sourceTransform,
+            Transform providerTransform)
+        {
+            if (sourceTransform == null || providerTransform == null)
+            {
+                return false;
+            }
+
+            return sourceTransform == providerTransform ||
+                   sourceTransform.IsChildOf(providerTransform) ||
+                   providerTransform.IsChildOf(sourceTransform);
         }
 
         private static void AddProvidersFromChildren(
@@ -332,6 +365,7 @@ namespace CoCoFlow.Editor.Core
             foreach (var behaviour in behaviours)
             {
                 if (behaviour == null || seen.Contains(behaviour)) continue;
+                if (!IsContextProviderInScope(sourceTransform, behaviour.transform)) continue;
                 if (!IsValidContextProvider(behaviour, requiredContextType, out var contextType)) continue;
 
                 seen.Add(behaviour);
@@ -357,6 +391,7 @@ namespace CoCoFlow.Editor.Core
             foreach (var behaviour in behaviours)
             {
                 if (behaviour == null || seen.Contains(behaviour)) continue;
+                if (!IsContextProviderInScope(sourceTransform, behaviour.transform)) continue;
                 if (!IsValidContextProvider(behaviour, requiredContextType, out var contextType)) continue;
 
                 seen.Add(behaviour);

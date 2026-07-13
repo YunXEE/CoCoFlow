@@ -17,7 +17,8 @@ adventure and action projects.
 Pre1 establishes the dependency direction that later prereleases must follow:
 
 ```text
-manually bound Sources
+explicitly bound Sources
+  -> framework-owned ContextRuntime sample and merge
   -> Frozen Context Frame N
   -> independent Layered HFSM Layers
   -> declared Operation entry points
@@ -42,9 +43,10 @@ Core rules:
 - Context sections declare only public abstract instance properties with
   parameterless getters. Indexers, default/static members, fields, callbacks,
   Unity objects, reference-backed collections, native handles, and stack-only
-  values are rejected; facts are immutable strings or reference-free values.
-  Section reads carry a matching requirement token instead of exposing a
-  mutable root, Source, Writer, or concrete provider type.
+  values are rejected. A direct fact may be an immutable string; composite value
+  facts must be recursively reference-free and therefore cannot contain strings.
+  Section reads carry a matching `CoCoContextSectionRequirement` instead of
+  exposing a mutable root, Source, Writer, or concrete provider type.
 - Every Layer owns an independent HFSM and resolves one active leaf path.
 - Layers execute by explicit priority; a lifecycle phase completes for one
   active path before the next Layer is processed.
@@ -56,13 +58,29 @@ Core rules:
   Running or Suspended instances must Stop before Dispose.
 - Operations are the approved side-effect boundary. Their writes become visible
   only in a later frozen frame. StateLogic submits unmanaged command values
-  through a declared Port requirement, so no managed reference, delegate,
-  shared result, or synchronous gameplay return channel crosses Submit. Pre5
-  additionally validates Port/Command affinity and rejects native handles and
-  pointer-bearing command shapes before dispatch.
+  through a declared `CoCoOperationPortRequirement`, so no managed reference,
+  delegate, shared result, or synchronous gameplay return channel crosses
+  Submit. Pre5 additionally validates Port/Command affinity and rejects native
+  handles and pointer-bearing command shapes before dispatch.
 - Pre1 freezes the framework-provided StateLogic role, not a CLR security
   sandbox for arbitrary project code. State authoring assembly and dependency
   enforcement belongs to the StateGraph Compiler/authoring validation Pres.
+
+The frozen authoring boundary for later Pres is:
+
+```text
+CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
+GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame stream
+CoCoContextRuntime       1 : N  explicit Context Source bindings
+Frozen Context Frame     1 : N  independent Layers
+```
+
+Projects do not author an aggregate Root Context or wire a Context Provider to a
+graph. The future `CoCoStateGraphHost` is the single Unity-facing framework
+component on an actor: users select an asset and explicitly configure Source,
+Operation, priority, ownership, and clock/driver bindings. The framework validates
+the complete configuration before Running and keeps it fixed while Running. This
+does not introduce a second Context graph or visual-scripting surface.
 
 See [Context / Network Boundary](Docs/ContextNetworkBoundary.md) for the complete
 frame and adapter rules.
@@ -102,8 +120,10 @@ depend on Core contracts; Core must never depend back on them.
 
 Pre1 intentionally does not implement:
 
-- Context V2 composition and runtime source resolution;
+- Context V2 runtime composition, generated/compiled Section views, and source
+  resolution;
 - `StateGraphAsset`, graph compilation, transition editing, or runtime execution;
+- the unified `CoCoStateGraphHost` and its binding Inspector;
 - clock schedulers, time scaling, transition queues, or runtime snapshots;
 - Operation ownership/claim arbitration and write-back implementations;
 - temporal rewind;

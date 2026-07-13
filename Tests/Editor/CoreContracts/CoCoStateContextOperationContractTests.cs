@@ -22,7 +22,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             ICoCoContextFrame frame = new TestContextFrame(new CoCoContextRevision(0UL), section);
 
             Assert.AreEqual(0UL, frame.Revision.Value);
-            CoCoContextRequirement requirement = CoCoContextRequirement.For<ITestSection>();
+            CoCoContextSectionRequirement requirement =
+                CoCoContextSectionRequirement.For<ITestSection>();
             ITestSection resolved = frame.GetSection<ITestSection>(requirement);
             Assert.AreSame(section, resolved);
             Assert.AreEqual(42, resolved.Value);
@@ -40,10 +41,12 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void ContextRequirementRejectsConcreteAndRootSectionTypes()
+        public void ContextSectionRequirementRejectsConcreteAndRootSectionTypes()
         {
-            CoCoContextRequirement concreteRequirement = CoCoContextRequirement.For<TestSection>();
-            CoCoContextRequirement rootRequirement = CoCoContextRequirement.For<ICoCoContextSection>();
+            CoCoContextSectionRequirement concreteRequirement =
+                CoCoContextSectionRequirement.For<TestSection>();
+            CoCoContextSectionRequirement rootRequirement =
+                CoCoContextSectionRequirement.For<ICoCoContextSection>();
 
             Assert.IsFalse(concreteRequirement.IsValid);
             Assert.IsNull(concreteRequirement.SectionType);
@@ -52,28 +55,28 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void ContextRequirementRejectsMutableSectionInterfaces()
+        public void ContextSectionRequirementRejectsMutableSectionInterfaces()
         {
-            CoCoContextRequirement writableRequirement =
-                CoCoContextRequirement.For<IWritableTestSection>();
-            CoCoContextRequirement mutatingRequirement =
-                CoCoContextRequirement.For<IMutatingTestSection>();
-            CoCoContextRequirement referenceRequirement =
-                CoCoContextRequirement.For<IReferenceTestSection>();
-            CoCoContextRequirement callbackRequirement =
-                CoCoContextRequirement.For<ICallbackTestSection>();
-            CoCoContextRequirement refReturnRequirement =
-                CoCoContextRequirement.For<IRefReturnTestSection>();
-            CoCoContextRequirement nestedReferenceRequirement =
-                CoCoContextRequirement.For<INestedReferenceTestSection>();
-            CoCoContextRequirement inheritedWritableRequirement =
-                CoCoContextRequirement.For<IInheritedWritableTestSection>();
-            CoCoContextRequirement arrayRequirement =
-                CoCoContextRequirement.For<IArrayTestSection>();
-            CoCoContextRequirement listRequirement =
-                CoCoContextRequirement.For<IListTestSection>();
-            CoCoContextRequirement eventRequirement =
-                CoCoContextRequirement.For<IEventTestSection>();
+            CoCoContextSectionRequirement writableRequirement =
+                CoCoContextSectionRequirement.For<IWritableTestSection>();
+            CoCoContextSectionRequirement mutatingRequirement =
+                CoCoContextSectionRequirement.For<IMutatingTestSection>();
+            CoCoContextSectionRequirement referenceRequirement =
+                CoCoContextSectionRequirement.For<IReferenceTestSection>();
+            CoCoContextSectionRequirement callbackRequirement =
+                CoCoContextSectionRequirement.For<ICallbackTestSection>();
+            CoCoContextSectionRequirement refReturnRequirement =
+                CoCoContextSectionRequirement.For<IRefReturnTestSection>();
+            CoCoContextSectionRequirement nestedReferenceRequirement =
+                CoCoContextSectionRequirement.For<INestedReferenceTestSection>();
+            CoCoContextSectionRequirement inheritedWritableRequirement =
+                CoCoContextSectionRequirement.For<IInheritedWritableTestSection>();
+            CoCoContextSectionRequirement arrayRequirement =
+                CoCoContextSectionRequirement.For<IArrayTestSection>();
+            CoCoContextSectionRequirement listRequirement =
+                CoCoContextSectionRequirement.For<IListTestSection>();
+            CoCoContextSectionRequirement eventRequirement =
+                CoCoContextSectionRequirement.For<IEventTestSection>();
 
             Assert.IsFalse(writableRequirement.IsValid);
             Assert.IsFalse(mutatingRequirement.IsValid);
@@ -88,29 +91,38 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void ContextRequirementRejectsParameterizedStaticAndImplementedMembers()
+        public void ContextSectionRequirementRejectsParameterizedStaticAndImplementedMembers()
         {
-            Assert.IsFalse(CoCoContextRequirement.For<IIndexerTestSection>().IsValid);
-            Assert.IsFalse(CoCoContextRequirement.For<IStaticPropertyTestSection>().IsValid);
-            Assert.IsFalse(CoCoContextRequirement.For<IDefaultPropertyTestSection>().IsValid);
-            Assert.IsFalse(CoCoContextRequirement.For<IStaticFieldTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IIndexerTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IStaticPropertyTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IDefaultPropertyTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IStaticFieldTestSection>().IsValid);
         }
 
         [Test]
-        public void ContextRequirementRejectsHandleAndRefLikeFactTypes()
+        public void ContextSectionRequirementRejectsHandleAndRefLikeFactTypes()
         {
-            Assert.IsFalse(CoCoContextRequirement.For<IIntPtrTestSection>().IsValid);
-            Assert.IsFalse(CoCoContextRequirement.For<IUIntPtrTestSection>().IsValid);
-            Assert.IsFalse(CoCoContextRequirement.For<IRefLikeTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IIntPtrTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IUIntPtrTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IRefLikeTestSection>().IsValid);
         }
 
         [Test]
-        public void ContextRequirementAcceptsReferenceFreeValueFactsReturnedByValue()
+        public void ContextSectionRequirementAcceptsReferenceFreeValueFactsReturnedByValue()
         {
-            Assert.IsTrue(CoCoContextRequirement.For<IInheritedReadOnlyTestSection>().IsValid);
-            Assert.IsTrue(CoCoContextRequirement.For<INullableTestSection>().IsValid);
-            Assert.IsTrue(CoCoContextRequirement.For<ICompositeValueTestSection>().IsValid);
-            Assert.IsTrue(CoCoContextRequirement.For<IGenericValueTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextSectionRequirement.For<IInheritedReadOnlyTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextSectionRequirement.For<INullableTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextSectionRequirement.For<ICompositeValueTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextSectionRequirement.For<IGenericValueTestSection>().IsValid);
+        }
+
+        [Test]
+        public void ContextSectionRequirementAllowsTopLevelStringButRejectsNestedStrings()
+        {
+            Assert.IsTrue(CoCoContextSectionRequirement.For<IStringTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<INestedStringTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IPrivateNestedStringTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextSectionRequirement.For<IDeeplyNestedStringTestSection>().IsValid);
         }
 
         [Test]
@@ -131,7 +143,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreNotEqual(typeof(bool), getSection.ReturnType);
             ParameterInfo[] parameters = getSection.GetParameters();
             Assert.AreEqual(1, parameters.Length);
-            Assert.AreEqual(typeof(CoCoContextRequirement), parameters[0].ParameterType);
+            Assert.AreEqual(typeof(CoCoContextSectionRequirement), parameters[0].ParameterType);
         }
 
         [Test]
@@ -139,7 +151,8 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             var sink = new RecordingCommandSink();
             var command = new TestCommand(42);
-            CoCoOperationRequirement requirement = CoCoOperationRequirement.For<ITestPort>();
+            CoCoOperationPortRequirement requirement =
+                CoCoOperationPortRequirement.For<ITestPort>();
 
             sink.Submit(requirement, command);
             Assert.AreEqual(42, command.Value);
@@ -157,12 +170,12 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void OperationRequirementRejectsConcreteAndRootPortTypes()
+        public void OperationPortRequirementRejectsConcreteAndRootPortTypes()
         {
-            CoCoOperationRequirement concreteRequirement =
-                CoCoOperationRequirement.For<TestPortImplementation>();
-            CoCoOperationRequirement rootRequirement =
-                CoCoOperationRequirement.For<ICoCoOperationPort>();
+            CoCoOperationPortRequirement concreteRequirement =
+                CoCoOperationPortRequirement.For<TestPortImplementation>();
+            CoCoOperationPortRequirement rootRequirement =
+                CoCoOperationPortRequirement.For<ICoCoOperationPort>();
 
             Assert.IsFalse(concreteRequirement.IsValid);
             Assert.IsNull(concreteRequirement.PortType);
@@ -180,7 +193,7 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             ParameterInfo[] parameters = submit.GetParameters();
             Assert.AreEqual(2, parameters.Length);
-            Assert.AreEqual(typeof(CoCoOperationRequirement), parameters[0].ParameterType);
+            Assert.AreEqual(typeof(CoCoOperationPortRequirement), parameters[0].ParameterType);
 
             Type commandType = submit.GetGenericArguments()[0];
             GenericParameterAttributes attributes = commandType.GenericParameterAttributes;
@@ -193,10 +206,19 @@ namespace CoCoFlow.Runtime.Core.Tests
                 attribute => attribute.GetType().FullName ==
                              "System.Runtime.CompilerServices.IsUnmanagedAttribute"));
 
-            Assert.IsNull(typeof(CoCoOperationRequirement).GetProperty("Optional"));
+            Assert.IsNull(typeof(CoCoOperationPortRequirement).GetProperty("Optional"));
             Assert.IsFalse(Array.Exists(
-                typeof(CoCoOperationRequirement).GetMembers(),
+                typeof(CoCoOperationPortRequirement).GetMembers(),
                 member => member.Name.IndexOf("Optional", StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        [Test]
+        public void RequirementRenamesExposeNoLegacyAliases()
+        {
+            Assembly contractsAssembly = typeof(ICoCoContextFrame).Assembly;
+
+            Assert.IsNull(contractsAssembly.GetType("CoCoFlow.Runtime.Core.CoCoContextRequirement"));
+            Assert.IsNull(contractsAssembly.GetType("CoCoFlow.Runtime.Core.CoCoOperationRequirement"));
         }
 
         private static void AssertCallbackFreeRole(Type roleType)
@@ -318,6 +340,26 @@ namespace CoCoFlow.Runtime.Core.Tests
             GenericValueFact<int> Value { get; }
         }
 
+        private interface IStringTestSection : ICoCoContextSection
+        {
+            string Value { get; }
+        }
+
+        private interface INestedStringTestSection : ICoCoContextSection
+        {
+            NestedStringFact Value { get; }
+        }
+
+        private interface IPrivateNestedStringTestSection : ICoCoContextSection
+        {
+            PrivateNestedStringFact Value { get; }
+        }
+
+        private interface IDeeplyNestedStringTestSection : ICoCoContextSection
+        {
+            DeeplyNestedStringFact Value { get; }
+        }
+
         private struct NestedReferenceFact
         {
             public object Value;
@@ -338,6 +380,28 @@ namespace CoCoFlow.Runtime.Core.Tests
             where T : struct
         {
             public T Value;
+        }
+
+        private struct NestedStringFact
+        {
+            public string Value;
+        }
+
+        private struct PrivateNestedStringFact
+        {
+            private readonly string _value;
+
+            public PrivateNestedStringFact(string value)
+            {
+                _value = value;
+            }
+
+            public string Value => _value;
+        }
+
+        private struct DeeplyNestedStringFact
+        {
+            public NestedStringFact Value;
         }
 
         private sealed class TestSection : ITestSection
@@ -362,7 +426,7 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             public CoCoContextRevision Revision { get; }
 
-            public TSection GetSection<TSection>(CoCoContextRequirement requirement)
+            public TSection GetSection<TSection>(CoCoContextSectionRequirement requirement)
                 where TSection : class, ICoCoContextSection
             {
                 if (!requirement.Matches<TSection>())
@@ -399,9 +463,9 @@ namespace CoCoFlow.Runtime.Core.Tests
         private sealed class RecordingCommandSink : ICoCoOperationCommandSink
         {
             public TestCommand LastCommand { get; private set; }
-            public CoCoOperationRequirement LastRequirement { get; private set; }
+            public CoCoOperationPortRequirement LastRequirement { get; private set; }
 
-            public void Submit<TCommand>(CoCoOperationRequirement requirement, TCommand command)
+            public void Submit<TCommand>(CoCoOperationPortRequirement requirement, TCommand command)
                 where TCommand : unmanaged, ICoCoOperationCommand
             {
                 if (!requirement.IsValid)
