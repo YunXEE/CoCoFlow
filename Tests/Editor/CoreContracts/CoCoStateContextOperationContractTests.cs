@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 
@@ -65,6 +66,14 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CoCoContextRequirement.For<IRefReturnTestSection>();
             CoCoContextRequirement nestedReferenceRequirement =
                 CoCoContextRequirement.For<INestedReferenceTestSection>();
+            CoCoContextRequirement inheritedWritableRequirement =
+                CoCoContextRequirement.For<IInheritedWritableTestSection>();
+            CoCoContextRequirement arrayRequirement =
+                CoCoContextRequirement.For<IArrayTestSection>();
+            CoCoContextRequirement listRequirement =
+                CoCoContextRequirement.For<IListTestSection>();
+            CoCoContextRequirement eventRequirement =
+                CoCoContextRequirement.For<IEventTestSection>();
 
             Assert.IsFalse(writableRequirement.IsValid);
             Assert.IsFalse(mutatingRequirement.IsValid);
@@ -72,6 +81,36 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(callbackRequirement.IsValid);
             Assert.IsFalse(refReturnRequirement.IsValid);
             Assert.IsFalse(nestedReferenceRequirement.IsValid);
+            Assert.IsFalse(inheritedWritableRequirement.IsValid);
+            Assert.IsFalse(arrayRequirement.IsValid);
+            Assert.IsFalse(listRequirement.IsValid);
+            Assert.IsFalse(eventRequirement.IsValid);
+        }
+
+        [Test]
+        public void ContextRequirementRejectsParameterizedStaticAndImplementedMembers()
+        {
+            Assert.IsFalse(CoCoContextRequirement.For<IIndexerTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextRequirement.For<IStaticPropertyTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextRequirement.For<IDefaultPropertyTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextRequirement.For<IStaticFieldTestSection>().IsValid);
+        }
+
+        [Test]
+        public void ContextRequirementRejectsHandleAndRefLikeFactTypes()
+        {
+            Assert.IsFalse(CoCoContextRequirement.For<IIntPtrTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextRequirement.For<IUIntPtrTestSection>().IsValid);
+            Assert.IsFalse(CoCoContextRequirement.For<IRefLikeTestSection>().IsValid);
+        }
+
+        [Test]
+        public void ContextRequirementAcceptsReferenceFreeValueFactsReturnedByValue()
+        {
+            Assert.IsTrue(CoCoContextRequirement.For<IInheritedReadOnlyTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextRequirement.For<INullableTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextRequirement.For<ICompositeValueTestSection>().IsValid);
+            Assert.IsTrue(CoCoContextRequirement.For<IGenericValueTestSection>().IsValid);
         }
 
         [Test]
@@ -181,6 +220,14 @@ namespace CoCoFlow.Runtime.Core.Tests
             int Value { get; set; }
         }
 
+        private interface IInheritedReadOnlyTestSection : ITestSection
+        {
+        }
+
+        private interface IInheritedWritableTestSection : IWritableTestSection
+        {
+        }
+
         private interface IMutatingTestSection : ICoCoContextSection
         {
             void Mutate();
@@ -206,9 +253,91 @@ namespace CoCoFlow.Runtime.Core.Tests
             NestedReferenceFact Value { get; }
         }
 
+        private interface IArrayTestSection : ICoCoContextSection
+        {
+            int[] Values { get; }
+        }
+
+        private interface IListTestSection : ICoCoContextSection
+        {
+            List<int> Values { get; }
+        }
+
+        private interface IEventTestSection : ICoCoContextSection
+        {
+            event Action Changed;
+        }
+
+        private interface IIndexerTestSection : ICoCoContextSection
+        {
+            int this[int index] { get; }
+        }
+
+        private interface IStaticPropertyTestSection : ICoCoContextSection
+        {
+            static int Value => 1;
+        }
+
+        private interface IDefaultPropertyTestSection : ICoCoContextSection
+        {
+            int Value => 1;
+        }
+
+        private interface IStaticFieldTestSection : ICoCoContextSection
+        {
+            static int Value = 1;
+        }
+
+        private interface IIntPtrTestSection : ICoCoContextSection
+        {
+            IntPtr Value { get; }
+        }
+
+        private interface IUIntPtrTestSection : ICoCoContextSection
+        {
+            UIntPtr Value { get; }
+        }
+
+        private interface IRefLikeTestSection : ICoCoContextSection
+        {
+            PrimitiveRefLikeFact Value { get; }
+        }
+
+        private interface INullableTestSection : ICoCoContextSection
+        {
+            int? Value { get; }
+        }
+
+        private interface ICompositeValueTestSection : ICoCoContextSection
+        {
+            CompositeValueFact Value { get; }
+        }
+
+        private interface IGenericValueTestSection : ICoCoContextSection
+        {
+            GenericValueFact<int> Value { get; }
+        }
+
         private struct NestedReferenceFact
         {
             public object Value;
+        }
+
+        private ref struct PrimitiveRefLikeFact
+        {
+            public int Value;
+        }
+
+        private struct CompositeValueFact
+        {
+            public int Count;
+            public bool IsReady;
+        }
+
+        private struct GenericValueFact<T>
+            where T : struct
+        {
+            public T Value;
         }
 
         private sealed class TestSection : ITestSection

@@ -71,6 +71,24 @@ namespace CoCoFlow.Runtime.Core
             CoCoDiagnosticCode code,
             string message)
         {
+            if (domain == CoCoDiagnosticDomain.None ||
+                !Enum.IsDefined(typeof(CoCoDiagnosticDomain), domain))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(domain),
+                    domain,
+                    "An error diagnostic requires a defined, non-None domain.");
+            }
+
+            if (code == CoCoDiagnosticCode.None ||
+                !Enum.IsDefined(typeof(CoCoDiagnosticCode), code))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(code),
+                    code,
+                    "An error diagnostic requires a defined, non-None code.");
+            }
+
             return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Error, message);
         }
 

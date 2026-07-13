@@ -20,6 +20,7 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [TestCase(CoCoRuntimeLifecycleState.Created, CoCoRuntimeLifecycleState.Running)]
+        [TestCase(CoCoRuntimeLifecycleState.Created, CoCoRuntimeLifecycleState.Disposed)]
         [TestCase(CoCoRuntimeLifecycleState.Running, CoCoRuntimeLifecycleState.Suspended)]
         [TestCase(CoCoRuntimeLifecycleState.Suspended, CoCoRuntimeLifecycleState.Running)]
         [TestCase(CoCoRuntimeLifecycleState.Running, CoCoRuntimeLifecycleState.Stopped)]
@@ -98,12 +99,35 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(CoCoDiagnosticCode.CrossLayerReference, error.Code);
         }
 
+        [Test]
+        public void ErrorDiagnosticRejectsNoneAndUndefinedStructure()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.None,
+                CoCoDiagnosticCode.CrossLayerReference,
+                "Missing domain."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Error(
+                (CoCoDiagnosticDomain)int.MaxValue,
+                CoCoDiagnosticCode.CrossLayerReference,
+                "Undefined domain."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Topology,
+                CoCoDiagnosticCode.None,
+                "Missing code."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Topology,
+                (CoCoDiagnosticCode)int.MaxValue,
+                "Undefined code."));
+        }
+
         private static bool IsFrozenLifecycleEdge(
             CoCoRuntimeLifecycleState currentState,
             CoCoRuntimeLifecycleState nextState)
         {
             return currentState == CoCoRuntimeLifecycleState.Created &&
                    nextState == CoCoRuntimeLifecycleState.Running ||
+                   currentState == CoCoRuntimeLifecycleState.Created &&
+                   nextState == CoCoRuntimeLifecycleState.Disposed ||
                    currentState == CoCoRuntimeLifecycleState.Running &&
                    nextState == CoCoRuntimeLifecycleState.Suspended ||
                    currentState == CoCoRuntimeLifecycleState.Suspended &&

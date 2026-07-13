@@ -38,18 +38,25 @@ Pre1 确立后续所有预发布版本必须遵守的依赖方向：
 Core 规则：
 
 - StateLogic 只读取一份冻结的 Context Frame，不能回写 Context。
-- Context Section 以只有 getter 的接口声明，事实只允许 immutable string 或不含引用
-  的 value；读取时必须携带与接口匹配的 Requirement，不暴露 mutable root、callback、
-  Unity Object、collection 或具体 Provider 类型。
+- Context Section 只允许 public abstract instance property，并且必须是无参数 getter。
+  Indexer、default/static member、field、callback、Unity Object、引用型 collection、
+  native handle 与 stack-only value 都会被拒绝；事实只允许 immutable string 或不含
+  引用的 value。读取必须携带匹配 Requirement，不暴露 mutable root、Source、Writer
+  或具体 Provider 类型。
 - 每个 Layer 独立拥有一个 HFSM，并计算出一条以末端 State 结束的活跃路径。
 - Layer 按显式优先级执行；一条活跃路径完成当前生命周期阶段后，才处理下一
   个 Layer。
 - Unity callback 只是宿主输入，不等于 CoCo 时钟。Variable、Fixed、Manual
   driver 产生的 CoCo Tick 数量可以与 Unity callback 数量不同。
 - 零或负 delta 非法。Suspend 不产生 Tick，因此也没有 Frozen Frame 采样。
+- Runtime 在第一次 Running 前允许 `Created → Disposed`；已经 Running 或 Suspended
+  的实例必须先 Stop 再 Dispose。
 - Operation 是唯一受认可的副作用边界，其回写只能在后续 Frozen Frame 可见。
-  StateLogic 通过已声明的 Port Requirement 按值提交 unmanaged Command，因此准入口
-  不携带 callback、共享引用结果或同步玩法返回通道。
+  StateLogic 通过已声明的 Port Requirement 按值提交 unmanaged Command，因此 Submit
+  不携带托管引用、delegate、共享结果或同步玩法返回通道。Pre5 还必须在派发前校验
+  Port/Command 匹配，并拒绝 native handle、裸指针或函数指针 Command Shape。
+- Pre1 冻结的是框架提供的 StateLogic 角色，不把任意项目 C# 代码伪装成 CLR 安全沙箱；
+  State 作者程序集与依赖限制由 StateGraph Compiler/作者验证对应 Pre 落实。
 
 完整 Frame 与 adapter 规则见
 [Context / Network Boundary](Docs/ContextNetworkBoundary.md)。

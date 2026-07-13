@@ -36,6 +36,13 @@ namespace CoCoFlow.Runtime.Core
 
     public readonly struct CoCoContextRequirement : IEquatable<CoCoContextRequirement>
     {
+        private const BindingFlags DeclaredSurfaceFlags =
+            BindingFlags.Public |
+            BindingFlags.NonPublic |
+            BindingFlags.Instance |
+            BindingFlags.Static |
+            BindingFlags.DeclaredOnly;
+
         private CoCoContextRequirement(Type sectionType)
         {
             SectionType = sectionType;
@@ -74,7 +81,7 @@ namespace CoCoFlow.Runtime.Core
 
         private static bool HasReadOnlySurface(Type sectionType)
         {
-            PropertyInfo[] properties = sectionType.GetProperties();
+            PropertyInfo[] properties = sectionType.GetProperties(DeclaredSurfaceFlags);
             for (int index = 0; index < properties.Length; index++)
             {
                 PropertyInfo property = properties[index];
@@ -82,6 +89,11 @@ namespace CoCoFlow.Runtime.Core
                 if (!property.CanRead ||
                     property.CanWrite ||
                     getter == null ||
+                    !getter.IsPublic ||
+                    !getter.IsAbstract ||
+                    getter.IsStatic ||
+                    property.GetIndexParameters().Length != 0 ||
+                    getter.GetParameters().Length != 0 ||
                     getter.ReturnParameter.ParameterType.IsByRef ||
                     !IsFrozenFactType(property.PropertyType))
                 {
@@ -89,19 +101,19 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
-            MethodInfo[] methods = sectionType.GetMethods();
+            if (sectionType.GetFields(DeclaredSurfaceFlags).Length != 0 ||
+                sectionType.GetEvents(DeclaredSurfaceFlags).Length != 0)
+            {
+                return false;
+            }
+
+            MethodInfo[] methods = sectionType.GetMethods(DeclaredSurfaceFlags);
             for (int index = 0; index < methods.Length; index++)
             {
-                if (!methods[index].IsSpecialName ||
-                    !methods[index].Name.StartsWith("get_", StringComparison.Ordinal))
+                if (!IsDeclaredPropertyGetter(methods[index], properties))
                 {
                     return false;
                 }
-            }
-
-            if (sectionType.GetEvents().Length != 0)
-            {
-                return false;
             }
 
             Type[] inheritedInterfaces = sectionType.GetInterfaces();
@@ -118,18 +130,39 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        private static bool IsDeclaredPropertyGetter(
+            MethodInfo method,
+            PropertyInfo[] properties)
+        {
+            for (int index = 0; index < properties.Length; index++)
+            {
+                if (properties[index].GetMethod == method)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool IsFrozenFactType(Type factType)
         {
+            if (factType == null ||
+                factType.IsByRef ||
+                factType.IsPointer ||
+                factType.IsByRefLike ||
+                factType == typeof(IntPtr) ||
+                factType == typeof(UIntPtr))
+            {
+                return false;
+            }
+
             if (factType == typeof(string) || factType.IsPrimitive || factType.IsEnum)
             {
                 return true;
             }
 
-            if (!factType.IsValueType ||
-                factType.IsByRef ||
-                factType.IsPointer ||
-                factType == typeof(IntPtr) ||
-                factType == typeof(UIntPtr))
+            if (!factType.IsValueType)
             {
                 return false;
             }

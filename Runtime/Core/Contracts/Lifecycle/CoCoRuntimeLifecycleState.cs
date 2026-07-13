@@ -18,7 +18,8 @@ namespace CoCoFlow.Runtime.Core
             switch (currentState)
             {
                 case CoCoRuntimeLifecycleState.Created:
-                    return nextState == CoCoRuntimeLifecycleState.Running;
+                    return nextState == CoCoRuntimeLifecycleState.Running ||
+                           nextState == CoCoRuntimeLifecycleState.Disposed;
                 case CoCoRuntimeLifecycleState.Running:
                     return nextState == CoCoRuntimeLifecycleState.Suspended ||
                            nextState == CoCoRuntimeLifecycleState.Stopped;

@@ -95,11 +95,13 @@ StateLogic 是解释冻结 Context 的纯 C# 逻辑：
 StateLogic 声明“需要什么”，Context 通过组合实现对应只读能力，Operation registry
 提供允许调用的执行入口。StateLogic 不绑定具体项目组件，也不负责运行时搜索。
 
-Section Requirement 只接受非根、只有 getter 的 Section interface。getter 的事实
-只能是 immutable string 或递归不含托管引用的 value，不允许 ref return、callback、
-collection、Unity Object 或其他 mutable reference。StateLogic 每次读取都必须携带
-与目标接口匹配的 Requirement；具体 Context 实现、Source、Writer 和 mutable root
-不属于读取准入口。
+Section Requirement 只接受非根、仅声明 public abstract instance property 的 Section
+interface；每个 property 必须是无参数 getter。Indexer、default/static member、field、
+event 和其他 method 均非法。getter 的事实只能是 immutable string 或递归不含托管
+引用的普通 value，不允许 ref return、ref-like value、IntPtr/UIntPtr、callback、引用型
+或动态长度 collection、Unity Object 及其他 mutable reference。StateLogic 每次读取都
+必须携带与目标接口匹配的 Requirement；具体 Context 实现、Source、Writer 和 mutable
+root 不属于读取准入口。
 
 缺少声明为必需的 Context 能力或 Operation 绑定时，Graph instance 必须在启动前
 给出结构化诊断并拒绝启动，不能等到某个 State 执行后再抛空引用。
@@ -124,8 +126,10 @@ Operation 不可以：
 - 依赖未声明的全局查找结果。
 
 Pre1 的命令准入口必须携带已声明的 Port Requirement，并按值接收实现
-`ICoCoOperationCommand` 的 unmanaged struct。这样 Command 本身不能携带 callback
-或共享引用结果，`Submit` 也没有同步返回值；世界结果只能通过后续 Frozen Context
+`ICoCoOperationCommand` 的 unmanaged struct；因此托管引用与托管 delegate 不能跨越
+Submit，Submit 本身也没有同步返回值。`unmanaged` 不等于 handle-free：Pre5 必须缓存
+校验 Binding 支持的 Command 集合，并在派发前递归拒绝 IntPtr/UIntPtr、裸指针和函数
+指针；不匹配的 Port/Command 必须结构化拒绝。世界结果只能通过后续 Frozen Context
 Frame 重新进入 StateLogic。
 
 Operation 的 Claim/Ownership、冲突仲裁、执行阶段和 write-back API 属于后续 Pre，
@@ -141,6 +145,10 @@ driver 推进 StateGraph，从而支持独立频率、变速、测试和回放�
 - Suspend 期间 host 不提交 Tick，因此没有 StateLogic、Operation 或采样。
 - 对 StateGraph 而言，`GameObject.SetActive(false)` 与手动 Suspend 都表现为 host
   停止供给 Tick；它们都不等于终态 `Disposed`。
+- 尚未进入 Running 的 Runtime 可以从 Created 直接 Dispose，确保启动取消、验证失败
+  或 Unity Host 提前销毁时仍有显式终止渠道。
+- Running/Suspended Runtime 必须先进入 Stopped，完成 Active Path 与 Operation 资源释放，
+  再进入 Disposed。
 - `Disposed` 必须走显式、不可逆的 runtime lifecycle 通道。
 
 调度器和 Unity adapter 的具体恢复/重建策略属于 Runtime Pre。

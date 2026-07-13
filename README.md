@@ -39,10 +39,12 @@ The frozen Core surface covers:
 Core rules:
 
 - StateLogic reads one frozen Context frame and cannot write it.
-- Context sections are declared as getter-only interfaces whose facts are
-  immutable strings or reference-free values. Section reads carry a matching
-  requirement token instead of exposing a mutable root, callback, Unity object,
-  collection, or concrete provider type.
+- Context sections declare only public abstract instance properties with
+  parameterless getters. Indexers, default/static members, fields, callbacks,
+  Unity objects, reference-backed collections, native handles, and stack-only
+  values are rejected; facts are immutable strings or reference-free values.
+  Section reads carry a matching requirement token instead of exposing a
+  mutable root, Source, Writer, or concrete provider type.
 - Every Layer owns an independent HFSM and resolves one active leaf path.
 - Layers execute by explicit priority; a lifecycle phase completes for one
   active path before the next Layer is processed.
@@ -50,10 +52,17 @@ Core rules:
   Manual drivers may produce CoCo ticks independently of Unity callback count.
 - Zero or negative delta is invalid. Suspend produces no tick and therefore no
   frozen-frame sample.
+- A Runtime may move directly from Created to Disposed before its first Run;
+  Running or Suspended instances must Stop before Dispose.
 - Operations are the approved side-effect boundary. Their writes become visible
   only in a later frozen frame. StateLogic submits unmanaged command values
-  through a declared Port requirement, so the submission has no callback,
-  shared-reference result, or synchronous gameplay return channel.
+  through a declared Port requirement, so no managed reference, delegate,
+  shared result, or synchronous gameplay return channel crosses Submit. Pre5
+  additionally validates Port/Command affinity and rejects native handles and
+  pointer-bearing command shapes before dispatch.
+- Pre1 freezes the framework-provided StateLogic role, not a CLR security
+  sandbox for arbitrary project code. State authoring assembly and dependency
+  enforcement belongs to the StateGraph Compiler/authoring validation Pres.
 
 See [Context / Network Boundary](Docs/ContextNetworkBoundary.md) for the complete
 frame and adapter rules.

@@ -23,7 +23,10 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             Assert.IsTrue(CoCoTimelinePosition.TryCreate(0d, out var zero));
             Assert.IsTrue(CoCoTimelinePosition.TryCreate(12.5d, out var positive));
+            CoCoTimelinePosition initial = default;
 
+            Assert.IsTrue(initial.IsValid);
+            Assert.AreEqual(0d, initial.Seconds);
             Assert.IsTrue(zero.IsValid);
             Assert.AreEqual(0d, zero.Seconds);
             Assert.IsTrue(positive.IsValid);
@@ -43,7 +46,9 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             foreach (double invalidValue in invalidValues)
             {
-                Assert.IsFalse(CoCoTimelinePosition.TryCreate(invalidValue, out _));
+                Assert.IsFalse(CoCoTimelinePosition.TryCreate(invalidValue, out var position));
+                Assert.IsFalse(position.IsValid);
+                Assert.IsTrue(double.IsNaN(position.Seconds));
             }
         }
 
@@ -154,6 +159,30 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out _,
                 out var clockDiagnostic));
             Assert.AreEqual(CoCoDiagnosticCode.InvalidClockDomain, clockDiagnostic.Code);
+        }
+
+        [Test]
+        public void TickFrameRejectsFailedTimelinePositionOutput()
+        {
+            Assert.IsTrue(CoCoClockDomainId.TryCreate(1UL, out var clockDomainId));
+            Assert.IsTrue(CoCoTimelineId.TryCreate(1UL, 1UL, out var timelineId));
+            Assert.IsFalse(CoCoTimelinePosition.TryCreate(-1d, out var invalidPosition));
+
+            Assert.IsFalse(CoCoTickFrame.TryCreate(
+                0.02d,
+                timelineId,
+                invalidPosition,
+                new CoCoTimelineTick(1UL),
+                clockDomainId,
+                new CoCoExecutionSequence(2UL),
+                new CoCoTimelineEpoch(3UL),
+                out var frame,
+                out var diagnostic));
+
+            Assert.IsFalse(frame.IsValid);
+            Assert.AreEqual(CoCoDiagnosticDomain.Time, diagnostic.Domain);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidTimelinePosition, diagnostic.Code);
+            Assert.IsTrue(diagnostic.IsError);
         }
 
         [Test]

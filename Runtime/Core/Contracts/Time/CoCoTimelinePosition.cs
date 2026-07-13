@@ -37,7 +37,7 @@ namespace CoCoFlow.Runtime.Core
         {
             if (seconds < 0d || double.IsNaN(seconds) || double.IsInfinity(seconds))
             {
-                position = default;
+                position = new CoCoTimelinePosition(double.NaN);
                 return false;
             }
 
