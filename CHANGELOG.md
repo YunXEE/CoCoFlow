@@ -21,6 +21,9 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 ### Changed
 
+- Froze Graph, runtime, timeline, and clock identities as immutable Runtime
+  values; Unity asset serialization schemas and ID authoring remain owned by
+  the Pre3 StateGraph Asset/Compiler work.
 - Reframed Context execution as
   `Source -> Frozen Frame -> Independent Layers -> Operation -> Next Frame`.
 - Set the package version to `0.4.0-pre.1` and marked the package as a

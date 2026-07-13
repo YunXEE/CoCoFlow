@@ -3,8 +3,7 @@ using System.Globalization;
 
 namespace CoCoFlow.Runtime.Core
 {
-    [Serializable]
-    public struct CoCoTimelineId : IEquatable<CoCoTimelineId>
+    public readonly struct CoCoTimelineId : IEquatable<CoCoTimelineId>
     {
         private CoCoTimelineId(ulong high, ulong low)
         {
@@ -12,8 +11,8 @@ namespace CoCoFlow.Runtime.Core
             Low = low;
         }
 
-        public ulong High;
-        public ulong Low;
+        public ulong High { get; }
+        public ulong Low { get; }
         public bool IsValid => High != 0UL || Low != 0UL;
 
         public static bool TryCreate(ulong high, ulong low, out CoCoTimelineId id)
@@ -49,15 +48,14 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoTimelineId left, CoCoTimelineId right) => !left.Equals(right);
     }
 
-    [Serializable]
-    public struct CoCoClockDomainId : IEquatable<CoCoClockDomainId>
+    public readonly struct CoCoClockDomainId : IEquatable<CoCoClockDomainId>
     {
         private CoCoClockDomainId(ulong value)
         {
             Value = value;
         }
 
-        public ulong Value;
+        public ulong Value { get; }
         public bool IsValid => Value != 0UL;
 
         public static bool TryCreate(ulong value, out CoCoClockDomainId id)

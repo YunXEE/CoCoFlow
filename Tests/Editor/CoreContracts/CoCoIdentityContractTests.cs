@@ -2,12 +2,10 @@ using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using NUnit.Framework;
-using UnityEditor;
-using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core.Tests
 {
-    public sealed class CoCoIdentityContractTestCases
+    public sealed class CoCoIdentityContractTests
     {
         [Test]
         public void TopologyAndTimelineIdsUseTwoUlongParts()
@@ -101,16 +99,27 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void StableIdsExposeSerializablePublicUlongFields()
+        public void IdentityTypesAreReadonlyValuesWithGetterOnlyComponents()
         {
-            AssertSerializableId(typeof(CoCoGraphId));
-            AssertSerializableId(typeof(CoCoLayerId));
-            AssertSerializableId(typeof(CoCoStateId));
-            AssertSerializableId(typeof(CoCoTransitionId));
-            AssertSerializableId(typeof(CoCoTimelineId));
-            AssertSerializableId(typeof(CoCoGraphInstanceId), "Value");
-            AssertSerializableId(typeof(CoCoActivationId), "Value");
-            AssertSerializableId(typeof(CoCoClockDomainId), "Value");
+            AssertImmutableId(typeof(CoCoGraphId), "High", "Low");
+            AssertImmutableId(typeof(CoCoLayerId), "High", "Low");
+            AssertImmutableId(typeof(CoCoStateId), "High", "Low");
+            AssertImmutableId(typeof(CoCoTransitionId), "High", "Low");
+            AssertImmutableId(typeof(CoCoTimelineId), "High", "Low");
+            AssertImmutableId(typeof(CoCoGraphInstanceId), "Value");
+            AssertImmutableId(typeof(CoCoActivationId), "Value");
+            AssertImmutableId(typeof(CoCoClockDomainId), "Value");
+        }
+
+        [Test]
+        public void IdentityTypesDoNotDeclareSerializableAttribute()
+        {
+            foreach (Type idType in GetIdentityTypes())
+            {
+                Assert.IsFalse(
+                    idType.IsDefined(typeof(SerializableAttribute), false),
+                    idType.FullName);
+            }
         }
 
         [Test]
@@ -143,104 +152,39 @@ namespace CoCoFlow.Runtime.Core.Tests
             AssertEqualAndHash(leftClockDomain, rightClockDomain);
         }
 
-        [Test]
-        public void IdsSurviveUnityAssetSaveImportAndCopy()
+        private static void AssertImmutableId(Type idType, params string[] componentNames)
         {
-            string sourcePath = AssetDatabase.GenerateUniqueAssetPath(
-                "Assets/CoCoFlowCoreContractsIdentityTest.asset");
-            string copyPath = AssetDatabase.GenerateUniqueAssetPath(
-                "Assets/CoCoFlowCoreContractsIdentityCopyTest.asset");
+            Assert.IsTrue(idType.IsValueType, idType.FullName);
+            Assert.IsTrue(idType.IsDefined(typeof(IsReadOnlyAttribute), false), idType.FullName);
+            Assert.IsEmpty(
+                idType.GetFields(BindingFlags.Public | BindingFlags.Instance),
+                idType.FullName);
 
-            Assert.IsTrue(CoCoGraphId.TryCreate(1UL, 2UL, out var graphId));
-            Assert.IsTrue(CoCoLayerId.TryCreate(3UL, 4UL, out var layerId));
-            Assert.IsTrue(CoCoStateId.TryCreate(5UL, 6UL, out var stateId));
-            Assert.IsTrue(CoCoTransitionId.TryCreate(7UL, 8UL, out var transitionId));
-            Assert.IsTrue(CoCoTimelineId.TryCreate(9UL, 10UL, out var timelineId));
-            Assert.IsTrue(CoCoGraphInstanceId.TryCreate(11UL, out var instanceId));
-            Assert.IsTrue(CoCoActivationId.TryCreate(12UL, out var activationId));
-            Assert.IsTrue(CoCoClockDomainId.TryCreate(13UL, out var clockDomainId));
-
-            try
+            foreach (string componentName in componentNames)
             {
-                var asset = ScriptableObject.CreateInstance<CoCoIdentityContractTests>();
-                asset.GraphId = graphId;
-                asset.LayerId = layerId;
-                asset.StateId = stateId;
-                asset.TransitionId = transitionId;
-                asset.TimelineId = timelineId;
-                asset.GraphInstanceId = instanceId;
-                asset.ActivationId = activationId;
-                asset.ClockDomainId = clockDomainId;
-
-                AssetDatabase.CreateAsset(asset, sourcePath);
-                AssetDatabase.SaveAssets();
-                AssetDatabase.ImportAsset(
-                    sourcePath,
-                    ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
-
-                Resources.UnloadAsset(asset);
-                var reloaded = AssetDatabase.LoadAssetAtPath<CoCoIdentityContractTests>(sourcePath);
-                AssertIdentityValues(
-                    reloaded,
-                    graphId,
-                    layerId,
-                    stateId,
-                    transitionId,
-                    timelineId,
-                    instanceId,
-                    activationId,
-                    clockDomainId);
-
-                Assert.IsTrue(AssetDatabase.CopyAsset(sourcePath, copyPath));
-                AssetDatabase.SaveAssets();
-                AssetDatabase.ImportAsset(
-                    copyPath,
-                    ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
-
-                var copied = AssetDatabase.LoadAssetAtPath<CoCoIdentityContractTests>(copyPath);
-                AssertIdentityValues(
-                    copied,
-                    graphId,
-                    layerId,
-                    stateId,
-                    transitionId,
-                    timelineId,
-                    instanceId,
-                    activationId,
-                    clockDomainId);
-            }
-            finally
-            {
-                AssetDatabase.DeleteAsset(copyPath);
-                AssetDatabase.DeleteAsset(sourcePath);
-                AssetDatabase.SaveAssets();
+                PropertyInfo component = idType.GetProperty(
+                    componentName,
+                    BindingFlags.Public | BindingFlags.Instance);
+                Assert.IsNotNull(component, $"{idType.FullName}.{componentName}");
+                Assert.AreEqual(typeof(ulong), component.PropertyType);
+                Assert.IsNotNull(component.GetGetMethod(false));
+                Assert.IsNull(component.GetSetMethod(true));
             }
         }
 
-        private static void AssertSerializableId(Type idType)
+        private static Type[] GetIdentityTypes()
         {
-            Assert.IsTrue(idType.IsDefined(typeof(SerializableAttribute), false), idType.FullName);
-            Assert.IsFalse(idType.IsDefined(typeof(IsReadOnlyAttribute), false), idType.FullName);
-
-            FieldInfo high = idType.GetField("High", BindingFlags.Public | BindingFlags.Instance);
-            FieldInfo low = idType.GetField("Low", BindingFlags.Public | BindingFlags.Instance);
-            Assert.IsNotNull(high, idType.FullName);
-            Assert.IsNotNull(low, idType.FullName);
-            Assert.AreEqual(typeof(ulong), high.FieldType);
-            Assert.AreEqual(typeof(ulong), low.FieldType);
-            Assert.IsFalse(high.IsInitOnly);
-            Assert.IsFalse(low.IsInitOnly);
-        }
-
-        private static void AssertSerializableId(Type idType, string fieldName)
-        {
-            Assert.IsTrue(idType.IsDefined(typeof(SerializableAttribute), false), idType.FullName);
-            Assert.IsFalse(idType.IsDefined(typeof(IsReadOnlyAttribute), false), idType.FullName);
-
-            FieldInfo value = idType.GetField(fieldName, BindingFlags.Public | BindingFlags.Instance);
-            Assert.IsNotNull(value, idType.FullName);
-            Assert.AreEqual(typeof(ulong), value.FieldType);
-            Assert.IsFalse(value.IsInitOnly);
+            return new[]
+            {
+                typeof(CoCoGraphId),
+                typeof(CoCoLayerId),
+                typeof(CoCoStateId),
+                typeof(CoCoTransitionId),
+                typeof(CoCoTimelineId),
+                typeof(CoCoGraphInstanceId),
+                typeof(CoCoActivationId),
+                typeof(CoCoClockDomainId)
+            };
         }
 
         private static void AssertEqualAndHash<T>(T left, T right)
@@ -248,39 +192,5 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(left, right);
             Assert.AreEqual(left.GetHashCode(), right.GetHashCode());
         }
-
-        private static void AssertIdentityValues(
-            CoCoIdentityContractTests asset,
-            CoCoGraphId graphId,
-            CoCoLayerId layerId,
-            CoCoStateId stateId,
-            CoCoTransitionId transitionId,
-            CoCoTimelineId timelineId,
-            CoCoGraphInstanceId instanceId,
-            CoCoActivationId activationId,
-            CoCoClockDomainId clockDomainId)
-        {
-            Assert.IsNotNull(asset);
-            Assert.AreEqual(graphId, asset.GraphId);
-            Assert.AreEqual(layerId, asset.LayerId);
-            Assert.AreEqual(stateId, asset.StateId);
-            Assert.AreEqual(transitionId, asset.TransitionId);
-            Assert.AreEqual(timelineId, asset.TimelineId);
-            Assert.AreEqual(instanceId, asset.GraphInstanceId);
-            Assert.AreEqual(activationId, asset.ActivationId);
-            Assert.AreEqual(clockDomainId, asset.ClockDomainId);
-        }
-    }
-
-    public sealed class CoCoIdentityContractTests : ScriptableObject
-    {
-        public CoCoGraphId GraphId;
-        public CoCoLayerId LayerId;
-        public CoCoStateId StateId;
-        public CoCoTransitionId TransitionId;
-        public CoCoTimelineId TimelineId;
-        public CoCoGraphInstanceId GraphInstanceId;
-        public CoCoActivationId ActivationId;
-        public CoCoClockDomainId ClockDomainId;
     }
 }

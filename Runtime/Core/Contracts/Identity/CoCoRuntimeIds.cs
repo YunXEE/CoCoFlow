@@ -3,15 +3,14 @@ using System.Globalization;
 
 namespace CoCoFlow.Runtime.Core
 {
-    [Serializable]
-    public struct CoCoGraphInstanceId : IEquatable<CoCoGraphInstanceId>
+    public readonly struct CoCoGraphInstanceId : IEquatable<CoCoGraphInstanceId>
     {
         private CoCoGraphInstanceId(ulong value)
         {
             Value = value;
         }
 
-        public ulong Value;
+        public ulong Value { get; }
         public bool IsValid => Value != 0UL;
 
         public static bool TryCreate(ulong value, out CoCoGraphInstanceId id)
@@ -35,15 +34,14 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoGraphInstanceId left, CoCoGraphInstanceId right) => !left.Equals(right);
     }
 
-    [Serializable]
-    public struct CoCoActivationId : IEquatable<CoCoActivationId>
+    public readonly struct CoCoActivationId : IEquatable<CoCoActivationId>
     {
         private CoCoActivationId(ulong value)
         {
             Value = value;
         }
 
-        public ulong Value;
+        public ulong Value { get; }
         public bool IsValid => Value != 0UL;
 
         public static bool TryCreate(ulong value, out CoCoActivationId id)

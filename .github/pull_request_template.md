@@ -49,8 +49,9 @@ downstream Pre that must be updated.
 - Existing asset/prefab impact:
 - Rollback or revert path:
 
-- [ ] Stable IDs survive asset copy, save, reload, and domain reload without
-      runtime regeneration.
+- [ ] If this PR owns a serialized stable-ID schema, IDs survive asset copy,
+      save, reload, and domain reload without runtime regeneration; otherwise
+      Evidence marks this gate N/A and names the owning Pre.
 - [ ] This PR can be reverted without leaving a partially migrated package or
       silently changing serialized identity.
 

@@ -3,8 +3,7 @@ using System.Globalization;
 
 namespace CoCoFlow.Runtime.Core
 {
-    [Serializable]
-    public struct CoCoGraphId : IEquatable<CoCoGraphId>
+    public readonly struct CoCoGraphId : IEquatable<CoCoGraphId>
     {
         private CoCoGraphId(ulong high, ulong low)
         {
@@ -12,8 +11,8 @@ namespace CoCoFlow.Runtime.Core
             Low = low;
         }
 
-        public ulong High;
-        public ulong Low;
+        public ulong High { get; }
+        public ulong Low { get; }
         public bool IsValid => High != 0UL || Low != 0UL;
 
         public static bool TryCreate(ulong high, ulong low, out CoCoGraphId id)
@@ -49,8 +48,7 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoGraphId left, CoCoGraphId right) => !left.Equals(right);
     }
 
-    [Serializable]
-    public struct CoCoLayerId : IEquatable<CoCoLayerId>
+    public readonly struct CoCoLayerId : IEquatable<CoCoLayerId>
     {
         private CoCoLayerId(ulong high, ulong low)
         {
@@ -58,8 +56,8 @@ namespace CoCoFlow.Runtime.Core
             Low = low;
         }
 
-        public ulong High;
-        public ulong Low;
+        public ulong High { get; }
+        public ulong Low { get; }
         public bool IsValid => High != 0UL || Low != 0UL;
 
         public static bool TryCreate(ulong high, ulong low, out CoCoLayerId id)
@@ -95,8 +93,7 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoLayerId left, CoCoLayerId right) => !left.Equals(right);
     }
 
-    [Serializable]
-    public struct CoCoStateId : IEquatable<CoCoStateId>
+    public readonly struct CoCoStateId : IEquatable<CoCoStateId>
     {
         private CoCoStateId(ulong high, ulong low)
         {
@@ -104,8 +101,8 @@ namespace CoCoFlow.Runtime.Core
             Low = low;
         }
 
-        public ulong High;
-        public ulong Low;
+        public ulong High { get; }
+        public ulong Low { get; }
         public bool IsValid => High != 0UL || Low != 0UL;
 
         public static bool TryCreate(ulong high, ulong low, out CoCoStateId id)
@@ -141,8 +138,7 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoStateId left, CoCoStateId right) => !left.Equals(right);
     }
 
-    [Serializable]
-    public struct CoCoTransitionId : IEquatable<CoCoTransitionId>
+    public readonly struct CoCoTransitionId : IEquatable<CoCoTransitionId>
     {
         private CoCoTransitionId(ulong high, ulong low)
         {
@@ -150,8 +146,8 @@ namespace CoCoFlow.Runtime.Core
             Low = low;
         }
 
-        public ulong High;
-        public ulong Low;
+        public ulong High { get; }
+        public ulong Low { get; }
         public bool IsValid => High != 0UL || Low != 0UL;
 
         public static bool TryCreate(ulong high, ulong low, out CoCoTransitionId id)
