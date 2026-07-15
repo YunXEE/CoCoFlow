@@ -2,7 +2,8 @@
     "name": "CoCoFlow.Tests.Editor.CoreContracts",
     "rootNamespace": "CoCoFlow.Runtime.Core.Tests",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts"
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

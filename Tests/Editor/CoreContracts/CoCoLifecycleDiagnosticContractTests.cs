@@ -83,6 +83,62 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void DiagnosticEnumsPreservePreOneValuesAndAppendStateFlowVocabulary()
+        {
+            Assert.AreEqual(8, (int)CoCoDiagnosticDomain.Operation);
+            CoCoDiagnosticDomain[] appendedDomains =
+            {
+                CoCoDiagnosticDomain.Frame,
+                CoCoDiagnosticDomain.Registry,
+                CoCoDiagnosticDomain.Intent,
+                CoCoDiagnosticDomain.Mailbox,
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticDomain.Codec
+            };
+
+            for (int index = 0; index < appendedDomains.Length; index++)
+            {
+                Assert.AreEqual(9 + index, (int)appendedDomains[index]);
+            }
+
+            Assert.AreEqual(11, (int)CoCoDiagnosticCode.InvalidTimelinePosition);
+            CoCoDiagnosticCode[] appendedCodes =
+            {
+                CoCoDiagnosticCode.InvalidFrameLayout,
+                CoCoDiagnosticCode.InvalidFrameHandle,
+                CoCoDiagnosticCode.InvalidStateBlock,
+                CoCoDiagnosticCode.InvalidStateSlot,
+                CoCoDiagnosticCode.RegistryFrozen,
+                CoCoDiagnosticCode.RegistryNotFrozen,
+                CoCoDiagnosticCode.InvalidOperationSection,
+                CoCoDiagnosticCode.MissingOperationSection,
+                CoCoDiagnosticCode.InvalidIntentDescriptor,
+                CoCoDiagnosticCode.MissingIntentReducer,
+                CoCoDiagnosticCode.InvalidIntentContribution,
+                CoCoDiagnosticCode.InvalidEventPacket,
+                CoCoDiagnosticCode.EventDomainMismatch,
+                CoCoDiagnosticCode.EventTargetMismatch,
+                CoCoDiagnosticCode.UndeclaredBroadcast,
+                CoCoDiagnosticCode.DuplicateEventPacket,
+                CoCoDiagnosticCode.StaleTimelineEpoch,
+                CoCoDiagnosticCode.EventSequenceConflict,
+                CoCoDiagnosticCode.MailboxOverflow,
+                CoCoDiagnosticCode.MailboxUnavailable,
+                CoCoDiagnosticCode.InvalidRestoreMetadata,
+                CoCoDiagnosticCode.DerivedDependencyCycle,
+                CoCoDiagnosticCode.UnknownCodec,
+                CoCoDiagnosticCode.UnsupportedCodecVersion,
+                CoCoDiagnosticCode.CommitPreparationFailed,
+                CoCoDiagnosticCode.CommitCancelled
+            };
+
+            for (int index = 0; index < appendedCodes.Length; index++)
+            {
+                Assert.AreEqual(12 + index, (int)appendedCodes[index]);
+            }
+        }
+
+        [Test]
         public void DiagnosticPreservesStructuredErrorAndDefaultIsNone()
         {
             CoCoDiagnostic none = default;
