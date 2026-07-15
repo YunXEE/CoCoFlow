@@ -308,7 +308,7 @@ namespace CoCoFlow.Runtime.Core
 
         public static CoCoContextFrameOrigin RestoreFrom(CoCoContextFrame source)
         {
-            if (source == null || !source.IsAlive)
+            if (!source.IsAlive)
             {
                 return default;
             }
@@ -1010,6 +1010,12 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (!ValidateProjectionDependencyClosure(out diagnosticCode))
+            {
+                layout = null;
+                return false;
+            }
+
             var slots = new CoCoStateSlotDescriptor[_slotsById.Count];
             var blocks = new CoCoStateBlockDescriptor[_blocks.Count];
             int offset = 0;
@@ -1129,6 +1135,46 @@ namespace CoCoFlow.Runtime.Core
             }
 
             derivedOrder = ordered.ToArray();
+            diagnosticCode = CoCoDiagnosticCode.None;
+            return true;
+        }
+
+        private bool ValidateProjectionDependencyClosure(
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            for (int blockIndex = 0; blockIndex < _blocks.Count; blockIndex++)
+            {
+                BlockRegistration block = _blocks[blockIndex];
+                for (int slotIndex = 0; slotIndex < block.Slots.Count; slotIndex++)
+                {
+                    SlotRegistration slot = block.Slots[slotIndex];
+                    if (slot.RestorePolicy != CoCoContextRestorePolicy.Derived)
+                    {
+                        continue;
+                    }
+
+                    for (int dependencyIndex = 0;
+                         dependencyIndex < slot.DerivedDependencies.Length;
+                         dependencyIndex++)
+                    {
+                        SlotRegistration dependency = _slotsById[slot.DerivedDependencies[dependencyIndex]];
+                        if (dependency.RestorePolicy == CoCoContextRestorePolicy.ResetToDefault)
+                        {
+                            continue;
+                        }
+
+                        if (((slot.Projection & CoCoContextProjection.Temporal) != 0 &&
+                             (dependency.Projection & CoCoContextProjection.Temporal) == 0) ||
+                            ((slot.Projection & CoCoContextProjection.Durable) != 0 &&
+                             (dependency.Projection & CoCoContextProjection.Durable) == 0))
+                        {
+                            diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
+                            return false;
+                        }
+                    }
+                }
+            }
+
             diagnosticCode = CoCoDiagnosticCode.None;
             return true;
         }
@@ -1337,7 +1383,8 @@ namespace CoCoFlow.Runtime.Core
                    block.DenseIndex >= 0 && block.DenseIndex < _blocks.Length &&
                    slotDenseIndex >= 0 && slotDenseIndex < _slots.Length &&
                    _blocks[block.DenseIndex].BlockId == block.BlockId &&
-                   _slots[slotDenseIndex].WriterBlockId == block.BlockId;
+                   _slots[slotDenseIndex].WriterBlockId == block.BlockId &&
+                   _slots[slotDenseIndex].RestorePolicy != CoCoContextRestorePolicy.Derived;
         }
 
         internal void CopyDefaultsTo(byte[] destination)
@@ -1391,6 +1438,40 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool HasProjectionDependencyClosure(CoCoContextProjection projection)
+        {
+            if (projection != CoCoContextProjection.Temporal &&
+                projection != CoCoContextProjection.Durable)
+            {
+                return false;
+            }
+
+            for (int slotIndex = 0; slotIndex < _slots.Length; slotIndex++)
+            {
+                CoCoStateSlotDescriptor slot = _slots[slotIndex];
+                if (slot.RestorePolicy != CoCoContextRestorePolicy.Derived ||
+                    (slot.Projection & projection) == 0)
+                {
+                    continue;
+                }
+
+                CoCoStateSlotId[] dependencies = slot.DerivedDependencyArray;
+                for (int dependencyIndex = 0; dependencyIndex < dependencies.Length; dependencyIndex++)
+                {
+                    if (!_slotsById.TryGetValue(
+                            dependencies[dependencyIndex],
+                            out CoCoStateSlotDescriptor dependency) ||
+                        (dependency.RestorePolicy != CoCoContextRestorePolicy.ResetToDefault &&
+                         (dependency.Projection & projection) == 0))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
         internal bool HasExactIdentity(
             CoCoFrameLayoutId layoutId,
             uint version,
@@ -1406,28 +1487,38 @@ namespace CoCoFlow.Runtime.Core
     {
         public CoCoProjectionRestoreSource(
             CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineId timelineId,
+            CoCoClockDomainId clockDomainId,
+            CoCoExecutionSequence executionSequence,
             CoCoTimelineEpoch timelineEpoch,
             CoCoTimelineTick tick,
             CoCoContextRevision revision)
         {
             GraphInstanceId = graphInstanceId;
+            TimelineId = timelineId;
+            ClockDomainId = clockDomainId;
+            ExecutionSequence = executionSequence;
             TimelineEpoch = timelineEpoch;
             Tick = tick;
             Revision = revision;
         }
 
         public CoCoGraphInstanceId GraphInstanceId { get; }
+        public CoCoTimelineId TimelineId { get; }
+        public CoCoClockDomainId ClockDomainId { get; }
+        public CoCoExecutionSequence ExecutionSequence { get; }
         public CoCoTimelineEpoch TimelineEpoch { get; }
         public CoCoTimelineTick Tick { get; }
         public CoCoContextRevision Revision { get; }
-        public bool IsValid => GraphInstanceId.IsValid && Revision.IsValid;
+        public bool IsValid => GraphInstanceId.IsValid && TimelineId.IsValid &&
+                               ClockDomainId.IsValid && Revision.IsValid;
     }
 
     internal sealed class CoCoContextProjectionCodec
     {
         private const uint Magic = 0x43434650U;
-        private const uint FormatVersion = 1U;
-        private const int HeaderSize = 76;
+        private const uint FormatVersion = 2U;
+        private const int HeaderSize = 108;
         private const int EntryHeaderSize = 48;
 
         private readonly CoCoContextFrameLayout _layout;
@@ -1472,6 +1563,13 @@ namespace CoCoFlow.Runtime.Core
             {
                 codec = null;
                 diagnosticCode = CoCoDiagnosticCode.RegistryNotFrozen;
+                return false;
+            }
+
+            if (!layout.HasProjectionDependencyClosure(projection))
+            {
+                codec = null;
+                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
                 return false;
             }
 
@@ -1531,7 +1629,7 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnosticCode diagnosticCode)
         {
             bytesWritten = 0;
-            if (frame == null || !frame.IsAlive || !_layout.IsSameInstance(frame.Layout) ||
+            if (!frame.IsAlive || !_layout.IsSameInstance(frame.Layout) ||
                 !frame.Header.HasExactLayoutIdentity ||
                 !_layout.HasExactIdentity(
                     frame.Header.LayoutId,
@@ -1560,6 +1658,22 @@ namespace CoCoFlow.Runtime.Core
                 destination,
                 ref cursor,
                 frame.Header.Identity.GraphInstanceId.Value);
+            CoCoStateFlowBinary.WriteUInt64(
+                destination,
+                ref cursor,
+                frame.Header.TickFrame.TimelineId.High);
+            CoCoStateFlowBinary.WriteUInt64(
+                destination,
+                ref cursor,
+                frame.Header.TickFrame.TimelineId.Low);
+            CoCoStateFlowBinary.WriteUInt64(
+                destination,
+                ref cursor,
+                frame.Header.TickFrame.ClockDomainId.Value);
+            CoCoStateFlowBinary.WriteUInt64(
+                destination,
+                ref cursor,
+                frame.Header.TickFrame.ExecutionSequence.Value);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
@@ -1614,12 +1728,12 @@ namespace CoCoFlow.Runtime.Core
             ReadOnlySpan<byte> source,
             CoCoContextFrameArena arena,
             CoCoTickFrame resumedTickFrame,
-            out CoCoPreparedContextCommit prepared,
+            out CoCoFinalizedContextCommit finalized,
             out int bytesRead,
             out CoCoContextCommitStatus commitStatus,
             out CoCoDiagnosticCode diagnosticCode)
         {
-            prepared = default;
+            finalized = default;
             bytesRead = 0;
             commitStatus = CoCoContextCommitStatus.RestoreFailed;
             if (arena == null || !_layout.IsSameInstance(arena.Layout))
@@ -1642,14 +1756,11 @@ namespace CoCoFlow.Runtime.Core
                     restoreSource,
                     source.Slice(0, encodedLength),
                     resumedTickFrame,
-                    out prepared,
-                    out commitStatus))
+                    out finalized,
+                    out commitStatus,
+                    out CoCoDiagnosticCode restoreDiagnostic))
             {
-                diagnosticCode = commitStatus == CoCoContextCommitStatus.GraphMismatch
-                    ? CoCoDiagnosticCode.InvalidFrameHandle
-                    : commitStatus == CoCoContextCommitStatus.LayoutMismatch
-                        ? CoCoDiagnosticCode.InvalidFrameLayout
-                        : CoCoDiagnosticCode.InvalidRestoreMetadata;
+                diagnosticCode = restoreDiagnostic;
                 return false;
             }
 
@@ -1699,7 +1810,7 @@ namespace CoCoFlow.Runtime.Core
 
             if (!_layout.TryRebuildDerived(destination))
             {
-                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
+                diagnosticCode = CoCoDiagnosticCode.CommitPreparationFailed;
                 return false;
             }
 
@@ -1725,6 +1836,10 @@ namespace CoCoFlow.Runtime.Core
                 !CoCoStateFlowBinary.TryReadUInt32(source, ref cursor, out uint layoutVersion) ||
                 !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong layoutSchemaHash) ||
                 !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong graphInstanceValue) ||
+                !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong timelineHigh) ||
+                !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong timelineLow) ||
+                !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong clockDomainValue) ||
+                !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong executionSequenceValue) ||
                 !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong timelineEpochValue) ||
                 !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong tickValue) ||
                 !CoCoStateFlowBinary.TryReadUInt64(source, ref cursor, out ulong revisionValue) ||
@@ -1748,7 +1863,9 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (slotCount != (uint)_bindings.Length ||
-                !CoCoGraphInstanceId.TryCreate(graphInstanceValue, out CoCoGraphInstanceId graphInstanceId))
+                !CoCoGraphInstanceId.TryCreate(graphInstanceValue, out CoCoGraphInstanceId graphInstanceId) ||
+                !CoCoTimelineId.TryCreate(timelineHigh, timelineLow, out CoCoTimelineId timelineId) ||
+                !CoCoClockDomainId.TryCreate(clockDomainValue, out CoCoClockDomainId clockDomainId))
             {
                 diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
                 return false;
@@ -1757,6 +1874,9 @@ namespace CoCoFlow.Runtime.Core
             var revision = new CoCoContextRevision(revisionValue);
             restoreSource = new CoCoProjectionRestoreSource(
                 graphInstanceId,
+                timelineId,
+                clockDomainId,
+                new CoCoExecutionSequence(executionSequenceValue),
                 new CoCoTimelineEpoch(timelineEpochValue),
                 new CoCoTimelineTick(tickValue),
                 revision);
@@ -1891,44 +2011,159 @@ namespace CoCoFlow.Runtime.Core
         T Read<T>(CoCoStateSlot<T> slot) where T : unmanaged;
     }
 
-    public sealed class CoCoContextFrame : ICoCoContextFrame
+    /// <summary>
+    /// Immutable generation-scoped handle to one committed ContextFrame.
+    /// Reusing the underlying arena cell never makes an expired handle valid again.
+    /// </summary>
+    public readonly struct CoCoContextFrame : ICoCoContextFrame, IEquatable<CoCoContextFrame>
     {
-        private readonly byte[] _buffer;
+        private readonly CoCoContextFrameStorage _storage;
+        private readonly ulong _generation;
+
+        internal CoCoContextFrame(CoCoContextFrameStorage storage, ulong generation)
+        {
+            _storage = storage;
+            _generation = generation;
+        }
+
+        public CoCoStateFlowFrameHeader Header => IsAlive ? _storage.Header : default;
+        public CoCoContextRevision Revision => IsAlive ? _storage.Revision : default;
+        public CoCoContextFrameOrigin Origin => IsAlive ? _storage.Origin : default;
+        public CoCoContextFrameLayout Layout => IsAlive ? _storage.Layout : null;
+        public bool IsAlive => _storage != null && _storage.IsAlive(_generation);
+
+        public T Read<T>(CoCoStateSlot<T> slot)
+            where T : unmanaged
+        {
+            if (!IsAlive || !slot.IsValid || !slot.IsFor(_storage.Layout))
+            {
+                throw new InvalidOperationException("The ContextFrame or StateSlot handle is not valid for this read.");
+            }
+
+            return CoCoStateFlowTypeRules.Read<T>(_storage.Buffer, slot.ByteOffset);
+        }
+
+        public bool Retain() => _storage != null && _storage.TryRetain(_generation);
+        public bool Release() => _storage != null && _storage.TryRelease(_generation);
+
+        public bool Equals(CoCoContextFrame other) =>
+            ReferenceEquals(_storage, other._storage) && _generation == other._generation;
+
+        public override bool Equals(object obj) => obj is CoCoContextFrame other && Equals(other);
+        public override int GetHashCode() =>
+            unchecked(((_storage?.GetHashCode() ?? 0) * 397) ^ _generation.GetHashCode());
+
+        public static bool operator ==(CoCoContextFrame left, CoCoContextFrame right) => left.Equals(right);
+        public static bool operator !=(CoCoContextFrame left, CoCoContextFrame right) => !left.Equals(right);
+
+        internal byte[] Buffer => IsAlive ? _storage.Buffer : null;
+
+        internal bool TryGetStorage(out CoCoContextFrameStorage storage)
+        {
+            if (IsAlive)
+            {
+                storage = _storage;
+                return true;
+            }
+
+            storage = null;
+            return false;
+        }
+    }
+
+    internal sealed class CoCoContextFrameStorage
+    {
         private int _externalRetainCount;
         private bool _isArenaOwned;
 
-        internal CoCoContextFrame(CoCoContextFrameArena owner, CoCoContextFrameLayout layout)
+        public CoCoContextFrameStorage(CoCoContextFrameLayout layout)
         {
-            _ = owner ?? throw new ArgumentNullException(nameof(owner));
-            Layout = layout;
-            _buffer = layout.CreateBuffer();
+            Layout = layout ?? throw new ArgumentNullException(nameof(layout));
+            Buffer = layout.CreateBuffer();
         }
 
         public CoCoStateFlowFrameHeader Header { get; private set; }
         public CoCoContextRevision Revision { get; private set; }
         public CoCoContextFrameOrigin Origin { get; private set; }
         public CoCoContextFrameLayout Layout { get; }
-        public bool IsAlive => _isArenaOwned || _externalRetainCount > 0;
+        public byte[] Buffer { get; }
+        public ulong Generation { get; private set; }
+        public long RetainCount => (_isArenaOwned ? 1L : 0L) + _externalRetainCount;
+        public bool CanReuse => RetainCount == 0 && Generation != ulong.MaxValue;
 
-        public T Read<T>(CoCoStateSlot<T> slot)
-            where T : unmanaged
+        public bool IsAlive(ulong generation) =>
+            generation != 0UL && generation == Generation && RetainCount > 0;
+
+        public bool TryPrepare(
+            CoCoStateFlowFrameHeader header,
+            CoCoContextRevision revision,
+            CoCoContextFrameOrigin origin,
+            CoCoContextFrame source,
+            out CoCoContextCommitStatus status)
         {
-            if (!IsAlive || !slot.IsValid || !slot.IsFor(Layout))
+            if (!CanReuse)
             {
-                throw new InvalidOperationException("The ContextFrame or StateSlot handle is not valid for this read.");
-            }
-
-            return CoCoStateFlowTypeRules.Read<T>(_buffer, slot.ByteOffset);
-        }
-
-        public bool Retain()
-        {
-            if (!IsAlive)
-            {
+                status = CoCoContextCommitStatus.CapacityExhausted;
                 return false;
             }
 
-            if (_externalRetainCount == int.MaxValue)
+            Generation++;
+            Header = header;
+            Revision = revision;
+            Origin = origin;
+            _isArenaOwned = false;
+            _externalRetainCount = 0;
+
+            if (!source.IsAlive)
+            {
+                Layout.CopyDefaultsTo(Buffer);
+                status = CoCoContextCommitStatus.None;
+                return true;
+            }
+
+            if (!source.TryGetStorage(out CoCoContextFrameStorage sourceStorage) ||
+                !Layout.IsSameInstance(sourceStorage.Layout) ||
+                !source.Header.HasExactLayoutIdentity ||
+                !Layout.HasExactIdentity(
+                    source.Header.LayoutId,
+                    source.Header.LayoutVersion,
+                    source.Header.LayoutSchemaHash))
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            if (origin.IsRestore)
+            {
+                if (!Layout.TryRestore(sourceStorage.Buffer, Buffer))
+                {
+                    status = CoCoContextCommitStatus.DerivedRebuildFailed;
+                    return false;
+                }
+
+                status = CoCoContextCommitStatus.None;
+                return true;
+            }
+
+            System.Buffer.BlockCopy(sourceStorage.Buffer, 0, Buffer, 0, Buffer.Length);
+            status = CoCoContextCommitStatus.None;
+            return true;
+        }
+
+        public CoCoContextFrame Seal()
+        {
+            _isArenaOwned = true;
+            return new CoCoContextFrame(this, Generation);
+        }
+
+        public void ReleaseArenaOwnership()
+        {
+            _isArenaOwned = false;
+        }
+
+        public bool TryRetain(ulong generation)
+        {
+            if (!IsAlive(generation) || _externalRetainCount == int.MaxValue)
             {
                 return false;
             }
@@ -1937,9 +2172,9 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool Release()
+        public bool TryRelease(ulong generation)
         {
-            if (_externalRetainCount <= 0)
+            if (generation == 0UL || generation != Generation || _externalRetainCount <= 0)
             {
                 return false;
             }
@@ -1948,54 +2183,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        internal byte[] Buffer => _buffer;
-        internal int RetainCount => (_isArenaOwned ? 1 : 0) + _externalRetainCount;
-
-        internal bool Prepare(
-            CoCoStateFlowFrameHeader header,
-            CoCoContextRevision revision,
-            CoCoContextFrameOrigin origin,
-            CoCoContextFrame source)
-        {
-            Header = header;
-            Revision = revision;
-            Origin = origin;
-            if (source == null)
-            {
-                Layout.CopyDefaultsTo(_buffer);
-                return true;
-            }
-
-            if (!Layout.IsSameInstance(source.Layout) ||
-                !source.Header.HasExactLayoutIdentity ||
-                !Layout.HasExactIdentity(
-                    source.Header.LayoutId,
-                    source.Header.LayoutVersion,
-                    source.Header.LayoutSchemaHash))
-            {
-                return false;
-            }
-
-            if (origin.IsRestore)
-            {
-                return Layout.TryRestore(source._buffer, _buffer);
-            }
-
-            System.Buffer.BlockCopy(source._buffer, 0, _buffer, 0, _buffer.Length);
-            return true;
-        }
-
-        internal void Seal()
-        {
-            _isArenaOwned = true;
-        }
-
-        internal void ReleaseArenaOwnership()
-        {
-            _isArenaOwned = false;
-        }
-
-        internal void Abandon()
+        public void Abandon()
         {
             Header = default;
             Revision = default;
@@ -2018,7 +2206,8 @@ namespace CoCoFlow.Runtime.Core
         InvalidPreparation = 8,
         Cancelled = 9,
         RestoreFailed = 10,
-        RevisionExhausted = 11
+        RevisionExhausted = 11,
+        DerivedRebuildFailed = 12
     }
 
     public readonly struct CoCoContextCommitResult
@@ -2051,7 +2240,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public CoCoStateBlockHandle Block => _block;
-        public bool IsValid => _arena != null && _token != 0UL && _block.IsValid;
+        public bool IsValid => _arena != null && _arena.IsPreparationActive(_token) && _block.IsValid;
 
         public bool Write<TValue>(CoCoStateSlot<TValue> slot, in TValue value)
             where TValue : unmanaged
@@ -2071,7 +2260,7 @@ namespace CoCoFlow.Runtime.Core
             _token = token;
         }
 
-        public bool IsValid => _arena != null && _token != 0UL;
+        public bool IsValid => _arena != null && _arena.IsPreparationActive(_token);
 
         public bool TryGetWriter(
             CoCoStateBlockHandle block,
@@ -2087,10 +2276,45 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        public bool TryFinalize(
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoContextCommitStatus status)
+        {
+            if (_arena == null)
+            {
+                finalized = default;
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                return false;
+            }
+
+            return _arena.TryFinalize(_token, out finalized, out status);
+        }
+
+        public CoCoContextCommitStatus Cancel()
+        {
+            return _arena == null
+                ? CoCoContextCommitStatus.InvalidPreparation
+                : _arena.CancelPrepared(_token);
+        }
+    }
+
+    public readonly struct CoCoFinalizedContextCommit
+    {
+        private readonly CoCoContextFrameArena _arena;
+        private readonly ulong _token;
+
+        internal CoCoFinalizedContextCommit(CoCoContextFrameArena arena, ulong token)
+        {
+            _arena = arena;
+            _token = token;
+        }
+
+        public bool IsValid => _arena != null && _arena.IsFinalized(_token);
+
         public CoCoContextCommitResult Commit()
         {
             return _arena == null
-                ? new CoCoContextCommitResult(CoCoContextCommitStatus.InvalidPreparation, null)
+                ? new CoCoContextCommitResult(CoCoContextCommitStatus.InvalidPreparation, default)
                 : _arena.Commit(_token);
         }
 
@@ -2098,18 +2322,21 @@ namespace CoCoFlow.Runtime.Core
         {
             return _arena == null
                 ? CoCoContextCommitStatus.InvalidPreparation
-                : _arena.Cancel(_token);
+                : _arena.CancelFinalized(_token);
         }
     }
 
     public sealed class CoCoContextFrameArena
     {
         private readonly CoCoGraphInstanceId _graphInstanceId;
-        private readonly CoCoContextFrame[] _frames;
+        private readonly CoCoContextFrameStorage[] _frames;
         private CoCoContextFrame _current;
-        private CoCoContextFrame _reserved;
+        private CoCoContextFrameStorage _currentStorage;
+        private CoCoContextFrameStorage _reserved;
         private ulong _activeToken;
         private ulong _nextToken;
+        private bool _isFinalized;
+        private bool _isCallbackActive;
 
         public CoCoContextFrameArena(
             CoCoGraphInstanceId graphInstanceId,
@@ -2140,15 +2367,16 @@ namespace CoCoFlow.Runtime.Core
 
             _graphInstanceId = graphInstanceId;
             Layout = layout;
-            _frames = new CoCoContextFrame[capacity];
+            _frames = new CoCoContextFrameStorage[capacity];
             for (int index = 0; index < capacity; index++)
             {
-                _frames[index] = new CoCoContextFrame(this, layout);
+                _frames[index] = new CoCoContextFrameStorage(layout);
             }
         }
 
         public CoCoContextFrameLayout Layout { get; }
         public CoCoContextFrame Current => _current;
+        public bool HasCurrent => _current.IsAlive;
         public int Capacity => _frames.Length;
 
         public bool TryPrepare(
@@ -2156,64 +2384,92 @@ namespace CoCoFlow.Runtime.Core
             out CoCoPreparedContextCommit prepared,
             out CoCoContextCommitStatus status)
         {
+            if (_isCallbackActive)
+            {
+                prepared = default;
+                status = CoCoContextCommitStatus.PreparationAlreadyActive;
+                return false;
+            }
+
             return TryPrepareCore(tickFrame, CoCoContextFrameOrigin.Commit(), _current, out prepared, out status);
         }
 
         public bool TryPrepareRestore(
             CoCoContextFrame source,
             CoCoTickFrame resumedTickFrame,
-            out CoCoPreparedContextCommit prepared,
+            out CoCoFinalizedContextCommit finalized,
             out CoCoContextCommitStatus status)
         {
+            if (_isCallbackActive)
+            {
+                finalized = default;
+                status = CoCoContextCommitStatus.PreparationAlreadyActive;
+                return false;
+            }
+
             if (!resumedTickFrame.IsValid)
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.InvalidTick;
                 return false;
             }
 
-            if (source == null || !source.IsAlive || !Layout.IsSameInstance(source.Layout) ||
+            if (!source.IsAlive || !Layout.IsSameInstance(source.Layout) ||
                 !source.Header.HasExactLayoutIdentity ||
                 !Layout.HasExactIdentity(
                     source.Header.LayoutId,
                     source.Header.LayoutVersion,
                     source.Header.LayoutSchemaHash))
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.LayoutMismatch;
                 return false;
             }
 
             if (source.Header.Identity.GraphInstanceId != _graphInstanceId)
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.GraphMismatch;
                 return false;
             }
 
             if (resumedTickFrame.TimelineEpoch.Value <=
                     source.Header.Identity.TimelineEpoch.Value ||
-                (_current != null &&
+                !CoCoStateFlowTickOrder.IsStrictlyAfter(
+                    resumedTickFrame,
+                    source.Header.TickFrame) ||
+                (HasCurrent &&
+                 resumedTickFrame.TimelineEpoch.Value <=
+                 _current.Header.Identity.TimelineEpoch.Value) ||
+                (HasCurrent &&
                  !CoCoStateFlowTickOrder.IsStrictlyAfter(
                      resumedTickFrame,
                      _current.Header.TickFrame)))
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.InvalidOrigin;
                 return false;
             }
 
-            return TryPrepareCore(
-                resumedTickFrame,
-                CoCoContextFrameOrigin.RestoreFrom(source),
-                source,
-                out prepared,
-                out status);
+            if (!TryPrepareCore(
+                    resumedTickFrame,
+                    CoCoContextFrameOrigin.RestoreFrom(source),
+                    source,
+                    out _,
+                    out status))
+            {
+                finalized = default;
+                return false;
+            }
+
+            _isFinalized = true;
+            finalized = new CoCoFinalizedContextCommit(this, _activeToken);
+            return true;
         }
 
         internal bool CanWrite(ulong token, CoCoStateBlockHandle block)
         {
-            return _reserved != null && token != 0UL && token == _activeToken &&
+            return IsPreparationActive(token) &&
                    block.IsValid && block.IsFor(Layout);
         }
 
@@ -2224,7 +2480,7 @@ namespace CoCoFlow.Runtime.Core
             in TValue value)
             where TValue : unmanaged
         {
-            if (_reserved == null || token == 0UL || token != _activeToken ||
+            if (!IsPreparationActive(token) ||
                 !slot.IsValid || !slot.IsFor(Layout) ||
                 !Layout.IsWriterFor(block, slot.DenseIndex))
             {
@@ -2240,38 +2496,57 @@ namespace CoCoFlow.Runtime.Core
             CoCoProjectionRestoreSource source,
             ReadOnlySpan<byte> encoded,
             CoCoTickFrame resumedTickFrame,
-            out CoCoPreparedContextCommit prepared,
-            out CoCoContextCommitStatus status)
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnosticCode diagnosticCode)
         {
+            if (_isCallbackActive)
+            {
+                finalized = default;
+                status = CoCoContextCommitStatus.PreparationAlreadyActive;
+                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
+                return false;
+            }
+
             if (codec == null || !Layout.IsSameInstance(codec.Layout))
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.LayoutMismatch;
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameLayout;
                 return false;
             }
 
             if (!source.IsValid || source.GraphInstanceId != _graphInstanceId)
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.GraphMismatch;
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameHandle;
                 return false;
             }
 
             if (!resumedTickFrame.IsValid)
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.InvalidTick;
+                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
                 return false;
             }
 
             if (resumedTickFrame.TimelineEpoch.Value <= source.TimelineEpoch.Value ||
-                (_current != null &&
+                resumedTickFrame.TimelineId != source.TimelineId ||
+                resumedTickFrame.ClockDomainId != source.ClockDomainId ||
+                resumedTickFrame.ExecutionSequence.Value <= source.ExecutionSequence.Value ||
+                (HasCurrent &&
+                 resumedTickFrame.TimelineEpoch.Value <=
+                 _current.Header.Identity.TimelineEpoch.Value) ||
+                (HasCurrent &&
                  !CoCoStateFlowTickOrder.IsStrictlyAfter(
                      resumedTickFrame,
                      _current.Header.TickFrame)))
             {
-                prepared = default;
+                finalized = default;
                 status = CoCoContextCommitStatus.InvalidOrigin;
+                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
                 return false;
             }
 
@@ -2283,43 +2558,128 @@ namespace CoCoFlow.Runtime.Core
             if (!TryPrepareCore(
                     resumedTickFrame,
                     origin,
-                    null,
-                    out prepared,
+                    default,
+                    out _,
                     out status))
             {
+                finalized = default;
+                diagnosticCode = CoCoDiagnosticCode.InvalidRestoreMetadata;
                 return false;
             }
 
             ulong token = _activeToken;
-            if (!codec.TryDecodePayload(encoded, _reserved.Buffer, out _))
+            bool didDecode;
+            _isCallbackActive = true;
+            try
             {
-                Cancel(token);
-                prepared = default;
-                status = CoCoContextCommitStatus.RestoreFailed;
+                didDecode = codec.TryDecodePayload(encoded, _reserved.Buffer, out diagnosticCode);
+            }
+            catch
+            {
+                _isCallbackActive = false;
+                CancelActive(token);
+                throw;
+            }
+
+            _isCallbackActive = false;
+            if (!didDecode)
+            {
+                CancelActive(token);
+                finalized = default;
+                status = diagnosticCode == CoCoDiagnosticCode.CommitPreparationFailed
+                    ? CoCoContextCommitStatus.DerivedRebuildFailed
+                    : CoCoContextCommitStatus.RestoreFailed;
                 return false;
             }
 
+            _isFinalized = true;
+            finalized = new CoCoFinalizedContextCommit(this, token);
+            diagnosticCode = CoCoDiagnosticCode.None;
+            return true;
+        }
+
+        internal bool IsPreparationActive(ulong token) =>
+            !_isCallbackActive && _reserved != null && !_isFinalized &&
+            token != 0UL && token == _activeToken;
+
+        internal bool IsFinalized(ulong token) =>
+            !_isCallbackActive && _reserved != null && _isFinalized &&
+            token != 0UL && token == _activeToken;
+
+        internal bool TryFinalize(
+            ulong token,
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoContextCommitStatus status)
+        {
+            if (_isCallbackActive || !IsPreparationActive(token))
+            {
+                finalized = default;
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                return false;
+            }
+
+            bool didRebuild;
+            _isCallbackActive = true;
+            try
+            {
+                didRebuild = Layout.TryRebuildDerived(_reserved.Buffer);
+            }
+            catch
+            {
+                _isCallbackActive = false;
+                CancelActive(token);
+                throw;
+            }
+
+            _isCallbackActive = false;
+            if (!didRebuild)
+            {
+                CancelActive(token);
+                finalized = default;
+                status = CoCoContextCommitStatus.DerivedRebuildFailed;
+                return false;
+            }
+
+            _isFinalized = true;
+            finalized = new CoCoFinalizedContextCommit(this, token);
+            status = CoCoContextCommitStatus.None;
             return true;
         }
 
         internal CoCoContextCommitResult Commit(ulong token)
         {
-            if (_reserved == null || token == 0UL || token != _activeToken)
+            if (_isCallbackActive || !IsFinalized(token))
             {
-                return new CoCoContextCommitResult(CoCoContextCommitStatus.InvalidPreparation, null);
+                return new CoCoContextCommitResult(CoCoContextCommitStatus.InvalidPreparation, default);
             }
 
-            CoCoContextFrame committed = _reserved;
-            CoCoContextFrame previous = _current;
+            CoCoContextFrameStorage committedStorage = _reserved;
+            CoCoContextFrameStorage previousStorage = _currentStorage;
             _reserved = null;
             _activeToken = 0UL;
-            committed.Seal();
+            _isFinalized = false;
+            CoCoContextFrame committed = committedStorage.Seal();
+            _currentStorage = committedStorage;
             _current = committed;
-            previous?.ReleaseArenaOwnership();
-            return new CoCoContextCommitResult(CoCoContextCommitStatus.Succeeded, committed);
+            previousStorage?.ReleaseArenaOwnership();
+            return new CoCoContextCommitResult(CoCoContextCommitStatus.Succeeded, _current);
         }
 
-        internal CoCoContextCommitStatus Cancel(ulong token)
+        internal CoCoContextCommitStatus CancelPrepared(ulong token)
+        {
+            return _isCallbackActive || !IsPreparationActive(token)
+                ? CoCoContextCommitStatus.InvalidPreparation
+                : CancelActive(token);
+        }
+
+        internal CoCoContextCommitStatus CancelFinalized(ulong token)
+        {
+            return _isCallbackActive || !IsFinalized(token)
+                ? CoCoContextCommitStatus.InvalidPreparation
+                : CancelActive(token);
+        }
+
+        private CoCoContextCommitStatus CancelActive(ulong token)
         {
             if (_reserved == null || token == 0UL || token != _activeToken)
             {
@@ -2329,6 +2689,7 @@ namespace CoCoFlow.Runtime.Core
             _reserved.Abandon();
             _reserved = null;
             _activeToken = 0UL;
+            _isFinalized = false;
             return CoCoContextCommitStatus.Cancelled;
         }
 
@@ -2353,7 +2714,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_current != null &&
+            if (HasCurrent &&
                 !CoCoStateFlowTickOrder.IsStrictlyAfter(
                     tickFrame,
                     _current.Header.TickFrame))
@@ -2370,14 +2731,21 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_current != null && _current.Revision.Value == ulong.MaxValue)
+            if (_nextToken == ulong.MaxValue)
             {
                 prepared = default;
                 status = CoCoContextCommitStatus.RevisionExhausted;
                 return false;
             }
 
-            CoCoContextFrame candidate = FindAvailableFrame();
+            if (HasCurrent && _current.Revision.Value == ulong.MaxValue)
+            {
+                prepared = default;
+                status = CoCoContextCommitStatus.RevisionExhausted;
+                return false;
+            }
+
+            CoCoContextFrameStorage candidate = FindAvailableFrame();
             if (candidate == null)
             {
                 prepared = default;
@@ -2397,33 +2765,48 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            ulong revisionValue = _current == null ? 1UL : _current.Revision.Value + 1UL;
-            if (!candidate.Prepare(header, new CoCoContextRevision(revisionValue), origin, source))
+            ulong revisionValue = !HasCurrent ? 1UL : _current.Revision.Value + 1UL;
+            bool didPrepare;
+            _isCallbackActive = true;
+            try
+            {
+                didPrepare = candidate.TryPrepare(
+                    header,
+                    new CoCoContextRevision(revisionValue),
+                    origin,
+                    source,
+                    out status);
+            }
+            catch
+            {
+                _isCallbackActive = false;
+                candidate.Abandon();
+                throw;
+            }
+
+            _isCallbackActive = false;
+
+            if (!didPrepare)
             {
                 candidate.Abandon();
                 prepared = default;
-                status = CoCoContextCommitStatus.RestoreFailed;
                 return false;
             }
 
             _reserved = candidate;
+            _isFinalized = false;
             _nextToken++;
-            if (_nextToken == 0UL)
-            {
-                _nextToken++;
-            }
-
             _activeToken = _nextToken;
             prepared = new CoCoPreparedContextCommit(this, _activeToken);
             status = CoCoContextCommitStatus.None;
             return true;
         }
 
-        private CoCoContextFrame FindAvailableFrame()
+        private CoCoContextFrameStorage FindAvailableFrame()
         {
             for (int index = 0; index < _frames.Length; index++)
             {
-                if (_frames[index] != _current && _frames[index].RetainCount == 0)
+                if (!ReferenceEquals(_frames[index], _currentStorage) && _frames[index].CanReuse)
                 {
                     return _frames[index];
                 }

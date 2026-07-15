@@ -482,7 +482,8 @@ namespace CoCoFlow.Runtime.Core
             Type sectionType = typeof(TSection);
             if (_byType.TryGetValue(sectionType, out Registration sameType))
             {
-                if (sameType.Requirement == requirement)
+                if (sameType.Requirement == requirement &&
+                    ReferenceEquals(sameType.Factory.FactoryInstance, viewFactory))
                 {
                     diagnostic = CoCoDiagnostic.None;
                     return true;
@@ -491,7 +492,7 @@ namespace CoCoFlow.Runtime.Core
                 requirement = default;
                 diagnostic = CoCoOperationSectionContract.Error(
                     CoCoDiagnosticCode.DuplicateIdentifier,
-                    "The same Operation Section interface cannot be registered with another identity or mode.");
+                    "The same Operation Section interface cannot be registered with another identity, mode, or view factory instance.");
                 return false;
             }
 
@@ -1270,6 +1271,8 @@ namespace CoCoFlow.Runtime.Core
 
     internal interface IViewFactoryRegistration
     {
+        object FactoryInstance { get; }
+
         object Create(
             CoCoOperationSectionRegistry registry,
             CoCoOperationSectionReader reader,
@@ -1285,6 +1288,8 @@ namespace CoCoFlow.Runtime.Core
         {
             _factory = factory;
         }
+
+        public object FactoryInstance => _factory;
 
         public object Create(
             CoCoOperationSectionRegistry registry,

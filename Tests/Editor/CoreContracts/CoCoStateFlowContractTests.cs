@@ -78,6 +78,15 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(movementRequirement, duplicateRequirement);
             Assert.AreEqual(1, builder.Count);
 
+            Assert.IsFalse(builder.TryRegister(
+                movementId,
+                CoCoOperationSectionMode.Continuous,
+                new MovementViewFactory(),
+                out _,
+                out diagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, diagnostic.Code);
+            Assert.AreEqual(1, builder.Count);
+
             Assert.IsTrue(builder.TryRegister(
                 alternateMovementId,
                 CoCoOperationSectionMode.Continuous,
@@ -427,7 +436,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(graphWriter.Write(speedHandle, 3f));
             Assert.IsTrue(operatorWriter.Write(speedHandle, 3f));
             Assert.IsFalse(operatorWriter.Write(healthHandle, 80));
-            Assert.IsTrue(prepared.Commit().Succeeded);
+            Assert.IsTrue(FinalizeAndCommit(prepared).Succeeded);
 
             Assert.IsFalse(builder.TryAddBlock(
                 CreateBlockId(9UL, 9UL),
@@ -482,6 +491,20 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out CoCoContextFrameLayout layout,
                 out diagnosticCode));
             CollectionAssert.AreEqual(new[] { 1, 2 }, layout.DerivedOrder);
+            Assert.IsTrue(layout.TryResolveSlot(
+                firstDerivedSlotId,
+                out CoCoStateSlot<int> firstDerivedSlot));
+            Assert.IsTrue(layout.TryResolveSlot(
+                secondDerivedSlotId,
+                out CoCoStateSlot<int> secondDerivedSlot));
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(10UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            CoCoContextFrame frame = FinalizeAndCommit(prepared).Frame;
+            Assert.AreEqual(2, frame.Read(firstDerivedSlot));
+            Assert.AreEqual(3, frame.Read(secondDerivedSlot));
         }
 
         [Test]
@@ -524,6 +547,176 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void ProjectionRequiresStoredAndDerivedDependencyClosureButAllowsResetDependencies()
+        {
+            CoCoStateBlockId blockId = CreateBlockId(21UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(21UL, 1UL);
+            CoCoStateSlotId firstDerivedSlotId = CreateSlotId(21UL, 2UL);
+            CoCoStateSlotId secondDerivedSlotId = CreateSlotId(21UL, 3UL);
+            var invalidBuilder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(invalidBuilder.TryAddBlock(
+                blockId,
+                CoCoStateBlockOwner.Actor,
+                out CoCoDiagnosticCode diagnosticCode));
+            Assert.IsTrue(invalidBuilder.TryAddSlot(
+                blockId,
+                storedSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                1,
+                default,
+                null,
+                out diagnosticCode));
+            Assert.IsTrue(invalidBuilder.TryAddDerivedSlot(
+                blockId,
+                firstDerivedSlotId,
+                CoCoContextProjection.Temporal,
+                0,
+                default,
+                new[] { storedSlotId },
+                new AddOneRebuilder(storedSlotId),
+                out diagnosticCode));
+            Assert.IsTrue(invalidBuilder.TryAddDerivedSlot(
+                blockId,
+                secondDerivedSlotId,
+                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
+                0,
+                default,
+                new[] { firstDerivedSlotId },
+                new AddOneRebuilder(firstDerivedSlotId),
+                out diagnosticCode));
+            Assert.IsFalse(invalidBuilder.TryFreeze(
+                CreateLayoutId(21UL, 1UL),
+                1U,
+                out _,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
+
+            var resetBuilder = new CoCoContextFrameLayoutBuilder();
+            CoCoStateSlotId resetSlotId = CreateSlotId(21UL, 4UL);
+            CoCoStateSlotId resetDerivedSlotId = CreateSlotId(21UL, 5UL);
+            Assert.IsTrue(resetBuilder.TryAddBlock(blockId, CoCoStateBlockOwner.Actor, out diagnosticCode));
+            Assert.IsTrue(resetBuilder.TryAddSlot(
+                blockId,
+                resetSlotId,
+                CoCoContextProjection.None,
+                CoCoContextRestorePolicy.ResetToDefault,
+                5,
+                default,
+                null,
+                out diagnosticCode));
+            Assert.IsTrue(resetBuilder.TryAddDerivedSlot(
+                blockId,
+                resetDerivedSlotId,
+                CoCoContextProjection.Durable,
+                0,
+                default,
+                new[] { resetSlotId },
+                new DoubleRebuilder(resetSlotId),
+                out diagnosticCode));
+            Assert.IsTrue(resetBuilder.TryFreeze(
+                CreateLayoutId(21UL, 2UL),
+                1U,
+                out _,
+                out diagnosticCode));
+        }
+
+        [Test]
+        public void DerivedValuesFinalizeEveryCommitAndFailurePreservesAuthority()
+        {
+            CoCoStateBlockId blockId = CreateBlockId(22UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(22UL, 1UL);
+            CoCoStateSlotId derivedSlotId = CreateSlotId(22UL, 2UL);
+            var rebuilder = new ControllableDoubleRebuilder(storedSlotId);
+            var builder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(builder.TryAddBlock(blockId, CoCoStateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                storedSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                1,
+                default,
+                null,
+                out _));
+            Assert.IsTrue(builder.TryAddDerivedSlot(
+                blockId,
+                derivedSlotId,
+                CoCoContextProjection.Temporal,
+                0,
+                default,
+                new[] { storedSlotId },
+                rebuilder,
+                out _));
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(22UL, 1UL),
+                1U,
+                out CoCoContextFrameLayout layout,
+                out _));
+            Assert.IsTrue(layout.TryResolveBlock(blockId, out CoCoStateBlockHandle block));
+            Assert.IsTrue(layout.TryResolveSlot(storedSlotId, out CoCoStateSlot<int> storedSlot));
+            Assert.IsTrue(layout.TryResolveSlot(derivedSlotId, out CoCoStateSlot<int> derivedSlot));
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(22UL), layout, 2);
+
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit first,
+                out _));
+            Assert.IsTrue(first.TryGetWriter(block, out CoCoContextFrameWriter writer));
+            Assert.IsTrue(writer.Write(storedSlot, 3));
+            Assert.IsFalse(writer.Write(derivedSlot, 99));
+            CoCoContextCommitResult firstResult = FinalizeAndCommit(first);
+            Assert.AreEqual(6, firstResult.Frame.Read(derivedSlot));
+            Assert.AreEqual(1, rebuilder.InvocationCount);
+
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(2UL, 1UL, 2UL),
+                out CoCoPreparedContextCommit noOp,
+                out _));
+            CoCoContextCommitResult noOpResult = FinalizeAndCommit(noOp);
+            Assert.AreEqual(2UL, noOpResult.Frame.Revision.Value);
+            Assert.AreEqual(6, noOpResult.Frame.Read(derivedSlot));
+            Assert.AreEqual(2, rebuilder.InvocationCount);
+
+            rebuilder.ShouldFail = true;
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(3UL, 1UL, 3UL),
+                out CoCoPreparedContextCommit failed,
+                out _));
+            Assert.IsTrue(failed.TryGetWriter(block, out writer));
+            Assert.IsTrue(writer.Write(storedSlot, 4));
+            Assert.IsFalse(failed.TryFinalize(
+                out _,
+                out CoCoContextCommitStatus failedStatus));
+            Assert.AreEqual(CoCoContextCommitStatus.DerivedRebuildFailed, failedStatus);
+            Assert.AreEqual(2UL, arena.Current.Revision.Value);
+            Assert.AreEqual(3, arena.Current.Read(storedSlot));
+            Assert.AreEqual(3, rebuilder.InvocationCount);
+
+            rebuilder.ShouldFail = false;
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(3UL, 1UL, 3UL),
+                out CoCoPreparedContextCommit retry,
+                out _));
+            Assert.IsTrue(retry.TryGetWriter(block, out writer));
+            Assert.IsTrue(writer.Write(storedSlot, 4));
+            CoCoContextCommitResult retryResult = FinalizeAndCommit(retry);
+            Assert.AreEqual(8, retryResult.Frame.Read(derivedSlot));
+            Assert.AreEqual(4, rebuilder.InvocationCount);
+
+            rebuilder.ShouldThrow = true;
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(4UL, 1UL, 4UL),
+                out CoCoPreparedContextCommit throwing,
+                out _));
+            Assert.Throws<InvalidOperationException>(() => throwing.TryFinalize(out _, out _));
+            Assert.IsFalse(throwing.IsValid);
+            Assert.AreEqual(3UL, arena.Current.Revision.Value);
+            Assert.AreEqual(4, arena.Current.Read(storedSlot));
+            Assert.AreEqual(5, rebuilder.InvocationCount);
+        }
+
+        [Test]
         public void ContextFramesAreGraphIsolatedAndRejectForeignLayoutHandles()
         {
             CoCoStateSlotId valueSlotId = CreateSlotId(30UL, 1UL);
@@ -544,14 +737,14 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit firstPrepared,
                 out CoCoContextCommitStatus status));
-            CoCoContextFrame firstFrame = firstPrepared.Commit().Frame;
+            CoCoContextFrame firstFrame = FinalizeAndCommit(firstPrepared).Frame;
             Assert.AreEqual(firstGraph, firstFrame.Header.Identity.GraphInstanceId);
 
             Assert.IsTrue(secondArena.TryPrepare(
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit secondPrepared,
                 out status));
-            CoCoContextFrame secondFrame = secondPrepared.Commit().Frame;
+            CoCoContextFrame secondFrame = FinalizeAndCommit(secondPrepared).Frame;
             Assert.AreEqual(secondGraph, secondFrame.Header.Identity.GraphInstanceId);
             Assert.AreNotEqual(firstFrame.Header.Identity, secondFrame.Header.Identity);
 
@@ -593,7 +786,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit prepared,
                 out CoCoContextCommitStatus status));
-            CoCoContextFrame frame = prepared.Commit().Frame;
+            CoCoContextFrame frame = FinalizeAndCommit(prepared).Frame;
             Assert.AreEqual(1U, frame.Header.LayoutVersion);
             Assert.AreEqual(layout.SchemaHash, frame.Header.LayoutSchemaHash);
             Assert.AreEqual(layout.SchemaHash, separateInstance.SchemaHash);
@@ -639,7 +832,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit firstPrepared,
                 out CoCoContextCommitStatus status));
-            CoCoContextCommitResult firstResult = firstPrepared.Commit();
+            CoCoContextCommitResult firstResult = FinalizeAndCommit(firstPrepared);
             Assert.IsTrue(firstResult.Succeeded);
             Assert.AreEqual(1UL, firstResult.Frame.Revision.Value);
             Assert.AreEqual(42, firstResult.Frame.Read(slot));
@@ -648,7 +841,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(2UL, 1UL, 2UL),
                 out CoCoPreparedContextCommit noOpPrepared,
                 out status));
-            CoCoContextCommitResult noOpResult = noOpPrepared.Commit();
+            CoCoContextCommitResult noOpResult = FinalizeAndCommit(noOpPrepared);
             Assert.IsTrue(noOpResult.Succeeded);
             Assert.AreEqual(2UL, noOpResult.Frame.Revision.Value);
             Assert.AreEqual(42, noOpResult.Frame.Read(slot));
@@ -659,9 +852,121 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out CoCoPreparedContextCommit cancelled,
                 out status));
             Assert.AreEqual(CoCoContextCommitStatus.Cancelled, cancelled.Cancel());
-            Assert.AreSame(authoritative, arena.Current);
+            Assert.AreEqual(authoritative, arena.Current);
             Assert.AreEqual(2UL, arena.Current.Revision.Value);
-            Assert.AreEqual(CoCoContextCommitStatus.InvalidPreparation, cancelled.Commit().Status);
+            Assert.IsFalse(cancelled.TryFinalize(out _, out status));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidPreparation, status);
+        }
+
+        [Test]
+        public void PreparedAndFinalizedTokensCannotCrossCancelTheirTypeState()
+        {
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(42UL, 1UL),
+                CreateSlotId(42UL, 1UL),
+                1);
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(42UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            Assert.IsTrue(prepared.TryFinalize(
+                out CoCoFinalizedContextCommit finalized,
+                out _));
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidPreparation, prepared.Cancel());
+            Assert.IsTrue(finalized.IsValid);
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, finalized.Cancel());
+            Assert.IsFalse(finalized.IsValid);
+        }
+
+        [Test]
+        public void ContextArenaRejectsCallbackReentrancyAndTokenExhaustion()
+        {
+            CoCoStateBlockId blockId = CreateBlockId(43UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(43UL, 1UL);
+            CoCoStateSlotId derivedSlotId = CreateSlotId(43UL, 2UL);
+            var rebuilder = new ReentrantRebuilder(storedSlotId);
+            var builder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(builder.TryAddBlock(blockId, CoCoStateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                storedSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                2,
+                default,
+                null,
+                out _));
+            Assert.IsTrue(builder.TryAddDerivedSlot(
+                blockId,
+                derivedSlotId,
+                CoCoContextProjection.Temporal,
+                0,
+                default,
+                new[] { storedSlotId },
+                rebuilder,
+                out _));
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(43UL, 1UL),
+                1U,
+                out CoCoContextFrameLayout layout,
+                out _));
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(43UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            rebuilder.Arena = arena;
+            rebuilder.Token = ReadPrivateToken(arena);
+
+            CoCoContextCommitResult result = FinalizeAndCommit(prepared);
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsTrue(rebuilder.PrepareRejected);
+            Assert.IsTrue(rebuilder.FinalizeRejected);
+            Assert.IsTrue(rebuilder.CancelRejected);
+            Assert.IsTrue(rebuilder.CommitRejected);
+
+            var restoreArena = new CoCoContextFrameArena(CreateGraphInstanceId(43UL), layout, 2);
+            rebuilder.Arena = restoreArena;
+            rebuilder.Token = 0UL;
+            Assert.IsTrue(restoreArena.TryPrepareRestore(
+                result.Frame,
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoFinalizedContextCommit restored,
+                out _));
+            Assert.IsTrue(rebuilder.PrepareRejected);
+            Assert.IsTrue(rebuilder.FinalizeRejected);
+            Assert.IsTrue(rebuilder.CancelRejected);
+            Assert.IsTrue(rebuilder.CommitRejected);
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, restored.Cancel());
+
+            var exhaustedArena = new CoCoContextFrameArena(CreateGraphInstanceId(44UL), layout, 2);
+            FieldInfo tokenField = typeof(CoCoContextFrameArena).GetField(
+                "_nextToken",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(tokenField);
+            tokenField.SetValue(exhaustedArena, ulong.MaxValue - 1UL);
+            Assert.IsTrue(exhaustedArena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit lastPrepared,
+                out _));
+            Assert.AreEqual(ulong.MaxValue, ReadPrivateToken(exhaustedArena));
+            Assert.IsTrue(lastPrepared.TryFinalize(
+                out CoCoFinalizedContextCommit lastFinalized,
+                out _));
+            Assert.IsTrue(lastFinalized.Commit().Succeeded);
+            Assert.IsFalse(lastPrepared.IsValid);
+            Assert.IsFalse(lastFinalized.IsValid);
+            Assert.IsFalse(exhaustedArena.TryPrepare(
+                CreateTickFrame(2UL, 1UL, 2UL),
+                out _,
+                out CoCoContextCommitStatus exhaustedStatus));
+            Assert.AreEqual(CoCoContextCommitStatus.RevisionExhausted, exhaustedStatus);
+            Assert.IsTrue(exhaustedArena.HasCurrent);
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidPreparation, lastPrepared.Cancel());
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidPreparation, lastFinalized.Cancel());
         }
 
         [Test]
@@ -758,11 +1063,12 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(initial.TryGetWriter(block, out CoCoContextFrameWriter writer));
             Assert.IsTrue(writer.Write(storedSlot, 7));
             Assert.IsTrue(writer.Write(resetSlot, 9));
-            Assert.IsTrue(writer.Write(derivedSlot, 99));
-            CoCoContextFrame source = initial.Commit().Frame;
+            Assert.IsFalse(writer.Write(derivedSlot, 99));
+            CoCoContextFrame source = FinalizeAndCommit(initial).Frame;
+            Assert.IsTrue(source.Retain());
             Assert.AreEqual(7, source.Read(storedSlot));
             Assert.AreEqual(9, source.Read(resetSlot));
-            Assert.AreEqual(99, source.Read(derivedSlot));
+            Assert.AreEqual(14, source.Read(derivedSlot));
 
             Assert.IsFalse(arena.TryPrepareRestore(
                 source,
@@ -771,10 +1077,29 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out status));
             Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
 
+            Assert.IsFalse(arena.TryPrepareRestore(
+                source,
+                CreateTickFrame(10UL, 4UL, 5UL, 2UL, 2UL, 1UL),
+                out _,
+                out status));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.IsFalse(arena.TryPrepareRestore(
+                source,
+                CreateTickFrame(10UL, 4UL, 5UL, 1UL, 1UL, 2UL),
+                out _,
+                out status));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.IsFalse(arena.TryPrepareRestore(
+                source,
+                CreateTickFrame(10UL, 4UL, 4UL),
+                out _,
+                out status));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+
             Assert.IsTrue(arena.TryPrepareRestore(
                 source,
                 CreateTickFrame(10UL, 4UL, 5UL),
-                out CoCoPreparedContextCommit restore,
+                out CoCoFinalizedContextCommit restore,
                 out status));
             CoCoContextFrame restored = restore.Commit().Frame;
             Assert.AreEqual(2UL, restored.Revision.Value);
@@ -787,6 +1112,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(7, restored.Read(storedSlot));
             Assert.AreEqual(5, restored.Read(resetSlot));
             Assert.AreEqual(14, restored.Read(derivedSlot));
+            Assert.IsTrue(source.Release());
         }
 
         [Test]
@@ -801,7 +1127,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(5UL, 5UL, 5UL),
                 out CoCoPreparedContextCommit initial,
                 out CoCoContextCommitStatus status));
-            CoCoContextFrame source = initial.Commit().Frame;
+            CoCoContextFrame source = FinalizeAndCommit(initial).Frame;
             Assert.IsTrue(source.Retain());
 
             Assert.IsFalse(arena.TryPrepareRestore(
@@ -814,7 +1140,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(arena.TryPrepareRestore(
                 source,
                 CreateTickFrame(2UL, 10UL, 6UL),
-                out CoCoPreparedContextCommit advanced,
+                out CoCoFinalizedContextCommit advanced,
                 out status));
             Assert.IsTrue(advanced.Commit().Succeeded);
             Assert.IsFalse(arena.TryPrepareRestore(
@@ -838,7 +1164,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit firstPrepared,
                 out CoCoContextCommitStatus status));
-            CoCoContextFrame first = firstPrepared.Commit().Frame;
+            CoCoContextFrame first = FinalizeAndCommit(firstPrepared).Frame;
             Assert.IsFalse(first.Release());
             Assert.IsTrue(first.Retain());
 
@@ -846,7 +1172,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(2UL, 1UL, 2UL),
                 out CoCoPreparedContextCommit secondPrepared,
                 out status));
-            Assert.IsTrue(secondPrepared.Commit().Succeeded);
+            Assert.IsTrue(FinalizeAndCommit(secondPrepared).Succeeded);
 
             Assert.IsFalse(arena.TryPrepare(
                 CreateTickFrame(3UL, 1UL, 3UL),
@@ -859,6 +1185,93 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out CoCoPreparedContextCommit available,
                 out status));
             Assert.AreEqual(CoCoContextCommitStatus.Cancelled, available.Cancel());
+        }
+
+        [Test]
+        public void ArenaOwnershipAndMaximumExternalRetainsDoNotOverflowFrameLiveness()
+        {
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(60UL, 2UL),
+                CreateSlotId(60UL, 2UL),
+                1);
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(602UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            CoCoContextFrame frame = FinalizeAndCommit(prepared).Frame;
+
+            FieldInfo storageField = typeof(CoCoContextFrame).GetField(
+                "_storage",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(storageField);
+            object storage = storageField.GetValue(frame);
+            Assert.NotNull(storage);
+            FieldInfo retainCountField = storage.GetType().GetField(
+                "_externalRetainCount",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(retainCountField);
+            retainCountField.SetValue(storage, int.MaxValue - 1);
+
+            Assert.IsTrue(frame.IsAlive);
+            Assert.IsTrue(arena.HasCurrent);
+            Assert.IsTrue(frame.Retain());
+            Assert.IsTrue(frame.IsAlive);
+            Assert.IsTrue(arena.HasCurrent);
+            Assert.IsFalse(frame.Retain());
+        }
+
+        [Test]
+        public void ReusedArenaStorageNeverRevivesAnExpiredFrameHandle()
+        {
+            CoCoStateSlotId slotId = CreateSlotId(61UL, 1UL);
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(61UL, 1UL),
+                slotId,
+                0);
+            Assert.IsTrue(layout.TryResolveBlock(
+                CreateBlockId(61UL, 1UL),
+                out CoCoStateBlockHandle block));
+            Assert.IsTrue(layout.TryResolveSlot(slotId, out CoCoStateSlot<int> slot));
+            CoCoGraphInstanceId graphInstanceId = CreateGraphInstanceId(61UL);
+            var arena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+
+            CoCoContextFrame first = CommitStoredValue(arena, block, slot, 1UL, 1);
+            CoCoContextFrame second = CommitStoredValue(arena, block, slot, 2UL, 2);
+            Assert.IsFalse(first.IsAlive);
+            Assert.AreEqual(2, second.Read(slot));
+
+            CoCoContextFrame third = CommitStoredValue(arena, block, slot, 3UL, 3);
+            Assert.IsFalse(first.IsAlive);
+            Assert.IsFalse(first.Retain());
+            Assert.IsFalse(first.Release());
+            Assert.AreNotEqual(first, third);
+            Assert.Throws<InvalidOperationException>(() => first.Read(slot));
+            Assert.AreEqual(3, third.Read(slot));
+
+            var registry = new CoCoContextCodecRegistry();
+            Assert.IsTrue(registry.TryFreeze(out _));
+            Assert.IsTrue(CoCoContextProjectionCodec.TryCreate(
+                layout,
+                registry,
+                CoCoContextProjection.Temporal,
+                out CoCoContextProjectionCodec codec,
+                out _));
+            var encoded = new byte[codec.MaxEncodedSize];
+            Assert.IsFalse(codec.TryEncode(
+                first,
+                encoded,
+                out _,
+                out CoCoDiagnosticCode diagnosticCode));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidFrameHandle, diagnosticCode);
+
+            var restoreArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsFalse(restoreArena.TryPrepareRestore(
+                first,
+                CreateTickFrame(4UL, 4UL, 4UL),
+                out _,
+                out CoCoContextCommitStatus status));
+            Assert.AreEqual(CoCoContextCommitStatus.LayoutMismatch, status);
         }
 
         [Test]
@@ -945,7 +1358,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(sourceCommit.TryGetWriter(block, out CoCoContextFrameWriter writer));
             Assert.IsTrue(writer.Write(temporalSlot, 7));
             Assert.IsTrue(writer.Write(durableSlot, 9));
-            CoCoContextFrame sourceFrame = sourceCommit.Commit().Frame;
+            CoCoContextFrame sourceFrame = FinalizeAndCommit(sourceCommit).Frame;
 
             var temporalBytes = new byte[temporalCodec.MaxEncodedSize];
             Assert.IsTrue(temporalCodec.TryEncode(
@@ -954,10 +1367,52 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out int temporalLength,
                 out diagnosticCode));
 
+            var oldFormat = new byte[temporalLength];
+            Buffer.BlockCopy(temporalBytes, 0, oldFormat, 0, temporalLength);
+            oldFormat[4] = 1;
             var wrongLayout = new byte[temporalLength];
             Buffer.BlockCopy(temporalBytes, 0, wrongLayout, 0, temporalLength);
             wrongLayout[12] ^= 1;
             var temporalArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                oldFormat,
+                temporalArena,
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out _,
+                out _,
+                out _,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                temporalBytes,
+                temporalArena,
+                CreateTickFrame(2UL, 2UL, 2UL, 2UL, 2UL, 1UL),
+                out _,
+                out _,
+                out CoCoContextCommitStatus status,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                temporalBytes,
+                temporalArena,
+                CreateTickFrame(2UL, 2UL, 2UL, 1UL, 1UL, 2UL),
+                out _,
+                out _,
+                out status,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                temporalBytes,
+                temporalArena,
+                CreateTickFrame(2UL, 2UL, 1UL),
+                out _,
+                out _,
+                out status,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
             Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
                 wrongLayout,
                 temporalArena,
@@ -970,7 +1425,7 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             var unknownCodec = new byte[temporalLength];
             Buffer.BlockCopy(temporalBytes, 0, unknownCodec, 0, temporalLength);
-            unknownCodec[92] ^= 1;
+            unknownCodec[124] ^= 1;
             Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
                 unknownCodec,
                 temporalArena,
@@ -983,7 +1438,7 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             var unsupportedCodecVersion = new byte[temporalLength];
             Buffer.BlockCopy(temporalBytes, 0, unsupportedCodecVersion, 0, temporalLength);
-            unsupportedCodecVersion[108] = 2;
+            unsupportedCodecVersion[140] = 2;
             Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
                 unsupportedCodecVersion,
                 temporalArena,
@@ -994,13 +1449,26 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out diagnosticCode));
             Assert.AreEqual(CoCoDiagnosticCode.UnsupportedCodecVersion, diagnosticCode);
 
+            var decodeFailure = new byte[temporalLength];
+            Buffer.BlockCopy(temporalBytes, 0, decodeFailure, 0, temporalLength);
+            decodeFailure[152] = 3;
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                decodeFailure,
+                temporalArena,
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out _,
+                out _,
+                out _,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoDiagnosticCode.UnknownCodec, diagnosticCode);
+
             Assert.IsTrue(temporalCodec.TryDecodeAndPrepareRestore(
                 new ReadOnlySpan<byte>(temporalBytes, 0, temporalLength),
                 temporalArena,
                 CreateTickFrame(2UL, 2UL, 2UL),
-                out CoCoPreparedContextCommit temporalRestore,
+                out CoCoFinalizedContextCommit temporalRestore,
                 out int temporalRead,
-                out CoCoContextCommitStatus status,
+                out status,
                 out diagnosticCode),
                 $"{diagnosticCode}/{status}");
             CoCoContextFrame temporalFrame = temporalRestore.Commit().Frame;
@@ -1008,6 +1476,16 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(7, temporalFrame.Read(temporalSlot));
             Assert.AreEqual(2, temporalFrame.Read(durableSlot));
             Assert.AreEqual(14, temporalFrame.Read(derivedSlot));
+            Assert.IsFalse(temporalCodec.TryDecodeAndPrepareRestore(
+                new ReadOnlySpan<byte>(temporalBytes, 0, temporalLength),
+                temporalArena,
+                CreateTickFrame(3UL, 2UL, 3UL),
+                out _,
+                out _,
+                out status,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoContextCommitStatus.InvalidOrigin, status);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
 
             var durableBytes = new byte[durableCodec.MaxEncodedSize];
             Assert.IsTrue(durableCodec.TryEncode(
@@ -1015,12 +1493,26 @@ namespace CoCoFlow.Runtime.Core.Tests
                 durableBytes,
                 out int durableLength,
                 out diagnosticCode));
+            var foreignGraphArena = new CoCoContextFrameArena(
+                CreateGraphInstanceId(720UL),
+                layout,
+                2);
+            Assert.IsFalse(durableCodec.TryDecodeAndPrepareRestore(
+                new ReadOnlySpan<byte>(durableBytes, 0, durableLength),
+                foreignGraphArena,
+                CreateTickFrame(2UL, 3UL, 3UL),
+                out _,
+                out _,
+                out status,
+                out diagnosticCode));
+            Assert.AreEqual(CoCoContextCommitStatus.GraphMismatch, status);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidFrameHandle, diagnosticCode);
             var durableArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
             Assert.IsTrue(durableCodec.TryDecodeAndPrepareRestore(
                 new ReadOnlySpan<byte>(durableBytes, 0, durableLength),
                 durableArena,
                 CreateTickFrame(2UL, 3UL, 3UL),
-                out CoCoPreparedContextCommit durableRestore,
+                out CoCoFinalizedContextCommit durableRestore,
                 out int durableRead,
                 out status,
                 out diagnosticCode),
@@ -1030,6 +1522,196 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(1, durableFrame.Read(temporalSlot));
             Assert.AreEqual(9, durableFrame.Read(durableSlot));
             Assert.AreEqual(2, durableFrame.Read(derivedSlot));
+        }
+
+        [Test]
+        public void ProjectionCodecExceptionRollsBackCandidateAndRethrows()
+        {
+            CoCoFrameLayoutId layoutId = CreateLayoutId(73UL, 1UL);
+            CoCoStateBlockId blockId = CreateBlockId(73UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(73UL, 1UL);
+            CoCoStateSlotId derivedSlotId = CreateSlotId(73UL, 2UL);
+            CoCoCodecDescriptor codecDescriptor = CreateCodecDescriptor(73UL, 1U);
+            CoCoContextFrameLayout layout = CreateProjectionLayout(
+                layoutId,
+                blockId,
+                storedSlotId,
+                derivedSlotId,
+                codecDescriptor,
+                1U,
+                4);
+            var registry = new CoCoContextCodecRegistry();
+            var codec = new ThrowOnDecodeInt32Codec(codecDescriptor);
+            Assert.IsTrue(registry.TryRegister(
+                codec,
+                out CoCoDiagnosticCode diagnosticCode));
+            Assert.IsTrue(registry.TryFreeze(out diagnosticCode));
+            Assert.IsTrue(CoCoContextProjectionCodec.TryCreate(
+                layout,
+                registry,
+                CoCoContextProjection.Temporal,
+                out CoCoContextProjectionCodec projectionCodec,
+                out diagnosticCode));
+
+            CoCoGraphInstanceId graphInstanceId = CreateGraphInstanceId(73UL);
+            var sourceArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsTrue(sourceArena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit sourceCommit,
+                out _));
+            CoCoContextFrame source = FinalizeAndCommit(sourceCommit).Frame;
+            var encoded = new byte[projectionCodec.MaxEncodedSize];
+            Assert.IsTrue(projectionCodec.TryEncode(
+                source,
+                encoded,
+                out int encodedLength,
+                out diagnosticCode));
+
+            var restoreArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            codec.Arena = restoreArena;
+            var decodeException = Assert.Throws<InvalidOperationException>(() =>
+                projectionCodec.TryDecodeAndPrepareRestore(
+                    new ReadOnlySpan<byte>(encoded, 0, encodedLength),
+                    restoreArena,
+                    CreateTickFrame(2UL, 2UL, 2UL),
+                    out _,
+                    out _,
+                    out _,
+                    out _));
+            Assert.AreEqual("Test codec decode failure.", decodeException.Message);
+            Assert.IsTrue(codec.PrepareRejected);
+            Assert.IsTrue(codec.FinalizeRejected);
+            Assert.IsTrue(codec.CancelRejected);
+            Assert.IsTrue(codec.CommitRejected);
+            Assert.IsTrue(restoreArena.TryPrepare(
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoPreparedContextCommit afterException,
+                out _));
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, afterException.Cancel());
+        }
+
+        [Test]
+        public void RestoreDerivedFailureAndExceptionRollBackDirectAndProjectionCandidates()
+        {
+            CoCoFrameLayoutId layoutId = CreateLayoutId(74UL, 1UL);
+            CoCoStateBlockId blockId = CreateBlockId(74UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(74UL, 1UL);
+            CoCoStateSlotId derivedSlotId = CreateSlotId(74UL, 2UL);
+            var rebuilder = new ControllableDoubleRebuilder(storedSlotId);
+            var builder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(builder.TryAddBlock(blockId, CoCoStateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                storedSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                3,
+                default,
+                null,
+                out _));
+            Assert.IsTrue(builder.TryAddDerivedSlot(
+                blockId,
+                derivedSlotId,
+                CoCoContextProjection.Temporal,
+                0,
+                default,
+                new[] { storedSlotId },
+                rebuilder,
+                out _));
+            Assert.IsTrue(builder.TryFreeze(layoutId, 1U, out CoCoContextFrameLayout layout, out _));
+            var registry = new CoCoContextCodecRegistry();
+            Assert.IsTrue(registry.TryFreeze(out _));
+            Assert.IsTrue(CoCoContextProjectionCodec.TryCreate(
+                layout,
+                registry,
+                CoCoContextProjection.Temporal,
+                out CoCoContextProjectionCodec projectionCodec,
+                out _));
+
+            CoCoGraphInstanceId graphInstanceId = CreateGraphInstanceId(74UL);
+            var sourceArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsTrue(sourceArena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit sourceCommit,
+                out _));
+            CoCoContextFrame source = FinalizeAndCommit(sourceCommit).Frame;
+            var encoded = new byte[projectionCodec.MaxEncodedSize];
+            Assert.IsTrue(projectionCodec.TryEncode(source, encoded, out int encodedLength, out _));
+            rebuilder.ShouldFail = true;
+
+            var projectionFailureArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsFalse(projectionCodec.TryDecodeAndPrepareRestore(
+                new ReadOnlySpan<byte>(encoded, 0, encodedLength),
+                projectionFailureArena,
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out _,
+                out _,
+                out CoCoContextCommitStatus projectionFailureStatus,
+                out CoCoDiagnosticCode projectionFailureDiagnostic));
+            Assert.AreEqual(
+                CoCoContextCommitStatus.DerivedRebuildFailed,
+                projectionFailureStatus);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.CommitPreparationFailed,
+                projectionFailureDiagnostic);
+            Assert.IsTrue(projectionFailureArena.TryPrepare(
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoPreparedContextCommit afterProjectionFailure,
+                out _));
+            Assert.AreEqual(
+                CoCoContextCommitStatus.Cancelled,
+                afterProjectionFailure.Cancel());
+
+            var directFailureArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            Assert.IsFalse(directFailureArena.TryPrepareRestore(
+                source,
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out _,
+                out CoCoContextCommitStatus directFailureStatus));
+            Assert.AreEqual(
+                CoCoContextCommitStatus.DerivedRebuildFailed,
+                directFailureStatus);
+            Assert.IsTrue(directFailureArena.TryPrepare(
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoPreparedContextCommit afterDirectFailure,
+                out _));
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, afterDirectFailure.Cancel());
+
+            rebuilder.ShouldFail = false;
+            rebuilder.ShouldThrow = true;
+
+            var projectionArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            var projectionException = Assert.Throws<InvalidOperationException>(() =>
+                projectionCodec.TryDecodeAndPrepareRestore(
+                    new ReadOnlySpan<byte>(encoded, 0, encodedLength),
+                    projectionArena,
+                    CreateTickFrame(2UL, 2UL, 2UL),
+                    out _,
+                    out _,
+                    out _,
+                    out _));
+            Assert.AreEqual("Test rebuilder failure.", projectionException.Message);
+            Assert.IsTrue(projectionArena.TryPrepare(
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoPreparedContextCommit afterProjectionException,
+                out _));
+            Assert.AreEqual(
+                CoCoContextCommitStatus.Cancelled,
+                afterProjectionException.Cancel());
+
+            var directArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
+            var directException = Assert.Throws<InvalidOperationException>(() =>
+                directArena.TryPrepareRestore(
+                    source,
+                    CreateTickFrame(2UL, 2UL, 2UL),
+                    out _,
+                    out _));
+            Assert.AreEqual("Test rebuilder failure.", directException.Message);
+            Assert.IsTrue(directArena.TryPrepare(
+                CreateTickFrame(2UL, 2UL, 2UL),
+                out CoCoPreparedContextCommit afterDirectException,
+                out _));
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, afterDirectException.Cancel());
         }
 
         [Test]
@@ -1046,7 +1728,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoPreparedContextCommit prepared,
                 out _));
-            CoCoContextFrame frame = prepared.Commit().Frame;
+            CoCoContextFrame frame = FinalizeAndCommit(prepared).Frame;
             var codec = new Int32Codec(CreateCodecDescriptor(71UL, 1U));
             var bytes = new byte[codec.MaxEncodedSize];
             int checksum = 0;
@@ -1072,6 +1754,74 @@ namespace CoCoFlow.Runtime.Core.Tests
             long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
             Assert.IsTrue(succeeded);
             Assert.AreEqual(424200, checksum);
+            Assert.AreEqual(0L, allocated);
+        }
+
+        [Test]
+        public void ContextFrameRetainReleaseAllocatesNoManagedMemoryAfterWarmup()
+        {
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(71UL, 2UL),
+                CreateSlotId(71UL, 2UL),
+                42);
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(712UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            CoCoContextFrame frame = FinalizeAndCommit(prepared).Frame;
+            bool succeeded = true;
+
+            for (int index = 0; index < 100; index++)
+            {
+                succeeded &= frame.Retain();
+                succeeded &= frame.Release();
+            }
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0; index < 10000; index++)
+            {
+                succeeded &= frame.Retain();
+                succeeded &= frame.Release();
+            }
+
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.IsTrue(succeeded);
+            Assert.IsTrue(frame.IsAlive);
+            Assert.IsTrue(arena.HasCurrent);
+            Assert.AreEqual(0L, allocated);
+        }
+
+        [Test]
+        public void ContextFinalizeCommitAllocatesNoManagedMemoryAfterWarmup()
+        {
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(74UL, 1UL),
+                CreateSlotId(74UL, 1UL),
+                42);
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(74UL), layout, 2);
+            var ticks = new CoCoTickFrame[10100];
+            for (int index = 0; index < ticks.Length; index++)
+            {
+                ulong frame = (ulong)index + 1UL;
+                ticks[index] = CreateTickFrame(frame, 1UL, frame);
+            }
+
+            bool succeeded = true;
+            for (int index = 0; index < 100; index++)
+            {
+                succeeded &= RunContextCommitCycle(arena, ticks[index]);
+            }
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0; index < 10000; index++)
+            {
+                succeeded &= RunContextCommitCycle(arena, ticks[index + 100]);
+            }
+
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.IsTrue(succeeded);
+            Assert.AreEqual(10100UL, arena.Current.Revision.Value);
             Assert.AreEqual(0L, allocated);
         }
 
@@ -1111,13 +1861,14 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out _));
             Assert.IsTrue(sourceCommit.TryGetWriter(block, out CoCoContextFrameWriter writer));
             Assert.IsTrue(writer.Write(storedSlot, 42));
-            CoCoContextFrame sourceFrame = sourceCommit.Commit().Frame;
+            CoCoContextFrame sourceFrame = FinalizeAndCommit(sourceCommit).Frame;
             var restoreArena = new CoCoContextFrameArena(graphInstanceId, layout, 2);
             var bytes = new byte[projectionCodec.MaxEncodedSize];
             var ticks = new CoCoTickFrame[10100];
             for (int index = 0; index < ticks.Length; index++)
             {
-                ticks[index] = CreateTickFrame((ulong)index + 2UL, 2UL, (ulong)index + 2UL);
+                ulong frame = (ulong)index + 2UL;
+                ticks[index] = CreateTickFrame(frame, frame, frame);
             }
 
             bool succeeded = true;
@@ -1170,7 +1921,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                     new ReadOnlySpan<byte>(destination, 0, written),
                     restoreArena,
                     resumedTick,
-                    out CoCoPreparedContextCommit prepared,
+                    out CoCoFinalizedContextCommit finalized,
                     out int read,
                     out _,
                     out _) ||
@@ -1179,7 +1930,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 return false;
             }
 
-            CoCoContextCommitResult result = prepared.Commit();
+            CoCoContextCommitResult result = finalized.Commit();
             if (!result.Succeeded)
             {
                 return false;
@@ -1188,6 +1939,51 @@ namespace CoCoFlow.Runtime.Core.Tests
             checksum += result.Frame.Read(storedSlot);
             checksum += result.Frame.Read(derivedSlot);
             return true;
+        }
+
+        private static bool RunContextCommitCycle(
+            CoCoContextFrameArena arena,
+            CoCoTickFrame tickFrame)
+        {
+            if (!arena.TryPrepare(
+                    tickFrame,
+                    out CoCoPreparedContextCommit prepared,
+                    out _) ||
+                !prepared.TryFinalize(
+                    out CoCoFinalizedContextCommit finalized,
+                    out _))
+            {
+                return false;
+            }
+
+            return finalized.Commit().Succeeded;
+        }
+
+        private static CoCoContextCommitResult FinalizeAndCommit(
+            CoCoPreparedContextCommit prepared)
+        {
+            Assert.IsTrue(
+                prepared.TryFinalize(
+                    out CoCoFinalizedContextCommit finalized,
+                    out CoCoContextCommitStatus status),
+                status.ToString());
+            return finalized.Commit();
+        }
+
+        private static CoCoContextFrame CommitStoredValue(
+            CoCoContextFrameArena arena,
+            CoCoStateBlockHandle block,
+            CoCoStateSlot<int> slot,
+            ulong frame,
+            int value)
+        {
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(frame, 1UL, frame),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            Assert.IsTrue(prepared.TryGetWriter(block, out CoCoContextFrameWriter writer));
+            Assert.IsTrue(writer.Write(slot, value));
+            return FinalizeAndCommit(prepared).Frame;
         }
 
         private static CoCoContextFrameLayout CreateStoredIntLayout(
@@ -1341,9 +2137,23 @@ namespace CoCoFlow.Runtime.Core.Tests
 
         private static CoCoTickFrame CreateTickFrame(ulong tick, ulong epoch, ulong sequence)
         {
-            Assert.IsTrue(CoCoTimelineId.TryCreate(1UL, 1UL, out CoCoTimelineId timelineId));
+            return CreateTickFrame(tick, epoch, sequence, 1UL, 1UL, 1UL);
+        }
+
+        private static CoCoTickFrame CreateTickFrame(
+            ulong tick,
+            ulong epoch,
+            ulong sequence,
+            ulong timelineHigh,
+            ulong timelineLow,
+            ulong clockDomain)
+        {
+            Assert.IsTrue(CoCoTimelineId.TryCreate(
+                timelineHigh,
+                timelineLow,
+                out CoCoTimelineId timelineId));
             Assert.IsTrue(CoCoTimelinePosition.TryCreate(tick * 0.016d, out CoCoTimelinePosition position));
-            Assert.IsTrue(CoCoClockDomainId.TryCreate(1UL, out CoCoClockDomainId clockDomainId));
+            Assert.IsTrue(CoCoClockDomainId.TryCreate(clockDomain, out CoCoClockDomainId clockDomainId));
             Assert.IsTrue(CoCoTickFrame.TryCreate(
                 0.016d,
                 timelineId,
@@ -1356,6 +2166,15 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             return frame;
+        }
+
+        private static ulong ReadPrivateToken(CoCoContextFrameArena arena)
+        {
+            FieldInfo tokenField = typeof(CoCoContextFrameArena).GetField(
+                "_activeToken",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(tokenField);
+            return (ulong)tokenField.GetValue(arena);
         }
 
         private static void AssertCallbackFreeRole(Type roleType)
@@ -1614,6 +2433,86 @@ namespace CoCoFlow.Runtime.Core.Tests
             }
         }
 
+        private sealed class ControllableDoubleRebuilder : ICoCoDerivedStateRebuilder<int>
+        {
+            private readonly CoCoStateSlotId _dependency;
+
+            public ControllableDoubleRebuilder(CoCoStateSlotId dependency)
+            {
+                _dependency = dependency;
+            }
+
+            public bool ShouldFail { get; set; }
+            public bool ShouldThrow { get; set; }
+            public int InvocationCount { get; private set; }
+
+            public bool TryRebuild(in CoCoDerivedStateReadContext context, out int value)
+            {
+                InvocationCount++;
+                if (ShouldThrow)
+                {
+                    throw new InvalidOperationException("Test rebuilder failure.");
+                }
+
+                if (ShouldFail || !context.TryRead(_dependency, out int source))
+                {
+                    value = default;
+                    return false;
+                }
+
+                value = source * 2;
+                return true;
+            }
+        }
+
+        private sealed class ReentrantRebuilder : ICoCoDerivedStateRebuilder<int>
+        {
+            private readonly CoCoStateSlotId _dependency;
+
+            public ReentrantRebuilder(CoCoStateSlotId dependency)
+            {
+                _dependency = dependency;
+            }
+
+            public CoCoContextFrameArena Arena { get; set; }
+            public ulong Token { get; set; }
+            public bool PrepareRejected { get; private set; }
+            public bool FinalizeRejected { get; private set; }
+            public bool CancelRejected { get; private set; }
+            public bool CommitRejected { get; private set; }
+
+            public bool TryRebuild(in CoCoDerivedStateReadContext context, out int value)
+            {
+                if (Arena != null)
+                {
+                    PrepareRejected = !Arena.TryPrepare(
+                        CreateTickFrame(2UL, 2UL, 2UL),
+                        out _,
+                        out CoCoContextCommitStatus prepareStatus) &&
+                        prepareStatus == CoCoContextCommitStatus.PreparationAlreadyActive;
+                    FinalizeRejected = !Arena.TryFinalize(
+                        Token,
+                        out _,
+                        out CoCoContextCommitStatus finalizeStatus) &&
+                        finalizeStatus == CoCoContextCommitStatus.InvalidPreparation;
+                    CancelRejected =
+                        Arena.CancelPrepared(Token) == CoCoContextCommitStatus.InvalidPreparation &&
+                        Arena.CancelFinalized(Token) == CoCoContextCommitStatus.InvalidPreparation;
+                    CommitRejected =
+                        Arena.Commit(Token).Status == CoCoContextCommitStatus.InvalidPreparation;
+                }
+
+                if (!context.TryRead(_dependency, out int source))
+                {
+                    value = default;
+                    return false;
+                }
+
+                value = source * 2;
+                return true;
+            }
+        }
+
         private sealed class Int32Codec : ICoCoContextValueCodec<int>
         {
             public Int32Codec(CoCoCodecDescriptor descriptor)
@@ -1655,6 +2554,63 @@ namespace CoCoFlow.Runtime.Core.Tests
                         source[3] << 24;
                 bytesRead = MaxEncodedSize;
                 return true;
+            }
+        }
+
+        private sealed class ThrowOnDecodeInt32Codec : ICoCoContextValueCodec<int>
+        {
+            public ThrowOnDecodeInt32Codec(CoCoCodecDescriptor descriptor)
+            {
+                Descriptor = descriptor;
+            }
+
+            public CoCoCodecDescriptor Descriptor { get; }
+            public int MaxEncodedSize => 4;
+            public CoCoContextFrameArena Arena { get; set; }
+            public bool PrepareRejected { get; private set; }
+            public bool FinalizeRejected { get; private set; }
+            public bool CancelRejected { get; private set; }
+            public bool CommitRejected { get; private set; }
+
+            public bool TryEncode(in int value, Span<byte> destination, out int bytesWritten)
+            {
+                if (destination.Length < MaxEncodedSize)
+                {
+                    bytesWritten = 0;
+                    return false;
+                }
+
+                destination[0] = (byte)value;
+                destination[1] = (byte)(value >> 8);
+                destination[2] = (byte)(value >> 16);
+                destination[3] = (byte)(value >> 24);
+                bytesWritten = MaxEncodedSize;
+                return true;
+            }
+
+            public bool TryDecode(ReadOnlySpan<byte> source, out int value, out int bytesRead)
+            {
+                if (Arena != null)
+                {
+                    ulong token = ReadPrivateToken(Arena);
+                    PrepareRejected = !Arena.TryPrepare(
+                        CreateTickFrame(2UL, 2UL, 2UL),
+                        out _,
+                        out CoCoContextCommitStatus prepareStatus) &&
+                        prepareStatus == CoCoContextCommitStatus.PreparationAlreadyActive;
+                    FinalizeRejected = !Arena.TryFinalize(
+                        token,
+                        out _,
+                        out CoCoContextCommitStatus finalizeStatus) &&
+                        finalizeStatus == CoCoContextCommitStatus.InvalidPreparation;
+                    CancelRejected =
+                        Arena.CancelPrepared(token) == CoCoContextCommitStatus.InvalidPreparation &&
+                        Arena.CancelFinalized(token) == CoCoContextCommitStatus.InvalidPreparation;
+                    CommitRejected =
+                        Arena.Commit(token).Status == CoCoContextCommitStatus.InvalidPreparation;
+                }
+
+                throw new InvalidOperationException("Test codec decode failure.");
             }
         }
 
@@ -1728,7 +2684,15 @@ namespace CoCoFlow.Runtime.Core.Tests
                     return false;
                 }
 
-                CoCoContextCommitResult result = _prepared.Commit();
+                if (!_prepared.TryFinalize(
+                        out CoCoFinalizedContextCommit finalized,
+                        out _))
+                {
+                    ClearPreparation();
+                    return false;
+                }
+
+                CoCoContextCommitResult result = finalized.Commit();
                 if (!result.Succeeded)
                 {
                     ClearPreparation();
