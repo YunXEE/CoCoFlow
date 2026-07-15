@@ -1,9 +1,10 @@
 # Module: Camera
 
-> Pre1 transition note (`0.4.0-pre.1`): this page describes the Camera runtime
+> Pre2 transition note (`0.4.0-pre.2`): this page describes the Camera runtime
 > currently retained from 0.3.9. Its concrete APIs are not frozen 0.4 contracts.
-> Future StateLogic must reach camera presentation through declared Operations,
-> rather than holding or resolving `CameraRig` directly.
+> Future StateLogic must express camera presentation through a declared
+> OperationFrame Section. A Camera Operator owns the concrete `CameraRig` calls;
+> StateLogic never holds or resolves Camera components directly.
 
 Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称游戏。它不负责同步玩法状态，不替代 Cinemachine，也不自己实现 orbit、碰撞、阻尼、构图或 Timeline blend。它的职责很窄：收集一组 `CameraRig`，按 active + priority 选择当前 winner，然后把 winner 的当前 Cinemachine virtual camera 提升到运行时 priority。
 
@@ -14,8 +15,8 @@ Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称�
 - `CameraAimCoupler`：挂在 AimCore 上，读取 `IInputStateProvider.LookInput` 旋转 AimCore，并可把 AimCore 的旋转同步给一个绑定 Transform。同步目标是 AimCore 祖先时只搬运水平 yaw，并回写 AimCore 本地旋转，避免父子层级二次叠加。
 
 旧 0.3.9 核心原则：Mono State 脚本决定玩法状态，`CameraRig` 暴露表现
-参数，`CameraDirector` 只仲裁谁生效。0.4 StateLogic 只能经申明的 Camera
-Operation Port 提交命令。
+参数，`CameraDirector` 只仲裁谁生效。0.4 StateLogic 只能产生已声明的 Camera
+OperationFrame Section，由 Camera Operator 执行。
 
 ## Legacy 0.3.9 运行拓扑
 
@@ -90,8 +91,8 @@ CutsceneAnchor / SpectateAnchor / BossCameraAnchor
 ## 过渡期运行时用法
 
 下面代码只说明当前 0.3.9 Camera API，不是 0.4 StateLogic 编写规范。新的
-StateLogic 不得直接持有这些 Unity 组件；对应调用会由后续 Camera Operation
-边界承接。
+StateLogic 不得直接持有这些 Unity 组件；对应调用会由后续 Camera
+OperationFrame Section + Operator 边界承接。
 
 玩家状态脚本不要向 Director 请求 “Aim profile”。它应该控制自己身上的 rig：
 
@@ -174,11 +175,12 @@ Priority 是声明式抢占权。Director 每次刷新时只看 active rig：
 
 Camera 是本地表现，不是权威 gameplay state：
 
-- 不要把当前 camera mode id 同步进 `CharacterContext`。
+- 不要把纯本地 camera mode id 写入权威 gameplay `ContextFrame`。
 - 不要同步 Unity `Transform` 引用。
 - 不要让 StateAuthority 决定客户端镜头。
 - 外部 authority 或观战系统只负责决定“本地客户端当前应该看谁”，再由项目表现 adapter 激活对应 `CameraRig` 并调整 priority。
-- adapter 不得从网络 callback 直接修改 StateGraph；相机选择仍是本地表现结果。
+- adapter 不得从网络 callback 或 EventBus callback 直接修改 StateGraph；相机选择
+  仍是本地表现结果。需要进入玩法决策的远端请求必须先投影为下一 Tick 的 Intent。
 
 观战不是同步别人的视角，而是在本地把相机挂到队友身上的 `CameraRig` 或 spectate anchor。这样每个客户端仍然有自己的 Cinemachine 视角控制和阻尼。
 
@@ -212,3 +214,5 @@ director.SetSchedulingSuspended(false);
 - 不在框架里定义战斗镜头、震屏、IK、枪口校正的完整业务系统。
 - 不把 Camera 变成第二套 State Layer。Aim/Lock/Spectate 是 rig 的表现模式；
   旧 0.3.9 状态转移仍由项目已有 State Layer 管理。
+- 不在 Pre2 定义 Camera OperationFrame Section、Operator、ContextFrame Slot 或
+  Temporal/Durable 投影；这些由对应的后续模块工作接入。

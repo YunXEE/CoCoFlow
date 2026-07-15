@@ -5,6 +5,57 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.2] - 2026-07-15
+
+### Added
+
+- State Flow frame contracts that separate frozen input (`IntentFrame`), the
+  StateGraph execution guide (`OperationFrame`), and the committed Actor state
+  (`ContextFrame`).
+- OperationFrame Section identity, descriptor, fixed-registry, composition, and
+  no-inheritance rules. Equal interface identities deduplicate; equal field
+  shapes with different identities remain distinct.
+- ContextFrame StateBlock/Slot descriptors, Temporal/Durable/Derived metadata,
+  restore boundaries, and a versioned Codec feasibility path.
+- Atomic `EventPacket<TEvent>` identity plus Actor EventInbox contracts for
+  fixed-capacity double buffering, next-Tick visibility, deduplication,
+  lifecycle handling, and Event-to-Intent projection.
+- Contract gates for Frame isolation, Mailbox failure semantics, restore
+  round-trips, AOT viability, and allocation-free steady-state paths.
+
+### Changed
+
+- Replaced the proposed Context-driven execution model with the one-way State
+  Flow: Intent collection and freeze, StateGraph evaluation, OperationFrame
+  generation, Operator execution, and ContextFrame commit.
+- Reserved public Section contracts for `OperationFrame`. `IntentFrame` does not
+  reuse Operation Sections, while `ContextFrame` stores committed state through
+  StateBlock/Slot descriptors rather than a user-authored Root Context.
+- Defined cross-Object gameplay communication as
+  `EventBus -> EventRouter -> Actor EventInbox -> Event-to-Intent Adapter`.
+  Raw EventBus callbacks and envelopes never enter StateLogic.
+- Defined EventOutbox candidates as invisible until ContextFrame commit. Final
+  event sequence allocation and publication occur only after a successful
+  commit.
+- Advanced the package and Package Validation Suite exception scope to
+  `0.4.0-pre.2`.
+
+### Deferred
+
+- StateGraph Asset compilation and automatic requirement/layout aggregation are
+  owned by Pre3.
+- `CoCoStateGraphHost`, Clock/Driver integration, the central EventRouter, and
+  EventAgent subscription lifecycle are owned by Pre4.
+- Production Operator execution, Outcome aggregation, ContextFrame commit, and
+  EventOutbox publication are owned by Pre5.
+- Temporal Ring Buffer, rewind/resume, and TimelineEpoch switching are owned by
+  Pre6.
+- Animation V2 and Playable integration are owned by Pre11; durable save
+  projections, migrations, world facts, and container integration are owned by
+  Pre13.
+- Full cross-module performance and lifecycle certification remains owned by
+  Pre16.
+
 ## [0.4.0-pre.1] - 2026-07-13
 
 ### Added
