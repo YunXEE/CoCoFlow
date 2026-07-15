@@ -54,7 +54,7 @@ mailbox.
 |---|---|
 | `IntentFrame` | The immutable input for one CoCoTick. It is sampled and arbitrated once, is not persisted, and is not part of rewind history. |
 | `OperationFrame` | The complete execution guide produced by StateGraph. It is the only Frame that exposes public Section contracts. |
-| `ContextFrame` | The complete committed logical state of one Actor at a Tick boundary. It is the authority for restore and for later Temporal/Durable projections. |
+| `ContextFrame` | A generation-scoped, read-only handle to the complete committed logical state of one Actor at a Tick boundary. It is the authority for restore and for later Temporal/Durable projections while the captured storage generation remains alive. |
 | `EventInbox` | Pending cross-Object gameplay input for one GraphRuntimeInstance. It is not fact storage. |
 | `EventOutbox` | Cross-Object output candidates produced during Operator execution. They are published only after ContextFrame commit succeeds. |
 | `EventAgent` | A helper for EventBus subscription lifetime only. It does not route, queue, own, or persist messages. |
@@ -103,15 +103,40 @@ Descriptor metadata has two independent axes:
 - Restore policy is separately one of **Stored**, **ResetToDefault**, or
   **Derived**.
 - Derived slots declare their dependencies, rebuild deterministically from
-  restored inputs, and are not a second authoritative value.
+  stored/default inputs during Finalize, and are not writable or a second
+  authoritative value.
+- A projection that includes a Derived slot must also include every transitive
+  Stored/Derived dependency required to rebuild it. Reset-to-default
+  dependencies are deterministic and need not be projected.
+
+`ContextFrame` is a generation-scoped handle over an arena storage cell, not the
+reusable cell itself. Retaining a live Frame prevents its cell from being
+reused. Once that generation is released and the cell is reused, every older
+handle remains invalid permanently; it cannot observe or operate on the new
+generation.
+
+Commit uses an explicit two-phase authority boundary:
+
+```text
+TryPrepare -> Writer -> TryFinalize -> Finalized Commit -> Commit
+```
+
+The Writer may only write authoritative Stored/Reset-to-default inputs.
+Finalize rebuilds every Derived slot in deterministic dependency order on every
+successful Tick, including a no-op Tick. Failed finalization abandons the
+candidate and leaves the previous ContextFrame authoritative.
 
 Restore always lands on a completed commit boundary. It does not restore an
 Inbox, IntentFrame, EventAgent subscription, unpublished Event, half-executed
 Operator, other Actor, or an already delivered cross-Actor consequence.
 
-Pre2 validates descriptors and a Codec spike. Pre6 owns Temporal storage and
-rewind; Pre13 owns durable save documents, migration, containers, world facts,
-and spawned-entity reconstruction.
+Restore must remain in the source Timeline and ClockDomain, advance the
+ExecutionSequence, and start a TimelineEpoch newer than both the restored source
+and the Actor's current authoritative Epoch. Pre2 validates descriptors and an
+internal, same-session, exact-layout Codec spike only. That spike is not a
+cross-session save format or stable wire identity. Pre6 owns Temporal storage and rewind;
+Pre13 owns durable save documents, StableEntityId-to-runtime resolution,
+migration, containers, world facts, and spawned-entity reconstruction.
 
 ## Actor Mailbox Rules
 
@@ -127,6 +152,21 @@ route by the current GraphInstanceId. A broadcast reaches only Actors that
 declared the matching Event-to-Intent Adapter and does not return to its source
 by default.
 
+An Inbox can enter Running only while it is bound to a live Intent Runtime whose
+bindings are frozen. Its typed lanes must match that Runtime's deduplicated
+Adapter manifest exactly by EventDomain, EventType, and payload type; each lane
+capacity must not exceed the minimum projection capacity declared by its
+matching Adapters. Each GraphRuntimeInstance owns its own reducer instances;
+reducers are never shared as mutable state between Actors.
+
+The bound Intent Runtime must be idle while an Inbox is attached, started,
+sealed for a Tick, suspended, or resumed. This prevents a batch sealed after
+collection begins from becoming visible to the current IntentFrame.
+Reducer state is checkpointed for Freeze and rolled back with the partial Frame
+when reduction fails. Inbox Stop/Dispose requested by a user callback is deferred
+until that callback exits, aborts the current collection, and cannot publish a
+contribution from an invalidated sealed batch.
+
 Inbox storage is fixed-capacity and double-buffered. Router callbacks may only
 validate, deduplicate, route, and enqueue. At Step start, the visible batch is
 sealed; messages arriving during the Step are visible no earlier than the next
@@ -138,6 +178,14 @@ must persist is committed as ContextFrame state.
 - Reliable overflow reports a Host-fault outcome; unreliable overflow rejects
   the newest message and increments diagnostics.
 - Stop and Dispose clear queued messages and deduplication state.
+- Beginning a new Intent collection, cancellation, Timeline reset, and Dispose
+  invalidate any previously readable IntentFrame. Source, Adapter, or Reducer
+  exceptions cancel the collection before propagating; user callbacks cannot
+  re-enter collection/freeze operations.
+- Cancellation rolls back the Inbox projection claim and forbids beginning the
+  same Tick again.
+- Disposing a bound Intent Runtime stops and clears a Running Inbox. A Created
+  Inbox is only unbound so that a replacement Runtime may be attached.
 - Presentation-only audio, VFX, and logging events may continue using the normal
   EventBus without entering a gameplay Inbox.
 

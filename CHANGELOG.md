@@ -22,6 +22,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
   lifecycle handling, and Event-to-Intent projection.
 - Contract gates for Frame isolation, Mailbox failure semantics, restore
   round-trips, AOT viability, and allocation-free steady-state paths.
+- Generation-scoped ContextFrame handles plus explicit Prepared/Finalized
+  commit tokens, preventing recycled arena storage from reviving stale Frame
+  references.
+- Per-GraphRuntime reducer factories and frozen Event Adapter manifests used to
+  validate Actor Inbox startup.
 
 ### Changed
 
@@ -37,6 +42,25 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Defined EventOutbox candidates as invisible until ContextFrame commit. Final
   event sequence allocation and publication occur only after a successful
   commit.
+- Made Derived state Finalize-owned: Writers cannot set Derived slots, every
+  successful commit rebuilds them in dependency order, and projected Derived
+  state requires a closed set of Stored/Derived dependencies.
+- Tightened Restore so a resumed TimelineEpoch must be newer than both the
+  source and current authoritative Epoch, must remain in the source Timeline and
+  ClockDomain, and must advance ExecutionSequence, while preserving precise
+  Codec diagnostics.
+- Hardened Intent/Inbox lifecycle behavior: old IntentFrames invalidate at the
+  next collection boundary, callback failures cancel collection before
+  propagating, startup requires an exact frozen Adapter manifest, and disposing
+  a bound Runtime stops its Running Inbox.
+- Made Intent reduction transactional for Runtime-owned reducer state and
+  deferred callback-time Inbox lifecycle changes until they can safely cancel
+  collection and invalidate the sealed projection batch.
+- Required an idle bound Intent Runtime for Inbox sealing, suspension, and
+  resumption, so events arriving after collection begins remain next-Tick data.
+- Clarified that the Pre2 Durable Codec path is an internal, same-session,
+  exact-layout spike; Pre13 owns the cross-session save identity and migration
+  contract.
 - Advanced the package and Package Validation Suite exception scope to
   `0.4.0-pre.2`.
 

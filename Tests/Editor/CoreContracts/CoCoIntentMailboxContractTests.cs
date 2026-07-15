@@ -27,7 +27,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(layout.TryRegister(
                 intentId,
                 2,
-                (ICoCoIntentReducer<TestIntent>)null,
+                (ICoCoIntentReducerFactory<TestIntent, OrderedIntentReducer>)null,
                 out CoCoIntentHandle<TestIntent> missingReducerHandle,
                 out CoCoDiagnostic missingReducerDiagnostic));
             Assert.IsFalse(missingReducerHandle.IsValid);
@@ -36,7 +36,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 intentId,
                 3,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> handle,
                 out CoCoDiagnostic registerDiagnostic));
             Assert.IsTrue(registerDiagnostic.IsNone);
@@ -47,7 +47,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(layout.TryRegister(
                 IntentId(11UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out _,
                 out CoCoDiagnostic frozenDiagnostic));
             Assert.AreEqual(CoCoDiagnosticCode.RegistryFrozen, frozenDiagnostic.Code);
@@ -61,13 +61,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(20UL),
                 3,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> orderedHandle,
                 out _));
             Assert.IsTrue(layout.TryRegister(
                 IntentId(21UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> absentHandle,
                 out _));
             Assert.IsTrue(layout.Freeze(out _));
@@ -128,13 +128,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(30UL),
                 2,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> handle,
                 out _));
             Assert.IsTrue(layout.TryRegister(
                 IntentId(31UL),
                 2,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> secondHandle,
                 out _));
             Assert.IsTrue(layout.Freeze(out _));
@@ -226,7 +226,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(40UL),
                 2,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> handle,
                 out _));
             Assert.IsTrue(layout.Freeze(out _));
@@ -279,7 +279,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(31UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> handle,
                 out _));
             Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
@@ -292,7 +292,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(separateLayout.TryRegister(
                 IntentId(31UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> foreignHandle,
                 out _));
             Assert.IsTrue(separateLayout.Freeze(out _));
@@ -367,6 +367,741 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void ReducerFactoryCreatesIndependentValueReducersPerGraphRuntime()
+        {
+            var factory = new StatefulReducerFactory();
+            CoCoFrameLayoutId layoutId = FrameLayoutId(51UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(51UL),
+                2,
+                factory,
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+
+            Assert.IsTrue(layout.TryCreateRuntime(GraphId(951UL), 2, out CoCoIntentFrameRuntime first, out _));
+            Assert.IsTrue(layout.TryCreateRuntime(GraphId(952UL), 2, out CoCoIntentFrameRuntime second, out _));
+            BindTwoSources(first, handle, out CoCoIntentSourceBinding<TestIntent> firstA,
+                out CoCoIntentSourceBinding<TestIntent> firstB);
+            BindTwoSources(second, handle, out CoCoIntentSourceBinding<TestIntent> secondA,
+                out CoCoIntentSourceBinding<TestIntent> secondB);
+            Assert.AreEqual(2, factory.CreateCount);
+
+            CoCoStateFlowFrameHeader firstHeader = IntentHeader(layoutId, 1UL, 1UL, GraphId(951UL));
+            Assert.IsTrue(first.TryBegin(firstHeader, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                first.TrySample(firstA, firstHeader.TickFrame));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                first.TrySample(firstB, firstHeader.TickFrame));
+            Assert.IsTrue(first.TryFreeze(out _));
+
+            CoCoStateFlowFrameHeader secondHeader = IntentHeader(layoutId, 1UL, 1UL, GraphId(952UL));
+            Assert.IsTrue(second.TryBegin(secondHeader, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, second.TrySample(secondA, secondHeader.TickFrame));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, second.TrySample(secondB, secondHeader.TickFrame));
+            Assert.IsTrue(second.TryFreeze(out _));
+
+            Assert.IsTrue(first.Frame.TryGet(handle, out TestIntent firstValue));
+            Assert.IsTrue(second.Frame.TryGet(handle, out TestIntent secondValue));
+            Assert.AreEqual(103, firstValue.Value);
+            Assert.AreEqual(103, secondValue.Value);
+        }
+
+        [Test]
+        public void IntentFrameInvalidatesOnBeginCancelTimelineResetAndDispose()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(52UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(52UL),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            CoCoGraphInstanceId owner = GraphId(953UL);
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 1, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(7),
+                out CoCoIntentSourceBinding<TestIntent> binding,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
+            CoCoStateFlowFrameHeader first = IntentHeader(layoutId, 1UL, 1UL, owner);
+            Assert.IsTrue(runtime.TryBegin(first, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, runtime.TrySample(binding, first.TickFrame));
+            Assert.IsTrue(runtime.TryFreeze(out _));
+            Assert.IsTrue(runtime.Frame.IsFrozen);
+
+            CoCoStateFlowFrameHeader second = IntentHeader(layoutId, 2UL, 1UL, owner);
+            Assert.IsTrue(runtime.TryBegin(second, out _));
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.IsFalse(runtime.Frame.TryGet(handle, out _));
+            Assert.IsTrue(runtime.CancelCollection());
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.IsFalse(runtime.TryBegin(second, out _));
+
+            CoCoStateFlowFrameHeader third = IntentHeader(layoutId, 3UL, 1UL, owner);
+            Assert.IsTrue(runtime.TryBegin(third, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, runtime.TrySample(binding, third.TickFrame));
+            Assert.IsTrue(runtime.TryFreeze(out _));
+            var inbox = new CoCoActorEventInboxCore(owner, DomainId(52UL), 1, 1, 4);
+            Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
+            Assert.IsTrue(inbox.Start(out _));
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.IsTrue(inbox.ResumeAfterTimelineReset());
+
+            runtime.Dispose();
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.AreEqual(CoCoActorEventInboxState.Stopped, inbox.State);
+        }
+
+        [Test]
+        public void RejectedSampleOutsideCollectionPreservesFrozenIntentFrame()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(520UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(520UL),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            CoCoGraphInstanceId owner = GraphId(9520UL);
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 1, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(7),
+                out CoCoIntentSourceBinding<TestIntent> binding,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
+            CoCoStateFlowFrameHeader header = IntentHeader(layoutId, 1UL, 1UL, owner);
+            Assert.IsTrue(runtime.TryBegin(header, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, runtime.TrySample(binding, header.TickFrame));
+            Assert.IsTrue(runtime.TryFreeze(out _));
+            Assert.IsTrue(runtime.Frame.TryGet(handle, out TestIntent before));
+
+            Assert.AreEqual(
+                CoCoIntentSourceSampleResult.ArbiterNotCollecting,
+                runtime.TrySample(binding, header.TickFrame));
+            Assert.IsTrue(runtime.Frame.IsFrozen);
+            Assert.AreEqual(header, runtime.Frame.Header);
+            Assert.IsTrue(runtime.Frame.TryGet(handle, out TestIntent after));
+            Assert.AreEqual(before.Value, after.Value);
+        }
+
+        [Test]
+        public void InboxStartRequiresLiveFrozenRuntimeAndExactAdapterManifest()
+        {
+            CoCoEventDomainId domain = DomainId(53UL);
+            CoCoEventTypeId eventType = EventTypeId(53UL);
+
+            CoCoGraphInstanceId owner = GraphId(960UL);
+            var unbound = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(unbound.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsFalse(unbound.Start(out _));
+            Assert.AreEqual(CoCoActorEventInboxState.Created, unbound.State);
+
+            CoCoIntentFrameRuntime unfrozenRuntime = CreateAdapterRuntime(
+                owner,
+                domain,
+                eventType,
+                1,
+                freezeBindings: false);
+            Assert.IsTrue(unbound.TryBindIntentRuntime(unfrozenRuntime, out _));
+            Assert.IsFalse(unbound.Start(out CoCoDiagnostic notFrozen));
+            Assert.AreEqual(CoCoDiagnosticCode.RegistryNotFrozen, notFrozen.Code);
+            Assert.IsTrue(unfrozenRuntime.FreezeBindings(out _));
+            Assert.IsTrue(unbound.Start(out _));
+            unbound.Stop();
+
+            owner = GraphId(961UL);
+            CoCoIntentFrameRuntime missingLaneRuntime = CreateAdapterRuntime(owner, domain, eventType, 1);
+            var missingLane = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(missingLane.TryBindIntentRuntime(missingLaneRuntime, out _));
+            Assert.IsFalse(missingLane.Start(out _));
+
+            owner = GraphId(962UL);
+            CoCoIntentFrameRuntime overflowRuntime = CreateAdapterRuntime(owner, domain, eventType, 1);
+            var oversizedLane = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(oversizedLane.TryRegisterLane<TestEvent>(eventType, 2, false, out _, out _));
+            Assert.IsTrue(oversizedLane.TryBindIntentRuntime(overflowRuntime, out _));
+            Assert.IsFalse(oversizedLane.Start(out _));
+
+            owner = GraphId(963UL);
+            CoCoIntentFrameRuntime payloadRuntime = CreateAdapterRuntime(owner, domain, eventType, 1);
+            var wrongPayload = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(wrongPayload.TryRegisterLane<OtherTestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(wrongPayload.TryBindIntentRuntime(payloadRuntime, out _));
+            Assert.IsFalse(wrongPayload.Start(out _));
+
+            owner = GraphId(964UL);
+            CoCoIntentFrameRuntime domainRuntime = CreateAdapterRuntime(owner, domain, eventType, 1);
+            var wrongDomain = new CoCoActorEventInboxCore(owner, DomainId(54UL), 1, 1, 4);
+            Assert.IsTrue(wrongDomain.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(wrongDomain.TryBindIntentRuntime(domainRuntime, out _));
+            Assert.IsFalse(wrongDomain.Start(out _));
+        }
+
+        [Test]
+        public void AdapterManifestDeduplicatesEventTypeAndUsesSmallestProjectionCapacity()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(65UL);
+            CoCoEventDomainId domain = DomainId(65UL);
+            CoCoEventTypeId eventType = EventTypeId(65UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 2);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(65UL),
+                3,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> wideHandle,
+                out _));
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(66UL),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> narrowHandle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                wideHandle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> wideRequirement));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                narrowHandle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> narrowRequirement));
+
+            CoCoGraphInstanceId owner = GraphId(978UL);
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 4, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                wideRequirement,
+                3,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                narrowRequirement,
+                1,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            Assert.IsFalse(runtime.TryBindEventAdapter(
+                DomainId(66UL),
+                eventType,
+                narrowRequirement,
+                1,
+                new FirstEventAdapter(),
+                out _,
+                out CoCoDiagnostic domainConflict));
+            Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, domainConflict.Code);
+            Assert.IsFalse(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                narrowRequirement,
+                1,
+                new OtherEventAdapter(),
+                out _,
+                out CoCoDiagnostic payloadConflict));
+            Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, payloadConflict.Code);
+            Assert.AreEqual(2, runtime.BindingCount);
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
+            var exactInbox = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(exactInbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(exactInbox.TryBindIntentRuntime(runtime, out _));
+            Assert.IsTrue(exactInbox.Start(out _));
+            exactInbox.Stop();
+
+            var oversizedInbox = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(oversizedInbox.TryRegisterLane<TestEvent>(eventType, 2, false, out _, out _));
+            Assert.IsTrue(oversizedInbox.TryBindIntentRuntime(runtime, out _));
+            Assert.IsFalse(oversizedInbox.Start(out _));
+            Assert.AreEqual(CoCoActorEventInboxState.Created, oversizedInbox.State);
+            oversizedInbox.Dispose();
+
+            CoCoGraphInstanceId extraOwner = GraphId(979UL);
+            Assert.IsTrue(layout.TryCreateRuntime(extraOwner, 1, out CoCoIntentFrameRuntime extraRuntime, out _));
+            Assert.IsTrue(extraRuntime.TryBindEventAdapter(
+                domain,
+                eventType,
+                narrowRequirement,
+                1,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            Assert.IsTrue(extraRuntime.FreezeBindings(out _));
+            var extraLaneInbox = new CoCoActorEventInboxCore(extraOwner, domain, 2, 1, 4);
+            Assert.IsTrue(extraLaneInbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(extraLaneInbox.TryRegisterLane<OtherTestEvent>(
+                EventTypeId(66UL),
+                1,
+                false,
+                out _,
+                out _));
+            Assert.IsTrue(extraLaneInbox.TryBindIntentRuntime(extraRuntime, out _));
+            Assert.IsFalse(extraLaneInbox.Start(out _));
+            Assert.AreEqual(CoCoActorEventInboxState.Created, extraLaneInbox.State);
+        }
+
+        [Test]
+        public void RuntimeDisposeUnbindsCreatedInboxAndStopsRunningInbox()
+        {
+            CoCoEventDomainId domain = DomainId(55UL);
+            CoCoEventTypeId eventType = EventTypeId(55UL);
+            CoCoGraphInstanceId createdOwner = GraphId(965UL);
+            CoCoIntentFrameRuntime createdRuntime = CreateAdapterRuntime(createdOwner, domain, eventType, 1);
+            var createdInbox = new CoCoActorEventInboxCore(createdOwner, domain, 1, 1, 4);
+            Assert.IsTrue(createdInbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(createdInbox.TryBindIntentRuntime(createdRuntime, out _));
+            createdRuntime.Dispose();
+            Assert.AreEqual(CoCoActorEventInboxState.Created, createdInbox.State);
+            CoCoIntentFrameRuntime replacement = CreateAdapterRuntime(createdOwner, domain, eventType, 1);
+            Assert.IsTrue(createdInbox.TryBindIntentRuntime(replacement, out _));
+            Assert.IsTrue(createdInbox.Start(out _));
+
+            CoCoGraphInstanceId runningOwner = GraphId(966UL);
+            CoCoIntentFrameRuntime runningRuntime = CreateAdapterRuntime(runningOwner, domain, eventType, 1);
+            var runningInbox = new CoCoActorEventInboxCore(runningOwner, domain, 1, 1, 4);
+            Assert.IsTrue(runningInbox.TryRegisterLane(
+                eventType,
+                1,
+                false,
+                out CoCoActorEventLaneHandle<TestEvent> lane,
+                out _));
+            Assert.IsTrue(runningInbox.TryBindIntentRuntime(runningRuntime, out _));
+            Assert.IsTrue(runningInbox.Start(out _));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, runningInbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(967UL), runningOwner, 1UL, 1UL, 1)));
+            runningRuntime.Dispose();
+            Assert.AreEqual(CoCoActorEventInboxState.Stopped, runningInbox.State);
+            Assert.AreEqual(0, runningInbox.GetSealedCount(lane));
+            Assert.AreEqual(CoCoInboxEnqueueResult.MailboxUnavailable, runningInbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(967UL), runningOwner, 1UL, 2UL, 2)));
+        }
+
+        [Test]
+        public void UserCallbackExceptionsCancelCollectionAndReleaseProjectionClaims()
+        {
+            CoCoFrameLayoutId sourceLayoutId = FrameLayoutId(56UL);
+            var sourceLayout = new CoCoIntentFrameLayout(sourceLayoutId, 1);
+            Assert.IsTrue(sourceLayout.TryRegister(
+                IntentId(56UL),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> sourceHandle,
+                out _));
+            Assert.IsTrue(sourceLayout.Freeze(out _));
+            CoCoGraphInstanceId sourceOwner = GraphId(968UL);
+            Assert.IsTrue(sourceLayout.TryCreateRuntime(
+                sourceOwner,
+                1,
+                out CoCoIntentFrameRuntime sourceRuntime,
+                out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                sourceHandle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> sourceRequirement));
+            var sourceException = new InvalidOperationException("source failure");
+            Assert.IsTrue(sourceRuntime.TryBindSource(
+                sourceRequirement,
+                new ThrowingIntentSource(sourceException),
+                out CoCoIntentSourceBinding<TestIntent> sourceBinding,
+                out _));
+            Assert.IsTrue(sourceRuntime.FreezeBindings(out _));
+            CoCoStateFlowFrameHeader sourceHeader = IntentHeader(sourceLayoutId, 1UL, 1UL, sourceOwner);
+            Assert.IsTrue(sourceRuntime.TryBegin(sourceHeader, out _));
+            Assert.AreSame(sourceException, Assert.Throws<InvalidOperationException>(
+                () => sourceRuntime.TrySample(sourceBinding, sourceHeader.TickFrame)));
+            Assert.IsFalse(sourceRuntime.IsCollecting);
+            Assert.IsFalse(sourceRuntime.Frame.IsFrozen);
+
+            CoCoFrameLayoutId eventLayoutId = FrameLayoutId(57UL);
+            var eventLayout = new CoCoIntentFrameLayout(eventLayoutId, 1);
+            Assert.IsTrue(eventLayout.TryRegister(
+                IntentId(57UL),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> eventHandle,
+                out _));
+            Assert.IsTrue(eventLayout.Freeze(out _));
+            CoCoGraphInstanceId eventOwner = GraphId(969UL);
+            Assert.IsTrue(eventLayout.TryCreateRuntime(eventOwner, 1, out CoCoIntentFrameRuntime eventRuntime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                eventHandle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> eventRequirement));
+            var adapter = new ThrowOnceEventAdapter();
+            CoCoEventDomainId domain = DomainId(57UL);
+            CoCoEventTypeId eventType = EventTypeId(57UL);
+            Assert.IsTrue(eventRuntime.TryBindEventAdapter(
+                domain,
+                eventType,
+                eventRequirement,
+                1,
+                adapter,
+                out CoCoEventToIntentBinding<TestEvent, TestIntent> eventBinding,
+                out _));
+            Assert.IsTrue(eventRuntime.FreezeBindings(out _));
+            var inbox = CreateProjectionInbox(
+                eventOwner,
+                domain,
+                eventType,
+                1,
+                eventRuntime,
+                out CoCoActorEventLaneHandle<TestEvent> lane);
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(970UL), eventOwner, 1UL, 1UL, 9)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryGetSealedBatch(lane, out CoCoActorEventSealedBatch<TestEvent> batch));
+            CoCoStateFlowFrameHeader firstEventHeader = IntentHeader(eventLayoutId, 1UL, 1UL, eventOwner);
+            Assert.IsTrue(eventRuntime.TryBegin(firstEventHeader, out _));
+            InvalidOperationException adapterFailure = Assert.Throws<InvalidOperationException>(
+                () => eventRuntime.TryProject(eventBinding, batch));
+            Assert.AreEqual("adapter failure", adapterFailure.Message);
+            Assert.IsFalse(eventRuntime.IsCollecting);
+
+            CoCoStateFlowFrameHeader retryHeader = IntentHeader(eventLayoutId, 2UL, 1UL, eventOwner);
+            Assert.IsTrue(eventRuntime.TryBegin(retryHeader, out _));
+            Assert.AreEqual(CoCoIntentEventProjectionResult.Contributed,
+                eventRuntime.TryProject(eventBinding, batch));
+            Assert.IsTrue(eventRuntime.TryFreeze(out _));
+            Assert.IsTrue(eventRuntime.Frame.TryGet(eventHandle, out TestIntent retried));
+            Assert.AreEqual(9, retried.Value);
+
+            CoCoFrameLayoutId reducerLayoutId = FrameLayoutId(58UL);
+            var reducerLayout = new CoCoIntentFrameLayout(reducerLayoutId, 1);
+            Assert.IsTrue(reducerLayout.TryRegister(
+                IntentId(58UL),
+                2,
+                new ThrowOnceReducerFactory(),
+                out CoCoIntentHandle<TestIntent> reducerHandle,
+                out _));
+            Assert.IsTrue(reducerLayout.Freeze(out _));
+            CoCoGraphInstanceId reducerOwner = GraphId(971UL);
+            Assert.IsTrue(reducerLayout.TryCreateRuntime(
+                reducerOwner,
+                2,
+                out CoCoIntentFrameRuntime reducerRuntime,
+                out _));
+            BindTwoSources(reducerRuntime, reducerHandle,
+                out CoCoIntentSourceBinding<TestIntent> reducerA,
+                out CoCoIntentSourceBinding<TestIntent> reducerB);
+            CoCoStateFlowFrameHeader reducerHeader = IntentHeader(reducerLayoutId, 1UL, 1UL, reducerOwner);
+            Assert.IsTrue(reducerRuntime.TryBegin(reducerHeader, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                reducerRuntime.TrySample(reducerA, reducerHeader.TickFrame));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                reducerRuntime.TrySample(reducerB, reducerHeader.TickFrame));
+            Assert.AreEqual("reducer failure", Assert.Throws<InvalidOperationException>(
+                () => reducerRuntime.TryFreeze(out _)).Message);
+            Assert.IsFalse(reducerRuntime.IsCollecting);
+
+            CoCoStateFlowFrameHeader reducerRetry = IntentHeader(reducerLayoutId, 2UL, 1UL, reducerOwner);
+            Assert.IsTrue(reducerRuntime.TryBegin(reducerRetry, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                reducerRuntime.TrySample(reducerA, reducerRetry.TickFrame));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                reducerRuntime.TrySample(reducerB, reducerRetry.TickFrame));
+            Assert.AreEqual("reducer failure", Assert.Throws<InvalidOperationException>(
+                () => reducerRuntime.TryFreeze(out _)).Message);
+            Assert.IsFalse(reducerRuntime.IsCollecting);
+            Assert.IsFalse(reducerRuntime.Frame.IsFrozen);
+        }
+
+        [Test]
+        public void CallbackReentryIsRejectedAndDisposeIsDeferredUntilCallbackReturns()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(59UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(59UL),
+                2,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            CoCoGraphInstanceId owner = GraphId(972UL);
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 2, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            var source = new ReentrantIntentSource();
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                source,
+                out CoCoIntentSourceBinding<TestIntent> binding,
+                out _));
+            CoCoEventDomainId domain = DomainId(59UL);
+            CoCoEventTypeId eventType = EventTypeId(59UL);
+            var adapter = new ReentrantEventAdapter();
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                requirement,
+                1,
+                adapter,
+                out CoCoEventToIntentBinding<TestEvent, TestIntent> eventBinding,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+            var inbox = CreateProjectionInbox(
+                owner,
+                domain,
+                eventType,
+                1,
+                runtime,
+                out CoCoActorEventLaneHandle<TestEvent> lane);
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(980UL), owner, 1UL, 1UL, 2)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryGetSealedBatch(
+                lane,
+                out CoCoActorEventSealedBatch<TestEvent> batch));
+            source.Runtime = runtime;
+            source.ReentrantHeader = IntentHeader(layoutId, 2UL, 1UL, owner);
+            source.SourceBinding = binding;
+            source.EventBinding = eventBinding;
+            source.Batch = batch;
+            adapter.Runtime = runtime;
+            adapter.SourceBinding = binding;
+            adapter.EventBinding = eventBinding;
+            adapter.Batch = batch;
+            adapter.TickFrame = MailboxTick(1UL);
+            CoCoStateFlowFrameHeader header = IntentHeader(layoutId, 1UL, 1UL, owner);
+            Assert.IsTrue(runtime.TryBegin(header, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed, runtime.TrySample(binding, header.TickFrame));
+            Assert.IsFalse(source.BeginResult);
+            Assert.IsFalse(source.FreezeResult);
+            Assert.IsFalse(source.CancelResult);
+            Assert.AreEqual(CoCoIntentSourceSampleResult.InvalidBinding, source.SampleResult);
+            Assert.AreEqual(CoCoIntentEventProjectionResult.InvalidBinding, source.ProjectResult);
+            Assert.AreEqual(CoCoIntentEventProjectionResult.Contributed, runtime.TryProject(eventBinding, batch));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.InvalidBinding, adapter.SampleResult);
+            Assert.AreEqual(CoCoIntentEventProjectionResult.InvalidBinding, adapter.ProjectResult);
+            Assert.IsTrue(runtime.TryFreeze(out _));
+
+            Assert.IsTrue(layout.TryCreateRuntime(GraphId(973UL), 1, out CoCoIntentFrameRuntime disposingRuntime,
+                out _));
+            var disposingSource = new DisposingIntentSource();
+            Assert.IsTrue(disposingRuntime.TryBindSource(
+                requirement,
+                disposingSource,
+                out CoCoIntentSourceBinding<TestIntent> disposingBinding,
+                out _));
+            Assert.IsTrue(disposingRuntime.FreezeBindings(out _));
+            disposingSource.Runtime = disposingRuntime;
+            CoCoStateFlowFrameHeader disposingHeader = IntentHeader(layoutId, 1UL, 1UL, GraphId(973UL));
+            Assert.IsTrue(disposingRuntime.TryBegin(disposingHeader, out _));
+            Assert.AreEqual(CoCoIntentSourceSampleResult.InvalidBinding,
+                disposingRuntime.TrySample(disposingBinding, disposingHeader.TickFrame));
+            Assert.IsTrue(disposingSource.ReturnedFromDispose);
+            Assert.IsTrue(disposingRuntime.IsDisposed);
+            Assert.IsFalse(disposingRuntime.IsCollecting);
+            Assert.IsFalse(disposingRuntime.Frame.IsFrozen);
+        }
+
+        [Test]
+        public void InboxBindingAndLifecycleTransitionsCannotLeaveACollectingRuntimeHalfBound()
+        {
+            CoCoGraphInstanceId owner = GraphId(974UL);
+            CoCoEventDomainId domain = DomainId(60UL);
+            CoCoEventTypeId eventType = EventTypeId(60UL);
+            CoCoIntentFrameRuntime runtime = CreateAdapterRuntime(owner, domain, eventType, 1);
+            var inbox = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(inbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
+
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 1UL, 1UL, owner), out _));
+            Assert.IsFalse(inbox.Start(out _));
+            Assert.AreEqual(CoCoActorEventInboxState.Created, inbox.State);
+            Assert.IsTrue(runtime.CancelCollection());
+            Assert.IsTrue(inbox.Start(out _));
+
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 2UL, 1UL, owner), out _));
+            inbox.Stop();
+            Assert.IsFalse(runtime.IsCollecting);
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.AreEqual(CoCoActorEventInboxState.Stopped, inbox.State);
+
+            var replacement = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(replacement.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 3UL, 1UL, owner), out _));
+            Assert.IsFalse(replacement.TryBindIntentRuntime(runtime, out _));
+            Assert.IsTrue(runtime.CancelCollection());
+            Assert.IsTrue(replacement.TryBindIntentRuntime(runtime, out _));
+            Assert.IsTrue(replacement.Start(out _));
+
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 4UL, 1UL, owner), out _));
+            replacement.Dispose();
+            Assert.IsFalse(runtime.IsCollecting);
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.AreEqual(CoCoActorEventInboxState.Disposed, replacement.State);
+        }
+
+        [Test]
+        public void InboxCannotResealSuspendOrResumeWhileIntentRuntimeIsCollecting()
+        {
+            CoCoGraphInstanceId owner = GraphId(981UL);
+            CoCoGraphInstanceId source = GraphId(982UL);
+            CoCoEventDomainId domain = DomainId(67UL);
+            CoCoEventTypeId eventType = EventTypeId(67UL);
+            CoCoIntentFrameRuntime runtime = CreateAdapterRuntime(owner, domain, eventType, 2);
+            var inbox = CreateProjectionInbox(
+                owner,
+                domain,
+                eventType,
+                2,
+                runtime,
+                out CoCoActorEventLaneHandle<TestEvent> lane);
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, source, owner, 1UL, 1UL, 1)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryGetSealedBatch(
+                lane,
+                out CoCoActorEventSealedBatch<TestEvent> firstBatch));
+            Assert.IsTrue(firstBatch.TryRead(0, out CoCoEventPacket<TestEvent> firstPacket));
+            Assert.AreEqual(1, firstPacket.Payload.Value);
+
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 1UL, 1UL, owner), out _));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, source, owner, 1UL, 2UL, 2)));
+            Assert.IsFalse(inbox.Suspend());
+            Assert.IsFalse(inbox.SealForTick(MailboxTick(2UL)));
+            Assert.IsTrue(firstBatch.IsValid);
+            Assert.AreEqual(1, firstBatch.Count);
+            Assert.IsTrue(firstBatch.TryRead(0, out firstPacket));
+            Assert.AreEqual(1, firstPacket.Payload.Value);
+
+            Assert.IsTrue(runtime.CancelCollection());
+            Assert.IsTrue(inbox.Suspend());
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 2UL, 1UL, owner), out _));
+            Assert.IsFalse(inbox.Resume());
+            Assert.IsTrue(runtime.CancelCollection());
+            Assert.IsTrue(inbox.Resume());
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(2UL)));
+            Assert.IsFalse(firstBatch.IsValid);
+            Assert.IsTrue(inbox.TryGetSealedBatch(
+                lane,
+                out CoCoActorEventSealedBatch<TestEvent> secondBatch));
+            Assert.AreEqual(1, secondBatch.Count);
+            Assert.IsTrue(secondBatch.TryRead(0, out CoCoEventPacket<TestEvent> secondPacket));
+            Assert.AreEqual(2, secondPacket.Payload.Value);
+        }
+
+        [Test]
+        public void AdapterInboxLifecycleRequestsCancelProjectionWithoutHalfUnbinding()
+        {
+            AssertAdapterInboxLifecycleRequest(dispose: false);
+            AssertAdapterInboxLifecycleRequest(dispose: true);
+        }
+
+        [Test]
+        public void ReducerDisposeRequestStopsLaterReducersAndInvalidatesPartialFrame()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(62UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 2);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(62UL),
+                2,
+                new DisposingReducerFactory(),
+                out CoCoIntentHandle<TestIntent> disposingHandle,
+                out _));
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(63UL),
+                2,
+                new CountingReducerFactory(),
+                out CoCoIntentHandle<TestIntent> countingHandle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            CoCoGraphInstanceId owner = GraphId(976UL);
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 4, out CoCoIntentFrameRuntime runtime, out _));
+            BindTwoSourcesWithoutFreezing(runtime, disposingHandle,
+                out CoCoIntentSourceBinding<TestIntent> disposingA,
+                out CoCoIntentSourceBinding<TestIntent> disposingB);
+            BindTwoSourcesWithoutFreezing(runtime, countingHandle,
+                out CoCoIntentSourceBinding<TestIntent> countingA,
+                out CoCoIntentSourceBinding<TestIntent> countingB);
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
+            DisposingIntentReducer.Runtime = runtime;
+            DisposingIntentReducer.ReduceCount = 0;
+            CountingIntentReducer.ReduceCount = 0;
+            try
+            {
+                CoCoStateFlowFrameHeader header = IntentHeader(layoutId, 1UL, 1UL, owner);
+                Assert.IsTrue(runtime.TryBegin(header, out _));
+                Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                    runtime.TrySample(disposingA, header.TickFrame));
+                Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                    runtime.TrySample(disposingB, header.TickFrame));
+                Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                    runtime.TrySample(countingA, header.TickFrame));
+                Assert.AreEqual(CoCoIntentSourceSampleResult.Contributed,
+                    runtime.TrySample(countingB, header.TickFrame));
+
+                Assert.IsFalse(runtime.TryFreeze(out CoCoDiagnostic diagnostic));
+                Assert.AreEqual(CoCoDiagnosticCode.InvalidLifecycleTransition, diagnostic.Code);
+                Assert.IsTrue(runtime.IsDisposed);
+                Assert.IsFalse(runtime.IsCollecting);
+                Assert.IsFalse(runtime.Frame.IsFrozen);
+                Assert.AreEqual(1, DisposingIntentReducer.ReduceCount);
+                Assert.AreEqual(0, CountingIntentReducer.ReduceCount);
+            }
+            finally
+            {
+                DisposingIntentReducer.Runtime = null;
+                DisposingIntentReducer.ReduceCount = 0;
+                CountingIntentReducer.ReduceCount = 0;
+            }
+        }
+
+        [Test]
+        public void ReducerFactoryReentryForTheSameGraphReturnsDeterministicDiagnostic()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(64UL);
+            CoCoGraphInstanceId owner = GraphId(977UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            var factory = new ReentrantReducerFactory(layout, owner);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(64UL),
+                1,
+                factory,
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(handle.IsValid);
+            Assert.IsTrue(layout.Freeze(out _));
+
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 0, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsFalse(factory.ReentrantCreateResult);
+            Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, factory.ReentrantDiagnostic.Code);
+            runtime.Dispose();
+        }
+
+        [Test]
         public void TargetedPacketOnlyEntersMatchingActorAndDomain()
         {
             CoCoGraphInstanceId owner = GraphId(100UL);
@@ -415,13 +1150,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(60UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> firstHandle,
                 out _));
             Assert.IsTrue(layout.TryRegister(
                 IntentId(61UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> secondHandle,
                 out _));
             Assert.IsTrue(layout.Freeze(out _));
@@ -440,7 +1175,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(separateLayout.TryRegister(
                 IntentId(60UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> separateHandle,
                 out _));
             Assert.IsTrue(separateLayout.Freeze(out _));
@@ -469,14 +1204,15 @@ namespace CoCoFlow.Runtime.Core.Tests
                 new FirstEventAdapter(),
                 out CoCoEventToIntentBinding<TestEvent, TestIntent> binding,
                 out _));
-            Assert.IsTrue(runtime.TryBindEventAdapter(
+            Assert.IsFalse(runtime.TryBindEventAdapter(
                 foreignDomain,
                 eventType,
                 secondRequirement,
                 1,
                 new FirstEventAdapter(),
-                out CoCoEventToIntentBinding<TestEvent, TestIntent> wrongDomainBinding,
-                out _));
+                out _,
+                out CoCoDiagnostic conflictingManifestDiagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, conflictingManifestDiagnostic.Code);
             Assert.IsTrue(foreignRuntime.TryBindEventAdapter(
                 domain,
                 eventType,
@@ -532,9 +1268,6 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CoCoIntentEventProjectionResult.InvalidBatch,
                 sameOwnerRuntime.TryProject(sameOwnerBinding, batch));
             Assert.IsTrue(runtime.TryBegin(IntentHeader(layoutId, 1UL, 1UL, owner), out _));
-            Assert.AreEqual(
-                CoCoIntentEventProjectionResult.InvalidBatch,
-                runtime.TryProject(wrongDomainBinding, batch));
             Assert.AreEqual(
                 CoCoIntentEventProjectionResult.Contributed,
                 runtime.TryProject(binding, batch));
@@ -768,6 +1501,47 @@ namespace CoCoFlow.Runtime.Core.Tests
                 false,
                 out CoCoActorEventLaneHandle<OtherTestEvent> secondHandle,
                 out _));
+            var layout = new CoCoIntentFrameLayout(FrameLayoutId(405UL), 2);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(405UL),
+                4,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> firstIntent,
+                out _));
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(406UL),
+                4,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> secondIntent,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 2, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                firstIntent,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> firstRequirement));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                secondIntent,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> secondRequirement));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                firstType,
+                firstRequirement,
+                4,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                secondType,
+                secondRequirement,
+                4,
+                new OtherEventAdapter(),
+                out _,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+            Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
             Assert.IsTrue(inbox.Start(out _));
 
             CoCoEventPacket<TestEvent> original = Packet(
@@ -949,7 +1723,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(layout.TryRegister(
                 IntentId(80UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> intentHandle,
                 out _));
             Assert.IsTrue(layout.Freeze(out _));
@@ -984,7 +1758,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(eventLayout.TryRegister(
                 IntentId(81UL),
                 1,
-                new OrderedIntentReducer(),
+                new OrderedIntentReducerFactory(),
                 out CoCoIntentHandle<TestIntent> projectedHandle,
                 out _));
             Assert.IsTrue(eventLayout.Freeze(out _));
@@ -1082,6 +1856,29 @@ namespace CoCoFlow.Runtime.Core.Tests
             int laneCapacity,
             out CoCoActorEventLaneHandle<TestEvent> handle)
         {
+            var layout = new CoCoIntentFrameLayout(FrameLayoutId(eventType.Low + 1000UL), 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(eventType.Low + 1000UL),
+                laneCapacity,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> intentHandle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 1, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                intentHandle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                requirement,
+                laneCapacity,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
             var inbox = new CoCoActorEventInboxCore(owner, domain, 1, 4, 16);
             Assert.IsTrue(inbox.TryRegisterLane(
                 eventType,
@@ -1090,9 +1887,160 @@ namespace CoCoFlow.Runtime.Core.Tests
                 out handle,
                 out CoCoDiagnostic registerDiagnostic));
             Assert.IsTrue(registerDiagnostic.IsNone);
+            Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
             Assert.IsTrue(inbox.Start(out CoCoDiagnostic startDiagnostic));
             Assert.IsTrue(startDiagnostic.IsNone);
             return inbox;
+        }
+
+        private static void AssertAdapterInboxLifecycleRequest(bool dispose)
+        {
+            ulong suffix = dispose ? 611UL : 610UL;
+            CoCoFrameLayoutId layoutId = FrameLayoutId(suffix);
+            CoCoGraphInstanceId owner = GraphId(9600UL + suffix);
+            CoCoEventDomainId domain = DomainId(suffix);
+            CoCoEventTypeId eventType = EventTypeId(suffix);
+            var layout = new CoCoIntentFrameLayout(layoutId, 1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(suffix),
+                1,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 1, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            var adapter = new InboxLifecycleEventAdapter(dispose);
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                requirement,
+                1,
+                adapter,
+                out CoCoEventToIntentBinding<TestEvent, TestIntent> binding,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+
+            var inbox = new CoCoActorEventInboxCore(owner, domain, 1, 1, 4);
+            Assert.IsTrue(inbox.TryRegisterLane(
+                eventType,
+                1,
+                false,
+                out CoCoActorEventLaneHandle<TestEvent> lane,
+                out _));
+            Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
+            Assert.IsTrue(inbox.Start(out _));
+            adapter.Inbox = inbox;
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(9700UL + suffix), owner, 1UL, 1UL, 5)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryGetSealedBatch(
+                lane,
+                out CoCoActorEventSealedBatch<TestEvent> batch));
+            Assert.IsTrue(runtime.TryBegin(IntentHeader(layoutId, 1UL, 1UL, owner), out _));
+
+            Assert.AreEqual(
+                CoCoIntentEventProjectionResult.ArbiterNotCollecting,
+                runtime.TryProject(binding, batch));
+            Assert.IsTrue(adapter.ReturnedFromLifecycleRequest);
+            Assert.AreEqual(CoCoActorEventInboxState.Running, adapter.StateDuringCallback);
+            Assert.IsFalse(adapter.SealDuringCallbackResult);
+            Assert.IsFalse(runtime.IsCollecting);
+            Assert.IsFalse(runtime.Frame.IsFrozen);
+            Assert.IsFalse(batch.IsValid);
+            Assert.AreEqual(
+                dispose ? CoCoActorEventInboxState.Disposed : CoCoActorEventInboxState.Stopped,
+                inbox.State);
+            Assert.AreEqual(CoCoInboxEnqueueResult.MailboxUnavailable, inbox.TryEnqueue(
+                lane,
+                Packet(eventType, domain, GraphId(9700UL + suffix), owner, 1UL, 2UL, 6)));
+        }
+
+        private static void BindTwoSources(
+            CoCoIntentFrameRuntime runtime,
+            CoCoIntentHandle<TestIntent> handle,
+            out CoCoIntentSourceBinding<TestIntent> first,
+            out CoCoIntentSourceBinding<TestIntent> second)
+        {
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(1),
+                out first,
+                out _));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(2),
+                out second,
+                out _));
+            Assert.IsTrue(runtime.FreezeBindings(out _));
+        }
+
+        private static void BindTwoSourcesWithoutFreezing(
+            CoCoIntentFrameRuntime runtime,
+            CoCoIntentHandle<TestIntent> handle,
+            out CoCoIntentSourceBinding<TestIntent> first,
+            out CoCoIntentSourceBinding<TestIntent> second)
+        {
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(1),
+                out first,
+                out _));
+            Assert.IsTrue(runtime.TryBindSource(
+                requirement,
+                new CountingIntentSource(2),
+                out second,
+                out _));
+        }
+
+        private static CoCoIntentFrameRuntime CreateAdapterRuntime(
+            CoCoGraphInstanceId owner,
+            CoCoEventDomainId domain,
+            CoCoEventTypeId eventType,
+            int projectionCapacity,
+            bool freezeBindings = true)
+        {
+            var layout = new CoCoIntentFrameLayout(
+                FrameLayoutId(owner.Value + eventType.Low + 2000UL),
+                1);
+            Assert.IsTrue(layout.TryRegister(
+                IntentId(owner.Value + eventType.Low + 2000UL),
+                projectionCapacity,
+                new OrderedIntentReducerFactory(),
+                out CoCoIntentHandle<TestIntent> handle,
+                out _));
+            Assert.IsTrue(layout.Freeze(out _));
+            Assert.IsTrue(layout.TryCreateRuntime(owner, 1, out CoCoIntentFrameRuntime runtime, out _));
+            Assert.IsTrue(CoCoIntentSourceRequirement<TestIntent>.TryCreate(
+                handle,
+                0,
+                out CoCoIntentSourceRequirement<TestIntent> requirement));
+            Assert.IsTrue(runtime.TryBindEventAdapter(
+                domain,
+                eventType,
+                requirement,
+                projectionCapacity,
+                new FirstEventAdapter(),
+                out _,
+                out _));
+            if (freezeBindings)
+            {
+                Assert.IsTrue(runtime.FreezeBindings(out _));
+            }
+
+            return runtime;
         }
 
         private static CoCoActorEventInboxCore CreateProjectionInbox(
@@ -1401,11 +2349,140 @@ namespace CoCoFlow.Runtime.Core.Tests
             public int Value { get; }
         }
 
-        private sealed class OrderedIntentReducer : ICoCoIntentReducer<TestIntent>
+        private readonly struct OrderedIntentReducer : ICoCoIntentReducer<TestIntent>
         {
             public TestIntent Reduce(in TestIntent current, in TestIntent candidate)
             {
                 return new TestIntent((current.Value * 10) + candidate.Value);
+            }
+        }
+
+        private sealed class OrderedIntentReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, OrderedIntentReducer>
+        {
+            public OrderedIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                return new OrderedIntentReducer();
+            }
+        }
+
+        private struct StatefulIntentReducer : ICoCoIntentReducer<TestIntent>
+        {
+            private int _reductionCount;
+
+            public TestIntent Reduce(in TestIntent current, in TestIntent candidate)
+            {
+                _reductionCount++;
+                return new TestIntent(current.Value + candidate.Value + (_reductionCount * 100));
+            }
+        }
+
+        private sealed class StatefulReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, StatefulIntentReducer>
+        {
+            public int CreateCount { get; private set; }
+
+            public StatefulIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                CreateCount++;
+                return default;
+            }
+        }
+
+        private struct ThrowOnceIntentReducer : ICoCoIntentReducer<TestIntent>
+        {
+            private bool _hasThrown;
+
+            public TestIntent Reduce(in TestIntent current, in TestIntent candidate)
+            {
+                if (!_hasThrown)
+                {
+                    _hasThrown = true;
+                    throw new InvalidOperationException("reducer failure");
+                }
+
+                return new TestIntent(current.Value + candidate.Value);
+            }
+        }
+
+        private sealed class ThrowOnceReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, ThrowOnceIntentReducer>
+        {
+            public ThrowOnceIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                return default;
+            }
+        }
+
+        private struct DisposingIntentReducer : ICoCoIntentReducer<TestIntent>
+        {
+            public static CoCoIntentFrameRuntime Runtime { get; set; }
+            public static int ReduceCount { get; set; }
+
+            public TestIntent Reduce(in TestIntent current, in TestIntent candidate)
+            {
+                ReduceCount++;
+                Runtime.Dispose();
+                return new TestIntent(current.Value + candidate.Value);
+            }
+        }
+
+        private sealed class DisposingReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, DisposingIntentReducer>
+        {
+            public DisposingIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                return default;
+            }
+        }
+
+        private struct CountingIntentReducer : ICoCoIntentReducer<TestIntent>
+        {
+            public static int ReduceCount { get; set; }
+
+            public TestIntent Reduce(in TestIntent current, in TestIntent candidate)
+            {
+                ReduceCount++;
+                return new TestIntent(current.Value + candidate.Value);
+            }
+        }
+
+        private sealed class CountingReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, CountingIntentReducer>
+        {
+            public CountingIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                return default;
+            }
+        }
+
+        private sealed class ReentrantReducerFactory :
+            ICoCoIntentReducerFactory<TestIntent, OrderedIntentReducer>
+        {
+            private readonly CoCoIntentFrameLayout _layout;
+            private readonly CoCoGraphInstanceId _graphInstanceId;
+
+            public ReentrantReducerFactory(
+                CoCoIntentFrameLayout layout,
+                CoCoGraphInstanceId graphInstanceId)
+            {
+                _layout = layout;
+                _graphInstanceId = graphInstanceId;
+            }
+
+            public bool ReentrantCreateResult { get; private set; }
+            public CoCoDiagnostic ReentrantDiagnostic { get; private set; }
+
+            public OrderedIntentReducer Create(CoCoGraphInstanceId graphInstanceId)
+            {
+                ReentrantCreateResult = _layout.TryCreateRuntime(
+                    _graphInstanceId,
+                    0,
+                    out CoCoIntentFrameRuntime nested,
+                    out CoCoDiagnostic diagnostic);
+                ReentrantDiagnostic = diagnostic;
+                nested?.Dispose();
+                return default;
             }
         }
 
@@ -1428,10 +2505,150 @@ namespace CoCoFlow.Runtime.Core.Tests
             }
         }
 
+        private sealed class ThrowingIntentSource : ICoCoIntentFrameSource<TestIntent>
+        {
+            private readonly InvalidOperationException _exception;
+
+            public ThrowingIntentSource(InvalidOperationException exception)
+            {
+                _exception = exception;
+            }
+
+            public bool TrySample(in CoCoTickFrame tickFrame, out TestIntent intent)
+            {
+                intent = default;
+                throw _exception;
+            }
+        }
+
+        private sealed class ReentrantIntentSource : ICoCoIntentFrameSource<TestIntent>
+        {
+            public CoCoIntentFrameRuntime Runtime { get; set; }
+            public CoCoStateFlowFrameHeader ReentrantHeader { get; set; }
+            public CoCoIntentSourceBinding<TestIntent> SourceBinding { get; set; }
+            public CoCoEventToIntentBinding<TestEvent, TestIntent> EventBinding { get; set; }
+            public CoCoActorEventSealedBatch<TestEvent> Batch { get; set; }
+            public bool BeginResult { get; private set; }
+            public bool FreezeResult { get; private set; }
+            public bool CancelResult { get; private set; }
+            public CoCoIntentSourceSampleResult SampleResult { get; private set; }
+            public CoCoIntentEventProjectionResult ProjectResult { get; private set; }
+
+            public bool TrySample(in CoCoTickFrame tickFrame, out TestIntent intent)
+            {
+                BeginResult = Runtime.TryBegin(ReentrantHeader, out _);
+                FreezeResult = Runtime.TryFreeze(out _);
+                CancelResult = Runtime.CancelCollection();
+                SampleResult = Runtime.TrySample(SourceBinding, tickFrame);
+                ProjectResult = Runtime.TryProject(EventBinding, Batch);
+                intent = new TestIntent(1);
+                return true;
+            }
+        }
+
+        private sealed class DisposingIntentSource : ICoCoIntentFrameSource<TestIntent>
+        {
+            public CoCoIntentFrameRuntime Runtime { get; set; }
+            public bool ReturnedFromDispose { get; private set; }
+
+            public bool TrySample(in CoCoTickFrame tickFrame, out TestIntent intent)
+            {
+                Runtime.Dispose();
+                ReturnedFromDispose = !Runtime.IsDisposed;
+                intent = new TestIntent(1);
+                return true;
+            }
+        }
+
         private sealed class FirstEventAdapter : ICoCoEventToIntentAdapter<TestEvent, TestIntent>
         {
             public bool TryProject(
                 in CoCoEventPacket<TestEvent> packet,
+                out TestIntent intent)
+            {
+                intent = new TestIntent(packet.Payload.Value);
+                return true;
+            }
+        }
+
+        private sealed class ReentrantEventAdapter :
+            ICoCoEventToIntentAdapter<TestEvent, TestIntent>
+        {
+            public CoCoIntentFrameRuntime Runtime { get; set; }
+            public CoCoIntentSourceBinding<TestIntent> SourceBinding { get; set; }
+            public CoCoEventToIntentBinding<TestEvent, TestIntent> EventBinding { get; set; }
+            public CoCoActorEventSealedBatch<TestEvent> Batch { get; set; }
+            public CoCoTickFrame TickFrame { get; set; }
+            public CoCoIntentSourceSampleResult SampleResult { get; private set; }
+            public CoCoIntentEventProjectionResult ProjectResult { get; private set; }
+
+            public bool TryProject(
+                in CoCoEventPacket<TestEvent> packet,
+                out TestIntent intent)
+            {
+                SampleResult = Runtime.TrySample(SourceBinding, TickFrame);
+                ProjectResult = Runtime.TryProject(EventBinding, Batch);
+                intent = new TestIntent(packet.Payload.Value);
+                return true;
+            }
+        }
+
+        private sealed class InboxLifecycleEventAdapter :
+            ICoCoEventToIntentAdapter<TestEvent, TestIntent>
+        {
+            private readonly bool _dispose;
+
+            public InboxLifecycleEventAdapter(bool dispose)
+            {
+                _dispose = dispose;
+            }
+
+            public CoCoActorEventInboxCore Inbox { get; set; }
+            public bool ReturnedFromLifecycleRequest { get; private set; }
+            public CoCoActorEventInboxState StateDuringCallback { get; private set; }
+            public bool SealDuringCallbackResult { get; private set; }
+
+            public bool TryProject(in CoCoEventPacket<TestEvent> packet, out TestIntent intent)
+            {
+                if (_dispose)
+                {
+                    Inbox.Dispose();
+                }
+                else
+                {
+                    Inbox.Stop();
+                }
+
+                ReturnedFromLifecycleRequest = true;
+                StateDuringCallback = Inbox.State;
+                SealDuringCallbackResult = Inbox.SealForTick(MailboxTick(2UL));
+                intent = new TestIntent(packet.Payload.Value);
+                return true;
+            }
+        }
+
+        private sealed class ThrowOnceEventAdapter : ICoCoEventToIntentAdapter<TestEvent, TestIntent>
+        {
+            private bool _hasThrown;
+
+            public bool TryProject(in CoCoEventPacket<TestEvent> packet, out TestIntent intent)
+            {
+                if (!_hasThrown)
+                {
+                    _hasThrown = true;
+                    intent = default;
+                    throw new InvalidOperationException("adapter failure");
+                }
+
+                intent = new TestIntent(packet.Payload.Value);
+                return true;
+            }
+        }
+
+        private sealed class OtherEventAdapter : ICoCoEventToIntentAdapter<OtherTestEvent, TestIntent>
+        {
+            public bool TryProject(
+                in CoCoEventPacket<OtherTestEvent> packet,
                 out TestIntent intent)
             {
                 intent = new TestIntent(packet.Payload.Value);

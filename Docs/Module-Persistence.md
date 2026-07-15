@@ -18,6 +18,12 @@ from a committed ContextFrame. It must not capture an IntentFrame, EventInbox,
 EventAgent subscription, unpublished EventOutbox, intermediate Layer, Operator
 Outcome, or partially processed Tick.
 
+Pre2's ContextFrame projection Codec is an internal feasibility spike. It only
+supports exact-layout, same-session data associated with the current
+GraphInstanceId. It is not a save-document schema, migration contract, stable
+wire identity, or supported cross-session load path. Persistence V2 must not
+serialize this internal representation as a durable file format.
+
 ## Runtime Structure
 
 ```text
@@ -285,8 +291,12 @@ Persistence owns durable save contracts and file IO. It does not own:
 For Persistence V2, Pre13 additionally owns:
 
 - ContextFrame Durable projection encoding and schema migration
+- a public, versioned save-document representation independent from the Pre2
+  internal exact-layout Codec spike
 - Container and world-fact integration
 - StableEntityId resolution across load boundaries
+- mapping a restored StableEntityId to the current GraphInstanceId before an
+  Actor ContextFrame is reconstructed
 - conversion of cross-save pending actions into Actor pending state or world facts
 
 It explicitly does not persist EventInbox, IntentFrame, EventAgent subscriptions,

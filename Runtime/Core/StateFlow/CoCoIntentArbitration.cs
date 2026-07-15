@@ -9,6 +9,13 @@ namespace CoCoFlow.Runtime.Core
         TIntent Reduce(in TIntent current, in TIntent candidate);
     }
 
+    public interface ICoCoIntentReducerFactory<TIntent, TReducer>
+        where TIntent : unmanaged
+        where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
+    {
+        TReducer Create(CoCoGraphInstanceId graphInstanceId);
+    }
+
     public interface ICoCoIntentFrameSource<TIntent>
         where TIntent : unmanaged
     {
@@ -391,6 +398,30 @@ namespace CoCoFlow.Runtime.Core
                                SourceGraphInstanceId.IsValid;
     }
 
+    internal readonly struct CoCoIntentEventAdapterManifestEntry
+    {
+        public CoCoIntentEventAdapterManifestEntry(
+            CoCoEventDomainId eventDomainId,
+            CoCoEventTypeId eventTypeId,
+            Type payloadType,
+            int minimumProjectionCapacity)
+        {
+            EventDomainId = eventDomainId;
+            EventTypeId = eventTypeId;
+            PayloadType = payloadType;
+            MinimumProjectionCapacity = minimumProjectionCapacity;
+        }
+
+        public CoCoEventDomainId EventDomainId { get; }
+        public CoCoEventTypeId EventTypeId { get; }
+        public Type PayloadType { get; }
+        public int MinimumProjectionCapacity { get; }
+        public bool IsValid => EventDomainId.IsValid &&
+                               EventTypeId.IsValid &&
+                               PayloadType != null &&
+                               MinimumProjectionCapacity > 0;
+    }
+
     internal sealed class CoCoIntentFrame : ICoCoIntentFrame
     {
         private readonly CoCoIntentFrameLayout _layout;
@@ -454,6 +485,17 @@ namespace CoCoFlow.Runtime.Core
             _isFrozen = false;
         }
 
+        internal void Invalidate()
+        {
+            for (int index = 0; index < _slots.Length; index++)
+            {
+                _slots[index].Clear();
+            }
+
+            _header = default;
+            _isFrozen = false;
+        }
+
         internal ICoCoIntentFrameSlot GetSlot(int denseIndex) => _slots[denseIndex];
 
         internal void Seal()
@@ -494,13 +536,14 @@ namespace CoCoFlow.Runtime.Core
         public int Capacity => _definitions.Length;
         public bool IsFrozen => _isFrozen;
 
-        public bool TryRegister<TIntent>(
+        public bool TryRegister<TIntent, TReducer>(
             CoCoIntentId intentId,
             int maxContributions,
-            ICoCoIntentReducer<TIntent> reducer,
+            ICoCoIntentReducerFactory<TIntent, TReducer> reducerFactory,
             out CoCoIntentHandle<TIntent> handle,
             out CoCoDiagnostic diagnostic)
             where TIntent : unmanaged
+            where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
         {
             if (_isFrozen)
             {
@@ -522,13 +565,13 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (reducer == null)
+            if (reducerFactory == null)
             {
                 handle = default;
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Intent,
                     CoCoDiagnosticCode.MissingIntentReducer,
-                    "Every intent requires an explicit reducer.");
+                    "Every intent requires an explicit per-runtime reducer factory.");
                 return false;
             }
 
@@ -556,9 +599,9 @@ namespace CoCoFlow.Runtime.Core
             }
 
             handle = new CoCoIntentHandle<TIntent>(this, intentId, _count);
-            _definitions[_count] = new CoCoIntentDefinition<TIntent>(
+            _definitions[_count] = new CoCoIntentDefinition<TIntent, TReducer>(
                 new CoCoIntentDescriptor(intentId, typeof(TIntent), _count, maxContributions),
-                reducer);
+                reducerFactory);
             _count++;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -615,8 +658,19 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            runtime = new CoCoIntentFrameRuntime(this, graphInstanceId, bindingCapacity);
-            _runtimes.Add(graphInstanceId, runtime);
+            _runtimes.Add(graphInstanceId, null);
+            try
+            {
+                runtime = new CoCoIntentFrameRuntime(this, graphInstanceId, bindingCapacity);
+                _runtimes[graphInstanceId] = runtime;
+            }
+            catch
+            {
+                _runtimes.Remove(graphInstanceId);
+                runtime = null;
+                throw;
+            }
+
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -657,12 +711,13 @@ namespace CoCoFlow.Runtime.Core
             return slots;
         }
 
-        internal ICoCoIntentArbitrationLane[] CreateArbitrationLanes()
+        internal ICoCoIntentArbitrationLane[] CreateArbitrationLanes(
+            CoCoGraphInstanceId graphInstanceId)
         {
             var lanes = new ICoCoIntentArbitrationLane[_count];
             for (int index = 0; index < _count; index++)
             {
-                lanes[index] = _definitions[index].CreateArbitrationLane();
+                lanes[index] = _definitions[index].CreateArbitrationLane(graphInstanceId);
             }
 
             return lanes;
@@ -687,10 +742,14 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoIntentFrameArbiter _arbiter;
         private readonly object[] _bindingIdentities;
         private readonly int[] _reservedContributions;
+        private readonly CoCoIntentEventAdapterManifestEntry[] _eventAdapterManifest;
         private CoCoActorEventInboxCore _inbox;
         private int _bindingCount;
+        private int _eventAdapterManifestCount;
         private bool _bindingsFrozen;
         private bool _isDisposed;
+        private bool _isExecutingUserCallback;
+        private bool _disposeRequested;
 
         internal CoCoIntentFrameRuntime(
             CoCoIntentFrameLayout layout,
@@ -701,8 +760,9 @@ namespace CoCoFlow.Runtime.Core
             GraphInstanceId = graphInstanceId;
             _bindingIdentities = new object[bindingCapacity];
             _reservedContributions = new int[layout.Count];
+            _eventAdapterManifest = new CoCoIntentEventAdapterManifestEntry[bindingCapacity];
             _frame = new CoCoIntentFrame(layout, graphInstanceId);
-            _arbiter = new CoCoIntentFrameArbiter(layout, graphInstanceId);
+            _arbiter = new CoCoIntentFrameArbiter(layout, graphInstanceId, this);
         }
 
         public CoCoGraphInstanceId GraphInstanceId { get; }
@@ -713,6 +773,10 @@ namespace CoCoFlow.Runtime.Core
         public bool AreBindingsFrozen => _bindingsFrozen;
         public bool IsCollecting => _arbiter.IsCollecting;
         public bool IsDisposed => _isDisposed;
+        internal int EventAdapterManifestCount => _eventAdapterManifestCount;
+        internal bool IsExecutingUserCallback => _isExecutingUserCallback;
+        internal bool IsReductionAbortRequested =>
+            _disposeRequested || (_inbox != null && _inbox.HasDeferredLifecycle(this));
 
         public bool TryBindSource<TIntent>(
             CoCoIntentSourceRequirement<TIntent> requirement,
@@ -758,6 +822,17 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (!TryInspectEventAdapterManifest<TEvent>(
+                    eventDomainId,
+                    eventTypeId,
+                    projectionCapacity,
+                    out int manifestIndex,
+                    out diagnostic))
+            {
+                binding = null;
+                return false;
+            }
+
             if (!TryReserveBinding(
                     requirement.Handle,
                     adapter,
@@ -779,6 +854,11 @@ namespace CoCoFlow.Runtime.Core
                 registrationOrder,
                 bindingToken,
                 projectionCapacity);
+            CommitEventAdapterManifest<TEvent>(
+                eventDomainId,
+                eventTypeId,
+                projectionCapacity,
+                manifestIndex);
             return true;
         }
 
@@ -802,20 +882,32 @@ namespace CoCoFlow.Runtime.Core
             in CoCoStateFlowFrameHeader header,
             out CoCoDiagnostic diagnostic)
         {
-            if (_isDisposed || !_bindingsFrozen)
+            if (_isDisposed || !_bindingsFrozen || _isExecutingUserCallback)
             {
                 diagnostic = CoCoDiagnostic.Error(
-                    _isDisposed ? CoCoDiagnosticDomain.Lifecycle : CoCoDiagnosticDomain.Registry,
+                    _isDisposed || _isExecutingUserCallback
+                        ? CoCoDiagnosticDomain.Lifecycle
+                        : CoCoDiagnosticDomain.Registry,
                     _isDisposed
                         ? CoCoDiagnosticCode.InvalidLifecycleTransition
-                        : CoCoDiagnosticCode.RegistryNotFrozen,
+                        : _isExecutingUserCallback
+                            ? CoCoDiagnosticCode.InvalidLifecycleTransition
+                            : CoCoDiagnosticCode.RegistryNotFrozen,
                     _isDisposed
                         ? "A disposed Intent runtime cannot begin collection."
-                        : "Intent source and adapter bindings must be frozen before collection begins.");
+                        : _isExecutingUserCallback
+                            ? "Intent runtime callbacks cannot reenter frame collection."
+                            : "Intent source and adapter bindings must be frozen before collection begins.");
                 return false;
             }
 
-            return _arbiter.TryBegin(header, out diagnostic);
+            if (!_arbiter.TryBegin(header, out diagnostic))
+            {
+                return false;
+            }
+
+            _frame.Invalidate();
+            return true;
         }
 
         public CoCoIntentSourceSampleResult TrySample<TIntent>(
@@ -823,12 +915,55 @@ namespace CoCoFlow.Runtime.Core
             in CoCoTickFrame tickFrame)
             where TIntent : unmanaged
         {
-            if (_isDisposed || binding == null || !binding.IsOwnedBy(this))
+            if (_isDisposed || _isExecutingUserCallback || binding == null || !binding.IsOwnedBy(this))
             {
                 return CoCoIntentSourceSampleResult.InvalidBinding;
             }
 
-            return _arbiter.TrySample(binding, tickFrame);
+            if (!_arbiter.IsCollecting)
+            {
+                return CoCoIntentSourceSampleResult.ArbiterNotCollecting;
+            }
+
+            ulong expectedGeneration = _arbiter.FrameGeneration;
+            _isExecutingUserCallback = true;
+            CoCoIntentSourceSampleResult result;
+            try
+            {
+                result = _arbiter.TrySample(binding, tickFrame, expectedGeneration);
+            }
+            catch
+            {
+                _isExecutingUserCallback = false;
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                throw;
+            }
+
+            _isExecutingUserCallback = false;
+            if (_disposeRequested)
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                return CoCoIntentSourceSampleResult.InvalidBinding;
+            }
+
+            if (HasDeferredInboxLifecycle())
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                return CoCoIntentSourceSampleResult.ArbiterNotCollecting;
+            }
+
+            if (!_arbiter.IsGenerationCurrent(expectedGeneration))
+            {
+                CancelCollectionCore();
+                return CoCoIntentSourceSampleResult.ArbiterNotCollecting;
+            }
+
+            return result;
         }
 
         public CoCoIntentEventProjectionResult TryProject<TEvent, TIntent>(
@@ -837,7 +972,7 @@ namespace CoCoFlow.Runtime.Core
             where TEvent : unmanaged
             where TIntent : unmanaged
         {
-            if (_isDisposed)
+            if (_isDisposed || _isExecutingUserCallback)
             {
                 return CoCoIntentEventProjectionResult.InvalidBinding;
             }
@@ -881,8 +1016,211 @@ namespace CoCoFlow.Runtime.Core
             }
 
             ulong frameGeneration = _arbiter.FrameGeneration;
-            if (!batch.TryClaimProjection(this, frameGeneration) ||
-                !binding.TryClaimProjection(frameGeneration))
+            _isExecutingUserCallback = true;
+            CoCoIntentEventProjectionResult projectionResult;
+            try
+            {
+                projectionResult = TryProjectCore(binding, batch, packetCount, frameGeneration);
+            }
+            catch
+            {
+                _isExecutingUserCallback = false;
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                throw;
+            }
+
+            _isExecutingUserCallback = false;
+            if (_disposeRequested)
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                return CoCoIntentEventProjectionResult.InvalidBinding;
+            }
+
+            if (HasDeferredInboxLifecycle())
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                return CoCoIntentEventProjectionResult.ArbiterNotCollecting;
+            }
+
+            if (!_arbiter.IsGenerationCurrent(frameGeneration))
+            {
+                CancelCollectionCore();
+                return CoCoIntentEventProjectionResult.ArbiterNotCollecting;
+            }
+
+            return projectionResult;
+        }
+
+        public bool TryFreeze(out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed || _isExecutingUserCallback)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Lifecycle,
+                    CoCoDiagnosticCode.InvalidLifecycleTransition,
+                    _isDisposed
+                        ? "A disposed Intent runtime cannot freeze a frame."
+                        : "Intent runtime callbacks cannot reenter frame freezing.");
+                return false;
+            }
+
+            ulong expectedGeneration = _arbiter.FrameGeneration;
+            _isExecutingUserCallback = true;
+            bool succeeded;
+            try
+            {
+                succeeded = _arbiter.TryFreeze(_frame, expectedGeneration, out diagnostic);
+            }
+            catch
+            {
+                _isExecutingUserCallback = false;
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                throw;
+            }
+
+            _isExecutingUserCallback = false;
+            if (_disposeRequested)
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                CompleteDeferredDispose();
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Lifecycle,
+                    CoCoDiagnosticCode.InvalidLifecycleTransition,
+                    "Intent runtime disposal requested during reducer execution.");
+                return false;
+            }
+
+            if (HasDeferredInboxLifecycle())
+            {
+                CancelCollectionCore();
+                CompleteDeferredInboxLifecycle();
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Lifecycle,
+                    CoCoDiagnosticCode.InvalidLifecycleTransition,
+                    "Intent reduction was cancelled by an Inbox lifecycle transition.");
+                return false;
+            }
+
+            if (!_arbiter.MatchesGeneration(expectedGeneration))
+            {
+                CancelCollectionCore();
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Intent,
+                    CoCoDiagnosticCode.InvalidIntentContribution,
+                    "Intent frame generation changed during reduction.");
+                return false;
+            }
+
+            return succeeded;
+        }
+
+        public bool CancelCollection()
+        {
+            if (_isDisposed || _isExecutingUserCallback || !_arbiter.IsCollecting)
+            {
+                return false;
+            }
+
+            CancelCollectionCore();
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            if (_isExecutingUserCallback)
+            {
+                _disposeRequested = true;
+                return;
+            }
+
+            DisposeCore();
+        }
+
+        internal bool TryClaimInbox(CoCoActorEventInboxCore inbox)
+        {
+            if (_isDisposed || _isExecutingUserCallback || _arbiter.IsCollecting ||
+                inbox == null || inbox.Owner != GraphInstanceId)
+            {
+                return false;
+            }
+
+            if (_inbox == null)
+            {
+                _inbox = inbox;
+                return true;
+            }
+
+            return ReferenceEquals(_inbox, inbox);
+        }
+
+        internal void ReleaseInbox(CoCoActorEventInboxCore inbox)
+        {
+            if (ReferenceEquals(_inbox, inbox))
+            {
+                _inbox = null;
+            }
+        }
+
+        internal bool MatchesEventAdapterManifest(
+            CoCoEventDomainId eventDomainId,
+            CoCoEventTypeId eventTypeId,
+            Type payloadType,
+            int laneCapacity)
+        {
+            if (_isDisposed || !_bindingsFrozen || !eventDomainId.IsValid ||
+                !eventTypeId.IsValid || payloadType == null || laneCapacity <= 0)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < _eventAdapterManifestCount; index++)
+            {
+                CoCoIntentEventAdapterManifestEntry entry = _eventAdapterManifest[index];
+                if (entry.EventTypeId == eventTypeId)
+                {
+                    return entry.EventDomainId == eventDomainId &&
+                           entry.PayloadType == payloadType &&
+                           laneCapacity <= entry.MinimumProjectionCapacity;
+                }
+            }
+
+            return false;
+        }
+
+        internal bool TryResetForTimelineChange()
+        {
+            if (_isDisposed || _isExecutingUserCallback)
+            {
+                return false;
+            }
+
+            CancelCollectionCore();
+            return true;
+        }
+
+        private CoCoIntentEventProjectionResult TryProjectCore<TEvent, TIntent>(
+            CoCoEventToIntentBinding<TEvent, TIntent> binding,
+            in CoCoActorEventSealedBatch<TEvent> batch,
+            int packetCount,
+            ulong expectedGeneration)
+            where TEvent : unmanaged
+            where TIntent : unmanaged
+        {
+            if (!batch.TryClaimProjection(this, expectedGeneration) ||
+                !binding.TryClaimProjection(expectedGeneration))
             {
                 return CoCoIntentEventProjectionResult.AlreadyProjected;
             }
@@ -892,10 +1230,20 @@ namespace CoCoFlow.Runtime.Core
             for (int index = 0; index < packetCount; index++)
             {
                 batch.TryRead(index, out CoCoEventPacket<TEvent> packet);
-
                 if (!binding.TryProject(packet, out TIntent value))
                 {
+                    if (!batch.IsValid || !batch.IsProjectionRuntime(this) || IsReductionAbortRequested)
+                    {
+                        return CoCoIntentEventProjectionResult.ArbiterNotCollecting;
+                    }
+
                     continue;
+                }
+
+                if (!batch.IsValid || !batch.IsProjectionRuntime(this) ||
+                    IsReductionAbortRequested || !_arbiter.IsGenerationCurrent(expectedGeneration))
+                {
+                    return CoCoIntentEventProjectionResult.ArbiterNotCollecting;
                 }
 
                 if (projectedCount >= scratch.Length)
@@ -920,10 +1268,16 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoIntentEventProjectionResult.NoValue;
             }
 
+            if (!batch.IsValid || !batch.IsProjectionRuntime(this) || IsReductionAbortRequested)
+            {
+                return CoCoIntentEventProjectionResult.ArbiterNotCollecting;
+            }
+
             CoCoIntentContributionResult result = _arbiter.ContributeBatch(
                 binding.Requirement.Handle,
                 scratch,
-                projectedCount);
+                projectedCount,
+                expectedGeneration);
             switch (result)
             {
                 case CoCoIntentContributionResult.Accepted:
@@ -937,61 +1291,129 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        public bool TryFreeze(out CoCoDiagnostic diagnostic)
+        private bool TryInspectEventAdapterManifest<TEvent>(
+            CoCoEventDomainId eventDomainId,
+            CoCoEventTypeId eventTypeId,
+            int projectionCapacity,
+            out int manifestIndex,
+            out CoCoDiagnostic diagnostic)
+            where TEvent : unmanaged
         {
-            if (_isDisposed)
+            for (int index = 0; index < _eventAdapterManifestCount; index++)
             {
+                CoCoIntentEventAdapterManifestEntry entry = _eventAdapterManifest[index];
+                if (entry.EventTypeId != eventTypeId)
+                {
+                    continue;
+                }
+
+                if (entry.EventDomainId != eventDomainId || entry.PayloadType != typeof(TEvent))
+                {
+                    manifestIndex = -1;
+                    diagnostic = CoCoDiagnostic.Error(
+                        CoCoDiagnosticDomain.Identity,
+                        CoCoDiagnosticCode.DuplicateIdentifier,
+                        "An EventTypeId cannot be reused with a different EventDomain or payload type.");
+                    return false;
+                }
+
+                manifestIndex = index;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (_eventAdapterManifestCount >= _eventAdapterManifest.Length)
+            {
+                manifestIndex = -1;
                 diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Lifecycle,
-                    CoCoDiagnosticCode.InvalidLifecycleTransition,
-                    "A disposed Intent runtime cannot freeze a frame.");
+                    CoCoDiagnosticDomain.Registry,
+                    CoCoDiagnosticCode.InvalidFrameLayout,
+                    "Event adapter manifest capacity is exhausted.");
                 return false;
             }
 
-            return _arbiter.TryFreeze(_frame, out diagnostic);
+            manifestIndex = _eventAdapterManifestCount;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
         }
 
-        public void Dispose()
+        private void CommitEventAdapterManifest<TEvent>(
+            CoCoEventDomainId eventDomainId,
+            CoCoEventTypeId eventTypeId,
+            int projectionCapacity,
+            int manifestIndex)
+            where TEvent : unmanaged
+        {
+            if (manifestIndex == _eventAdapterManifestCount)
+            {
+                _eventAdapterManifest[manifestIndex] = new CoCoIntentEventAdapterManifestEntry(
+                    eventDomainId,
+                    eventTypeId,
+                    typeof(TEvent),
+                    projectionCapacity);
+                _eventAdapterManifestCount++;
+                return;
+            }
+
+            CoCoIntentEventAdapterManifestEntry current = _eventAdapterManifest[manifestIndex];
+            if (projectionCapacity < current.MinimumProjectionCapacity)
+            {
+                _eventAdapterManifest[manifestIndex] = new CoCoIntentEventAdapterManifestEntry(
+                    current.EventDomainId,
+                    current.EventTypeId,
+                    current.PayloadType,
+                    projectionCapacity);
+            }
+        }
+
+        private void CancelCollectionCore()
+        {
+            ulong generation = _arbiter.FrameGeneration;
+            _arbiter.CancelCollection();
+            _frame.Invalidate();
+            _inbox?.ReleaseProjectionClaims(this, generation);
+        }
+
+        private bool HasDeferredInboxLifecycle()
+        {
+            return _inbox != null && _inbox.HasDeferredLifecycle(this);
+        }
+
+        private void CompleteDeferredInboxLifecycle()
+        {
+            CoCoActorEventInboxCore inbox = _inbox;
+            inbox?.CompleteDeferredLifecycle(this);
+        }
+
+        private void CompleteDeferredDispose()
+        {
+            if (_disposeRequested && !_isDisposed && !_isExecutingUserCallback)
+            {
+                DisposeCore();
+            }
+        }
+
+        private void DisposeCore()
         {
             if (_isDisposed)
             {
                 return;
             }
 
+            CancelCollectionCore();
             _isDisposed = true;
+            _disposeRequested = false;
             _bindingsFrozen = false;
             Array.Clear(_bindingIdentities, 0, _bindingIdentities.Length);
             Array.Clear(_reservedContributions, 0, _reservedContributions.Length);
+            Array.Clear(_eventAdapterManifest, 0, _eventAdapterManifest.Length);
             _bindingCount = 0;
+            _eventAdapterManifestCount = 0;
             _arbiter.ResetForDispose();
             CoCoActorEventInboxCore inbox = _inbox;
             _inbox = null;
-            inbox?.ReleaseIntentRuntime(this);
+            inbox?.OnIntentRuntimeDisposed(this);
             _layout.ReleaseRuntime(GraphInstanceId, this);
-        }
-
-        internal bool TryClaimInbox(CoCoActorEventInboxCore inbox)
-        {
-            if (_isDisposed || inbox == null || inbox.Owner != GraphInstanceId)
-            {
-                return false;
-            }
-
-            if (_inbox == null)
-            {
-                _inbox = inbox;
-                return true;
-            }
-
-            return ReferenceEquals(_inbox, inbox);
-        }
-
-        internal void ReleaseInbox(CoCoActorEventInboxCore inbox)
-        {
-            if (ReferenceEquals(_inbox, inbox))
-            {
-                _inbox = null;
-            }
         }
 
         private bool TryReserveBinding<TIntent>(
@@ -1084,6 +1506,7 @@ namespace CoCoFlow.Runtime.Core
     {
         private readonly CoCoIntentFrameLayout _layout;
         private readonly CoCoGraphInstanceId _graphInstanceId;
+        private readonly CoCoIntentFrameRuntime _runtime;
         private readonly ICoCoIntentArbitrationLane[] _lanes;
         private CoCoStateFlowFrameHeader _header;
         private CoCoStateFlowFrameHeader _lastHeader;
@@ -1093,15 +1516,22 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoIntentFrameArbiter(
             CoCoIntentFrameLayout layout,
-            CoCoGraphInstanceId graphInstanceId)
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoIntentFrameRuntime runtime)
         {
             _layout = layout ?? throw new ArgumentNullException(nameof(layout));
             _graphInstanceId = graphInstanceId;
-            _lanes = layout.CreateArbitrationLanes();
+            _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+            _lanes = layout.CreateArbitrationLanes(graphInstanceId);
         }
 
         public bool IsCollecting => _isCollecting;
         public ulong FrameGeneration => _frameGeneration;
+        public bool IsGenerationCurrent(ulong expectedGeneration) =>
+            _isCollecting && MatchesGeneration(expectedGeneration);
+
+        public bool MatchesGeneration(ulong expectedGeneration) =>
+            expectedGeneration != 0UL && _frameGeneration == expectedGeneration;
 
         public bool TryBegin(
             in CoCoStateFlowFrameHeader header,
@@ -1146,10 +1576,11 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoIntentSourceSampleResult TrySample<TIntent>(
             CoCoIntentSourceBinding<TIntent> binding,
-            in CoCoTickFrame tickFrame)
+            in CoCoTickFrame tickFrame,
+            ulong expectedGeneration)
             where TIntent : unmanaged
         {
-            if (!_isCollecting)
+            if (!IsGenerationCurrent(expectedGeneration))
             {
                 return CoCoIntentSourceSampleResult.ArbiterNotCollecting;
             }
@@ -1163,12 +1594,17 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (!binding.TrySample(
-                    _frameGeneration,
+                    expectedGeneration,
                     tickFrame,
                     out TIntent value,
                     out bool hasValue))
             {
                 return CoCoIntentSourceSampleResult.AlreadySampled;
+            }
+
+            if (!IsGenerationCurrent(expectedGeneration))
+            {
+                return CoCoIntentSourceSampleResult.ArbiterNotCollecting;
             }
 
             if (!hasValue)
@@ -1194,10 +1630,11 @@ namespace CoCoFlow.Runtime.Core
         public CoCoIntentContributionResult ContributeBatch<TIntent>(
             CoCoIntentHandle<TIntent> handle,
             CoCoIntentContribution<TIntent>[] contributions,
-            int count)
+            int count,
+            ulong expectedGeneration)
             where TIntent : unmanaged
         {
-            if (!_isCollecting)
+            if (!IsGenerationCurrent(expectedGeneration))
             {
                 return CoCoIntentContributionResult.ArbiterNotCollecting;
             }
@@ -1207,15 +1644,18 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoIntentContributionResult.InvalidHandle;
             }
 
-            var lane = _lanes[handle.DenseIndex] as CoCoIntentArbitrationLane<TIntent>;
+            var lane = _lanes[handle.DenseIndex] as ICoCoIntentArbitrationLane<TIntent>;
             return lane == null
                 ? CoCoIntentContributionResult.InvalidHandle
                 : lane.AddBatch(contributions, count);
         }
 
-        public bool TryFreeze(CoCoIntentFrame destination, out CoCoDiagnostic diagnostic)
+        public bool TryFreeze(
+            CoCoIntentFrame destination,
+            ulong expectedGeneration,
+            out CoCoDiagnostic diagnostic)
         {
-            if (!_isCollecting || destination == null ||
+            if (!IsGenerationCurrent(expectedGeneration) || destination == null ||
                 destination.GraphInstanceId != _graphInstanceId ||
                 destination.LayoutId != _layout.LayoutId)
             {
@@ -1226,19 +1666,46 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            destination.Prepare(_header);
             for (int index = 0; index < _lanes.Length; index++)
             {
-                _lanes[index].ReduceInto(destination.GetSlot(index));
+                _lanes[index].BeginReductionCheckpoint();
             }
 
-            destination.Seal();
-            _isCollecting = false;
-            diagnostic = CoCoDiagnostic.None;
-            return true;
+            try
+            {
+                destination.Prepare(_header);
+                for (int index = 0; index < _lanes.Length; index++)
+                {
+                    if (!_lanes[index].ReduceInto(destination.GetSlot(index), _runtime) ||
+                        _runtime.IsReductionAbortRequested)
+                    {
+                        RollbackReduction(destination);
+                        diagnostic = CoCoDiagnostic.Error(
+                            CoCoDiagnosticDomain.Lifecycle,
+                            CoCoDiagnosticCode.InvalidLifecycleTransition,
+                            "Intent reduction was interrupted by a lifecycle transition.");
+                        return false;
+                    }
+                }
+
+                destination.Seal();
+                for (int index = 0; index < _lanes.Length; index++)
+                {
+                    _lanes[index].CommitReductionCheckpoint();
+                }
+
+                _isCollecting = false;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+            catch
+            {
+                RollbackReduction(destination);
+                throw;
+            }
         }
 
-        public void ResetForDispose()
+        public void CancelCollection()
         {
             for (int index = 0; index < _lanes.Length; index++)
             {
@@ -1247,6 +1714,21 @@ namespace CoCoFlow.Runtime.Core
 
             _isCollecting = false;
             _header = default;
+        }
+
+        public void ResetForDispose()
+        {
+            CancelCollection();
+        }
+
+        private void RollbackReduction(CoCoIntentFrame destination)
+        {
+            for (int index = 0; index < _lanes.Length; index++)
+            {
+                _lanes[index].RollbackReductionCheckpoint();
+            }
+
+            destination.Invalidate();
         }
 
         private CoCoIntentContributionResult Contribute<TIntent>(
@@ -1259,7 +1741,7 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoIntentContributionResult.InvalidHandle;
             }
 
-            var lane = _lanes[handle.DenseIndex] as CoCoIntentArbitrationLane<TIntent>;
+            var lane = _lanes[handle.DenseIndex] as ICoCoIntentArbitrationLane<TIntent>;
             return lane == null
                 ? CoCoIntentContributionResult.InvalidHandle
                 : lane.Add(contribution);
@@ -1270,31 +1752,34 @@ namespace CoCoFlow.Runtime.Core
     {
         CoCoIntentDescriptor Descriptor { get; }
         ICoCoIntentFrameSlot CreateFrameSlot();
-        ICoCoIntentArbitrationLane CreateArbitrationLane();
+        ICoCoIntentArbitrationLane CreateArbitrationLane(CoCoGraphInstanceId graphInstanceId);
     }
 
-    internal sealed class CoCoIntentDefinition<TIntent> : ICoCoIntentDefinition
+    internal sealed class CoCoIntentDefinition<TIntent, TReducer> : ICoCoIntentDefinition
         where TIntent : unmanaged
+        where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
     {
-        private readonly ICoCoIntentReducer<TIntent> _reducer;
+        private readonly ICoCoIntentReducerFactory<TIntent, TReducer> _reducerFactory;
 
         public CoCoIntentDefinition(
             CoCoIntentDescriptor descriptor,
-            ICoCoIntentReducer<TIntent> reducer)
+            ICoCoIntentReducerFactory<TIntent, TReducer> reducerFactory)
         {
             Descriptor = descriptor;
-            _reducer = reducer;
+            _reducerFactory = reducerFactory;
         }
 
         public CoCoIntentDescriptor Descriptor { get; }
 
         public ICoCoIntentFrameSlot CreateFrameSlot() => new CoCoIntentFrameSlot<TIntent>();
 
-        public ICoCoIntentArbitrationLane CreateArbitrationLane()
+        public ICoCoIntentArbitrationLane CreateArbitrationLane(
+            CoCoGraphInstanceId graphInstanceId)
         {
-            return new CoCoIntentArbitrationLane<TIntent>(
+            TReducer reducer = _reducerFactory.Create(graphInstanceId);
+            return new CoCoIntentArbitrationLane<TIntent, TReducer>(
                 Descriptor.MaxContributions,
-                _reducer);
+                reducer);
         }
     }
 
@@ -1325,19 +1810,32 @@ namespace CoCoFlow.Runtime.Core
     internal interface ICoCoIntentArbitrationLane
     {
         void Reset();
-        void ReduceInto(ICoCoIntentFrameSlot destination);
+        void BeginReductionCheckpoint();
+        bool ReduceInto(ICoCoIntentFrameSlot destination, CoCoIntentFrameRuntime runtime);
+        void CommitReductionCheckpoint();
+        void RollbackReductionCheckpoint();
     }
 
-    internal sealed class CoCoIntentArbitrationLane<TIntent> : ICoCoIntentArbitrationLane
+    internal interface ICoCoIntentArbitrationLane<TIntent> : ICoCoIntentArbitrationLane
         where TIntent : unmanaged
     {
+        CoCoIntentContributionResult Add(in CoCoIntentContribution<TIntent> contribution);
+        CoCoIntentContributionResult AddBatch(CoCoIntentContribution<TIntent>[] contributions, int count);
+    }
+
+    internal sealed class CoCoIntentArbitrationLane<TIntent, TReducer> : ICoCoIntentArbitrationLane<TIntent>
+        where TIntent : unmanaged
+        where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
+    {
         private readonly CoCoIntentContribution<TIntent>[] _contributions;
-        private readonly ICoCoIntentReducer<TIntent> _reducer;
+        private TReducer _reducer;
+        private TReducer _reducerCheckpoint;
         private int _count;
+        private bool _hasReductionCheckpoint;
 
         public CoCoIntentArbitrationLane(
             int maxContributions,
-            ICoCoIntentReducer<TIntent> reducer)
+            TReducer reducer)
         {
             _contributions = new CoCoIntentContribution<TIntent>[maxContributions];
             _reducer = reducer;
@@ -1397,14 +1895,23 @@ namespace CoCoFlow.Runtime.Core
 
         public void Reset()
         {
+            RollbackReductionCheckpoint();
             _count = 0;
         }
 
-        public void ReduceInto(ICoCoIntentFrameSlot destination)
+        public void BeginReductionCheckpoint()
+        {
+            _reducerCheckpoint = _reducer;
+            _hasReductionCheckpoint = true;
+        }
+
+        public bool ReduceInto(
+            ICoCoIntentFrameSlot destination,
+            CoCoIntentFrameRuntime runtime)
         {
             if (_count == 0)
             {
-                return;
+                return true;
             }
 
             var typedDestination = (CoCoIntentFrameSlot<TIntent>)destination;
@@ -1412,9 +1919,32 @@ namespace CoCoFlow.Runtime.Core
             for (int index = 1; index < _count; index++)
             {
                 result = _reducer.Reduce(result, _contributions[index].Value);
+                if (runtime.IsReductionAbortRequested)
+                {
+                    return false;
+                }
             }
 
             typedDestination.Set(result);
+            return true;
+        }
+
+        public void CommitReductionCheckpoint()
+        {
+            _reducerCheckpoint = default;
+            _hasReductionCheckpoint = false;
+        }
+
+        public void RollbackReductionCheckpoint()
+        {
+            if (!_hasReductionCheckpoint)
+            {
+                return;
+            }
+
+            _reducer = _reducerCheckpoint;
+            _reducerCheckpoint = default;
+            _hasReductionCheckpoint = false;
         }
 
         private bool ContainsDuplicate(in CoCoIntentContribution<TIntent> contribution)

@@ -415,6 +415,7 @@ namespace CoCoFlow.Runtime.Core
         private bool _hasLastSealedTick;
         private bool _requiresNewTimelineEpoch;
         private CoCoIntentFrameRuntime _intentRuntime;
+        private CoCoActorEventInboxState _deferredLifecycleState;
         private ulong _accepted;
         private ulong _duplicate;
         private ulong _rejected;
@@ -483,7 +484,8 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
         {
-            if (_state != CoCoActorEventInboxState.Created)
+            if (_state != CoCoActorEventInboxState.Created ||
+                _deferredLifecycleState != CoCoActorEventInboxState.None)
             {
                 handle = default;
                 diagnostic = CoCoDiagnostic.Error(
@@ -546,6 +548,7 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
         {
             if (_state != CoCoActorEventInboxState.Created ||
+                _deferredLifecycleState != CoCoActorEventInboxState.None ||
                 runtime == null ||
                 runtime.IsDisposed ||
                 runtime.GraphInstanceId != Owner ||
@@ -578,12 +581,41 @@ namespace CoCoFlow.Runtime.Core
 
         public bool Start(out CoCoDiagnostic diagnostic)
         {
-            if (_state != CoCoActorEventInboxState.Created)
+            if (_state != CoCoActorEventInboxState.Created ||
+                _deferredLifecycleState != CoCoActorEventInboxState.None)
             {
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Mailbox,
                     CoCoDiagnosticCode.MailboxUnavailable,
                     "Mailbox can only start from Created.");
+                return false;
+            }
+
+            if (_intentRuntime == null || _intentRuntime.IsDisposed ||
+                _intentRuntime.IsExecutingUserCallback || _intentRuntime.IsCollecting)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Mailbox,
+                    CoCoDiagnosticCode.MailboxUnavailable,
+                    "Mailbox requires one idle live Intent runtime before Start.");
+                return false;
+            }
+
+            if (!_intentRuntime.AreBindingsFrozen)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Registry,
+                    CoCoDiagnosticCode.RegistryNotFrozen,
+                    "Intent bindings must be frozen before Inbox Start.");
+                return false;
+            }
+
+            if (!MatchesIntentAdapterManifest())
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Mailbox,
+                    CoCoDiagnosticCode.InvalidEventPacket,
+                    "Inbox lanes must exactly match the bound Intent runtime adapter manifest.");
                 return false;
             }
 
@@ -594,7 +626,10 @@ namespace CoCoFlow.Runtime.Core
 
         public bool Suspend()
         {
-            if (_state != CoCoActorEventInboxState.Running)
+            if (_state != CoCoActorEventInboxState.Running ||
+                !HasLiveIntentRuntime() ||
+                _intentRuntime.IsCollecting ||
+                IsLifecycleTransitionBlocked())
             {
                 return false;
             }
@@ -605,7 +640,10 @@ namespace CoCoFlow.Runtime.Core
 
         public bool Resume()
         {
-            if (_state != CoCoActorEventInboxState.Suspended)
+            if (_state != CoCoActorEventInboxState.Suspended ||
+                !HasLiveIntentRuntime() ||
+                _intentRuntime.IsCollecting ||
+                IsLifecycleTransitionBlocked())
             {
                 return false;
             }
@@ -616,8 +654,11 @@ namespace CoCoFlow.Runtime.Core
 
         public bool BeginRewindOrRestore()
         {
-            if (_state != CoCoActorEventInboxState.Running &&
-                _state != CoCoActorEventInboxState.Suspended)
+            if ((_state != CoCoActorEventInboxState.Running &&
+                 _state != CoCoActorEventInboxState.Suspended) ||
+                !HasLiveIntentRuntime() ||
+                IsLifecycleTransitionBlocked() ||
+                !_intentRuntime.TryResetForTimelineChange())
             {
                 return false;
             }
@@ -629,7 +670,10 @@ namespace CoCoFlow.Runtime.Core
 
         public bool ResumeAfterTimelineReset()
         {
-            if (_state != CoCoActorEventInboxState.RewindingOrRestoring)
+            if (_state != CoCoActorEventInboxState.RewindingOrRestoring ||
+                !HasLiveIntentRuntime() ||
+                IsLifecycleTransitionBlocked() ||
+                !_intentRuntime.TryResetForTimelineChange())
             {
                 return false;
             }
@@ -642,13 +686,27 @@ namespace CoCoFlow.Runtime.Core
 
         public void Stop()
         {
-            if (_state == CoCoActorEventInboxState.Disposed)
+            if (_state == CoCoActorEventInboxState.Disposed ||
+                _deferredLifecycleState == CoCoActorEventInboxState.Disposed)
             {
                 return;
             }
 
+            if (HasLiveIntentRuntime() && _intentRuntime.IsExecutingUserCallback)
+            {
+                if (_deferredLifecycleState == CoCoActorEventInboxState.None)
+                {
+                    _deferredLifecycleState = CoCoActorEventInboxState.Stopped;
+                }
+
+                return;
+            }
+
+            CancelActiveIntentCollection();
+
             ClearAllRuntimeState();
             ReleaseIntentRuntimeBinding();
+            _deferredLifecycleState = CoCoActorEventInboxState.None;
             _state = CoCoActorEventInboxState.Stopped;
         }
 
@@ -659,8 +717,17 @@ namespace CoCoFlow.Runtime.Core
                 return;
             }
 
+            if (HasLiveIntentRuntime() && _intentRuntime.IsExecutingUserCallback)
+            {
+                _deferredLifecycleState = CoCoActorEventInboxState.Disposed;
+                return;
+            }
+
+            CancelActiveIntentCollection();
+
             ClearAllRuntimeState();
             ReleaseIntentRuntimeBinding();
+            _deferredLifecycleState = CoCoActorEventInboxState.None;
             _state = CoCoActorEventInboxState.Disposed;
         }
 
@@ -678,6 +745,18 @@ namespace CoCoFlow.Runtime.Core
 
             if (_state != CoCoActorEventInboxState.Running &&
                 _state != CoCoActorEventInboxState.Suspended)
+            {
+                _rejected++;
+                return CoCoInboxEnqueueResult.MailboxUnavailable;
+            }
+
+            if (_deferredLifecycleState != CoCoActorEventInboxState.None)
+            {
+                _rejected++;
+                return CoCoInboxEnqueueResult.MailboxUnavailable;
+            }
+
+            if (!HasLiveIntentRuntime())
             {
                 _rejected++;
                 return CoCoInboxEnqueueResult.MailboxUnavailable;
@@ -801,6 +880,9 @@ namespace CoCoFlow.Runtime.Core
         public bool SealForTick(in CoCoTickFrame tickFrame)
         {
             if (_state != CoCoActorEventInboxState.Running ||
+                !HasLiveIntentRuntime() ||
+                _intentRuntime.IsCollecting ||
+                IsLifecycleTransitionBlocked() ||
                 !tickFrame.IsValid ||
                 (_requiresNewTimelineEpoch &&
                  _hasLastSealedTick &&
@@ -941,11 +1023,74 @@ namespace CoCoFlow.Runtime.Core
             !_intentRuntime.IsDisposed &&
             ReferenceEquals(_intentRuntime, runtime);
 
-        internal void ReleaseIntentRuntime(CoCoIntentFrameRuntime runtime)
+        internal void OnIntentRuntimeDisposed(CoCoIntentFrameRuntime runtime)
         {
-            if (ReferenceEquals(_intentRuntime, runtime))
+            if (!ReferenceEquals(_intentRuntime, runtime))
             {
-                _intentRuntime = null;
+                return;
+            }
+
+            CoCoActorEventInboxState deferredState = _deferredLifecycleState;
+            _deferredLifecycleState = CoCoActorEventInboxState.None;
+            _intentRuntime = null;
+            if (_state == CoCoActorEventInboxState.Created)
+            {
+                if (deferredState == CoCoActorEventInboxState.Disposed)
+                {
+                    ClearAllRuntimeState();
+                    _state = CoCoActorEventInboxState.Disposed;
+                }
+
+                return;
+            }
+
+            if (_state != CoCoActorEventInboxState.Disposed)
+            {
+                ClearAllRuntimeState();
+                _state = deferredState == CoCoActorEventInboxState.Disposed
+                    ? CoCoActorEventInboxState.Disposed
+                    : CoCoActorEventInboxState.Stopped;
+            }
+        }
+
+        internal bool HasDeferredLifecycle(CoCoIntentFrameRuntime runtime)
+        {
+            return runtime != null &&
+                   ReferenceEquals(_intentRuntime, runtime) &&
+                   _deferredLifecycleState != CoCoActorEventInboxState.None;
+        }
+
+        internal void CompleteDeferredLifecycle(CoCoIntentFrameRuntime runtime)
+        {
+            if (!HasDeferredLifecycle(runtime) || runtime.IsExecutingUserCallback)
+            {
+                return;
+            }
+
+            CoCoActorEventInboxState targetState = _deferredLifecycleState;
+            _deferredLifecycleState = CoCoActorEventInboxState.None;
+            if (targetState == CoCoActorEventInboxState.Disposed)
+            {
+                Dispose();
+            }
+            else
+            {
+                Stop();
+            }
+        }
+
+        internal void ReleaseProjectionClaims(
+            CoCoIntentFrameRuntime runtime,
+            ulong frameGeneration)
+        {
+            if (runtime == null || frameGeneration == 0UL || !ReferenceEquals(_intentRuntime, runtime))
+            {
+                return;
+            }
+
+            for (int index = 0; index < _laneCount; index++)
+            {
+                _lanes[index].ReleaseProjection(runtime, frameGeneration);
             }
         }
 
@@ -1100,6 +1245,53 @@ namespace CoCoFlow.Runtime.Core
             _requiresNewTimelineEpoch = false;
         }
 
+        private bool HasLiveIntentRuntime()
+        {
+            return _intentRuntime != null &&
+                   !_intentRuntime.IsDisposed &&
+                   _intentRuntime.GraphInstanceId == Owner;
+        }
+
+        private bool IsLifecycleTransitionBlocked()
+        {
+            return _deferredLifecycleState != CoCoActorEventInboxState.None ||
+                   (HasLiveIntentRuntime() && _intentRuntime.IsExecutingUserCallback);
+        }
+
+        private void CancelActiveIntentCollection()
+        {
+            if (HasLiveIntentRuntime() &&
+                !_intentRuntime.IsExecutingUserCallback &&
+                _intentRuntime.IsCollecting)
+            {
+                _intentRuntime.CancelCollection();
+            }
+        }
+
+        private bool MatchesIntentAdapterManifest()
+        {
+            if (!HasLiveIntentRuntime() ||
+                _intentRuntime.EventAdapterManifestCount != _laneCount)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < _laneCount; index++)
+            {
+                CoCoActorEventManifestEntry manifest = _lanes[index].Manifest;
+                if (!_intentRuntime.MatchesEventAdapterManifest(
+                        EventDomainId,
+                        manifest.EventTypeId,
+                        manifest.PayloadType,
+                        manifest.Capacity))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private void ReleaseIntentRuntimeBinding()
         {
             CoCoIntentFrameRuntime runtime = _intentRuntime;
@@ -1116,6 +1308,7 @@ namespace CoCoFlow.Runtime.Core
         bool CanAdvanceGeneration { get; }
         void SealForTick();
         bool TryClaimProjection(ulong generation, object frameOwner, ulong frameGeneration);
+        void ReleaseProjection(object frameOwner, ulong frameGeneration);
         void Clear();
     }
 
@@ -1198,6 +1391,18 @@ namespace CoCoFlow.Runtime.Core
             _projectionFrameOwner = frameOwner;
             _projectionFrameGeneration = frameGeneration;
             return true;
+        }
+
+        public void ReleaseProjection(object frameOwner, ulong frameGeneration)
+        {
+            if (_projectionClaimed &&
+                ReferenceEquals(_projectionFrameOwner, frameOwner) &&
+                _projectionFrameGeneration == frameGeneration)
+            {
+                _projectionClaimed = false;
+                _projectionFrameOwner = null;
+                _projectionFrameGeneration = 0UL;
+            }
         }
 
         public bool TryReadSealed(int index, out CoCoEventPacket<TEvent> packet)

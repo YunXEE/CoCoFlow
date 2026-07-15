@@ -137,6 +137,67 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void StateFlowPublicSurfaceFreezesGenerationScopedFinalizeAuthority()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            Type frameType = RequireExportedType(stateFlowAssembly, "CoCoContextFrame");
+            Type arenaType = RequireExportedType(stateFlowAssembly, "CoCoContextFrameArena");
+            Type preparedType = RequireExportedType(stateFlowAssembly, "CoCoPreparedContextCommit");
+            Type finalizedType = RequireExportedType(stateFlowAssembly, "CoCoFinalizedContextCommit");
+
+            Assert.IsTrue(frameType.IsValueType, "ContextFrame must be a generation-scoped value handle.");
+            Assert.IsTrue(
+                frameType.GetCustomAttributesData().Any(attribute =>
+                    attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                "ContextFrame must remain a readonly struct handle.");
+            Assert.AreEqual(typeof(bool), frameType.GetProperty("IsAlive")?.PropertyType);
+            Assert.AreEqual(frameType, arenaType.GetProperty("Current")?.PropertyType);
+            Assert.AreEqual(typeof(bool), arenaType.GetProperty("HasCurrent")?.PropertyType);
+
+            Assert.IsNull(
+                preparedType.GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance),
+                "A Prepared token must not bypass Derived finalization.");
+            MethodInfo tryFinalize = preparedType.GetMethod(
+                "TryFinalize",
+                BindingFlags.Public | BindingFlags.Instance);
+            Assert.IsNotNull(tryFinalize, "Prepared commits must cross an explicit Finalize boundary.");
+            Assert.AreEqual(typeof(bool), tryFinalize.ReturnType);
+            ParameterInfo[] finalizeParameters = tryFinalize.GetParameters();
+            Assert.AreEqual(2, finalizeParameters.Length);
+            Assert.IsTrue(finalizeParameters[0].IsOut);
+            Assert.AreEqual(finalizedType.MakeByRefType(), finalizeParameters[0].ParameterType);
+            Assert.IsTrue(finalizeParameters[1].IsOut);
+            Assert.AreEqual(typeof(CoCoContextCommitStatus).MakeByRefType(), finalizeParameters[1].ParameterType);
+            Assert.IsTrue(finalizedType.IsValueType);
+            Assert.IsTrue(
+                finalizedType.GetCustomAttributesData().Any(attribute =>
+                    attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                "Finalized commits must remain readonly value tokens.");
+            MethodInfo commit = finalizedType.GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance);
+            Assert.IsNotNull(commit);
+            Assert.AreEqual(typeof(CoCoContextCommitResult), commit.ReturnType);
+            Assert.AreEqual(0, commit.GetParameters().Length);
+        }
+
+        [Test]
+        public void StateFlowPublicSurfaceFreezesRuntimeOwnedIntentLifecycle()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            Type reducerFactory = RequireExportedType(stateFlowAssembly, "ICoCoIntentReducerFactory`2");
+            Type runtimeType = RequireExportedType(stateFlowAssembly, "CoCoIntentFrameRuntime");
+            Type projectionCodec = stateFlowAssembly.GetType(
+                "CoCoFlow.Runtime.Core.CoCoContextProjectionCodec",
+                false);
+
+            Assert.IsTrue(reducerFactory.IsInterface);
+            Assert.IsNotNull(
+                runtimeType.GetMethod("CancelCollection", BindingFlags.Public | BindingFlags.Instance),
+                "The Host needs one explicit rollback boundary for a failed collection.");
+            Assert.IsNotNull(projectionCodec, "The exact-layout Codec spike should remain available internally.");
+            Assert.IsFalse(projectionCodec.IsPublic, "The Pre2 Codec spike is not a durable wire contract.");
+        }
+
+        [Test]
         public void PublicContractsContainNoMachineNodeOrOptionalSurface()
         {
             Type[] contractTypes = typeof(CoCoStateLogic).Assembly.GetExportedTypes();
@@ -159,6 +220,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsNotNull(definition);
             Assert.IsNotNull(definition.references);
             return definition;
+        }
+
+        private static Type RequireExportedType(Assembly assembly, string typeName)
+        {
+            Type type = assembly.GetExportedTypes().SingleOrDefault(candidate => candidate.Name == typeName);
+            Assert.IsNotNull(type, $"{assembly.GetName().Name} must export {typeName}.");
+            return type;
         }
 
         private static void AssertAssemblyExposesNoUnityObjects(Assembly assembly)

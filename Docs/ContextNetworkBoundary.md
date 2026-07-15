@@ -57,11 +57,20 @@ StateGraph 永远只读取已经翻译并冻结的 IntentFrame。
 - Input、AI、Network、Host Sampling 和 sealed EventInbox Adapter 都只能提供候选；
 - 候选按 Running 前固定的 Priority/Reducer 仲裁；
 - 每个 Source 每 Tick 最多采样一次，Frame 只冻结一次；
+- 每个 GraphRuntimeInstance 通过 setup-only Factory 创建并独占 Reducer 实例，Actor
+  之间不共享 Reducer 可变状态；
+- Freeze 前对各 Reducer 的值状态建立 Checkpoint；任一 Reducer 失败或生命周期中断时，
+  所有 Reducer 与部分 IntentFrame 一起回滚；
 - 同 Tick 的所有 Layer 读取相同 Frame Identity 和值；
 - 无候选时仍产生合法空 IntentFrame；
 - 不保存 raw EventPacket、Envelope、Source 对象或 Unity 输入 API；
 - 不进入 ContextFrame、Temporal History 或 Persistence；
 - Pause/Suspend 不产生 Tick，因此不采样、不仲裁，也不生成新 IntentFrame。
+- 开始下一轮 Collection、Cancel、Timeline Reset 与 Dispose 都立即使旧 IntentFrame
+  失效；Source、Adapter 或 Reducer 抛异常时先回滚 Collection 再继续抛出；
+- Cancel 同时回滚 Inbox Projection Claim，并禁止同一个 Tick 再次 Begin；
+- 用户 Source/Adapter/Reducer Callback 不能重入 Begin、Sample、Project、Freeze 或
+  Cancel。Callback 中请求 Dispose 会延后到 Callback 退出并最终优先执行。
 
 跨 Source 冲突只依赖显式 Priority/Reducer，不依赖 EventBus 到达顺序。同 Source 的
 离散输入使用 SourceEventSequence 保持顺序。
@@ -86,7 +95,8 @@ Graph 与 Operator 声明自动汇总、验证并编译 Layout；Pre5 负责实�
 ### ContextFrame
 
 `ContextFrame` 是一个 GraphRuntimeInstance 在 Commit Barrier 上的完整已提交逻辑
-状态：
+状态的 generation-scoped 只读 Handle。Arena 内部 Storage Cell 可以复用，但 Handle
+捕获的 Generation 不可复用：
 
 - 包含 GraphInstanceId、TimelineEpoch、Tick、Revision 和 Layout 兼容身份；
 - 使用固定 StateBlock/Slot Layout，而不是公开 Root Context 或 Operation Section；
@@ -97,6 +107,8 @@ Graph 与 Operator 声明自动汇总、验证并编译 Layout；Pre5 负责实�
 - 不包含 Inbox、IntentFrame、raw Envelope、Source、执行中局部变量、未发布 Outbox
   或 Unity Object 引用图；
 - 不同 GraphRuntimeInstance 不共享可变 StateBlock；
+- Retain 一个存活 Frame 会阻止对应 Cell 被复用；Release 后 Cell 可以服务新的
+  Generation，但所有旧 Handle 永久失效，不会因 Cell 复用重新变为可读；
 - 包括无操作 Tick 在内，每次成功 Commit 都递增 Revision；
 - Restore 只接受已提交 ContextFrame 或合法投影，在新 TimelineEpoch 形成新 Revision，
   并记录 Source GraphInstanceId、TimelineEpoch、Tick 与 Revision。
@@ -114,10 +126,11 @@ Commit 顺序固定：
 
 ```text
 validate OperationFrame, bindings, Layout and capacities
-  -> reserve ContextFrame arena and prepare an infallible commit path
+  -> TryPrepare and reserve one ContextFrame candidate
   -> execute Operators
   -> collect Outcomes and Outbox candidates
-  -> finalize and commit the prepared ContextFrame
+  -> TryFinalize and rebuild Derived slots in dependency order
+  -> commit the Finalized ContextFrame
   -> assign final EventSequence
   -> publish EventOutbox
 ```
@@ -125,8 +138,12 @@ validate OperationFrame, bindings, Layout and capacities
 ContextFrame Commit 是当前 Tick 唯一对外可观察的 gameplay 边界：
 
 - Commit 成功产生一个完整的新 ContextFrame；
-- 所有可能失败的验证与容量预留都发生在 Operator 执行前；合法的 prepared commit 在
-  正常执行路径中不得失败；
+- 所有可预检的验证与容量预留都发生在 Operator 执行前；Prepared Token 只提供 Writer
+  与 `TryFinalize`，不能直接 Commit；
+- Writer 拒绝 Derived Slot。Finalize 在每个成功 Tick（包括 no-op Tick）从权威输入按
+  确定拓扑重建所有 Derived；只有 Finalized Token 可以 Commit；
+- Derived Rebuilder 返回失败或抛异常时先放弃 Candidate，旧 ContextFrame 继续权威；
+  异常在完成回滚后原样向 Host 传播；
 - StateGraph 不能在当前 Tick 读取执行中的 Outcome；
 - Outbox Candidate 在 Commit 前不可见；
 - Commit 失败、Cancel、Restore 或 Rewind 时，旧 ContextFrame 继续权威；
@@ -212,12 +229,22 @@ Router Callback 只能校验、路由、去重和入队；不能调用 StateGrap
 
 - Capacity、Reliability Policy、Broadcast Manifest 和 Adapter 集合在 Running 前固定，
   运行中不能扩容或热替换；
+- Inbox 进入 Running 前必须绑定存活、Bindings 已冻结的 Intent Runtime。Inbox typed
+  lanes 必须与 Runtime 去重后的 Adapter Manifest 按 EventDomain、EventType 和 Payload
+  Type 双向精确匹配；每条 Lane Capacity 不得超过对应 Adapter 的最小 Projection
+  Capacity。绑定、Start、Tick Seal、Suspend 与 Resume 时 Runtime 还必须处于 idle；
+  Collecting 期间到达的消息不能通过再次 Seal 进入当前 IntentFrame；Start 失败时 Inbox
+  保持 Created；
 - 普通 Suspend 在固定容量内继续积压，Resume 后下一次 Tick 交付；
 - Rewind/Restore 停止接收 gameplay Event，拒绝新消息并记录诊断；
 - Resume 建立新 TimelineEpoch，旧 Inbox Batch、旧 Packet 和旧去重窗口失效；
 - Reliable 溢出报告结构化 Host Fault，Pre4 Host 必须暂停；
 - Unreliable 溢出拒绝最新消息并递增诊断计数；
 - Stop/Dispose 注销路由、清空 Inbox 和去重窗口；
+- 绑定的 Intent Runtime Dispose 时，Running Inbox 停止并清空；Created Inbox 只解除
+  绑定，以便替代 Runtime 重新绑定。后续 Enqueue/Seal/生命周期入口必须拒绝失效绑定；
+- Callback 内请求的 Inbox Stop/Dispose 延迟到 Callback 退出后执行，先取消当前
+  Collection 并回滚 Projection Claim；失效 sealed batch 不得继续贡献；
 - 音效、VFX、日志等可丢表现 Event 继续使用普通 EventBus，不进入 gameplay Inbox。
 
 Pre2 只冻结消息身份、双缓冲、容量、投影和失败语义。中央 EventRouter、EventAgent
@@ -227,18 +254,26 @@ Pre2 只冻结消息身份、双缓冲、容量、投影和失败语义。中央
 
 ContextFrame 是完整内存状态。Descriptor 使用两组正交元数据，而不是三套平行事实面：
 
-- Projection Flags 独立包含 `Temporal` 与 `Durable`；前者进入 Actor 时间历史，后者进入
-  跨会话持久化投影，同一 Slot 可以同时拥有两项；
+- Projection Flags 独立包含 `Temporal` 与 `Durable`；前者进入 Actor 时间历史，后者把
+  Slot 标记为 Pre13 Durable Projection 的候选，同一 Slot 可以同时拥有两项；
 - Restore Policy 独立选择 `Stored`、`ResetToDefault` 或 `Derived`；
-- `Derived` 必须声明依赖，由已恢复 Slot 确定重建，不单独保存为权威值；
+- `Derived` 必须声明依赖，在每次 Commit Finalize 和 Restore Finalize 中由已恢复 Slot
+  确定重建，不允许 Writer 直接写入，也不单独保存为权威值；
+- 某 Projection 包含 Derived Slot 时，也必须包含其全部传递 Stored/Derived 依赖；
+  ResetToDefault 依赖可以确定恢复，因此豁免。Layout Freeze 主验证这项闭包，Codec
+  创建时再次防御性验证；
 - Derived 缺少依赖或出现不兼容 Layout/Codec 时，Restore 必须确定失败并诊断。
 
 Ring Buffer 只保存 ContextFrame，不保存 IntentFrame、Inbox 或未发布 Outbox。需要跨
 存档存在的“事件”必须先转化成 Actor Pending State 或世界事实。
 
-Pre2 验证 Descriptor 与版本化 Codec Spike；Pre6 实现 Temporal Ring Buffer、Rewind
-和 TimelineEpoch 切换；Pre13 实现 Durable Projection、Migration、Container 和世界
-事实恢复。
+Restore 必须保持 Source 的 TimelineId 与 ClockDomainId、严格推进 ExecutionSequence；
+建立的 TimelineEpoch 必须严格大于 Source Epoch，也严格大于 Actor 当前权威 Epoch。
+Pre2 只验证 internal、same-session、exact-layout Codec Spike；它继续绑定当前
+GraphInstanceId，不是跨会话存档格式或稳定 Wire Identity。Pre6 实现 Temporal Ring
+Buffer、Rewind 和 TimelineEpoch 切换；Pre13 定义 Durable Save Document、
+StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container 和世界事实
+恢复。
 
 ## 7. Tick、Unity 与外部 Driver
 
