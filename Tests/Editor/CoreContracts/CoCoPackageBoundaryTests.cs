@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor.PackageManager;
 using UnityEngine;
@@ -9,6 +11,17 @@ namespace CoCoFlow.Runtime.Core.Tests
 {
     public sealed class CoCoPackageBoundaryTests
     {
+        private static readonly string[] ForbiddenStateSurfaceTokens =
+        {
+            "EventBus",
+            "EventAgent",
+            "Envelope",
+            "EventRouter",
+            "Mailbox",
+            "EventInbox",
+            "EventOutbox"
+        };
+
         [Test]
         public void ContractsAssemblyHasNoEngineGameplayModuleOrEditorReferences()
         {
@@ -25,32 +38,163 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void ContractsAsmdefDeclaresEngineIndependentBoundary()
+        public void StateFlowAssemblyReferencesOnlyContractsWithinCoCoFlow()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            string[] cocoFlowReferences = stateFlowAssembly
+                .GetReferencedAssemblies()
+                .Select(reference => reference.Name)
+                .Where(name => name.StartsWith("CoCoFlow.", StringComparison.Ordinal))
+                .ToArray();
+
+            CollectionAssert.AreEqual(
+                new[] { "CoCoFlow.Runtime.Core.Contracts" },
+                cocoFlowReferences);
+            Assert.IsFalse(stateFlowAssembly.GetReferencedAssemblies().Any(reference =>
+                reference.Name.StartsWith("Unity", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
+        }
+
+        [Test]
+        public void ContractsAndStateFlowAsmdefsDeclareEngineIndependentBoundaries()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(typeof(CoCoStateLogic).Assembly);
             Assert.IsNotNull(packageInfo);
 
-            string asmdefPath = Path.Combine(
+            AssemblyDefinition contracts = ReadAssemblyDefinition(
                 packageInfo.resolvedPath,
-                "Runtime",
-                "Core",
-                "Contracts",
-                "CoCoFlow.Runtime.Core.Contracts.asmdef");
-            Assert.IsTrue(File.Exists(asmdefPath), asmdefPath);
+                "Runtime/Core/Contracts/CoCoFlow.Runtime.Core.Contracts.asmdef");
+            Assert.AreEqual("CoCoFlow.Runtime.Core.Contracts", contracts.name);
+            Assert.AreEqual("CoCoFlow.Runtime.Core", contracts.rootNamespace);
+            Assert.IsEmpty(contracts.references);
+            Assert.IsTrue(contracts.noEngineReferences);
+            Assert.IsFalse(contracts.allowUnsafeCode);
 
-            var definition = JsonUtility.FromJson<ContractsAssemblyDefinition>(
-                File.ReadAllText(asmdefPath));
-            Assert.IsNotNull(definition);
-            Assert.IsNotNull(definition.references);
+            AssemblyDefinition stateFlow = ReadAssemblyDefinition(
+                packageInfo.resolvedPath,
+                "Runtime/Core/StateFlow/CoCoFlow.Runtime.Core.StateFlow.asmdef");
+            Assert.AreEqual("CoCoFlow.Runtime.Core.StateFlow", stateFlow.name);
+            Assert.AreEqual("CoCoFlow.Runtime.Core", stateFlow.rootNamespace);
+            CollectionAssert.AreEqual(
+                new[] { "CoCoFlow.Runtime.Core.Contracts" },
+                stateFlow.references);
+            Assert.IsTrue(stateFlow.noEngineReferences);
+            Assert.IsFalse(stateFlow.allowUnsafeCode);
+        }
 
-            Assert.AreEqual("CoCoFlow.Runtime.Core.Contracts", definition.name);
-            Assert.AreEqual("CoCoFlow.Runtime.Core", definition.rootNamespace);
-            Assert.IsEmpty(definition.references);
-            Assert.IsTrue(definition.noEngineReferences);
-            Assert.IsFalse(definition.references.Any(reference =>
-                reference.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
-                reference.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
-                reference.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
+        [Test]
+        public void ContractsAndStateFlowPublicTypesExposeNoUnityObjects()
+        {
+            AssertAssemblyExposesNoUnityObjects(typeof(CoCoStateLogic).Assembly);
+            AssertAssemblyExposesNoUnityObjects(typeof(CoCoContextFrame).Assembly);
+        }
+
+        [Test]
+        public void StateAndLayerPublicApisDoNotExposeEventTransportTypes()
+        {
+            AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoStateLogic));
+            AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoStateConfig));
+            AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoActivationMemory));
+
+            Assembly runtimeCoreAssembly = Assembly.Load("CoCoFlow.Runtime.Core");
+            Type stateLayer = runtimeCoreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateLayer", true);
+            AssertPublicSurfaceHasNoForbiddenTransport(stateLayer);
+        }
+
+        [Test]
+        public void Pre1ContextAndOperationAliasesAreAbsent()
+        {
+            Assembly[] assemblies =
+            {
+                typeof(CoCoStateLogic).Assembly,
+                typeof(CoCoContextFrame).Assembly
+            };
+            string[] retiredTypeNames =
+            {
+                "ICoCoContextSection",
+                "CoCoContextSectionRequirement",
+                "ICoCoOperationPort",
+                "CoCoOperationPortRequirement",
+                "ICoCoOperationCommand",
+                "ICoCoOperationCommandSink",
+                "CoCoOperationCommandSink",
+                "ICoCoNoOpOperation",
+                "CoCoNoOpOperation"
+            };
+
+            foreach (Assembly assembly in assemblies)
+            {
+                Type[] exportedTypes = assembly.GetExportedTypes();
+                foreach (string retiredTypeName in retiredTypeNames)
+                {
+                    Assert.IsFalse(
+                        exportedTypes.Any(type => type.Name == retiredTypeName),
+                        $"{assembly.GetName().Name} still exports retired type {retiredTypeName}.");
+                }
+            }
+        }
+
+        [Test]
+        public void StateFlowPublicSurfaceFreezesGenerationScopedFinalizeAuthority()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            Type frameType = RequireExportedType(stateFlowAssembly, "CoCoContextFrame");
+            Type arenaType = RequireExportedType(stateFlowAssembly, "CoCoContextFrameArena");
+            Type preparedType = RequireExportedType(stateFlowAssembly, "CoCoPreparedContextCommit");
+            Type finalizedType = RequireExportedType(stateFlowAssembly, "CoCoFinalizedContextCommit");
+
+            Assert.IsTrue(frameType.IsValueType, "ContextFrame must be a generation-scoped value handle.");
+            Assert.IsTrue(
+                frameType.GetCustomAttributesData().Any(attribute =>
+                    attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                "ContextFrame must remain a readonly struct handle.");
+            Assert.AreEqual(typeof(bool), frameType.GetProperty("IsAlive")?.PropertyType);
+            Assert.AreEqual(frameType, arenaType.GetProperty("Current")?.PropertyType);
+            Assert.AreEqual(typeof(bool), arenaType.GetProperty("HasCurrent")?.PropertyType);
+
+            Assert.IsNull(
+                preparedType.GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance),
+                "A Prepared token must not bypass Derived finalization.");
+            MethodInfo tryFinalize = preparedType.GetMethod(
+                "TryFinalize",
+                BindingFlags.Public | BindingFlags.Instance);
+            Assert.IsNotNull(tryFinalize, "Prepared commits must cross an explicit Finalize boundary.");
+            Assert.AreEqual(typeof(bool), tryFinalize.ReturnType);
+            ParameterInfo[] finalizeParameters = tryFinalize.GetParameters();
+            Assert.AreEqual(2, finalizeParameters.Length);
+            Assert.IsTrue(finalizeParameters[0].IsOut);
+            Assert.AreEqual(finalizedType.MakeByRefType(), finalizeParameters[0].ParameterType);
+            Assert.IsTrue(finalizeParameters[1].IsOut);
+            Assert.AreEqual(typeof(CoCoContextCommitStatus).MakeByRefType(), finalizeParameters[1].ParameterType);
+            Assert.IsTrue(finalizedType.IsValueType);
+            Assert.IsTrue(
+                finalizedType.GetCustomAttributesData().Any(attribute =>
+                    attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                "Finalized commits must remain readonly value tokens.");
+            MethodInfo commit = finalizedType.GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance);
+            Assert.IsNotNull(commit);
+            Assert.AreEqual(typeof(CoCoContextCommitResult), commit.ReturnType);
+            Assert.AreEqual(0, commit.GetParameters().Length);
+        }
+
+        [Test]
+        public void StateFlowPublicSurfaceFreezesRuntimeOwnedIntentLifecycle()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            Type reducerFactory = RequireExportedType(stateFlowAssembly, "ICoCoIntentReducerFactory`2");
+            Type runtimeType = RequireExportedType(stateFlowAssembly, "CoCoIntentFrameRuntime");
+            Type projectionCodec = stateFlowAssembly.GetType(
+                "CoCoFlow.Runtime.Core.CoCoContextProjectionCodec",
+                false);
+
+            Assert.IsTrue(reducerFactory.IsInterface);
+            Assert.IsNotNull(
+                runtimeType.GetMethod("CancelCollection", BindingFlags.Public | BindingFlags.Instance),
+                "The Host needs one explicit rollback boundary for a failed collection.");
+            Assert.IsNotNull(projectionCodec, "The exact-layout Codec spike should remain available internally.");
+            Assert.IsFalse(projectionCodec.IsPublic, "The Pre2 Codec spike is not a durable wire contract.");
         }
 
         [Test]
@@ -68,20 +212,131 @@ namespace CoCoFlow.Runtime.Core.Tests
                 member.Name.IndexOf("Optional", StringComparison.OrdinalIgnoreCase) >= 0));
         }
 
-        [Test]
-        public void PublicContractsExposeNoUnityObjectTypes()
+        private static AssemblyDefinition ReadAssemblyDefinition(string packagePath, string relativePath)
         {
-            Type[] contractTypes = typeof(CoCoStateLogic).Assembly.GetExportedTypes();
+            string asmdefPath = Path.Combine(packagePath, relativePath);
+            Assert.IsTrue(File.Exists(asmdefPath), asmdefPath);
+            var definition = JsonUtility.FromJson<AssemblyDefinition>(File.ReadAllText(asmdefPath));
+            Assert.IsNotNull(definition);
+            Assert.IsNotNull(definition.references);
+            return definition;
+        }
 
-            Assert.IsFalse(contractTypes.Any(type => typeof(UnityEngine.Object).IsAssignableFrom(type)));
+        private static Type RequireExportedType(Assembly assembly, string typeName)
+        {
+            Type type = assembly.GetExportedTypes().SingleOrDefault(candidate => candidate.Name == typeName);
+            Assert.IsNotNull(type, $"{assembly.GetName().Name} must export {typeName}.");
+            return type;
+        }
+
+        private static void AssertAssemblyExposesNoUnityObjects(Assembly assembly)
+        {
+            foreach (Type type in assembly.GetExportedTypes())
+            {
+                Assert.IsFalse(
+                    typeof(UnityEngine.Object).IsAssignableFrom(type),
+                    type.FullName);
+                foreach (Type surfaceType in GetPublicSurfaceTypes(type))
+                {
+                    Assert.IsFalse(
+                        ContainsUnityObject(surfaceType),
+                        $"{type.FullName} exposes Unity type {surfaceType}.");
+                }
+            }
+        }
+
+        private static void AssertPublicSurfaceHasNoForbiddenTransport(Type type)
+        {
+            foreach (Type surfaceType in GetPublicSurfaceTypes(type).Append(type))
+            {
+                string name = surfaceType.FullName ?? surfaceType.Name;
+                foreach (string token in ForbiddenStateSurfaceTokens)
+                {
+                    Assert.IsFalse(
+                        name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0,
+                        $"{type.FullName} exposes forbidden transport type {name}.");
+                }
+            }
+        }
+
+        private static IEnumerable<Type> GetPublicSurfaceTypes(Type type)
+        {
+            const BindingFlags flags = BindingFlags.Public |
+                                       BindingFlags.Instance |
+                                       BindingFlags.Static |
+                                       BindingFlags.DeclaredOnly;
+            foreach (FieldInfo field in type.GetFields(flags))
+            {
+                yield return field.FieldType;
+            }
+
+            foreach (PropertyInfo property in type.GetProperties(flags))
+            {
+                yield return property.PropertyType;
+                foreach (ParameterInfo parameter in property.GetIndexParameters())
+                {
+                    yield return parameter.ParameterType;
+                }
+            }
+
+            foreach (EventInfo eventInfo in type.GetEvents(flags))
+            {
+                yield return eventInfo.EventHandlerType;
+            }
+
+            foreach (ConstructorInfo constructor in type.GetConstructors(flags))
+            {
+                foreach (ParameterInfo parameter in constructor.GetParameters())
+                {
+                    yield return parameter.ParameterType;
+                }
+            }
+
+            foreach (MethodInfo method in type.GetMethods(flags))
+            {
+                yield return method.ReturnType;
+                foreach (ParameterInfo parameter in method.GetParameters())
+                {
+                    yield return parameter.ParameterType;
+                }
+
+                foreach (Type genericArgument in method.GetGenericArguments())
+                {
+                    foreach (Type constraint in genericArgument.GetGenericParameterConstraints())
+                    {
+                        yield return constraint;
+                    }
+                }
+            }
+        }
+
+        private static bool ContainsUnityObject(Type type)
+        {
+            if (type == null)
+            {
+                return false;
+            }
+
+            if (type.IsByRef || type.IsPointer || type.IsArray)
+            {
+                return ContainsUnityObject(type.GetElementType());
+            }
+
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+            {
+                return true;
+            }
+
+            return type.IsGenericType && type.GetGenericArguments().Any(ContainsUnityObject);
         }
 
         [Serializable]
-        private sealed class ContractsAssemblyDefinition
+        private sealed class AssemblyDefinition
         {
             public string name;
             public string rootNamespace;
             public string[] references;
+            public bool allowUnsafeCode;
             public bool noEngineReferences;
         }
     }

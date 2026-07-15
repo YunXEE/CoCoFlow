@@ -2,170 +2,263 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.1 · **Unity**：6000+
+> **版本**：0.4.0-pre.2 · **Unity**：6000+
 >
-> 当前版本是 Pre1 Core 契约阶段，只冻结架构边界和值语义，不代表 0.4
-> Runtime 和编辑工作流已经完成。
+> Pre2 冻结 State Flow Frame、OperationFrame Section、ContextFrame Restore
+> 与 Actor Mailbox 契约；它还不是完整的 0.4 Runtime、StateGraph 编辑工作流、
+> 倒放系统或 Persistence V2。
 
-CoCoFlow 是面向 Unity 6 的 Layered HFSM（分层层次有限状态机）框架，围绕
-Context 驱动决策、显式受控的 Operation，以及由宿主推进的确定性 Tick 构建。
-0.4 面向新的单机 3D 冒险与动作项目。
+CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
+HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
+消息分开处理，不再把这些职责混入一个可变 Context。
 
-## Pre1 冻结什么
+## State Flow
 
-Pre1 确立后续所有预发布版本必须遵守的依赖方向：
+每个被接受的 CoCoTick 只沿一个方向执行：
 
 ```text
-显式绑定的 Sources
-  -> 框架托管的 ContextRuntime 采样与合并
-  -> Frozen Context Frame N
-  -> 相互独立的 Layered HFSM Layers
-  -> 已声明的 Operation 准入口
-  -> Operation 回写
-  -> Frozen Context Frame N + 1
+Input / AI / Network + sealed EventInbox
+  -> Event-to-Intent Adapters
+  -> freeze IntentFrame
+  + Previous ContextFrame
+  -> StateGraph
+  -> OperationFrame Sections
+  -> Operators
+  -> Outcomes + EventOutbox candidates
+  -> commit ContextFrame
+  -> assign EventSequence and publish EventOutbox
 ```
 
-本阶段冻结的 Core 表面包括：
-
-- 彼此独立的 graph、layer、state、transition、graph-instance、activation
-  和 timeline identity；
-- execution sequence、timeline tick/position、clock domain 和 tick frame
-  值契约；
-- 显式 runtime lifecycle state；
-- 结构化 diagnostic domain、code、severity 和 record；
-- 不暴露 `MonoBehaviour`、`GameObject`、Animator 或 Playable 类型的纯 C#
-  StateLogic 角色与依赖声明。
-
-Core 规则：
-
-- StateLogic 只读取一份冻结的 Context Frame，不能回写 Context。
-- Context Section 只允许 public abstract instance property，并且必须是无参数 getter。
-  Indexer、default/static member、field、callback、Unity Object、引用型 collection、
-  native handle 与 stack-only value 都会被拒绝。直接 Fact 可以是 immutable string；
-  复合 value fact 必须递归不含引用，因此内部也不能包含 string。读取必须携带匹配的
-  `CoCoContextSectionRequirement`，不暴露 mutable root、Source、Writer 或具体
-  Provider 类型。
-- 每个 Layer 独立拥有一个 HFSM，并计算出一条以末端 State 结束的活跃路径。
-- Layer 按显式优先级执行；一条活跃路径完成当前生命周期阶段后，才处理下一
-  个 Layer。
-- Unity callback 只是宿主输入，不等于 CoCo 时钟。Variable、Fixed、Manual
-  driver 产生的 CoCo Tick 数量可以与 Unity callback 数量不同。
-- 零或负 delta 非法。Suspend 不产生 Tick，因此也没有 Frozen Frame 采样。
-- Runtime 在第一次 Running 前允许 `Created → Disposed`；已经 Running 或 Suspended
-  的实例必须先 Stop 再 Dispose。
-- Operation 是唯一受认可的副作用边界，其回写只能在后续 Frozen Frame 可见。
-  StateLogic 通过已声明的 `CoCoOperationPortRequirement` 按值提交 unmanaged Command，
-  因此 Submit 不携带托管引用、delegate、共享结果或同步玩法返回通道。Pre5 还必须在
-  派发前校验 Port/Command 匹配，并拒绝 native handle、裸指针或函数指针 Command Shape。
-- Pre1 冻结的是框架提供的 StateLogic 角色，不把任意项目 C# 代码伪装成 CLR 安全沙箱；
-  State 作者程序集与依赖限制由 StateGraph Compiler/作者验证对应 Pre 落实。
-
-后续 Pre 必须遵守以下装配边界：
+跨 Object gameplay 输入通过 Actor 信箱加入这条 Flow：
 
 ```text
-CoCoStateGraphAsset      1 : N  GraphRuntimeInstance
-GraphRuntimeInstance     1 : 1  CoCoContextRuntime / Context Frame 流
-CoCoContextRuntime       1 : N  显式 Context Source Bindings
-Frozen Context Frame     1 : N  相互独立的 Layers
+EventPacket<TEvent>
+  -> CoCoEventBus
+  -> one EventRouter per EventDomain
+  -> target Actor EventInbox
+  -> next accepted CoCoTick
+  -> Event-to-Intent Adapter
+  -> IntentFrame
 ```
 
-项目不编写聚合 Root Context，也不把 Context Provider 手动接给 Graph。未来的
-`CoCoStateGraphHost` 是 Actor 上唯一的 Unity 框架入口：用户选择 Asset，并显式配置
-Source、Operation、priority、ownership 和 clock/driver。框架在 Running 前验证完整
-配置，Running 后保持固定；Context 不形成第二套节点图或 Visual Scripting。
+EventBus 是公路，EventEnvelope 是快递单，EventRouter 是分拣中心，Actor
+EventInbox 是门口信箱，Event-to-Intent Adapter 负责把来信翻译成本 Actor 的
+Intent。StateGraph 永远不读取 raw EventBus callback、Envelope、Router 或 Mailbox。
 
-完整 Frame 与 adapter 规则见
-[Context / Network Boundary](Docs/ContextNetworkBoundary.md)。
+## 冻结词义
 
-## 仓库过渡状态
+| 词条 | 含义 |
+|---|---|
+| `IntentFrame` | 一个 CoCoTick 的不可变输入；只采样、仲裁并冻结一次，不持久化，也不进入倒放历史。 |
+| `OperationFrame` | StateGraph 产生的完整执行指南；只有它公开 Section 契约。 |
+| `ContextFrame` | 指向单个 Actor 在 Tick 边界完整已提交逻辑状态的 generation-scoped 只读 Handle；捕获的 Storage Generation 存活期间，它是 Restore 以及后续 Temporal/Durable 投影的权威输入。 |
+| `EventInbox` | 一个 GraphRuntimeInstance 的待处理跨 Object gameplay 输入，不是事实存储。 |
+| `EventOutbox` | Operator 执行期间产生的跨 Object 输出候选，只有 ContextFrame Commit 成功后才发布。 |
+| `EventAgent` | 只负责 EventBus 订阅生命周期；不路由、不排队、不拥有也不持久化消息。 |
 
-现有 0.3.9 CCS Runtime 暂时保留在仓库中，让 Pre1 可以单独冻结契约，而不把
-Runtime 重写混进同一个改动。它将在 Pre4 被替换，不是 0.4 的兼容承诺、API
-基线或迁移层。
+`IntentFrame`、`OperationFrame` 和 `ContextFrame` 不是别名，不能互相替代。
+Inbox、raw Envelope、当前 IntentFrame 和尚未发布的 Outbox 候选都不会混入
+ContextFrame。
 
-具体来说：
+## OperationFrame Section
 
-- 现有 `CoCoStateController`、`CoCoStateLayer`、`CoCoStateBase` 及其 Unity
-  生命周期行为只属于旧实现证据；
-- 0.3.9 项目继续锁定 0.3.9 revision，0.4 不提供双 Runtime；
-- Pre1 不发布 Samples，也不提供 Add-on 导入表面；
-- 0.3.9 的只读状态图检查工具已在 Pre1 移除；GraphAsset 编译和图编辑
-  会在对应的 Pre 中实现。
+Operator 通过一个或多个只读 OperationFrame Section Interface 声明本 Tick 需要的
+执行数据，StateGraph 必须交付这些要求的去重并集。
 
-## 包边界
+- Section Interface 只允许继承框架 Marker；Section 之间的继承会被拒绝。扩展能力
+  必须通过组合表达。
+- 同一个 Interface Identity 被多次要求时只占一个 Layout Entry。
+- 两个 Interface 即使字段完全相同，只要身份不同，就仍然是两个 Section。
+- Section 是本 Tick 的执行承诺，不是 Actor 状态，也不是可变 Callback 表面。
+- 离散执行继续使用结构化数据，并显式表达 Enabled、Activation 与 Sequence；
+  StateGraph 不建立平行的 Command Queue。
+- Layout、Descriptor、Binding、Priority 和 Reducer 必须在 Running 前固定；Tick 热路径
+  禁止运行时反射、字符串 Key 查找和稳态分配。
+
+Pre2 只提供契约与显式测试 Layout；Pre3 负责自动汇总 Graph Requirement 和生成
+Compiled Layout，Pre5 负责正式 Operator Runtime。
+
+## ContextFrame 与 Restore
+
+`ContextFrame` 是单个 Actor 的完整已提交逻辑状态，不是世界快照，也不是 Unity
+场景 Object Graph。固定的 StateBlock/Slot Layout 必须包含从该 Commit Boundary
+继续运行所需的 Graph、Activation、Transition Progress、Actor 数值和可控 Operator
+进度，或包含能够确定重建它们的数据。
+
+Descriptor 元数据包含两个独立维度：
+
+- Projection Flags 分别标记 **Temporal**、**Durable**，同一 Slot 可以同时拥有两项。
+- Restore Policy 独立选择 **Stored**、**ResetToDefault** 或 **Derived**。
+- Derived Slot 必须声明依赖，在 Finalize 中由 Stored/Default 输入确定重建；它不可直接
+  写入，也不形成第二个权威值。
+- 投影包含 Derived Slot 时，必须同时包含重建它所需的全部传递 Stored/Derived 依赖；
+  ResetToDefault 依赖可以确定重建，因此无需进入投影。
+
+`ContextFrame` 是 Arena Storage Cell 上带 Generation 的 Handle，不是可复用 Cell 本身。
+Retain 存活 Frame 会阻止对应 Cell 被复用；该 Generation 被释放且 Cell 复用后，所有旧
+Handle 永久失效，不能观察或操作新 Generation。
+
+Commit 使用显式的两阶段权威边界：
 
 ```text
-Runtime/Core/Contracts   与引擎隔离的冻结契约
-Runtime/Core             过渡期 0.3.9 CCS Runtime，保留至 Pre4
+TryPrepare -> Writer -> TryFinalize -> Finalized Commit -> Commit
+```
+
+Writer 只能写入权威 Stored/ResetToDefault 输入。Finalize 在每个成功 Tick（包括 no-op
+Tick）按确定依赖顺序重建所有 Derived Slot。Finalize 失败会放弃候选，Previous
+ContextFrame 继续保持权威。
+
+Restore 永远落在一个完成的 Commit Boundary。它不会恢复 Inbox、IntentFrame、
+EventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，或已经交付给
+其他 Actor 的后果。
+
+Restore 必须保持 Source 的 Timeline 与 ClockDomain、推进 ExecutionSequence，并建立
+同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre2 只验证
+Descriptor 和 internal、same-session、exact-layout Codec Spike；该 Spike 不是跨会话
+存档格式或稳定 Wire Identity。Pre6 负责 Temporal 存储和倒放，Pre13 负责
+Durable Save Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界
+事实和生成实体重建。
+
+## Actor Mailbox 规则
+
+Gameplay 消息使用一个原子值：
+
+```text
+EventPacket<TEvent> = EventEnvelope + immutable typed payload
+```
+
+每个 GraphRuntimeInstance 独占一个 EventInbox；每个 EventDomain 只有一个中央
+Router，EventDomain 与 ClockDomain 是不同身份。Targeted 消息按当前
+GraphInstanceId 路由。Broadcast 只投递给显式声明对应 Event-to-Intent Adapter 的
+Actor，并且默认不回送 Source Actor。
+
+Inbox 只有在绑定到存活且 Bindings 已冻结的 Intent Runtime 后才能进入 Running。Typed
+Lane 必须与该 Runtime 去重后的 Adapter Manifest 精确匹配，包括 EventDomain、
+EventType 和 Payload Type；每条 Lane 的 Capacity 不得超过对应 Adapter 声明的最小
+Projection Capacity。每个 GraphRuntimeInstance 独占自己的 Reducer 实例，Actor 之间
+绝不共享 Reducer 可变状态。
+
+Inbox 绑定、Start、Tick Seal、Suspend 或 Resume 时 Intent Runtime 必须处于 idle，
+避免 Collection 开始后重新 Seal 的消息进入当前 IntentFrame。Freeze 会先为 Reducer 状态建立
+Checkpoint；Reduction 失败时 Reducer 与部分 Frame 一起回滚。用户 Callback 中请求的
+Inbox Stop/Dispose 会延迟到 Callback 退出后执行并终止当前 Collection，失效的 sealed
+Batch 不能继续产生 Contribution。
+
+Inbox 使用固定容量、预分配双缓冲。Router Callback 只能校验、去重、路由和入队。
+Step 开始时封存本 Tick 可见批次；Step 期间到达的消息最早在下一次被接受的 Tick
+可见。一条消息最多投影到一个 IntentFrame；需要持续存在的含义必须提交成
+ContextFrame State。
+
+- Suspend 只允许在固定容量内继续积压。
+- Rewind/Restore 拒绝新的 gameplay 消息并记录诊断。
+- Reliable 溢出返回 Host Fault 结果；Unreliable 溢出拒绝最新消息并增加诊断计数。
+- Stop/Dispose 清空队列和去重状态。
+- 新一轮 Intent Collection、Cancel、Timeline Reset 与 Dispose 都会立即使上一份可读
+  IntentFrame 失效。Source、Adapter 或 Reducer 抛异常时先 Cancel Collection 再继续
+  抛出；用户 Callback 不得重入 Collection/Freeze 操作。
+- Cancel 会回滚 Inbox Projection Claim，并禁止同一个 Tick 再次 Begin。
+- 绑定的 Intent Runtime Dispose 时，Running Inbox 会停止并清空；Created Inbox 只解除
+  绑定，以便挂接替代 Runtime。
+- 音效、VFX、日志等纯表现事件可以继续使用普通 EventBus，不进入 gameplay Inbox。
+
+中央 Router、真实 EventBus 订阅生命周期、StableEntityId 解析、Host Fault 状态切换
+和幽灵订阅测试属于 Pre4。
+
+## Commit 与时间边界
+
+- 每个被接受的 `CoCoTickFrame` 都使用有限正 Delta。
+- Pause/Suspend 不产生 Tick，不采样 Intent，也不产生新 Frame。
+- Rewind 不使用负 Delta。Pre6 从旧 ContextFrame Restore，建立新 TimelineEpoch，
+  然后继续正向 Tick。
+- StateGraph 只读取当前 IntentFrame 和 Previous ContextFrame，不能观察本 Tick
+  执行中产生的 Outcome。
+- ContextFrame Commit 是唯一对外可观察的 gameplay 边界。
+- Commit 失败、Cancel、Restore 或 Rewind 时，零 Outbox Event、零最终 EventSequence
+  消耗、零跨 Actor 副作用。
+
+正式 Outcome 聚合、ContextFrame Commit 和 EventOutbox Publish 属于 Pre5。Pre2
+仅通过纯契约 Harness 冻结和验证协议。
+
+## 仓库与包边界
+
+0.3.9 CCS Runtime 暂时保留，用于编译和历史回归证据。它的可变 Context Provider、
+MonoBehaviour State、Unity Callback 调度和当前模块 API 都不是 0.4 契约，也不是迁移
+层。现有 0.3.9 项目应继续锁定 0.3.9 Revision。
+
+```text
+Runtime/Core/Contracts   与引擎隔离的 0.4 契约
+Runtime/Core/StateFlow   与引擎隔离的 0.4 Frame、Section、Intent 与 Mailbox 契约
+Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
 Runtime/Modules          过渡期表现与服务模块
-Editor                   依赖/setup 与旧模块工具
-Tests                    契约、架构和过渡期回归测试
+Editor                   dependency/setup 与过渡期模块工具
+Tests                    契约、架构与过渡期回归测试
 ```
 
-Core Contracts assembly 不得依赖 Gameplay、表现模块、Editor、项目代码、Animator
-或 Playables。上层模块可以依赖 Core contracts，Core 不得反向依赖上层模块。
+Core Contract 与 State Flow 表面不得依赖 Gameplay、表现模块、Editor、项目代码、
+Animator、Playable、特定网络框架或持久化后端。StateLogic/Layer API 不得暴露
+EventBus、EventAgent、EventEnvelope、EventRouter 或 EventInbox 依赖。
 
-## Pre1 不实现什么
+Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的历史发布。
+当 Pre1 的候选 Context Flow 与本文冲突时，以 Pre2 State Flow 为权威。
 
-Pre1 明确不实现：
+## 后续 0.4 工作
 
-- Context V2 runtime 组合、生成/编译的 Section View 与 source 解析；
-- `StateGraphAsset`、Graph 编译、Transition 编辑或 Runtime 执行；
-- 统一的 `CoCoStateGraphHost` 及其 Binding Inspector；
-- clock scheduler、变速、transition queue 或 runtime snapshot；
-- Operation ownership/claim 仲裁与回写实现；
-- temporal rewind；
-- 基于 Playable 的动画、自有动画 Runtime、Combo 编辑或 Root Motion 所有权；
-- starter content、gameplay 模板或 golden-path 项目；替代 Samples 与
-  Adventure Starter 由 Pre15/Pre16 负责。
-
-这些能力属于后续预发布版本，并且必须建立在本阶段冻结的契约之上。
+- **Pre3**：StateGraph Asset/Compiler、Intent Requirement、Graph Operation Provides、
+  ContextFrame State Requirement 与 Compiled Layout 生成。
+- **Pre4**：`CoCoStateGraphHost`、Clock/Driver、EventRouter、EventAgent 订阅、Actor
+  Inbox 注册与生命周期集成。
+- **Pre5**：Operator Binding/Claim、Outcome 聚合、ContextFrame Commit 与
+  EventOutbox Publish。
+- **Pre6**：Temporal Ring Buffer、Rewind/Resume 与 TimelineEpoch 切换。
+- **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
+  所有权。
+- **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
+- **Pre15/Pre16**：替代 Samples、Golden Path、技术文档以及完整跨模块性能/生命周期
+  认证。
 
 ## 依赖
 
-Pre1 不调整 dependency 集合，因为过渡期 0.3.9 模块仍需要它们参与编译。
+Pre2 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
-| Addressables | 2.9.1 | Map 和 UI runtime 工作流 |
+| Addressables | 2.9.1 | Map 和 UI 过渡期工作流 |
 | Input System | 1.18.0 | Input 模块 |
-| Newtonsoft Json | 3.2.2 | Persistence 模块 |
-| Cinemachine | 3.1.6 | Camera 模块 |
-| AI Navigation | 2.0.0 | Character 与 Enemy navigation |
-| Mathematics | 1.3.3 | Enemy/spline assemblies |
-| Splines | 2.6.0 | Enemy spline 支持 |
+| Newtonsoft Json | 3.2.2 | Persistence 过渡期模块 |
+| Cinemachine | 3.1.6 | Camera 过渡期模块 |
+| AI Navigation | 2.0.0 | Character 与 Enemy Navigation |
+| Mathematics | 1.3.3 | Enemy/Spline Assembly |
+| Splines | 2.6.0 | Enemy Spline 支持 |
 
-依赖精简应由替换对应模块的 Pre 负责，不属于 Core 契约冻结。
+依赖精简由替换对应模块的 Pre 负责。
 
 ## 安装与验证
 
-可以通过 Unity Package Manager 使用 Git revision 安装，也可以把包放入 Unity
-项目的 `Packages/` 目录。应锁定明确的 prerelease tag 或 commit，不要把持续
-变化的开发分支当作生产依赖。
+可以通过 Unity Package Manager 使用明确的 Git Revision 安装，也可以把包放入
+Unity 项目的 `Packages/` 目录。不要把持续变化的开发分支当作生产依赖。
 
-当前阶段的 `CoCoFlow/Setup/Setup Assistant` 只负责依赖与 support define 状态，
-不安装项目内容。
-
-本仓库是 UPM package，不是完整 Unity Project，因此 release gate 必须使用干净
-的 Unity 6 宿主工程完成包导入，并执行 EditMode 和 PlayMode 测试。
+本仓库是 UPM Package，不是完整 Unity Project。发布门禁必须在干净的 Unity 6
+宿主工程中完成包导入、Core/State Flow EditMode 测试、相关 PlayMode/AOT 检查与
+Unity Package Validation Suite。`CoCoFlow/Setup/Setup Assistant` 仍只负责依赖与
+Support Define，不安装项目内容。
 
 ## 文档
 
-- [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
 - [Changelog](CHANGELOG.md)
 
-除非明确标记为已冻结的 0.4 契约，模块文档描述的都是过渡期实现。
+除非明确标注为 0.4 权威契约，模块文档描述的都是过渡期实现。
 
 ## 版本约定
 
 - 集成分支：`dev/0.4.0`
 - 工作分支：`pre/NN-topic`
 - UPM 预发布版本：`0.4.0-pre.N`
-- 0.3.9 是历史 Runtime 线，0.4 不内置迁移 Runtime。
+- 0.3.9 是历史 Runtime 线；0.4 不承诺自动迁移或双 Runtime。
 
 ## License
 

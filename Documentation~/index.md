@@ -4,7 +4,7 @@ This page is the Unity Package Manager documentation entry point for CoCoFlow.
 
 - [Package overview](../README.md)
 - [简体中文概览](../README.zh-CN.md)
-- [Context / Network Boundary](../Docs/ContextNetworkBoundary.md)
+- [State Flow / Event Boundary](../Docs/ContextNetworkBoundary.md)
 - [Animation module](../Docs/Module-Animation.md)
 - [Camera module](../Docs/Module-Camera.md)
 - [Persistence module](../Docs/Module-Persistence.md)

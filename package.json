@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.1",
+  "version": "0.4.0-pre.2",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 Context-driven StateGraph and layered HFSM framework prerelease with frozen Core contracts, deterministic ticks, and explicit Operation boundaries.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with IntentFrame, OperationFrame Section, ContextFrame, and Actor Mailbox contracts.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",
@@ -22,8 +22,9 @@
     "state-graph",
     "core-contracts",
     "deterministic-tick",
-    "context",
-    "operation",
+    "state-flow",
+    "frame-contracts",
+    "actor-mailbox",
     "gameplay",
     "unity6"
   ],

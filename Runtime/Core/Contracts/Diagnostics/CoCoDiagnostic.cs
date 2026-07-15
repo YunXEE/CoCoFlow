@@ -12,7 +12,13 @@ namespace CoCoFlow.Runtime.Core
         Lifecycle = 5,
         State = 6,
         Context = 7,
-        Operation = 8
+        Operation = 8,
+        Frame = 9,
+        Registry = 10,
+        Intent = 11,
+        Mailbox = 12,
+        Restore = 13,
+        Codec = 14
     }
 
     public enum CoCoDiagnosticCode
@@ -28,7 +34,33 @@ namespace CoCoFlow.Runtime.Core
         MissingContext = 8,
         MissingOperationBinding = 9,
         IllegalPublicTopology = 10,
-        InvalidTimelinePosition = 11
+        InvalidTimelinePosition = 11,
+        InvalidFrameLayout = 12,
+        InvalidFrameHandle = 13,
+        InvalidStateBlock = 14,
+        InvalidStateSlot = 15,
+        RegistryFrozen = 16,
+        RegistryNotFrozen = 17,
+        InvalidOperationSection = 18,
+        MissingOperationSection = 19,
+        InvalidIntentDescriptor = 20,
+        MissingIntentReducer = 21,
+        InvalidIntentContribution = 22,
+        InvalidEventPacket = 23,
+        EventDomainMismatch = 24,
+        EventTargetMismatch = 25,
+        UndeclaredBroadcast = 26,
+        DuplicateEventPacket = 27,
+        StaleTimelineEpoch = 28,
+        EventSequenceConflict = 29,
+        MailboxOverflow = 30,
+        MailboxUnavailable = 31,
+        InvalidRestoreMetadata = 32,
+        DerivedDependencyCycle = 33,
+        UnknownCodec = 34,
+        UnsupportedCodecVersion = 35,
+        CommitPreparationFailed = 36,
+        CommitCancelled = 37
     }
 
     public enum CoCoDiagnosticSeverity

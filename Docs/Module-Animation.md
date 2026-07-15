@@ -1,12 +1,15 @@
 # Module: Animation
 
-> Pre1 transition note (`0.4.0-pre.1`): `AnimHandler`, `AnimEventSmb`, and the
+> Pre2 transition note (`0.4.0-pre.2`): `AnimHandler`, `AnimEventSmb`, and the
 > current Animator Controller tooling are retained 0.3.9 implementations. They
 > remain historical/transition code until Animation V2 in Pre11 and are not
 > frozen 0.4 APIs.
 >
 > An Animator or `StateMachineBehaviour` callback must never call StateGraph,
-> request an immediate transition, or mutate the current Frozen Context Frame.
+> request an immediate transition, or mutate the current IntentFrame,
+> OperationFrame, or ContextFrame. Gameplay callbacks must enter a later Tick
+> through an Event-to-Intent boundary; presentation-only callbacks may remain
+> local to the Animation module.
 
 Animation is a thin Animator / SMB utility layer. It does not contain a built-in
 IK solver, rig graph, weapon mount system, procedural locomotion system, or
@@ -48,8 +51,9 @@ PlayerRoot
 
 The retained 0.3.9 runtime allows project gameplay code to call the small facade
 below. This example is documentation for existing transition code only. New 0.4
-StateLogic must use the Animation Operation boundary to be introduced in Pre11
-and must not resolve `AnimHandler` directly.
+StateLogic produces an Animation OperationFrame Section; an Animation Operator
+introduced in Pre11 consumes it and owns the concrete Animator/Playable calls.
+StateLogic must not resolve `AnimHandler` directly.
 
 ```csharp
 animHandler.CrossFadeAnimation("Move", 0.1f);
@@ -59,11 +63,13 @@ animHandler.SetBool("IsGrounded", isGrounded);
 
 For animation-authored events, subscribe to `OnSpecificFrameEvent`,
 `OnAnimStateEnter`, or `OnAnimStateExit` from project-side code. CoCoFlow keeps
-the event payload as a string so projects can route it into their own gameplay
-contracts without the Animation module learning business-specific semantics.
-These callbacks may update presentation-local state or enqueue data for a later
-Operation/Source boundary. They may not call StateGraph or make a write visible
-inside the current Tick.
+the event payload as a string for retained 0.3.9 project callbacks. This string
+surface is not the 0.4 gameplay packet format. A 0.4 adapter must translate a
+gameplay-relevant animation edge into an immutable typed `EventPacket<TEvent>`;
+the Router delivers it to an Actor EventInbox and an Event-to-Intent Adapter
+makes it visible no earlier than a later Tick. Presentation callbacks may update
+presentation-local state. Neither path may call StateGraph or make a write
+visible inside the current Tick.
 
 ## Editor Workflow
 
@@ -78,14 +84,14 @@ inspector. `Trigger Time` is normalized state time in the `0..1` range.
 
 ## Boundaries
 
-- Current SMB callbacks are one-way presentation notifications; there is no
-  callback edge into StateGraph.
-- Pre11 owns the Playable graph, animation Operation contracts, transition
-  animation, combo timing, and root-motion ownership decisions.
+- Current SMB callbacks are retained transition notifications; there is no
+  direct callback edge into StateGraph, Operator execution, or ContextFrame.
+- Pre11 owns the Playable graph, Animation OperationFrame Sections and Operators,
+  transition animation, combo timing, controllable playback state, and
+  root-motion ownership decisions.
 - Does not create a Rigging State Layer.
-- Does not extend `CharacterContext`.
+- Does not add Animation data to the Pre2 ContextFrame or OperationFrame schema.
 - Does not include Foot IK, hand IK, weapon mounts, full-body animation,
   retargeting, or network synchronization.
 - Does not add Unity Animation Rigging or Final IK as a package dependency.
-- Projects can still use external rig or IK tools behind their own State Layer
-  operation scripts.
+- Projects can still use external rig or IK tools behind their own Operators.
