@@ -2,10 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.2 · **Unity**：6000+
+> **版本**：0.4.0-pre.3 · **Unity**：6000+
 >
-> Pre2 冻结 State Flow Frame、OperationFrame Section、ContextFrame Restore
-> 与 Actor Mailbox 契约；它还不是完整的 0.4 Runtime、StateGraph 编辑工作流、
+> Pre3 加入稳定 StateGraph Asset 创作 Schema、不可变编译结果、Graph Validator
+> 与冻结 Requirement Manifest；它还不是完整的 0.4 Host/Runtime、Operator 流水线、
 > 倒放系统或 Persistence V2。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
@@ -60,6 +60,37 @@ Intent。StateGraph 永远不读取 raw EventBus callback、Envelope、Router �
 Inbox、raw Envelope、当前 IntentFrame 和尚未发布的 Outbox 候选都不会混入
 ContextFrame。
 
+## StateGraph Asset 与编译
+
+`CoCoStateGraphAsset` 是唯一序列化创作真相。它保存带稳定 ID 的 Graph、Layer、递归
+State 和由 Layer 单一持有的 Transition。rename、move、reorder、save/reload 与 Config
+编辑不改变既有 ID；整 Asset、Layer 或 State 子树复制会为新副本重建对应 ID，并重映射
+其内部引用，复制出的 Config 数据不会继续与源对象共享。
+
+后续 Host 运行前，Unity-facing snapshot 边界先深度冻结 Asset，再把纯数据交给
+`CoCoStateGraphCompiler`。成功编译只产生一份不可变 `CoCoCompiledStateGraph`，其中
+包含层级/邻接查找表，以及三类 Manifest：
+
+- Intent Requirement；
+- Graph Operation Provides；
+- ContextFrame State Requirement。
+
+Intent Manifest 同时携带 Graph 的 canonical Event-to-Intent 静态 declaration。Pre3
+校验 Event Domain、Payload Type、Provided Intent Type 与 contribution capacity 下界，
+但不实例化或绑定 Adapter；实际 Adapter 覆盖与 runtime binding 由 Pre4 负责。
+
+Config Freezer 只能写入框架拥有的 typed Schema。字段快照由框架封口、防御复制并计算
+fingerprint；Snapshot 的不可变性不依赖作者自律。
+
+编译和验证不会构造或执行用户 StateLogic、Condition。任何 Error 都阻止产生 compiled
+result；unreachable State 等 Warning 不阻止。普通 Transition 环与无出口终止 State
+合法；层级环、缺失目标、重复 ID 和跨 Layer 边为 Error。
+
+同一 Asset 内容 fingerprint 与 catalog 会返回同一个缓存结果；成功和失败结果都会缓存，
+但只有成功结果包含共享 compiled graph。每个 Host 的可变 runtime state 不存入共享对象，
+并由 Pre4 引入。完整 Schema、身份、诊断、线程与延期边界见
+[StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)。
+
 ## OperationFrame Section
 
 Operator 通过一个或多个只读 OperationFrame Section Interface 声明本 Tick 需要的
@@ -75,8 +106,13 @@ Operator 通过一个或多个只读 OperationFrame Section Interface 声明本 
 - Layout、Descriptor、Binding、Priority 和 Reducer 必须在 Running 前固定；Tick 热路径
   禁止运行时反射、字符串 Key 查找和稳态分配。
 
-Pre2 只提供契约与显式测试 Layout；Pre3 负责自动汇总 Graph Requirement 和生成
-Compiled Layout，Pre5 负责正式 Operator Runtime。
+Pre3 保存每个 provided Section 的完整不可变 Shape：总字节数，以及每个字段的 dense
+index、ordinal name、unmanaged type、byte offset 与 size。Catalog 和 Registry 共用
+同一 Shape Validator，后续 binding 必须逐字段比较完整 Shape，不能把 fingerprint
+当作正确性证明。
+
+Pre2 只提供 Section 契约与显式测试 Layout；Pre3 编译自动汇总的 Graph Provides
+Manifest 与不可变 Graph Lookup，Pre5 负责正式 Operator Runtime。
 
 ## ContextFrame 与 Restore
 
@@ -188,9 +224,12 @@ MonoBehaviour State、Unity Callback 调度和当前模块 API 都不是 0.4 契
 ```text
 Runtime/Core/Contracts   与引擎隔离的 0.4 契约
 Runtime/Core/StateFlow   与引擎隔离的 0.4 Frame、Section、Intent 与 Mailbox 契约
+Runtime/Core/StateGraph  与引擎隔离的 Compiler、Validator 与 compiled model
+Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset、snapshot 与 compilation cache
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
 Runtime/Modules          过渡期表现与服务模块
+Editor/StateGraph        Editor-only 身份操作与 diagnostic navigation
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -199,15 +238,17 @@ Core Contract 与 State Flow 表面不得依赖 Gameplay、表现模块、Editor
 Animator、Playable、特定网络框架或持久化后端。StateLogic/Layer API 不得暴露
 EventBus、EventAgent、EventEnvelope、EventRouter 或 EventInbox 依赖。
 
+对于注册进 StateGraph 的作者代码，Editor Analyze 与 Player build preflight 会遍历
+完整的已解析程序集依赖闭包。所有可达自定义程序集都必须是与引擎隔离的 asmdef；
+命中禁止依赖或无法证明安全的依赖时，build-time gate 会失败关闭。
+
 Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的历史发布。
 当 Pre1 的候选 Context Flow 与本文冲突时，以 Pre2 State Flow 为权威。
 
 ## 后续 0.4 工作
 
-- **Pre3**：StateGraph Asset/Compiler、Intent Requirement、Graph Operation Provides、
-  ContextFrame State Requirement 与 Compiled Layout 生成。
-- **Pre4**：`CoCoStateGraphHost`、Clock/Driver、EventRouter、EventAgent 订阅、Actor
-  Inbox 注册与生命周期集成。
+- **Pre4**：`CoCoStateGraphHost`、Clock/Driver、实际 Event-to-Intent Adapter
+  coverage/binding、EventRouter、EventAgent 订阅、Actor Inbox 注册与生命周期集成。
 - **Pre5**：Operator Binding/Claim、Outcome 聚合、ContextFrame Commit 与
   EventOutbox Publish。
 - **Pre6**：Temporal Ring Buffer、Rewind/Resume 与 TimelineEpoch 切换。
@@ -219,7 +260,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre2 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre3 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
@@ -239,13 +280,14 @@ Pre2 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖�
 Unity 项目的 `Packages/` 目录。不要把持续变化的开发分支当作生产依赖。
 
 本仓库是 UPM Package，不是完整 Unity Project。发布门禁必须在干净的 Unity 6
-宿主工程中完成包导入、Core/State Flow EditMode 测试、相关 PlayMode/AOT 检查与
-Unity Package Validation Suite。`CoCoFlow/Setup/Setup Assistant` 仍只负责依赖与
-Support Define，不安装项目内容。
+宿主工程中完成包导入、Core/State Flow/StateGraph EditMode 测试、相关 PlayMode/AOT
+检查与 Unity Package Validation Suite。`CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
+与 Support Define，不安装项目内容。
 
 ## 文档
 
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

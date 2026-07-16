@@ -5,6 +5,69 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.3] - 2026-07-16
+
+### Added
+
+- `CoCoStateGraphAsset` as the sole Unity authoring truth for Graph, Layer,
+  recursive State, and Layer-owned Transition records with serialized stable
+  identities.
+- An engine-independent StateGraph compiler and validator that produce
+  immutable hierarchy, active-path, and adjacency lookups without executing
+  user StateLogic or Condition code.
+- Frozen Intent Requirement, Graph Operation Provides, and ContextFrame State
+  Requirement manifests for later Host binding validation.
+- Framework-owned FrozenConfig Schemas and writers that canonicalize stable
+  fields, defensively copy arrays, seal snapshots, and compute fingerprints
+  without relying on author-provided frozen objects or hash functions.
+- Graph-level Event-to-Intent static declarations in the Intent manifest,
+  including Event Domain/payload and provided-Intent type/capacity validation;
+  actual Adapter instances and coverage remain a Pre4 binding concern.
+- Complete immutable Operation Section Shapes in the Graph provides manifest,
+  including deterministic field indices, names, unmanaged types, offsets, and
+  sizes shared with the StateFlow Registry validator.
+- Immutable AOT binding tokens for Intent reducers, Operation Section views,
+  and derived StateSlot rebuilders; catalog fingerprints include both binding
+  type and deterministic semantic identity without retaining executable
+  instances.
+- Structured graph diagnostics with Graph/Layer/State/Transition and field-path
+  locations, including non-blocking unreachable-State warnings.
+- Editor authoring operations for identity-safe whole-Asset, Layer, and
+  State-subtree duplication, compile diagnostics, and diagnostic navigation.
+- Editor Analyze and Player-build gates that validate the complete resolved
+  dependency closure of registered author assemblies, plus temporary linker
+  preservation metadata for validated Operation Section Shapes.
+
+### Changed
+
+- Allowed valid empty Intent and Operation layouts so terminal or no-operation
+  graphs do not require artificial entries.
+- Split StateGraph into an engine-independent compiler assembly, a Unity-facing
+  authoring assembly, and an Editor-only tooling assembly with one-way
+  dependencies.
+- Keyed the Unity-facing compilation cache by Graph/content/catalog/schema and
+  retained both successful and failed result identities; throwing factories are
+  evicted instead of poisoning a key.
+- Made FrozenConfig immutability and deterministic fingerprints framework
+  guarantees, and made complete Operation Shape validity a Pre3 compile-time
+  requirement rather than a later runtime assumption.
+- Advanced the package and the two existing Package Validation Suite exception
+  scopes to `0.4.0-pre.3`; no package dependency or new validation exception was
+  added.
+
+### Deferred
+
+- `CoCoStateGraphHost`, Clock/Driver integration, per-Actor runtime state,
+  actual Event Adapter/Factory binding and exact coverage, EventRouter,
+  EventAgent, and Inbox lifecycle are owned by Pre4.
+- State evaluation orchestration, Operator execution, Outcome aggregation,
+  ContextFrame commit, and EventOutbox publication are owned by Pre5.
+- Temporal history and rewind remain Pre6 work; durable persistence and
+  migration remain Pre13 work.
+- Generated C#, baked compiled Assets, parallel scheduling, replacement
+  Samples, and complete cross-module performance certification are not part of
+  Pre3.
+
 ## [0.4.0-pre.2] - 2026-07-15
 
 ### Added

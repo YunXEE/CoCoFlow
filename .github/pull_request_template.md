@@ -36,13 +36,31 @@ intact even when their proposed model is superseded.
 - [ ] OperationFrame is a complete read-only execution guide; identical Section
       identities deduplicate, shape-equal identities remain distinct, and
       Section-to-Section inheritance is rejected.
+- [ ] Every compiled Operation provide contains the complete Section Shape, and
+      Catalog/Registry binding compares every field rather than treating the
+      Shape fingerprint as correctness proof.
+- [ ] FrozenConfig snapshots are framework-owned canonical Schema values:
+      fields are exact and complete, arrays are defensively copied, writers are
+      sealed, and authors cannot supply arbitrary frozen objects or hashes.
 - [ ] ContextFrame is the complete committed state of one Actor and contains no
       Inbox, IntentFrame, raw Envelope, unpublished Outbox, or Unity Object graph.
-- [ ] Missing Intent requirements, Operation provides, ContextFrame state, or
-      required bindings reject startup with a structured diagnostic.
+- [ ] Missing or invalid graph-internal Intent requirements, Operation provides,
+      and ContextFrame state requirements reject compilation with a structured
+      diagnostic; actual Host/scene binding coverage rejects startup in Pre4.
+- [ ] A Graph compile with any Error produces no partial/pruned compiled graph;
+      Warnings remain non-blocking and location-capable.
+- [ ] Compiled graph data is immutable and shared only as read-only topology;
+      per-Host activation, lifecycle, Inbox, and Context state is never cached in
+      the Asset result.
+- [ ] Unchanged Graph/content/catalog/schema keys share both successful and
+      failed compile-result identities; failed results keep `Graph == null`, and
+      a throwing cache factory is evicted.
 - [ ] Cross-Object gameplay input follows
       `EventPacket -> Router -> EventInbox -> Event-to-Intent Adapter`; no raw
       callback enters StateLogic.
+- [ ] Pre3 compiles graph-level Event-to-Intent static declarations into the
+      Intent manifest without Adapter instances; Pre4 owns missing, extra,
+      duplicate, and type-exact runtime coverage and binding.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.
@@ -62,8 +80,9 @@ intact even when their proposed model is superseded.
 - Rollback or revert path:
 
 - [ ] If this PR owns a serialized stable-ID schema, IDs survive asset copy,
-      save, reload, and domain reload without runtime regeneration; otherwise
-      Evidence marks this gate N/A and names the owning Pre.
+      Layer/subtree duplication, save, reload, and domain reload without runtime
+      regeneration; otherwise Evidence marks this gate N/A and names the owning
+      Pre.
 - [ ] Inbox, IntentFrame, EventAgent subscriptions, deduplication windows, and
       unpublished Outbox candidates are excluded from persistence.
 - [ ] This PR can be reverted without leaving a partially migrated package or
@@ -91,6 +110,11 @@ intact even when their proposed model is superseded.
 - [ ] All changed JSON and asmdef files parse successfully.
 - [ ] Dead-link, obsolete-term, and forbidden-dependency scans were reviewed.
 - [ ] Fixed Layout hot paths contain no runtime reflection or string-key lookup.
+- [ ] Pure StateGraph compiler/validator assemblies have no Unity reference;
+      Unity authoring and Editor tooling remain in one-way dependent asmdefs.
+- [ ] Editor Analyze and Player build preflight validate the complete resolved
+      dependency closure of every registered author type; direct-reference
+      guards are not reported as proof of transitive isolation.
 - [ ] No unintended generated files, imported project assets, or unrelated user
       changes are included.
 
@@ -106,11 +130,15 @@ intact even when their proposed model is superseded.
 - [ ] Mailbox, Intent projection, Commit protocol, and Restore contract tests
       passed for the scope owned by this Pre.
 - [ ] Architecture/package-boundary EditMode tests passed.
+- [ ] StateGraph compiler, validator, manifest, stable-ID serialization, copy,
+      Layer/subtree duplication, cache, and diagnostic navigation EditMode tests
+      passed.
 - [ ] Relevant existing EditMode and PlayMode tests passed.
 - [ ] Warmed steady-state Frame access, Intent arbitration, Mailbox processing,
       and Codec paths meet the allocation gate owned by this Pre.
-- [ ] Required generic Section, EventPacket, Adapter, and Codec paths passed an
-      IL2CPP/AOT smoke build with the configured stripping level.
+- [ ] Required generic Section, EventPacket, Adapter, Codec, StateGraph snapshot,
+      descriptor, and manifest paths passed an IL2CPP/AOT smoke build with the
+      configured stripping level.
 - [ ] Unity Package Validation Suite passed for the package.
 - [ ] Test result files, allocation/performance evidence, build logs, or
       screenshots are linked below.
