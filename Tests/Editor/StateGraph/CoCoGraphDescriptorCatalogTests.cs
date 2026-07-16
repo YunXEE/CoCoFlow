@@ -193,6 +193,34 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void OrdinaryStateSlotsRejectValuesStateFlowCannotMaterialize()
+        {
+            AssertOrdinaryStateSlotRejected(IntPtr.Zero);
+            AssertOrdinaryStateSlotRejected(UIntPtr.Zero);
+            AssertOrdinaryStateSlotRejected(default(TestPointerSizedStateValue));
+        }
+
+        [Test]
+        public void DerivedStateSlotsRejectValuesStateFlowCannotMaterialize()
+        {
+            AssertDerivedStateSlotRejected(
+                IntPtr.Zero,
+                new CoCoDerivedStateRebuilderToken<
+                    IntPtr,
+                    TestRejectedValueStateRebuilder<IntPtr>>(1UL));
+            AssertDerivedStateSlotRejected(
+                UIntPtr.Zero,
+                new CoCoDerivedStateRebuilderToken<
+                    UIntPtr,
+                    TestRejectedValueStateRebuilder<UIntPtr>>(2UL));
+            AssertDerivedStateSlotRejected(
+                default(TestPointerSizedStateValue),
+                new CoCoDerivedStateRebuilderToken<
+                    TestPointerSizedStateValue,
+                    TestRejectedValueStateRebuilder<TestPointerSizedStateValue>>(3UL));
+        }
+
+        [Test]
         public void CatalogRejectsDescriptorAssembliesThatReferenceLegacyCore()
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
@@ -840,6 +868,47 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         {
             Assert.IsTrue(CoCoStateDescriptorId.TryCreate(1UL, low, out CoCoStateDescriptorId id));
             return id;
+        }
+
+        private static void AssertOrdinaryStateSlotRejected<TValue>(TValue value)
+            where TValue : unmanaged
+        {
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+
+            Assert.IsFalse(builder.TryRegisterStateSlot(
+                CoCoStateGraphTestFactory.StateBlockId,
+                CoCoStateGraphTestFactory.StateSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                value,
+                1UL,
+                default,
+                null,
+                out CoCoDiagnostic diagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidStateSlot, diagnostic.Code);
+            Assert.IsTrue(diagnostic.IsError);
+        }
+
+        private static void AssertDerivedStateSlotRejected<TValue, TRebuilder>(
+            TValue value,
+            CoCoDerivedStateRebuilderToken<TValue, TRebuilder> token)
+            where TValue : unmanaged
+            where TRebuilder : ICoCoDerivedStateRebuilder<TValue>
+        {
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+
+            Assert.IsFalse(builder.TryRegisterDerivedStateSlot(
+                CoCoStateGraphTestFactory.StateBlockId,
+                CoCoStateGraphTestFactory.StateSlotId,
+                CoCoContextProjection.Temporal,
+                value,
+                1UL,
+                default,
+                new[] { CoCoStateGraphTestFactory.StateSlotId },
+                token,
+                out CoCoDiagnostic diagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidStateSlot, diagnostic.Code);
+            Assert.IsTrue(diagnostic.IsError);
         }
 
         private static CoCoConditionDescriptorId ConditionDescriptorId(ulong low)

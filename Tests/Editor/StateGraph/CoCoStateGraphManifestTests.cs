@@ -97,6 +97,41 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void ContextManifestRejectsValuesStateFlowCannotMaterialize()
+        {
+            Assert.IsTrue(CoCoFrameLayoutId.TryCreate(
+                1UL,
+                1UL,
+                out CoCoFrameLayoutId layoutId));
+            var block = new CoCoGraphStateBlockRegistration(
+                CoCoStateGraphTestFactory.StateBlockId,
+                CoCoStateBlockOwner.Graph);
+            var slot = new CoCoGraphStateSlotRegistration<IntPtr>(
+                CoCoStateGraphTestFactory.StateBlockId,
+                CoCoStateGraphTestFactory.StateSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                IntPtr.Zero,
+                1UL,
+                default,
+                Array.Empty<CoCoStateSlotId>(),
+                null,
+                0UL);
+            var manifest = new CoCoContextFrameStateRequirementManifest(
+                layoutId,
+                CoCoStateGraphCompiler.CurrentSchemaVersion,
+                new[] { block },
+                new ICoCoGraphStateSlotRegistration[][]
+                {
+                    new ICoCoGraphStateSlotRegistration[] { slot }
+                });
+
+            Assert.IsFalse(manifest.TryValidate(out CoCoDiagnostic diagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidStateSlot, diagnostic.Code);
+            Assert.IsTrue(diagnostic.IsError);
+        }
+
+        [Test]
         public void LayoutIdentityIsStableAcrossRepeatedCompile()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(true);

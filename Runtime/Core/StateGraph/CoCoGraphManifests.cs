@@ -282,6 +282,7 @@ namespace CoCoFlow.Runtime.Core
             return slot.SlotId.IsValid &&
                    slot.WriterBlockId.IsValid &&
                    slot.ValueType != null &&
+                   CoCoStateFlowTypeRules.IsReferenceFreeValueType(slot.ValueType) &&
                    (slot.Projection & ~knownProjection) == 0 &&
                    slot.RestorePolicy != CoCoContextRestorePolicy.None &&
                    Enum.IsDefined(typeof(CoCoContextRestorePolicy), slot.RestorePolicy) &&

@@ -1608,6 +1608,7 @@ namespace CoCoFlow.Runtime.Core
                     CoCoContextProjection.Temporal | CoCoContextProjection.Durable;
                 return BlockId.IsValid &&
                        SlotId.IsValid &&
+                       CoCoStateFlowTypeRules.IsReferenceFreeValueType(typeof(TValue)) &&
                        DefaultValueFingerprint != 0UL &&
                        Codec.IsValid &&
                        (Projection & ~knownProjection) == 0 &&

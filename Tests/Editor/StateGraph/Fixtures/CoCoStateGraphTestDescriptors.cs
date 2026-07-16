@@ -350,4 +350,25 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
             return true;
         }
     }
+
+    public readonly struct TestPointerSizedStateValue
+    {
+        public TestPointerSizedStateValue(IntPtr value)
+        {
+            Value = value;
+        }
+
+        public IntPtr Value { get; }
+    }
+
+    public sealed class TestRejectedValueStateRebuilder<TValue> :
+        ICoCoDerivedStateRebuilder<TValue>
+        where TValue : unmanaged
+    {
+        public bool TryRebuild(in CoCoDerivedStateReadContext context, out TValue value)
+        {
+            value = default;
+            return true;
+        }
+    }
 }
