@@ -1,0 +1,22 @@
+{
+    "name": "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphPlayerMetadataFixtures",
+    "references": [
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Tests.StateGraphPlayerMetadataValues"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}
