@@ -129,7 +129,19 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CoCoDiagnosticCode.UnknownCodec,
                 CoCoDiagnosticCode.UnsupportedCodecVersion,
                 CoCoDiagnosticCode.CommitPreparationFailed,
-                CoCoDiagnosticCode.CommitCancelled
+                CoCoDiagnosticCode.CommitCancelled,
+                CoCoDiagnosticCode.UnsupportedSchemaVersion,
+                CoCoDiagnosticCode.MissingTopologyElement,
+                CoCoDiagnosticCode.ParentStateCycle,
+                CoCoDiagnosticCode.InvalidInitialState,
+                CoCoDiagnosticCode.UnreachableState,
+                CoCoDiagnosticCode.MissingDescriptor,
+                CoCoDiagnosticCode.DescriptorTypeMismatch,
+                CoCoDiagnosticCode.InvalidAuthoringDependency,
+                CoCoDiagnosticCode.InvalidFrozenConfig,
+                CoCoDiagnosticCode.ManifestConflict,
+                CoCoDiagnosticCode.InvalidTransitionWindow,
+                CoCoDiagnosticCode.InvalidInterruptPolicy
             };
 
             for (int index = 0; index < appendedCodes.Length; index++)
@@ -156,6 +168,28 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void WarningAndInfoDiagnosticsPreserveSeverityAndStructure()
+        {
+            CoCoDiagnostic warning = CoCoDiagnostic.Warning(
+                CoCoDiagnosticDomain.Topology,
+                CoCoDiagnosticCode.UnreachableState,
+                "State is unreachable from the Layer entry.");
+            CoCoDiagnostic information = CoCoDiagnostic.Info(
+                CoCoDiagnosticDomain.Topology,
+                CoCoDiagnosticCode.UnreachableState,
+                "State reachability was inspected.");
+
+            Assert.IsTrue(warning.IsWarning);
+            Assert.IsFalse(warning.IsError);
+            Assert.AreEqual(CoCoDiagnosticSeverity.Warning, warning.Severity);
+            Assert.AreEqual(CoCoDiagnosticDomain.Topology, warning.Domain);
+            Assert.AreEqual(CoCoDiagnosticCode.UnreachableState, warning.Code);
+            Assert.AreEqual(CoCoDiagnosticSeverity.Information, information.Severity);
+            Assert.IsFalse(information.IsWarning);
+            Assert.IsFalse(information.IsError);
+        }
+
+        [Test]
         public void ErrorDiagnosticRejectsNoneAndUndefinedStructure()
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Error(
@@ -174,6 +208,23 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CoCoDiagnosticDomain.Topology,
                 (CoCoDiagnosticCode)int.MaxValue,
                 "Undefined code."));
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Warning(
+                CoCoDiagnosticDomain.None,
+                CoCoDiagnosticCode.UnreachableState,
+                "Missing warning domain."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Warning(
+                CoCoDiagnosticDomain.Topology,
+                CoCoDiagnosticCode.None,
+                "Missing warning code."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Info(
+                CoCoDiagnosticDomain.None,
+                CoCoDiagnosticCode.UnreachableState,
+                "Missing information domain."));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CoCoDiagnostic.Info(
+                CoCoDiagnosticDomain.Topology,
+                CoCoDiagnosticCode.None,
+                "Missing information code."));
         }
 
         private static bool IsFrozenLifecycleEdge(

@@ -20,6 +20,131 @@ namespace CoCoFlow.Runtime.Core
         Discrete = 2
     }
 
+    public sealed class CoCoOperationSectionFieldShape :
+        IEquatable<CoCoOperationSectionFieldShape>
+    {
+        internal CoCoOperationSectionFieldShape(
+            int denseIndex,
+            string name,
+            Type valueType,
+            int byteOffset,
+            int byteSize)
+        {
+            DenseIndex = denseIndex;
+            Name = name;
+            ValueType = valueType;
+            ByteOffset = byteOffset;
+            ByteSize = byteSize;
+        }
+
+        public int DenseIndex { get; }
+        public string Name { get; }
+        public Type ValueType { get; }
+        public int ByteOffset { get; }
+        public int ByteSize { get; }
+
+        public bool Equals(CoCoOperationSectionFieldShape other)
+        {
+            return other != null &&
+                   DenseIndex == other.DenseIndex &&
+                   string.Equals(Name, other.Name, StringComparison.Ordinal) &&
+                   ValueType == other.ValueType &&
+                   ByteOffset == other.ByteOffset &&
+                   ByteSize == other.ByteSize;
+        }
+
+        public override bool Equals(object obj) =>
+            obj is CoCoOperationSectionFieldShape other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hashCode = DenseIndex;
+                hashCode = (hashCode * 397) ^ (Name?.GetHashCode() ?? 0);
+                hashCode = (hashCode * 397) ^ (ValueType?.GetHashCode() ?? 0);
+                hashCode = (hashCode * 397) ^ ByteOffset;
+                hashCode = (hashCode * 397) ^ ByteSize;
+                return hashCode;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The complete immutable storage contract for one Operation Section interface.
+    /// The fingerprint is a deterministic fast identity; compatibility still compares every field.
+    /// </summary>
+    public sealed class CoCoOperationSectionShape : IEquatable<CoCoOperationSectionShape>
+    {
+        private readonly CoCoOperationSectionFieldShape[] _fields;
+        private readonly IReadOnlyList<CoCoOperationSectionFieldShape> _readOnlyFields;
+
+        internal CoCoOperationSectionShape(
+            int byteSize,
+            CoCoOperationSectionFieldShape[] fields)
+        {
+            ByteSize = byteSize;
+            _fields = (CoCoOperationSectionFieldShape[])fields.Clone();
+            _readOnlyFields = Array.AsReadOnly(_fields);
+            ShapeFingerprint = CoCoOperationSectionShapeFingerprint.Compute(byteSize, _fields);
+        }
+
+        public int ByteSize { get; }
+        public int FieldCount => _fields.Length;
+        public IReadOnlyList<CoCoOperationSectionFieldShape> Fields => _readOnlyFields;
+        public ulong ShapeFingerprint { get; }
+        public bool IsValid => ByteSize > 0 &&
+                               _fields.Length > 0 &&
+                               ShapeFingerprint != 0UL;
+
+        /// <summary>
+        /// Validates and freezes the complete shape of a Section interface at setup time.
+        /// This non-generic entry point lets Editor/build tooling reuse the runtime contract
+        /// without constructing closed generic methods.
+        /// </summary>
+        public static bool TryCreate(
+            Type sectionType,
+            out CoCoOperationSectionShape shape,
+            out CoCoDiagnostic diagnostic)
+        {
+            return CoCoOperationSectionContract.TryCreateShape(
+                sectionType,
+                out shape,
+                out diagnostic);
+        }
+
+        public bool Equals(CoCoOperationSectionShape other)
+        {
+            if (ReferenceEquals(this, other))
+            {
+                return true;
+            }
+
+            if (other == null ||
+                ShapeFingerprint != other.ShapeFingerprint ||
+                ByteSize != other.ByteSize ||
+                _fields.Length != other._fields.Length)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < _fields.Length; index++)
+            {
+                if (!_fields[index].Equals(other._fields[index]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public override bool Equals(object obj) =>
+            obj is CoCoOperationSectionShape other && Equals(other);
+
+        public override int GetHashCode() => ShapeFingerprint.GetHashCode();
+    }
+
     public readonly struct CoCoOperationSectionEntryHeader : IEquatable<CoCoOperationSectionEntryHeader>
     {
         private CoCoOperationSectionEntryHeader(
@@ -81,23 +206,29 @@ namespace CoCoFlow.Runtime.Core
     public readonly struct CoCoOperationSectionRequirement : IEquatable<CoCoOperationSectionRequirement>
     {
         private readonly Type _sectionType;
+        private readonly CoCoOperationSectionShape _shape;
 
         private CoCoOperationSectionRequirement(
             CoCoOperationSectionId sectionId,
             CoCoOperationSectionMode mode,
-            Type sectionType)
+            Type sectionType,
+            CoCoOperationSectionShape shape)
         {
             SectionId = sectionId;
             Mode = mode;
             _sectionType = sectionType;
+            _shape = shape;
         }
 
         public CoCoOperationSectionId SectionId { get; }
         public CoCoOperationSectionMode Mode { get; }
         public Type SectionType => _sectionType;
+        public CoCoOperationSectionShape Shape => _shape;
         public bool IsValid => SectionId.IsValid &&
                                CoCoOperationSectionContract.IsDefinedMode(Mode) &&
-                               _sectionType != null;
+                               _sectionType != null &&
+                               _shape != null &&
+                               _shape.IsValid;
 
         public static bool TryCreate<TSection>(
             CoCoOperationSectionId sectionId,
@@ -124,16 +255,20 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (!CoCoOperationSectionContract.TryValidate(
+            if (!CoCoOperationSectionShape.TryCreate(
                     typeof(TSection),
-                    out _,
+                    out CoCoOperationSectionShape shape,
                     out diagnostic))
             {
                 requirement = default;
                 return false;
             }
 
-            requirement = new CoCoOperationSectionRequirement(sectionId, mode, typeof(TSection));
+            requirement = new CoCoOperationSectionRequirement(
+                sectionId,
+                mode,
+                typeof(TSection),
+                shape);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -142,7 +277,8 @@ namespace CoCoFlow.Runtime.Core
         {
             return SectionId == other.SectionId &&
                    Mode == other.Mode &&
-                   _sectionType == other._sectionType;
+                   _sectionType == other._sectionType &&
+                   Equals(_shape, other._shape);
         }
 
         public override bool Equals(object obj) =>
@@ -155,6 +291,7 @@ namespace CoCoFlow.Runtime.Core
                 int hashCode = SectionId.GetHashCode();
                 hashCode = (hashCode * 397) ^ (int)Mode;
                 hashCode = (hashCode * 397) ^ (_sectionType?.GetHashCode() ?? 0);
+                hashCode = (hashCode * 397) ^ (_shape?.GetHashCode() ?? 0);
                 return hashCode;
             }
         }
@@ -332,6 +469,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoOperationSectionId sectionId,
             CoCoOperationSectionMode mode,
             Type sectionType,
+            CoCoOperationSectionShape shape,
             int denseIndex,
             int byteOffset,
             int byteSize,
@@ -340,6 +478,7 @@ namespace CoCoFlow.Runtime.Core
             SectionId = sectionId;
             Mode = mode;
             SectionType = sectionType;
+            Shape = shape;
             DenseIndex = denseIndex;
             ByteOffset = byteOffset;
             ByteSize = byteSize;
@@ -349,6 +488,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoOperationSectionId SectionId { get; }
         public CoCoOperationSectionMode Mode { get; }
         public Type SectionType { get; }
+        public CoCoOperationSectionShape Shape { get; }
         public int DenseIndex { get; }
         public int ByteOffset { get; }
         public int ByteSize { get; }
@@ -505,18 +645,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (!CoCoOperationSectionContract.TryValidate(
-                    sectionType,
-                    out PropertyInfo[] properties,
-                    out diagnostic))
-            {
-                requirement = default;
-                return false;
-            }
-
             var registration = new Registration(
                 requirement,
-                properties,
                 new ViewFactoryRegistration<TSection>(viewFactory));
             _registrations.Add(registration);
             _byType.Add(sectionType, registration);
@@ -548,15 +678,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_registrations.Count == 0)
-            {
-                registry = null;
-                diagnostic = CoCoOperationSectionContract.Error(
-                    CoCoDiagnosticCode.RegistryNotFrozen,
-                    "At least one Operation Section must be registered before freeze.");
-                return false;
-            }
-
             Registration[] registrations = _registrations.ToArray();
             Array.Sort(registrations, RegistrationComparer.Instance);
 
@@ -566,42 +687,20 @@ namespace CoCoFlow.Runtime.Core
             for (int sectionIndex = 0; sectionIndex < registrations.Length; sectionIndex++)
             {
                 Registration registration = registrations[sectionIndex];
-                PropertyInfo[] properties = registration.Properties;
-                var fields = new CoCoOperationSectionFieldDescriptor[properties.Length];
-                int sectionSize = 0;
-                for (int fieldIndex = 0; fieldIndex < properties.Length; fieldIndex++)
+                CoCoOperationSectionShape shape = registration.Requirement.Shape;
+                var fields = new CoCoOperationSectionFieldDescriptor[shape.FieldCount];
+                for (int fieldIndex = 0; fieldIndex < shape.FieldCount; fieldIndex++)
                 {
-                    PropertyInfo property = properties[fieldIndex];
-                    if (!CoCoOperationSectionContract.TryGetManagedSize(
-                            property.PropertyType,
-                            out int fieldSize))
-                    {
-                        registry = null;
-                        diagnostic = CoCoOperationSectionContract.Error(
-                            CoCoDiagnosticCode.InvalidOperationSection,
-                            "Operation Section field layout could not be determined.");
-                        return false;
-                    }
-
-                    if (fieldSize <= 0 || sectionSize > int.MaxValue - fieldSize)
-                    {
-                        registry = null;
-                        diagnostic = CoCoOperationSectionContract.Error(
-                            CoCoDiagnosticCode.InvalidFrameLayout,
-                            "Operation Section field storage exceeds the supported arena size.");
-                        return false;
-                    }
-
+                    CoCoOperationSectionFieldShape field = shape.Fields[fieldIndex];
                     fields[fieldIndex] = new CoCoOperationSectionFieldDescriptor(
-                        fieldIndex,
-                        property.Name,
-                        property.PropertyType,
-                        sectionSize,
-                        fieldSize);
-                    sectionSize += fieldSize;
+                        field.DenseIndex,
+                        field.Name,
+                        field.ValueType,
+                        field.ByteOffset,
+                        field.ByteSize);
                 }
 
-                if (layoutSize > int.MaxValue - sectionSize)
+                if (layoutSize > int.MaxValue - shape.ByteSize)
                 {
                     registry = null;
                     diagnostic = CoCoOperationSectionContract.Error(
@@ -614,12 +713,13 @@ namespace CoCoFlow.Runtime.Core
                     registration.Requirement.SectionId,
                     registration.Requirement.Mode,
                     registration.Requirement.SectionType,
+                    shape,
                     sectionIndex,
                     layoutSize,
-                    sectionSize,
+                    shape.ByteSize,
                     fields);
                 factories[sectionIndex] = registration.Factory;
-                layoutSize += sectionSize;
+                layoutSize += shape.ByteSize;
             }
 
             registry = new CoCoOperationSectionRegistry(layoutId, layoutSize, descriptors, factories);
@@ -638,16 +738,13 @@ namespace CoCoFlow.Runtime.Core
         {
             public Registration(
                 CoCoOperationSectionRequirement requirement,
-                PropertyInfo[] properties,
                 IViewFactoryRegistration factory)
             {
                 Requirement = requirement;
-                Properties = properties;
                 Factory = factory;
             }
 
             public CoCoOperationSectionRequirement Requirement { get; }
-            public PropertyInfo[] Properties { get; }
             public IViewFactoryRegistration Factory { get; }
         }
 
@@ -688,7 +785,7 @@ namespace CoCoFlow.Runtime.Core
         public int ByteSize { get; }
         public int Count => _descriptors.Length;
         public IReadOnlyList<CoCoOperationSectionDescriptor> Sections => _readOnlyDescriptors;
-        public bool IsFrozen => LayoutId.IsValid && _descriptors.Length > 0;
+        public bool IsFrozen => LayoutId.IsValid;
 
         public bool TryResolve<TSection>(
             CoCoOperationSectionRequirement requirement,
@@ -795,7 +892,8 @@ namespace CoCoFlow.Runtime.Core
                     CoCoOperationSectionRequirement provided = graphProvides[provideIndex];
                     if (provided.SectionId == descriptor.SectionId &&
                         provided.Mode == descriptor.Mode &&
-                        provided.SectionType == descriptor.SectionType)
+                        provided.SectionType == descriptor.SectionType &&
+                        HasExactShape(provided.Shape, descriptor.Shape))
                     {
                         covered = true;
                         break;
@@ -877,7 +975,8 @@ namespace CoCoFlow.Runtime.Core
                 CoCoOperationSectionDescriptor descriptor = _descriptors[index];
                 if (descriptor.SectionId == requirement.SectionId &&
                     descriptor.Mode == requirement.Mode &&
-                    descriptor.SectionType == requirement.SectionType)
+                    descriptor.SectionType == requirement.SectionType &&
+                    HasExactShape(requirement.Shape, descriptor.Shape))
                 {
                     sectionIndex = index;
                     return true;
@@ -886,6 +985,16 @@ namespace CoCoFlow.Runtime.Core
 
             sectionIndex = -1;
             return false;
+        }
+
+        private static bool HasExactShape(
+            CoCoOperationSectionShape provided,
+            CoCoOperationSectionShape registered)
+        {
+            return provided != null &&
+                   registered != null &&
+                   provided.ShapeFingerprint == registered.ShapeFingerprint &&
+                   provided.Equals(registered);
         }
 
         internal bool TryPrewarmViews(out CoCoDiagnostic diagnostic)
@@ -1310,16 +1419,68 @@ namespace CoCoFlow.Runtime.Core
         public static bool IsDefinedMode(CoCoOperationSectionMode mode) =>
             mode == CoCoOperationSectionMode.Continuous || mode == CoCoOperationSectionMode.Discrete;
 
-        public static bool TryValidate(
+        public static bool TryCreateShape(
             Type sectionType,
-            out PropertyInfo[] properties,
+            out CoCoOperationSectionShape shape,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryValidateIdentity(sectionType, out diagnostic))
+            {
+                shape = null;
+                return false;
+            }
+
+            if (!TryValidateMembers(sectionType, out PropertyInfo[] properties, out diagnostic))
+            {
+                shape = null;
+                return false;
+            }
+
+            var fields = new CoCoOperationSectionFieldShape[properties.Length];
+            int sectionSize = 0;
+            for (int fieldIndex = 0; fieldIndex < properties.Length; fieldIndex++)
+            {
+                PropertyInfo property = properties[fieldIndex];
+                if (!TryGetManagedSize(property.PropertyType, out int fieldSize))
+                {
+                    shape = null;
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.InvalidOperationSection,
+                        "Operation Section field layout could not be determined.");
+                    return false;
+                }
+
+                if (fieldSize <= 0 || sectionSize > int.MaxValue - fieldSize)
+                {
+                    shape = null;
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.InvalidFrameLayout,
+                        "Operation Section field storage exceeds the supported arena size.");
+                    return false;
+                }
+
+                fields[fieldIndex] = new CoCoOperationSectionFieldShape(
+                    fieldIndex,
+                    property.Name,
+                    property.PropertyType,
+                    sectionSize,
+                    fieldSize);
+                sectionSize += fieldSize;
+            }
+
+            shape = new CoCoOperationSectionShape(sectionSize, fields);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        public static bool TryValidateIdentity(
+            Type sectionType,
             out CoCoDiagnostic diagnostic)
         {
             if (sectionType == null ||
                 !sectionType.IsInterface ||
                 sectionType == typeof(ICoCoOperationSection))
             {
-                properties = null;
                 diagnostic = Error(
                     CoCoDiagnosticCode.InvalidOperationSection,
                     "Operation Section must be a dedicated interface.");
@@ -1327,12 +1488,41 @@ namespace CoCoFlow.Runtime.Core
             }
 
             Type[] inherited = sectionType.GetInterfaces();
-            if (inherited.Length != 1 || inherited[0] != typeof(ICoCoOperationSection))
+            if (inherited.Length != 1 || !IsOperationSectionMarker(inherited[0]))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.InvalidOperationSection,
+                    "Operation Section must inherit only ICoCoOperationSection directly.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static bool IsOperationSectionMarker(Type type)
+        {
+            Type marker = typeof(ICoCoOperationSection);
+            return type == marker ||
+                   (type != null &&
+                    string.Equals(type.FullName, marker.FullName, StringComparison.Ordinal) &&
+                    string.Equals(
+                        type.Assembly.GetName().Name,
+                        marker.Assembly.GetName().Name,
+                        StringComparison.Ordinal));
+        }
+
+        public static bool TryValidateMembers(
+            Type sectionType,
+            out PropertyInfo[] properties,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (sectionType == null)
             {
                 properties = null;
                 diagnostic = Error(
                     CoCoDiagnosticCode.InvalidOperationSection,
-                    "Operation Section must inherit only ICoCoOperationSection directly.");
+                    "Operation Section type is required.");
                 return false;
             }
 
@@ -1455,6 +1645,88 @@ namespace CoCoFlow.Runtime.Core
 
             public int Compare(PropertyInfo left, PropertyInfo right) =>
                 string.CompareOrdinal(left.Name, right.Name);
+        }
+    }
+
+    internal static class CoCoOperationSectionShapeFingerprint
+    {
+        private const ulong OffsetBasis = 14695981039346656037UL;
+        private const ulong Prime = 1099511628211UL;
+
+        public static ulong Compute(
+            int byteSize,
+            IReadOnlyList<CoCoOperationSectionFieldShape> fields)
+        {
+            ulong hash = OffsetBasis;
+            Add(ref hash, 1U);
+            Add(ref hash, byteSize);
+            Add(ref hash, fields.Count);
+            for (int index = 0; index < fields.Count; index++)
+            {
+                CoCoOperationSectionFieldShape field = fields[index];
+                Add(ref hash, field.DenseIndex);
+                Add(ref hash, field.Name);
+                Add(ref hash, field.ValueType);
+                Add(ref hash, field.ByteOffset);
+                Add(ref hash, field.ByteSize);
+            }
+
+            return hash == 0UL ? OffsetBasis : hash;
+        }
+
+        private static void Add(ref ulong hash, Type valueType)
+        {
+            if (valueType.IsGenericType)
+            {
+                Type definition = valueType.GetGenericTypeDefinition();
+                Add(ref hash, definition.Assembly.GetName().Name);
+                Add(ref hash, definition.FullName);
+                Type[] arguments = valueType.GetGenericArguments();
+                Add(ref hash, arguments.Length);
+                for (int index = 0; index < arguments.Length; index++)
+                {
+                    Add(ref hash, arguments[index]);
+                }
+
+                return;
+            }
+
+            Add(ref hash, valueType.Assembly.GetName().Name);
+            Add(ref hash, valueType.FullName);
+        }
+
+        private static void Add(ref ulong hash, string value)
+        {
+            if (value == null)
+            {
+                Add(ref hash, -1);
+                return;
+            }
+
+            Add(ref hash, value.Length);
+            for (int index = 0; index < value.Length; index++)
+            {
+                char character = value[index];
+                AddByte(ref hash, (byte)character);
+                AddByte(ref hash, (byte)(character >> 8));
+            }
+        }
+
+        private static void Add(ref ulong hash, int value) =>
+            Add(ref hash, unchecked((uint)value));
+
+        private static void Add(ref ulong hash, uint value)
+        {
+            AddByte(ref hash, (byte)value);
+            AddByte(ref hash, (byte)(value >> 8));
+            AddByte(ref hash, (byte)(value >> 16));
+            AddByte(ref hash, (byte)(value >> 24));
+        }
+
+        private static void AddByte(ref ulong hash, byte value)
+        {
+            hash ^= value;
+            hash *= Prime;
         }
     }
 

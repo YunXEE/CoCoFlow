@@ -1,10 +1,12 @@
 # CoCoFlow State Flow / Event Boundary
 
-> Contract status: `0.4.0-pre.2` · Updated 2026-07-15
+> State Flow contract: `0.4.0-pre.2` · Pre3 compiler integration: `0.4.0-pre.3`
+> · Updated 2026-07-16
 >
 > This is the authoritative Pre2 data-flow and cross-Object communication
-> boundary. It freezes contracts and pure test harnesses; later Pres implement
-> the Compiler, Unity Host, Router, Operator Runtime, rewind, and persistence.
+> boundary. Pre3 now implements the Asset/Compiler side of this contract;
+> later Pres implement the Unity Host, Router, Operator Runtime, rewind, and
+> persistence.
 
 ## 目标
 
@@ -85,12 +87,17 @@ StateGraph 永远只读取已经翻译并冻结的 IntentFrame。
 - 多个 Operator 要求同一 Interface 时按 Interface Identity 去重；
 - 字段形状相同但 Identity 不同的 Interface 永远是不同 Section；
 - Section Interface 只允许继承框架 Marker，Section-to-Section 继承非法；
+- Pre3 的 Provides Manifest 必须包含完整 Section Shape：总字节数、字段数，以及每个
+  字段的 dense index、ordinal name、unmanaged type、byte offset 与 size；
 - Section 在 Operator 执行期间只读，不能作为 Actor 持久状态；
 - 离散执行使用结构化 Section，并明确 Enabled、ActivationId 和 Sequence；
 - 无输入时产生合法 Disabled/Zero Section，而不是建立第二套 Command Queue。
 
-Pre2 冻结 Descriptor、Registry、固定 Layout 输入和显式测试构造入口。Pre3 负责从
-Graph 与 Operator 声明自动汇总、验证并编译 Layout；Pre5 负责实际执行 Operator。
+Pre2 冻结 Descriptor、Registry、固定 Layout 输入和显式测试构造入口。Pre3 已从
+Graph 声明自动汇总、验证并编译 Provides Manifest 与不可变 Graph Lookup。Catalog
+和 Registry 使用同一 Shape Validator；后续 binding 必须逐字段精确比较，不能只相信
+Shape fingerprint。Pre5 负责实际执行 Operator。Pre3 的具体 Schema 与诊断见
+[StateGraph Asset and Compiler](StateGraphCompiler.md)。
 
 ### ContextFrame
 
@@ -192,6 +199,12 @@ Envelope 至少表达：
   诊断。
 - 同一 SourceGraphInstanceId、SourceTimelineEpoch 与 SourceEventSequence 不得换用另一
   EventTypeId；这种 Sequence 跨类型复用属于协议错误。
+
+Pre3 在 Graph 级编译 `EventTypeId + ProvidedIntentId` 静态 declaration，并将 Event
+Domain、Payload Type 和 Provided Intent Type 保存到 Intent Requirement Manifest。
+这些 declaration 只证明静态类型、Intent Shape 与 `MaxContributions` 容量下界成立；
+不包含 Adapter 实例、priority、projection capacity、broadcast、Inbox 或 reliability。
+Pre4 必须对实际 Adapter 执行 missing/extra/duplicate/type-exact coverage 并完成绑定。
 
 去重 Key 为：
 
@@ -313,6 +326,13 @@ StateLogic 和 Layer 的程序集/API 表面不得引用：
 - EventInbox/EventOutbox
 - Unity Object、Animator 或 Playable 类型
 
+Pre3 Editor Analyze 与 Player build preflight 会从 Catalog 记录的全部作者类型 root
+遍历完整已解析程序集依赖闭包。每个可达自定义程序集都必须有 asmdef 且
+`noEngineReferences:true`；命中 Unity、Editor、legacy Core、StateGraphAuthoring、
+Gameplay、Modules，或遇到无法证明安全的自定义 precompiled dependency 时失败关闭。
+Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；纯 Compiler 本身不
+扫描程序集。
+
 它们只读取当前 IntentFrame 与 Previous ContextFrame，并只产生 StateGraph 内部决策
 和 OperationFrame 数据。固定 Layout 的读取、Intent 仲裁、Mailbox 投影和 Commit
 协议不得在热路径依赖反射、字符串查找或稳态分配。
@@ -321,9 +341,11 @@ StateLogic 和 Layer 的程序集/API 表面不得引用：
 
 - **Pre2**：Frame/Section/Descriptor/Registry、Intent 仲裁、Mailbox 协议、Restore
   元数据、Codec Spike 与纯契约测试。
-- **Pre3**：GraphAsset/Compiler，汇总 Intent Requirement、Graph Operation Provides
-  与 ContextFrame State Requirement，生成 Compiled Layout。
-- **Pre4**：Host、Clock/Driver、EventRouter、EventAgent 订阅、Inbox 注册和生命周期。
+- **Pre3**：已交付 GraphAsset/Compiler、框架规范化 FrozenConfig、Event-to-Intent
+  静态 declaration、包含完整 Shape 的 Graph Operation Provides、ContextFrame State
+  Requirement、不可变 compiled lookup，以及 Editor/build-time 完整依赖闭包验证。
+- **Pre4**：Host、Clock/Driver、实际 Event-to-Intent Adapter coverage/binding、
+  EventRouter、EventAgent 订阅、Inbox 注册和生命周期。
 - **Pre5**：Operator、Outcome、ContextFrame Commit 与 EventOutbox Publish。
 - **Pre6**：Temporal Ring Buffer、Rewind/Resume 与 TimelineEpoch。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。

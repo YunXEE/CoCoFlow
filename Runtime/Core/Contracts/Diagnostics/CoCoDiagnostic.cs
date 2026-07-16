@@ -60,7 +60,19 @@ namespace CoCoFlow.Runtime.Core
         UnknownCodec = 34,
         UnsupportedCodecVersion = 35,
         CommitPreparationFailed = 36,
-        CommitCancelled = 37
+        CommitCancelled = 37,
+        UnsupportedSchemaVersion = 38,
+        MissingTopologyElement = 39,
+        ParentStateCycle = 40,
+        InvalidInitialState = 41,
+        UnreachableState = 42,
+        MissingDescriptor = 43,
+        DescriptorTypeMismatch = 44,
+        InvalidAuthoringDependency = 45,
+        InvalidFrozenConfig = 46,
+        ManifestConflict = 47,
+        InvalidTransitionWindow = 48,
+        InvalidInterruptPolicy = 49
     }
 
     public enum CoCoDiagnosticSeverity
@@ -97,6 +109,7 @@ namespace CoCoFlow.Runtime.Core
                               Code == CoCoDiagnosticCode.None &&
                               Severity == CoCoDiagnosticSeverity.None;
         public bool IsError => Severity == CoCoDiagnosticSeverity.Error;
+        public bool IsWarning => Severity == CoCoDiagnosticSeverity.Warning;
 
         public static CoCoDiagnostic Error(
             CoCoDiagnosticDomain domain,
@@ -122,6 +135,48 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Error, message);
+        }
+
+        public static CoCoDiagnostic Warning(
+            CoCoDiagnosticDomain domain,
+            CoCoDiagnosticCode code,
+            string message)
+        {
+            Validate(domain, code, "A warning diagnostic");
+            return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Warning, message);
+        }
+
+        public static CoCoDiagnostic Info(
+            CoCoDiagnosticDomain domain,
+            CoCoDiagnosticCode code,
+            string message)
+        {
+            Validate(domain, code, "An information diagnostic");
+            return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Information, message);
+        }
+
+        private static void Validate(
+            CoCoDiagnosticDomain domain,
+            CoCoDiagnosticCode code,
+            string diagnosticKind)
+        {
+            if (domain == CoCoDiagnosticDomain.None ||
+                !Enum.IsDefined(typeof(CoCoDiagnosticDomain), domain))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(domain),
+                    domain,
+                    diagnosticKind + " requires a defined, non-None domain.");
+            }
+
+            if (code == CoCoDiagnosticCode.None ||
+                !Enum.IsDefined(typeof(CoCoDiagnosticCode), code))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(code),
+                    code,
+                    diagnosticKind + " requires a defined, non-None code.");
+            }
         }
 
         public bool Equals(CoCoDiagnostic other)

@@ -58,7 +58,31 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void ContractsAndStateFlowAsmdefsDeclareEngineIndependentBoundaries()
+        public void StateGraphAssemblyReferencesOnlyContractsAndStateFlowWithinCoCoFlow()
+        {
+            Assembly stateGraphAssembly = typeof(CoCoStateGraphSource).Assembly;
+            string[] cocoFlowReferences = stateGraphAssembly
+                .GetReferencedAssemblies()
+                .Select(reference => reference.Name)
+                .Where(name => name.StartsWith("CoCoFlow.", StringComparison.Ordinal))
+                .ToArray();
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "CoCoFlow.Runtime.Core.Contracts",
+                    "CoCoFlow.Runtime.Core.StateFlow"
+                },
+                cocoFlowReferences);
+            Assert.IsFalse(stateGraphAssembly.GetReferencedAssemblies().Any(reference =>
+                reference.Name.StartsWith("Unity", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
+                reference.Name.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
+        }
+
+        [Test]
+        public void ContractsStateFlowAndStateGraphAsmdefsDeclareEngineIndependentBoundaries()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(typeof(CoCoStateLogic).Assembly);
             Assert.IsNotNull(packageInfo);
@@ -82,13 +106,29 @@ namespace CoCoFlow.Runtime.Core.Tests
                 stateFlow.references);
             Assert.IsTrue(stateFlow.noEngineReferences);
             Assert.IsFalse(stateFlow.allowUnsafeCode);
+
+            AssemblyDefinition stateGraph = ReadAssemblyDefinition(
+                packageInfo.resolvedPath,
+                "Runtime/Core/StateGraph/CoCoFlow.Runtime.Core.StateGraph.asmdef");
+            Assert.AreEqual("CoCoFlow.Runtime.Core.StateGraph", stateGraph.name);
+            Assert.AreEqual("CoCoFlow.Runtime.Core", stateGraph.rootNamespace);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "CoCoFlow.Runtime.Core.Contracts",
+                    "CoCoFlow.Runtime.Core.StateFlow"
+                },
+                stateGraph.references);
+            Assert.IsTrue(stateGraph.noEngineReferences);
+            Assert.IsFalse(stateGraph.allowUnsafeCode);
         }
 
         [Test]
-        public void ContractsAndStateFlowPublicTypesExposeNoUnityObjects()
+        public void ContractsStateFlowAndStateGraphPublicTypesExposeNoUnityObjects()
         {
             AssertAssemblyExposesNoUnityObjects(typeof(CoCoStateLogic).Assembly);
             AssertAssemblyExposesNoUnityObjects(typeof(CoCoContextFrame).Assembly);
+            AssertAssemblyExposesNoUnityObjects(typeof(CoCoStateGraphSource).Assembly);
         }
 
         [Test]
@@ -97,6 +137,11 @@ namespace CoCoFlow.Runtime.Core.Tests
             AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoStateLogic));
             AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoStateConfig));
             AssertPublicSurfaceHasNoForbiddenTransport(typeof(CoCoActivationMemory));
+
+            foreach (Type graphType in typeof(CoCoStateGraphSource).Assembly.GetExportedTypes())
+            {
+                AssertPublicSurfaceHasNoForbiddenTransport(graphType);
+            }
 
             Assembly runtimeCoreAssembly = Assembly.Load("CoCoFlow.Runtime.Core");
             Type stateLayer = runtimeCoreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateLayer", true);
@@ -200,7 +245,10 @@ namespace CoCoFlow.Runtime.Core.Tests
         [Test]
         public void PublicContractsContainNoMachineNodeOrOptionalSurface()
         {
-            Type[] contractTypes = typeof(CoCoStateLogic).Assembly.GetExportedTypes();
+            Type[] contractTypes = typeof(CoCoStateLogic).Assembly
+                .GetExportedTypes()
+                .Concat(typeof(CoCoStateGraphSource).Assembly.GetExportedTypes())
+                .ToArray();
 
             Assert.IsFalse(contractTypes.Any(type =>
                 type.Name.IndexOf("Machine", StringComparison.OrdinalIgnoreCase) >= 0 ||

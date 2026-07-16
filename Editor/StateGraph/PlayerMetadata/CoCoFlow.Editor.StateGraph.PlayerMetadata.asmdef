@@ -1,0 +1,19 @@
+{
+    "name": "CoCoFlow.Editor.StateGraph.PlayerMetadata",
+    "rootNamespace": "CoCoFlow.Editor.StateGraph.PlayerMetadata",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.2",
+  "version": "0.4.0-pre.3",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with IntentFrame, OperationFrame Section, ContextFrame, and Actor Mailbox contracts.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with stable StateGraph authoring, immutable compilation, and frozen Frame manifests.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",

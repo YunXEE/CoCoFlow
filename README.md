@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.2 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.3 · **Unity**: 6000+
 >
-> Pre2 freezes the State Flow Frame, OperationFrame Section, ContextFrame
-> restore, and Actor Mailbox contracts. It is not the finished 0.4 runtime,
-> StateGraph authoring workflow, rewind system, or Persistence V2.
+> Pre3 adds stable StateGraph Asset authoring, immutable compilation, graph
+> validation, and frozen requirement manifests. It is not the finished 0.4
+> Host/runtime, Operator pipeline, rewind system, or Persistence V2.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -63,6 +63,44 @@ An `IntentFrame`, an `OperationFrame`, and a `ContextFrame` are not aliases and
 cannot substitute for one another. Inbox contents, raw envelopes, the current
 IntentFrame, and unpublished Outbox candidates never become ContextFrame state.
 
+## StateGraph Asset and Compilation
+
+`CoCoStateGraphAsset` is the sole serialized authoring truth. It stores Graph,
+Layer, recursive State, and Layer-owned Transition records with stable IDs.
+Rename, move, reorder, save/reload, and Config edits preserve those IDs. Whole
+Asset, Layer, and State-subtree duplication deliberately remap the new copy and
+its internal references; duplicated Config data is not shared with its source.
+
+Before a later Host can run, the Unity-facing snapshot boundary deep-freezes
+the Asset and passes pure data to `CoCoStateGraphCompiler`. A successful compile
+produces one immutable `CoCoCompiledStateGraph` with hierarchy and adjacency
+lookups plus three manifests:
+
+- Intent requirements;
+- Graph Operation provides;
+- ContextFrame state requirements.
+
+The Intent manifest also carries the Graph's canonical Event-to-Intent static
+declarations. Pre3 validates their Event Domain, payload type, provided Intent
+type, and contribution-capacity lower bound, but does not instantiate or bind
+an Adapter. Pre4 owns actual Adapter coverage and runtime binding.
+
+Config Freezers write into framework-owned typed Schemas. The framework seals
+and defensively copies the canonical field snapshot and computes its
+fingerprints; snapshot immutability does not depend on author discipline.
+
+Compilation never constructs or executes user StateLogic or Condition code.
+Any Error prevents a compiled result; Warnings such as an unreachable State do
+not. Transition cycles and terminal States are valid, while hierarchy cycles,
+missing targets, duplicate IDs, and Cross-Layer edges are Errors.
+
+An unchanged Asset fingerprint and catalog return the same cached result;
+successful and failed results are both cached, while only success contains a
+shared compiled graph. Per-Host mutable runtime state is never stored in that
+shared object and arrives with Pre4. See
+[StateGraph Asset and Compiler](Docs/StateGraphCompiler.md) for the complete
+schema, identity, diagnostic, threading, and deferred-runtime boundary.
+
 ## OperationFrame Sections
 
 An Operator declares the execution data it requires through one or more
@@ -84,8 +122,13 @@ deduplicated union of all required Sections.
   Running. Runtime reflection, string-key lookup, and steady-state allocation
   are forbidden from the Tick hot path.
 
-Pre2 provides the contract and explicit test-layout path. Pre3 owns automatic
-Graph requirement aggregation and compiled layout generation; Pre5 owns the
+Pre3 records each provided Section's complete immutable Shape: total size plus
+every field's dense index, ordinal name, unmanaged type, byte offset, and size.
+Catalog and Registry construction share that Shape validator, and later binding
+must compare the complete Shape rather than treating a fingerprint as proof.
+
+Pre2 provides the Section contract and explicit test-layout path. Pre3 compiles
+the automatic Graph provides manifest and immutable graph lookup; Pre5 owns the
 production Operator runtime.
 
 ## ContextFrame and Restore
@@ -218,9 +261,12 @@ migration layer. Existing 0.3.9 projects should stay pinned to a 0.3.9 revision.
 ```text
 Runtime/Core/Contracts   engine-independent 0.4 contracts
 Runtime/Core/StateFlow   engine-independent 0.4 Frame, Section, Intent, and Mailbox contracts
+Runtime/Core/StateGraph  engine-independent 0.4 compiler, validator, and compiled model
+Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset, snapshot, and compilation cache
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
 Runtime/Modules          transitional presentation and service modules
+Editor/StateGraph        Editor-only identity operations and diagnostic navigation
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -230,16 +276,20 @@ presentation modules, Editor code, project code, Animator, Playables, a network
 framework, or a persistence backend. StateLogic and Layer APIs must expose no
 EventBus, EventAgent, EventEnvelope, EventRouter, or EventInbox dependency.
 
+For registered StateGraph author code, Editor Analyze and Player build preflight
+walk the complete resolved assembly dependency closure. Every reachable custom
+assembly must be an engine-independent asmdef; forbidden or unprovable
+dependencies fail the build-time gate.
+
 Pre1 remains the historical identity, time, lifecycle, diagnostic, and pure
 StateLogic contract release. Where its proposed Context-driven flow conflicts
 with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
-- **Pre3**: StateGraph Asset/Compiler, Intent requirements, Graph Operation
-  Provides, ContextFrame state requirements, and compiled layout generation.
-- **Pre4**: `CoCoStateGraphHost`, Clock/Driver integration, EventRouter,
-  EventAgent subscriptions, Actor Inbox registration, and lifecycle integration.
+- **Pre4**: `CoCoStateGraphHost`, Clock/Driver integration, actual
+  Event-to-Intent Adapter coverage/binding, EventRouter, EventAgent
+  subscriptions, Actor Inbox registration, and lifecycle integration.
 - **Pre5**: Operator bindings, claims, Outcome aggregation, ContextFrame commit,
   and EventOutbox publication.
 - **Pre6**: Temporal Ring Buffer, rewind/resume, and TimelineEpoch switching.
@@ -252,7 +302,7 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre2 because transitional 0.3.9 modules
+The dependency set remains unchanged in Pre3 because transitional 0.3.9 modules
 still compile against it.
 
 | Package | Version | Current owner |
@@ -274,14 +324,15 @@ the package in a Unity project's `Packages/` directory. Do not use a moving
 development branch as a production dependency.
 
 This repository is a UPM package rather than a complete Unity project. Release
-validation therefore requires a clean Unity 6 host project, the Core and State
-Flow EditMode suites, relevant PlayMode/AOT checks, and Unity Package Validation
-Suite. `CoCoFlow/Setup/Setup Assistant` remains a dependency/support-define tool;
-it does not install project content.
+validation therefore requires a clean Unity 6 host project, the Core, State
+Flow, and StateGraph EditMode suites, relevant PlayMode/AOT checks, and Unity
+Package Validation Suite. `CoCoFlow/Setup/Setup Assistant` remains a
+dependency/support-define tool; it does not install project content.
 
 ## Documentation
 
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [StateGraph Asset and Compiler](Docs/StateGraphCompiler.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

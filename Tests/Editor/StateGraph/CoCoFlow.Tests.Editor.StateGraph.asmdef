@@ -1,0 +1,32 @@
+{
+    "name": "CoCoFlow.Tests.Editor.StateGraph",
+    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Editor.StateGraph",
+        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
+        "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
+        "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
+        "CoCoFlow.Tests.StateGraphAuthoringFixtures",
+        "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
+        "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
