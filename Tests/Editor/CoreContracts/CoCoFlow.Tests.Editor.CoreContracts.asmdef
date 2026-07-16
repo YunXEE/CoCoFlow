@@ -3,7 +3,8 @@
     "rootNamespace": "CoCoFlow.Runtime.Core.Tests",
     "references": [
         "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow"
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

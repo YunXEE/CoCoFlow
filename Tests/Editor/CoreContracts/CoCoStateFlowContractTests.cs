@@ -8,6 +8,38 @@ namespace CoCoFlow.Runtime.Core.Tests
     public sealed class CoCoStateFlowContractTests
     {
         [Test]
+        public void EmptyOperationRegistryFreezesAndProducesAValidEmptyFrame()
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(1UL, 1UL),
+                out CoCoOperationSectionRegistry registry,
+                out CoCoDiagnostic freezeDiagnostic),
+                freezeDiagnostic.Message);
+            Assert.IsTrue(registry.IsFrozen);
+            Assert.AreEqual(0, registry.Count);
+            Assert.AreEqual(0, registry.ByteSize);
+            Assert.IsEmpty(registry.Sections);
+            Assert.IsTrue(registry.TryValidateProvides(
+                Array.Empty<CoCoOperationSectionRequirement>(),
+                out CoCoDiagnostic providesDiagnostic),
+                providesDiagnostic.Message);
+            Assert.IsTrue(CoCoOperationFrame.TryCreate(
+                registry,
+                CreateGraphInstanceId(1UL),
+                Array.Empty<CoCoOperationSectionRequirement>(),
+                out CoCoOperationFrame frame,
+                out CoCoDiagnostic createDiagnostic),
+                createDiagnostic.Message);
+            Assert.IsTrue(frame.TryBegin(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.Seal());
+            Assert.IsTrue(frame.IsSealed);
+        }
+
+        [Test]
         public void StateRolesRemainCallbackFree()
         {
             AssertCallbackFreeRole(typeof(CoCoStateLogic));
@@ -121,6 +153,99 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void OperationRequirementCarriesCompleteDeterministicShape()
+        {
+            Assert.IsTrue(CoCoOperationSectionRequirement.TryCreate<ICompositeShapeSection>(
+                CreateSectionId(80UL, 10UL),
+                CoCoOperationSectionMode.Continuous,
+                out CoCoOperationSectionRequirement requirement,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(CoCoOperationSectionRequirement.TryCreate<ICompositeShapeTwinSection>(
+                CreateSectionId(80UL, 11UL),
+                CoCoOperationSectionMode.Continuous,
+                out CoCoOperationSectionRequirement twin,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(CoCoOperationSectionRequirement.TryCreate<IDifferentCompositeShapeSection>(
+                CreateSectionId(80UL, 12UL),
+                CoCoOperationSectionMode.Continuous,
+                out CoCoOperationSectionRequirement different,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(CoCoOperationSectionShape.TryCreate(
+                typeof(ICompositeShapeSection),
+                out CoCoOperationSectionShape toolShape,
+                out diagnostic),
+                diagnostic.Message);
+
+            CoCoOperationSectionShape shape = requirement.Shape;
+            Assert.IsNotNull(shape);
+            Assert.IsTrue(shape.IsValid);
+            Assert.AreEqual(14, shape.ByteSize);
+            Assert.AreEqual(3, shape.FieldCount);
+            Assert.AreNotEqual(0UL, shape.ShapeFingerprint);
+            AssertShapeField(shape.Fields[0], 0, "Alpha", typeof(int), 0, 4);
+            AssertShapeField(shape.Fields[1], 1, "Middle", typeof(long), 4, 8);
+            AssertShapeField(shape.Fields[2], 2, "Zulu", typeof(short), 12, 2);
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<CoCoOperationSectionFieldShape>)shape.Fields)[0] = shape.Fields[0]);
+
+            Assert.AreNotSame(shape, twin.Shape);
+            Assert.AreEqual(shape.ShapeFingerprint, twin.Shape.ShapeFingerprint);
+            Assert.IsTrue(shape.Equals(twin.Shape));
+            Assert.AreNotSame(shape, toolShape);
+            Assert.IsTrue(shape.Equals(toolShape));
+            Assert.AreNotEqual(shape.ShapeFingerprint, different.Shape.ShapeFingerprint);
+            Assert.IsFalse(shape.Equals(different.Shape));
+
+            FieldInfo fingerprintField = typeof(CoCoOperationSectionShape).GetField(
+                "<ShapeFingerprint>k__BackingField",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(fingerprintField);
+            fingerprintField.SetValue(different.Shape, shape.ShapeFingerprint);
+            Assert.AreEqual(shape.ShapeFingerprint, different.Shape.ShapeFingerprint);
+            Assert.IsFalse(
+                shape.Equals(different.Shape),
+                "Fingerprint equality is only a fast filter; every field remains authoritative.");
+        }
+
+        [Test]
+        public void OperationRegistryReusesTheRequirementShapeLayout()
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+            Assert.IsTrue(builder.TryRegister(
+                CreateSectionId(80UL, 20UL),
+                CoCoOperationSectionMode.Discrete,
+                new CompositeShapeViewFactory(),
+                out CoCoOperationSectionRequirement requirement,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(80UL, 21UL),
+                out CoCoOperationSectionRegistry registry,
+                out diagnostic),
+                diagnostic.Message);
+
+            CoCoOperationSectionDescriptor descriptor = registry.Sections[0];
+            Assert.AreSame(requirement.Shape, descriptor.Shape);
+            Assert.AreEqual(requirement.Shape.ByteSize, descriptor.ByteSize);
+            Assert.AreEqual(requirement.Shape.FieldCount, descriptor.Fields.Count);
+            for (int index = 0; index < requirement.Shape.FieldCount; index++)
+            {
+                CoCoOperationSectionFieldShape expected = requirement.Shape.Fields[index];
+                CoCoOperationSectionFieldDescriptor actual = descriptor.Fields[index];
+                AssertShapeField(
+                    expected,
+                    actual.DenseIndex,
+                    actual.Name,
+                    actual.ValueType,
+                    actual.ByteOffset,
+                    actual.ByteSize);
+            }
+        }
+
+        [Test]
         public void OperationHandlesRejectASeparateRegistryWithTheSameLayoutIdentity()
         {
             CoCoFrameLayoutId layoutId = CreateLayoutId(81UL, 1UL);
@@ -187,6 +312,28 @@ namespace CoCoFlow.Runtime.Core.Tests
             AssertInvalidSection<IReferenceSection>();
             AssertInvalidSection<IStringSection>();
             AssertInvalidSection<IRefReturnSection>();
+        }
+
+        [Test]
+        public void OperationRequirementRejectsIncompleteShapesAtDeclarationTime()
+        {
+            CoCoOperationSectionId sectionId = CreateSectionId(89UL, 1UL);
+
+            Assert.IsFalse(CoCoOperationSectionRequirement.TryCreate<IManifestOnlySection>(
+                sectionId,
+                CoCoOperationSectionMode.Continuous,
+                out _,
+                out CoCoDiagnostic runtimeDiagnostic));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationSection, runtimeDiagnostic.Code);
+            Assert.IsFalse(CoCoOperationSectionShape.TryCreate(
+                typeof(IManifestOnlySection),
+                out _,
+                out CoCoDiagnostic toolDiagnostic));
+            Assert.AreEqual(runtimeDiagnostic, toolDiagnostic);
+
+            AssertInvalidSection<ICoCoOperationSection>();
+            AssertInvalidSection<IInheritedMovementSection>();
+            AssertInvalidSection<ManifestSectionClass>();
         }
 
         [Test]
@@ -2199,14 +2346,58 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationSection, diagnostic.Code);
         }
 
+        private static void AssertShapeField(
+            CoCoOperationSectionFieldShape field,
+            int denseIndex,
+            string name,
+            Type valueType,
+            int byteOffset,
+            int byteSize)
+        {
+            Assert.AreEqual(denseIndex, field.DenseIndex);
+            Assert.AreEqual(name, field.Name);
+            Assert.AreEqual(valueType, field.ValueType);
+            Assert.AreEqual(byteOffset, field.ByteOffset);
+            Assert.AreEqual(byteSize, field.ByteSize);
+        }
+
         private interface IMovementSection : ICoCoOperationSection
         {
             int Distance { get; }
         }
 
+        private interface IManifestOnlySection : ICoCoOperationSection
+        {
+        }
+
+        private sealed class ManifestSectionClass : ICoCoOperationSection
+        {
+        }
+
         private interface IAlternateMovementSection : ICoCoOperationSection
         {
             int Distance { get; }
+        }
+
+        private interface ICompositeShapeSection : ICoCoOperationSection
+        {
+            short Zulu { get; }
+            long Middle { get; }
+            int Alpha { get; }
+        }
+
+        private interface ICompositeShapeTwinSection : ICoCoOperationSection
+        {
+            int Alpha { get; }
+            short Zulu { get; }
+            long Middle { get; }
+        }
+
+        private interface IDifferentCompositeShapeSection : ICoCoOperationSection
+        {
+            int Alpha { get; }
+            int Middle { get; }
+            short Zulu { get; }
         }
 
         private interface IAttackSection : ICoCoOperationSection
@@ -2282,6 +2473,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             public int Distance => 0;
         }
 
+        private sealed class CompositeShapeView : ICompositeShapeSection
+        {
+            public short Zulu => 0;
+            public long Middle => 0L;
+            public int Alpha => 0;
+        }
+
         private sealed class AttackView : IAttackSection
         {
             private readonly CoCoOperationSectionReader _reader;
@@ -2334,6 +2532,16 @@ namespace CoCoFlow.Runtime.Core.Tests
                 in CoCoOperationSectionViewContext<IAlternateMovementSection> context)
             {
                 return new AlternateMovementView();
+            }
+        }
+
+        private sealed class CompositeShapeViewFactory :
+            ICoCoOperationSectionViewFactory<ICompositeShapeSection>
+        {
+            public ICompositeShapeSection Create(
+                in CoCoOperationSectionViewContext<ICompositeShapeSection> context)
+            {
+                return new CompositeShapeView();
             }
         }
 

@@ -519,12 +519,12 @@ namespace CoCoFlow.Runtime.Core
                 throw new ArgumentException("Intent layout id must be valid.", nameof(layoutId));
             }
 
-            if (maxIntentCount <= 0)
+            if (maxIntentCount < 0)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(maxIntentCount),
                     maxIntentCount,
-                    "Intent layout capacity must be positive.");
+                    "Intent layout capacity cannot be negative.");
             }
 
             LayoutId = layoutId;

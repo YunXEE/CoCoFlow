@@ -6,6 +6,35 @@ namespace CoCoFlow.Runtime.Core.Tests
     public sealed class CoCoIntentMailboxContractTests
     {
         [Test]
+        public void EmptyIntentLayoutFreezesAndProducesAValidEmptyFrame()
+        {
+            CoCoFrameLayoutId layoutId = FrameLayoutId(1UL);
+            var layout = new CoCoIntentFrameLayout(layoutId, 0);
+
+            Assert.AreEqual(0, layout.Count);
+            Assert.AreEqual(0, layout.Capacity);
+            Assert.IsTrue(layout.Freeze(out CoCoDiagnostic freezeDiagnostic));
+            Assert.IsTrue(freezeDiagnostic.IsNone);
+            Assert.IsTrue(layout.TryCreateRuntime(
+                GraphId(900UL),
+                0,
+                out CoCoIntentFrameRuntime runtime,
+                out CoCoDiagnostic createDiagnostic),
+                createDiagnostic.Message);
+            Assert.IsTrue(runtime.FreezeBindings(out CoCoDiagnostic bindingDiagnostic));
+            Assert.IsTrue(bindingDiagnostic.IsNone);
+            Assert.IsTrue(runtime.TryBegin(
+                IntentHeader(layoutId, 1UL, 1UL),
+                out CoCoDiagnostic beginDiagnostic),
+                beginDiagnostic.Message);
+            Assert.IsTrue(runtime.TryFreeze(out CoCoDiagnostic frameDiagnostic));
+            Assert.IsTrue(frameDiagnostic.IsNone);
+            Assert.IsTrue(runtime.Frame.IsFrozen);
+
+            runtime.Dispose();
+        }
+
+        [Test]
         public void DefaultMailboxValuesNeverRepresentValidRuntimeStatesOrSuccess()
         {
             Assert.AreEqual(CoCoEventDeliveryMode.None, default(CoCoEventDeliveryMode));

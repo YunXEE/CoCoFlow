@@ -3,7 +3,7 @@ using System;
 namespace CoCoFlow.Runtime.Core
 {
     [Serializable]
-    public abstract class CoCoStateConfig
+    public abstract class CoCoConditionConfig
     {
     }
 }
