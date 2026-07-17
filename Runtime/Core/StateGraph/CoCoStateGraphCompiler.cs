@@ -675,8 +675,6 @@ namespace CoCoFlow.Runtime.Core
                     _intentRequirements.Add(declaration.ProvidedIntentId);
                     _eventAdapterDeclarations.Add(registration);
                 }
-
-                _eventAdapterDeclarations.Sort((left, right) => left.Key.CompareTo(right.Key));
             }
 
             private void ValidateLayerInitialState(

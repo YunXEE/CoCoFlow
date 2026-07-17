@@ -75,6 +75,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public int Value;
     }
 
+    public struct SecondHostTestEvent
+    {
+        public int Value;
+    }
+
     public struct HostTestIntentReducer : ICoCoIntentReducer<HostTestIntent>
     {
         public HostTestIntent Reduce(
@@ -86,6 +91,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         ICoCoIntentReducerFactory<HostTestIntent, HostTestIntentReducer>
     {
         public HostTestIntentReducer Create(CoCoGraphInstanceId graphInstanceId) => default;
+    }
+
+    public struct OrderedHostTestIntentReducer : ICoCoIntentReducer<HostTestIntent>
+    {
+        public HostTestIntent Reduce(
+            in HostTestIntent current,
+            in HostTestIntent candidate) =>
+            new HostTestIntent { Value = (current.Value * 10) + candidate.Value };
+    }
+
+    public sealed class OrderedHostTestIntentReducerFactory :
+        ICoCoIntentReducerFactory<HostTestIntent, OrderedHostTestIntentReducer>
+    {
+        public OrderedHostTestIntentReducer Create(
+            CoCoGraphInstanceId graphInstanceId) => default;
     }
 
     public sealed class HostTestEventAdapter :
@@ -188,6 +208,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static int UpdateCount { get; private set; }
         public static int ExitCount { get; private set; }
         public static int LastIntentValue { get; private set; }
+        public static Action UpdateCallback { get; set; }
+        public static Action MemoryFingerprintCallback { get; set; }
 
         public static void Reset()
         {
@@ -195,6 +217,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             UpdateCount = 0;
             ExitCount = 0;
             LastIntentValue = 0;
+            UpdateCallback = null;
+            MemoryFingerprintCallback = null;
             IntentByInstance.Clear();
             UpdatesByInstance.Clear();
             MemoryByInstance.Clear();
@@ -208,6 +232,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public static int GetMemoryValue(CoCoGraphInstanceId graphInstanceId) =>
             MemoryByInstance.TryGetValue(graphInstanceId, out int value) ? value : 0;
+
+        public static ulong GetMemoryFingerprint(HostTestMemory memory)
+        {
+            MemoryFingerprintCallback?.Invoke();
+            return unchecked((ulong)(uint)memory.Value);
+        }
 
         public void OnEnter(CoCoStateExecutionContext context)
         {
@@ -245,6 +275,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                     IntentByInstance[_graphInstanceId] = intent.Value;
                 }
             }
+
+            UpdateCallback?.Invoke();
         }
 
         public void OnExit(CoCoStateExecutionContext context)

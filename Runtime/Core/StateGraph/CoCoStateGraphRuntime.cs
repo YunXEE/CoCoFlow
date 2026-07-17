@@ -132,6 +132,11 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoStagedGraphStep left, CoCoStagedGraphStep right) => !left.Equals(right);
     }
 
+    internal interface ICoCoStateGraphCommitGuard
+    {
+        bool IsCommitCancellationRequested { get; }
+    }
+
     /// <summary>
     /// Per-Host, allocation-stable StateGraph instance. Compiled Graph data is shared; all execution state is local.
     /// </summary>
@@ -378,7 +383,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            _lifecycle = CoCoRuntimeLifecycleState.Running;
+            TransitionLifecycleTo(CoCoRuntimeLifecycleState.Running);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -395,7 +400,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            _lifecycle = CoCoRuntimeLifecycleState.Suspended;
+            TransitionLifecycleTo(CoCoRuntimeLifecycleState.Suspended);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -408,25 +413,26 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            _lifecycle = CoCoRuntimeLifecycleState.Running;
+            TransitionLifecycleTo(CoCoRuntimeLifecycleState.Running);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
 
         public bool TryStop(out CoCoDiagnostic diagnostic)
         {
-            if (_isExecutingStep ||
+            if ((_lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                _isExecutingStep ||
                 _disposeRequested ||
-                _isDisposed ||
-                _lifecycle == CoCoRuntimeLifecycleState.Stopped ||
-                _lifecycle == CoCoRuntimeLifecycleState.Disposed)
+                _isDisposed)
             {
-                diagnostic = LifecycleError("This StateGraph Runtime cannot be stopped again.");
+                diagnostic = LifecycleError(
+                    "Stop requires a Running or Suspended StateGraph Runtime at a safe boundary.");
                 return false;
             }
 
             CancelOutstandingStep(false, default);
-            _lifecycle = CoCoRuntimeLifecycleState.Stopped;
+            TransitionLifecycleTo(CoCoRuntimeLifecycleState.Stopped);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -613,8 +619,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             CancelOutstandingStep(false, default);
-            _isDisposed = true;
-            _lifecycle = CoCoRuntimeLifecycleState.Disposed;
+            DisposeAtSafeBoundary();
         }
 
         internal bool TryRequestTransition(CoCoTransitionHandle handle, CoCoStateId stateId)
@@ -646,6 +651,12 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool TryAcceptStagedStep(
             in CoCoStagedGraphStep stagedStep,
+            out CoCoDiagnostic diagnostic) =>
+            TryAcceptStagedStep(stagedStep, null, out diagnostic);
+
+        internal bool TryAcceptStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            ICoCoStateGraphCommitGuard commitGuard,
             out CoCoDiagnostic diagnostic)
         {
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
@@ -659,7 +670,16 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (!TryValidateStagedMemoryIntegrity(out diagnostic))
+            bool memoryIntegrity = TryValidateStagedMemoryIntegrity(out diagnostic);
+            if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+            {
+                CancelOutstandingStep(false, default);
+                diagnostic = LifecycleError(
+                    "The staged Tick was cancelled by its Host before commit.");
+                return false;
+            }
+
+            if (!memoryIntegrity)
             {
                 _finalizedOperationFrame.Cancel();
                 _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
@@ -706,10 +726,34 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryCancelStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!Owns(stagedStep))
+            {
+                diagnostic = LifecycleError(
+                    "The staged Tick is stale or belongs to another Runtime.");
+                return false;
+            }
+
+            CancelOutstandingStep(false, default);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal bool TryRejectStagedStep(
             in CoCoStagedGraphStep stagedStep,
             CoCoDiagnostic reason,
             bool latchFault,
+            out CoCoDiagnostic diagnostic) =>
+            TryRejectStagedStep(stagedStep, reason, latchFault, null, out diagnostic);
+
+        internal bool TryRejectStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            CoCoDiagnostic reason,
+            bool latchFault,
+            ICoCoStateGraphCommitGuard commitGuard,
             out CoCoDiagnostic diagnostic)
         {
             if (!Owns(stagedStep))
@@ -719,9 +763,15 @@ namespace CoCoFlow.Runtime.Core
             }
 
             bool memoryIntegrity = TryValidateStagedMemoryIntegrity(out CoCoDiagnostic memoryDiagnostic);
-            _finalizedOperationFrame.Cancel();
-            _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
-            ClearStagedStep();
+            if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+            {
+                CancelOutstandingStep(false, default);
+                diagnostic = LifecycleError(
+                    "The staged Tick rejection was cancelled by its Host before resolution.");
+                return true;
+            }
+
+            CancelOutstandingStep(false, default);
             if (!memoryIntegrity)
             {
                 diagnostic = memoryDiagnostic;
@@ -1261,12 +1311,39 @@ namespace CoCoFlow.Runtime.Core
             if (_disposeRequested)
             {
                 _disposeRequested = false;
-                _isDisposed = true;
-                _lifecycle = CoCoRuntimeLifecycleState.Disposed;
+                DisposeAtSafeBoundary();
                 return;
             }
 
             LatchFault(diagnostic);
+        }
+
+        private void DisposeAtSafeBoundary()
+        {
+            if (_lifecycle == CoCoRuntimeLifecycleState.Running ||
+                _lifecycle == CoCoRuntimeLifecycleState.Suspended)
+            {
+                TransitionLifecycleTo(CoCoRuntimeLifecycleState.Stopped);
+            }
+
+            if (_lifecycle == CoCoRuntimeLifecycleState.Created ||
+                _lifecycle == CoCoRuntimeLifecycleState.Stopped)
+            {
+                TransitionLifecycleTo(CoCoRuntimeLifecycleState.Disposed);
+            }
+
+            _isDisposed = _lifecycle == CoCoRuntimeLifecycleState.Disposed;
+        }
+
+        private void TransitionLifecycleTo(CoCoRuntimeLifecycleState nextState)
+        {
+            if (!_lifecycle.CanTransitionTo(nextState))
+            {
+                throw new InvalidOperationException(
+                    $"Illegal StateGraph Runtime lifecycle transition: {_lifecycle} -> {nextState}.");
+            }
+
+            _lifecycle = nextState;
         }
 
         private bool TryValidateCandidateMemory(out CoCoDiagnostic diagnostic)

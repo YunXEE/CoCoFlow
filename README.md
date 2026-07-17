@@ -84,11 +84,13 @@ lookups plus three manifests:
 - Graph Operation provides;
 - ContextFrame state requirements.
 
-The Intent manifest also carries the Graph's canonical Event-to-Intent static
+The Intent manifest also carries the Graph's immutable Event-to-Intent static
 declarations. Pre3 validates their Event Domain, payload type, provided Intent
 type, contribution-capacity lower bound, and one-Domain-per-Graph rule. Pre4
 instantiates the declared Adapters and rejects Host startup unless runtime
-binding coverage is exact.
+binding coverage is exact. Adapter execution follows the Asset declaration-list
+order preserved by the compiled manifest; the binding Provider cannot reorder
+that semantic order.
 
 Config Freezers write into framework-owned typed Schemas. The framework seals
 and defensively copies the canonical field snapshot and computes its
@@ -140,6 +142,12 @@ Update plus Exit. A committed target runs Enter plus Update on the next Tick.
 Enter and Exit are optional phases, Update is always present, and each Layer has
 at most one winner per Tick. There is no Completion state or implicit exit at
 ActionProgress `1`.
+
+Within one Activation, ActionProgress must be finite and monotonically
+non-decreasing; repeating a value is a valid stall. A decrease cancels the
+candidate Tick, preserves the last committed authority, and latches Fault.
+Transactional rollback restores that authority and never authorizes progress to
+move backwards.
 
 Layer and path depth give Operation writes fixed rank: a higher Layer overrides
 a lower Layer and a child overrides its parent. Continuous Sections compose by
@@ -255,6 +263,10 @@ Targeted messages route by current GraphInstanceId. A broadcast reaches only
 Actors that declared the matching Event-to-Intent Adapter and does not return
 to its source by default.
 
+When one Event projects through several declared Adapters, they execute in the
+Asset declaration-list order retained by the compiled manifest. The project
+binding Provider supplies exact implementations but cannot change that order.
+
 An Inbox can enter Running only while it is bound to a live Intent Runtime whose
 bindings are frozen. Its typed lanes must match that Runtime's deduplicated
 Adapter manifest exactly by EventDomain, EventType, and payload type; each lane
@@ -298,6 +310,16 @@ Host startup registers only after every binding check succeeds; Stop and Dispose
 unregister first. The final Host leaving a Domain releases its internal
 EventAgent subscription. Pre4 is ingress-only. Outbox publication through the
 Host outbound seam is forbidden until Pre5 successfully commits Context.
+
+Legal Runtime-instance lifecycle edges are `Created -> Running`,
+`Running <-> Suspended`, `Running/Suspended -> Stopped`, and
+`Created/Stopped -> Disposed`. `Created` cannot Stop, and Host public
+`TryDispose` accepts only `Created` or `Stopped`. Runtime `Dispose()` and Unity
+destruction force live cleanup internally through `Stopped`; neither synthesizes
+Exit. Starting a stopped Host allocates a fresh Runtime instance. Lifecycle
+calls cannot re-enter startup or an advancing Tick; Unity destruction during
+either path prevents publication or cancels the unresolved candidate before
+authority changes.
 
 ## Commit and Time Boundaries
 

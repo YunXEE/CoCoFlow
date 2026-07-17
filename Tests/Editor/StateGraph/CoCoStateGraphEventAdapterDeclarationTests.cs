@@ -140,8 +140,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(2, result.Graph.IntentRequirements.Count);
             Assert.AreEqual(2, result.Graph.IntentRequirements.AdapterCount);
-            CollectionAssert.AreEquivalent(
-                new[] { PrimaryIntentId, AlternateIntentId },
+            CollectionAssert.AreEqual(
+                new[] { AlternateIntentId, PrimaryIntentId },
                 result.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.ProvidedIntentId));
         }
@@ -264,7 +264,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CatalogAndManifestFingerprintsIgnoreDeclarationRegistrationAndAuthorOrder()
+        public void CatalogIgnoresRegistrationOrderWhileManifestPreservesGraphAuthorOrder()
         {
             CoCoGraphDescriptorCatalog firstCatalog = CreateTwoDeclarationCatalog(false);
             CoCoGraphDescriptorCatalog reversedCatalog = CreateTwoDeclarationCatalog(true);
@@ -283,16 +283,15 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(first.Succeeded);
             Assert.IsTrue(reversed.Succeeded);
-            Assert.AreEqual(
+            Assert.AreNotEqual(
                 first.Graph.IntentRequirements.LayoutId,
                 reversed.Graph.IntentRequirements.LayoutId);
             CollectionAssert.AreEqual(
-                new[] { PrimaryEventType, AlternateEventType },
+                new[] { AlternateEventType, PrimaryEventType },
                 first.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.EventTypeId));
             CollectionAssert.AreEqual(
-                first.Graph.IntentRequirements.EventAdapterDeclarations
-                    .Select(declaration => declaration.EventTypeId),
+                new[] { PrimaryEventType, AlternateEventType },
                 reversed.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.EventTypeId));
         }

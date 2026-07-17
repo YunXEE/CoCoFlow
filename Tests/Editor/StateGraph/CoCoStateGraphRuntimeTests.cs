@@ -104,7 +104,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void ActionProgressRollbackFaultsAndPreservesLastCommittedTick()
+        public void ActionProgressDecreaseFaultsAndPreservesLastCommittedTick()
         {
             Fixture fixture = Fixture.Create();
             Assert.IsTrue(fixture.Runtime.TryStart(out _));

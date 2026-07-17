@@ -25,12 +25,16 @@ namespace CoCoFlow.Runtime.Core
         private CoCoStateGraphHostRuntimeBindings _bindings;
         private CoCoStateGraphRuntime _runtime;
         private CoCoContextFrame _committedContext;
-        private CoCoRuntimeLifecycleState _lifecycle = CoCoRuntimeLifecycleState.Created;
+        private bool _hasStoppedInstance;
+        private bool _isDisposed;
         private CoCoDiagnostic _lastDiagnostic;
         private int _lastAutomaticFrame = -1;
         private bool _reliableOverflowPending;
+        private bool _acceptsEventInput;
+        private bool _isStarting;
         private bool _isAdvancing;
         private bool _destroyRequested;
+        private CommitGuard _commitGuard;
 
         public CoCoStateGraphAsset StateGraphAsset => stateGraphAsset;
         internal CoCoStateGraphDriver Driver => driver;
@@ -39,16 +43,22 @@ namespace CoCoFlow.Runtime.Core
         internal int EventLaneCapacity => eventLaneCapacity;
         internal int EventSourceCapacity => eventSourceCapacity;
         internal int EventDedupCapacity => eventDedupCapacity;
-        public CoCoRuntimeLifecycleState Lifecycle => _runtime?.Lifecycle ?? _lifecycle;
+        public CoCoRuntimeLifecycleState Lifecycle => _runtime?.Lifecycle ??
+            (_isDisposed
+                ? CoCoRuntimeLifecycleState.Disposed
+                : _hasStoppedInstance
+                    ? CoCoRuntimeLifecycleState.Stopped
+                    : CoCoRuntimeLifecycleState.Created);
         public CoCoRuntimeFault Fault => _runtime?.Fault ?? default;
         public CoCoGraphInstanceId GraphInstanceId => _runtime?.GraphInstanceId ?? default;
         public IReadOnlyList<CoCoActivePath> ActivePaths => _runtime?.ActivePaths ?? Array.Empty<CoCoActivePath>();
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
         internal bool CanAcceptEventInput =>
-            (_lifecycle == CoCoRuntimeLifecycleState.Running ||
-             _lifecycle == CoCoRuntimeLifecycleState.Suspended) &&
+            _acceptsEventInput &&
             _runtime != null &&
+            (_runtime.Lifecycle == CoCoRuntimeLifecycleState.Running ||
+             _runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended) &&
             !_runtime.IsFaulted &&
             !_reliableOverflowPending;
 
@@ -78,13 +88,14 @@ namespace CoCoFlow.Runtime.Core
 
         private void OnDestroy()
         {
-            if (_isAdvancing)
+            _acceptsEventInput = false;
+            if (_isStarting || _isAdvancing)
             {
                 _destroyRequested = true;
                 return;
             }
 
-            DisposeHost();
+            ForceDisposeHost();
         }
 
         public bool TryStart(out CoCoDiagnostic diagnostic)
@@ -94,8 +105,34 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_lifecycle != CoCoRuntimeLifecycleState.Created &&
-                _lifecycle != CoCoRuntimeLifecycleState.Stopped)
+            _isStarting = true;
+            try
+            {
+                bool started = TryStartCore(out diagnostic);
+                if (_destroyRequested)
+                {
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup before publication.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                return started;
+            }
+            finally
+            {
+                _isStarting = false;
+                if (_destroyRequested)
+                {
+                    _destroyRequested = false;
+                    ForceDisposeHost();
+                }
+            }
+        }
+
+        private bool TryStartCore(out CoCoDiagnostic diagnostic)
+        {
+            if (_runtime != null || _isDisposed)
             {
                 diagnostic = LifecycleError("Host can start only from Created or Stopped.");
                 _lastDiagnostic = diagnostic;
@@ -107,7 +144,6 @@ namespace CoCoFlow.Runtime.Core
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.MissingDescriptor,
                     "CoCoStateGraphHost requires one StateGraph Asset.");
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -119,7 +155,6 @@ namespace CoCoFlow.Runtime.Core
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.RegistryNotFrozen,
                     "No StateGraph project binding provider was installed.");
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -131,7 +166,6 @@ namespace CoCoFlow.Runtime.Core
                     CoCoDiagnosticDomain.Time,
                     CoCoDiagnosticCode.NonPositiveDeltaTime,
                     "Host TimeScale must be finite and greater than zero, and Driver must be defined.");
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -148,7 +182,6 @@ namespace CoCoFlow.Runtime.Core
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "StateGraph Asset compilation threw during Host setup.");
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -156,7 +189,14 @@ namespace CoCoFlow.Runtime.Core
             if (!compileResult.Succeeded)
             {
                 diagnostic = FirstCompileError(compileResult);
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_destroyRequested)
+            {
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled StateGraph Host startup during Asset compilation.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -166,19 +206,12 @@ namespace CoCoFlow.Runtime.Core
                 compileResult.Graph,
                 graphInstanceId);
             CoCoStateGraphHostRuntimeBindings bindings = null;
+            CoCoStateGraphRuntime runtime = null;
             try
             {
-                if (!provider.TryConfigure(builder, out diagnostic) ||
-                    diagnostic.IsError ||
-                    !builder.TryFreeze(
-                        eventLaneCapacity,
-                        eventSourceCapacity,
-                        eventDedupCapacity,
-                        out bindings,
-                        out diagnostic))
+                if (!provider.TryConfigure(builder, out diagnostic) || diagnostic.IsError)
                 {
                     builder.Abandon();
-                    _lifecycle = CoCoRuntimeLifecycleState.Created;
                     _lastDiagnostic = diagnostic.IsError
                         ? diagnostic
                         : RegistryError(
@@ -188,10 +221,46 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
-                if (!CoCoTimelineId.TryCreate(
-                        compileResult.Graph.GraphId.High ^ graphInstanceId.Value,
-                        compileResult.Graph.GraphId.Low,
-                        out CoCoTimelineId timelineId) ||
+                if (_destroyRequested)
+                {
+                    builder.Abandon();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup during project binding.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!builder.TryFreeze(
+                        eventLaneCapacity,
+                        eventSourceCapacity,
+                        eventDedupCapacity,
+                        out bindings,
+                        out diagnostic))
+                {
+                    builder.Abandon();
+                    _lastDiagnostic = diagnostic.IsError
+                        ? diagnostic
+                        : RegistryError(
+                            CoCoDiagnosticCode.MissingDescriptor,
+                            "Project StateGraph bindings were incomplete.");
+                    diagnostic = _lastDiagnostic;
+                    return false;
+                }
+
+                if (_destroyRequested)
+                {
+                    bindings.Dispose();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup before Runtime creation.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!TryCreateTimelineId(
+                        compileResult.Graph.GraphId,
+                        graphInstanceId,
+                        out CoCoTimelineId timelineId,
+                        out diagnostic) ||
                     !CoCoClockDomainId.TryCreate(
                         (ulong)driver + 1UL,
                         out CoCoClockDomainId clockDomainId) ||
@@ -201,35 +270,70 @@ namespace CoCoFlow.Runtime.Core
                         new CoCoTimelineEpoch(0UL),
                         graphInstanceId,
                         out CoCoActorClock clock,
-                        out diagnostic) ||
-                    !CoCoStateGraphRuntime.TryCreate(
+                        out diagnostic))
+                {
+                    bindings.Dispose();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!CoCoStateGraphRuntime.TryCreate(
                         compileResult.Graph,
                         graphInstanceId,
                         bindings.Logic,
                         bindings.Operations,
                         clock,
-                        out CoCoStateGraphRuntime runtime,
-                        out diagnostic) ||
-                    !runtime.TryStart(out diagnostic))
+                        out runtime,
+                        out diagnostic))
                 {
                     bindings.Dispose();
-                    _lifecycle = CoCoRuntimeLifecycleState.Created;
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (_destroyRequested)
+                {
+                    runtime.Dispose();
+                    bindings.Dispose();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup during Runtime creation.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!runtime.TryStart(out diagnostic))
+                {
+                    runtime.Dispose();
+                    bindings.Dispose();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (_destroyRequested)
+                {
+                    runtime.Dispose();
+                    bindings.Dispose();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup before Runtime publication.");
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
 
                 _bindings = bindings;
                 _runtime = runtime;
+                if (_commitGuard == null)
+                {
+                    _commitGuard = new CommitGuard(this);
+                }
+
                 _committedContext = default;
                 _reliableOverflowPending = false;
                 _lastAutomaticFrame = -1;
-                _lifecycle = CoCoRuntimeLifecycleState.Running;
 
                 // Registration is deliberately last: no packet can reach a partially started Host.
                 if (!_bindings.RegisterRouter(this))
                 {
                     DisposeInstance();
-                    _lifecycle = CoCoRuntimeLifecycleState.Created;
                     diagnostic = RegistryError(
                         CoCoDiagnosticCode.DuplicateIdentifier,
                         "Router rejected a duplicate GraphInstance event sink.");
@@ -237,12 +341,19 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                _acceptsEventInput = true;
+                _hasStoppedInstance = false;
                 diagnostic = CoCoDiagnostic.None;
                 _lastDiagnostic = diagnostic;
                 return true;
             }
             catch (Exception)
             {
+                if (runtime != null && !ReferenceEquals(_runtime, runtime))
+                {
+                    runtime.Dispose();
+                }
+
                 if (bindings == null)
                 {
                     builder.Abandon();
@@ -253,7 +364,6 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 DisposeInstance();
-                _lifecycle = CoCoRuntimeLifecycleState.Created;
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "Host setup failed before the StateGraph instance became observable.");
@@ -300,7 +410,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            _lifecycle = CoCoRuntimeLifecycleState.Suspended;
             diagnostic = CoCoDiagnostic.None;
             _lastDiagnostic = diagnostic;
             return true;
@@ -342,7 +451,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            _lifecycle = CoCoRuntimeLifecycleState.Running;
             diagnostic = CoCoDiagnostic.None;
             _lastDiagnostic = diagnostic;
             return true;
@@ -356,8 +464,8 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (_runtime == null ||
-                _lifecycle == CoCoRuntimeLifecycleState.Stopped ||
-                _lifecycle == CoCoRuntimeLifecycleState.Disposed)
+                (_runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended))
             {
                 diagnostic = LifecycleError("Host has no live Graph instance to stop.");
                 _lastDiagnostic = diagnostic;
@@ -365,15 +473,23 @@ namespace CoCoFlow.Runtime.Core
             }
 
             // Unregister first so no packet can target a tearing-down instance.
+            _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
             if (!_runtime.TryStop(out diagnostic))
             {
-                if (_bindings != null && !_bindings.RegisterRouter(this))
+                if (_bindings != null)
                 {
-                    diagnostic = RegistryError(
-                        CoCoDiagnosticCode.DuplicateIdentifier,
-                        "Host could not restore Router registration after Stop was rejected.");
-                    _runtime.TryLatchExternalFault(diagnostic);
+                    if (!_bindings.RegisterRouter(this))
+                    {
+                        diagnostic = RegistryError(
+                            CoCoDiagnosticCode.DuplicateIdentifier,
+                            "Host could not restore Router registration after Stop was rejected.");
+                        _runtime.TryLatchExternalFault(diagnostic);
+                    }
+                    else
+                    {
+                        _acceptsEventInput = true;
+                    }
                 }
 
                 _lastDiagnostic = diagnostic;
@@ -381,7 +497,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             DisposeInstance();
-            _lifecycle = CoCoRuntimeLifecycleState.Stopped;
+            _hasStoppedInstance = true;
             _lastDiagnostic = diagnostic;
             return !diagnostic.IsError;
         }
@@ -393,14 +509,15 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_lifecycle == CoCoRuntimeLifecycleState.Disposed)
+            if (_runtime != null || _isDisposed)
             {
-                diagnostic = LifecycleError("Host has already been disposed.");
+                diagnostic = LifecycleError(
+                    "Host can be disposed only from Created or Stopped; stop a live Graph instance first.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
 
-            DisposeHost();
+            DisposeHostFromLegalState();
             diagnostic = CoCoDiagnostic.None;
             _lastDiagnostic = diagnostic;
             return true;
@@ -452,8 +569,8 @@ namespace CoCoFlow.Runtime.Core
 
         private void TryAutomaticStep(float deltaTime)
         {
-            if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
-                _runtime == null ||
+            if (_runtime == null ||
+                _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
                 _runtime.IsFaulted ||
                 _lastAutomaticFrame == Time.frameCount ||
                 !IsPositiveFinite(deltaTime))
@@ -474,9 +591,10 @@ namespace CoCoFlow.Runtime.Core
 
         private bool TryAdvance(double deltaTime, out CoCoDiagnostic diagnostic)
         {
-            if (_isAdvancing)
+            if (_isStarting || _isAdvancing)
             {
-                diagnostic = LifecycleError("StateGraph Host cannot reenter its active Tick.");
+                diagnostic = LifecycleError(
+                    "StateGraph Host cannot Step during startup or reenter its active Tick.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -492,7 +610,7 @@ namespace CoCoFlow.Runtime.Core
                 if (_destroyRequested)
                 {
                     _destroyRequested = false;
-                    DisposeHost();
+                    ForceDisposeHost();
                 }
             }
         }
@@ -501,7 +619,8 @@ namespace CoCoFlow.Runtime.Core
         {
             ICoCoStateGraphTransactionCoordinator coordinator =
                 CoCoStateGraphTransactionCoordinatorRegistry.Current;
-            if (_runtime == null || _lifecycle != CoCoRuntimeLifecycleState.Running ||
+            if (_runtime == null ||
+                _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
                 _runtime.IsFaulted)
             {
                 diagnostic = LifecycleError("Only a healthy Running Host can Step.");
@@ -558,6 +677,14 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        default,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 if (!_runtime.TryStageStep(
                         tickFrame,
                         intents,
@@ -576,6 +703,14 @@ namespace CoCoFlow.Runtime.Core
             }
             catch (Exception)
             {
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        stagedStep,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 CoCoDiagnostic reason = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Intent,
                     CoCoDiagnosticCode.CommitPreparationFailed,
@@ -585,7 +720,16 @@ namespace CoCoFlow.Runtime.Core
                                     stagedStep,
                                     reason,
                                     true,
+                                    _commitGuard,
                                     out diagnostic);
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        default,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 if (!rejected)
                 {
                     _runtime.TryLatchExternalFault(reason);
@@ -599,15 +743,32 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (_destroyRequested)
+            {
+                return CancelTickForPendingDestroy(
+                    stagedStep,
+                    tickFrame,
+                    out diagnostic);
+            }
+
             try
             {
-                if (!coordinator.TryFinalize(
+                bool finalized = coordinator.TryFinalize(
                         this,
                         stagedStep,
                         _committedContext,
                         out CoCoStateGraphTransactionDecision decision,
                         out CoCoContextFrame committedContext,
-                        out diagnostic))
+                        out diagnostic);
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        stagedStep,
+                        tickFrame,
+                        out diagnostic);
+                }
+
+                if (!finalized)
                 {
                     CoCoDiagnostic reason = diagnostic.IsError
                         ? diagnostic
@@ -615,7 +776,20 @@ namespace CoCoFlow.Runtime.Core
                             CoCoDiagnosticDomain.Operation,
                             CoCoDiagnosticCode.CommitCancelled,
                             "Transaction coordinator rejected the staged Tick.");
-                    _runtime.TryRejectStagedStep(stagedStep, reason, true, out diagnostic);
+                    _runtime.TryRejectStagedStep(
+                        stagedStep,
+                        reason,
+                        true,
+                        _commitGuard,
+                        out diagnostic);
+                    if (_destroyRequested)
+                    {
+                        return CancelTickForPendingDestroy(
+                            default,
+                            tickFrame,
+                            out diagnostic);
+                    }
+
                     _bindings.ResolveIntentTick(tickFrame);
                     _lastDiagnostic = diagnostic;
                     return false;
@@ -623,7 +797,10 @@ namespace CoCoFlow.Runtime.Core
 
                 if (decision == CoCoStateGraphTransactionDecision.Accept)
                 {
-                    if (!_runtime.TryAcceptStagedStep(stagedStep, out diagnostic))
+                    if (!_runtime.TryAcceptStagedStep(
+                            stagedStep,
+                            _commitGuard,
+                            out diagnostic))
                     {
                         _bindings.ResolveIntentTick(tickFrame);
                         _lastDiagnostic = diagnostic;
@@ -648,7 +825,16 @@ namespace CoCoFlow.Runtime.Core
                     stagedStep,
                     rejection,
                     latchFault,
+                    _commitGuard,
                     out diagnostic);
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        default,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 if (latchFault)
                 {
                     _bindings.ResolveIntentTick(tickFrame);
@@ -659,15 +845,60 @@ namespace CoCoFlow.Runtime.Core
             }
             catch (Exception)
             {
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        stagedStep,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 CoCoDiagnostic reason = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Operation,
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "Transaction coordinator threw while finalizing the staged Tick.");
-                _runtime.TryRejectStagedStep(stagedStep, reason, true, out diagnostic);
+                _runtime.TryRejectStagedStep(
+                    stagedStep,
+                    reason,
+                    true,
+                    _commitGuard,
+                    out diagnostic);
+                if (_destroyRequested)
+                {
+                    return CancelTickForPendingDestroy(
+                        default,
+                        tickFrame,
+                        out diagnostic);
+                }
+
                 _bindings.ResolveIntentTick(tickFrame);
                 _lastDiagnostic = diagnostic;
                 return false;
             }
+        }
+
+        private bool CancelTickForPendingDestroy(
+            in CoCoStagedGraphStep stagedStep,
+            in CoCoTickFrame tickFrame,
+            out CoCoDiagnostic diagnostic)
+        {
+            CoCoDiagnostic reason = LifecycleError(
+                "Unity destruction cancelled the unresolved Tick before commit.");
+            diagnostic = reason;
+            if (stagedStep.IsValid &&
+                (!_runtime.TryCancelStagedStep(
+                     stagedStep,
+                     out CoCoDiagnostic cancellationDiagnostic) ||
+                 cancellationDiagnostic.IsError))
+            {
+                diagnostic = cancellationDiagnostic.IsError
+                    ? cancellationDiagnostic
+                    : reason;
+            }
+
+            _bindings.ResolveIntentTick(tickFrame);
+            _lastDiagnostic = diagnostic;
+            return false;
         }
 
         private bool LatchPendingOverflow(out CoCoDiagnostic diagnostic)
@@ -689,20 +920,21 @@ namespace CoCoFlow.Runtime.Core
 
         private bool RejectLifecycleReentry(out CoCoDiagnostic diagnostic)
         {
-            if (!_isAdvancing)
+            if (!_isStarting && !_isAdvancing)
             {
                 diagnostic = CoCoDiagnostic.None;
                 return false;
             }
 
             diagnostic = LifecycleError(
-                "StateGraph Host lifecycle cannot change while a Tick is advancing.");
+                "StateGraph Host lifecycle cannot change while startup or a Tick is advancing.");
             _lastDiagnostic = diagnostic;
             return true;
         }
 
         private void DisposeInstance()
         {
+            _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
             _bindings?.Dispose();
             _bindings = null;
@@ -713,17 +945,70 @@ namespace CoCoFlow.Runtime.Core
             _lastAutomaticFrame = -1;
         }
 
-        private void DisposeHost()
+        private void DisposeHostFromLegalState()
         {
-            if (_lifecycle == CoCoRuntimeLifecycleState.Disposed)
+            if (_isDisposed)
             {
                 return;
             }
 
             // Router unregistration remains the first observable teardown action.
+            _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
             DisposeInstance();
-            _lifecycle = CoCoRuntimeLifecycleState.Disposed;
+            _hasStoppedInstance = false;
+            _isDisposed = true;
+        }
+
+        private void ForceDisposeHost()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            // Unity destruction cannot be rejected. It still closes a live instance through
+            // the frozen Running/Suspended -> Stopped -> Disposed lifecycle edges.
+            _acceptsEventInput = false;
+            _bindings?.UnregisterRouter();
+            if (_runtime != null &&
+                (_runtime.Lifecycle == CoCoRuntimeLifecycleState.Running ||
+                 _runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended))
+            {
+                if (!_runtime.TryStop(out _))
+                {
+                    _runtime.Dispose();
+                }
+            }
+
+            DisposeInstance();
+            _hasStoppedInstance = false;
+            _isDisposed = true;
+        }
+
+        private static bool TryCreateTimelineId(
+            CoCoGraphId graphId,
+            CoCoGraphInstanceId graphInstanceId,
+            out CoCoTimelineId timelineId,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!graphId.IsValid ||
+                !graphInstanceId.IsValid ||
+                !CoCoTimelineId.TryCreate(
+                    graphInstanceId.Value,
+                    graphId.High ^ graphId.Low,
+                    out timelineId))
+            {
+                timelineId = default;
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Time,
+                    CoCoDiagnosticCode.InvalidIdentifier,
+                    "StateGraph Host could not derive a valid TimelineId from its Graph and instance identities.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
         }
 
         private static CoCoDiagnostic FirstCompileError(CoCoStateGraphAssetCompileResult result)
@@ -752,6 +1037,18 @@ namespace CoCoFlow.Runtime.Core
                 CoCoDiagnosticDomain.Lifecycle,
                 CoCoDiagnosticCode.InvalidLifecycleTransition,
                 message);
+
+        private sealed class CommitGuard : ICoCoStateGraphCommitGuard
+        {
+            private readonly CoCoStateGraphHost _host;
+
+            public CommitGuard(CoCoStateGraphHost host)
+            {
+                _host = host;
+            }
+
+            public bool IsCommitCancellationRequested => _host._destroyRequested;
+        }
     }
 
     internal enum CoCoStateGraphTransactionDecision

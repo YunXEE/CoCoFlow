@@ -48,6 +48,9 @@ without another component or serialized binding asset. Binding coverage must
 match the compiled State, Condition, Memory, Intent Source, and Event Adapter
 requirements exactly. Missing, extra, duplicate, or type-incompatible bindings
 leave the Host in `Created`; no callback, Tick, or Router registration occurs.
+The Asset declaration list is the authoritative Event Adapter execution order.
+The compiled manifest preserves that order; the project binding Provider may
+only satisfy the declarations and cannot reorder their runtime semantics.
 
 Each State factory also supplies AOT-safe Memory create, copy, reset, and
 fingerprint operations. Memory references are valid only while the owning State
@@ -117,9 +120,13 @@ Timed windows are half-open `[StartInclusive, EndExclusive)`:
 Window evaluation sweeps the interval crossed by the Tick rather than sampling
 only its final point. A candidate is observable when its progress sweep satisfies
 `previous < end && current >= start`, so a large positive Delta cannot silently
-jump over a window. Progress must be finite and monotonic within one Activation;
-stalled progress is valid, rollback cancels the Tick, and reaching `1` has no
-implicit completion behavior.
+jump over a window. Progress must be finite and monotonically non-decreasing
+within one Activation; repeating the current value is a valid stall. Any decrease,
+including a value below the last committed progress, cancels the candidate Tick,
+preserves the last committed authority, and latches Fault. Transactional rollback
+means restoring that authority after a rejected or cancelled staged Tick; it never
+permits `ActionProgress` itself to move backwards. Reaching `1` has no implicit
+completion behavior.
 
 ## Layer and Operation composition
 
@@ -161,11 +168,21 @@ callback, Condition, Operation Finalize, or later Pre5 failure cancels all
 candidates, leaving the previous commit authoritative with no Outbox or final
 sequence consumption. Pre4 exposes no production shortcut around that barrier;
 its tests use an internal-only coordinator to exercise acceptance and rollback.
+That rollback cannot make `ActionProgress` move backwards within an Activation.
 
 ## Clock, lifecycle, and Fault
 
 The lifecycle remains `Created / Running / Suspended / Stopped / Disposed`.
 Fault is a latched overlay, not a sixth lifecycle value.
+
+The legal Runtime-instance edges are `Created -> Running`,
+`Running <-> Suspended`, `Running/Suspended -> Stopped`, and
+`Created/Stopped -> Disposed`. `Created` cannot Stop, and Host public
+`TryDispose` accepts only `Created` or `Stopped`. Runtime `Dispose()` and Unity
+destruction are non-rejectable cleanup: a live instance is first torn down
+through `Stopped`, then disposed, without synthesizing lifecycle callbacks.
+Starting a stopped Host allocates a fresh Runtime instance rather than reviving
+the stopped one.
 
 - Delta and Actor TimeScale must be finite and greater than zero. Zero speed is
   represented by Suspend, never by a zero-delta Tick.
@@ -177,6 +194,10 @@ Fault is a latched overlay, not a sixth lifecycle value.
   instance rather than resuming the old one.
 - Stop, Dispose, and GameObject destruction never synthesize a final Tick or
   call `OnExit` as cleanup.
+- Host lifecycle calls cannot re-enter startup or an advancing Tick. Unity
+  destruction closes ingress immediately; during startup it prevents Runtime
+  publication, and during a staged Tick it cancels before any Operation,
+  Memory, path, Clock, or Context authority is swapped.
 
 Callback or Condition exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
@@ -198,7 +219,9 @@ not part of this protocol.
 All Event declarations in one graph must belong to one EventDomain. A graph
 with no Event declaration creates neither Inbox nor Router. When declarations
 project one Event type into several Intents, the Host creates one typed Inbox
-lane and runs each declared Adapter over that sealed lane.
+lane and runs each declared Adapter over that sealed lane in the Asset
+declaration-list order preserved by the compiled manifest. The binding Provider
+cannot substitute a different order.
 
 Host startup registers with its Router only after every other startup check has
 succeeded. Stop and Dispose unregister first; the final Host leaving a Domain

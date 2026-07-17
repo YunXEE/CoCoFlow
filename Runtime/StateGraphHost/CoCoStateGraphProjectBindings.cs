@@ -362,7 +362,10 @@ namespace CoCoFlow.Runtime.Core
             }
 
             _intentContributions.Add(
-                new CoCoHostEventIntentContribution<TEvent, TIntent>(lane, binding));
+                new CoCoHostEventIntentContribution<TEvent, TIntent>(
+                    lane,
+                    binding,
+                    declarationIndex));
             _boundEventDeclarations[declarationIndex] = true;
             _intentProducerCounts[intentIndex]++;
             return true;
@@ -488,7 +491,10 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
-            if (_intentRuntime != null && !_intentRuntime.FreezeBindings(out diagnostic))
+            if (!TryFinalizeIntentContributionOrder(
+                    out ICoCoHostIntentContribution[] intentContributions,
+                    out diagnostic) ||
+                (_intentRuntime != null && !_intentRuntime.FreezeBindings(out diagnostic)))
             {
                 DisposeIntentRuntime();
                 return false;
@@ -564,7 +570,7 @@ namespace CoCoFlow.Runtime.Core
                 operationFrame,
                 _intentRuntime,
                 inbox,
-                _intentContributions.ToArray(),
+                intentContributions,
                 _eventLanes.ToArray());
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -662,6 +668,58 @@ namespace CoCoFlow.Runtime.Core
 
             requirement = null;
             return false;
+        }
+
+        private bool TryFinalizeIntentContributionOrder(
+            out ICoCoHostIntentContribution[] contributions,
+            out CoCoDiagnostic diagnostic)
+        {
+            contributions = _intentContributions.ToArray();
+            for (int slotIndex = 0; slotIndex < contributions.Length; slotIndex++)
+            {
+                int authoringIndex = contributions[slotIndex].EventAdapterAuthoringIndex;
+                if (authoringIndex < 0)
+                {
+                    continue;
+                }
+
+                int selectedSlot = slotIndex;
+                int selectedAuthoringIndex = authoringIndex;
+                for (int candidateSlot = slotIndex + 1;
+                     candidateSlot < contributions.Length;
+                     candidateSlot++)
+                {
+                    int candidateAuthoringIndex =
+                        contributions[candidateSlot].EventAdapterAuthoringIndex;
+                    if (candidateAuthoringIndex >= 0 &&
+                        candidateAuthoringIndex < selectedAuthoringIndex)
+                    {
+                        selectedSlot = candidateSlot;
+                        selectedAuthoringIndex = candidateAuthoringIndex;
+                    }
+                }
+
+                if (selectedSlot != slotIndex)
+                {
+                    ICoCoHostIntentContribution selected = contributions[selectedSlot];
+                    contributions[selectedSlot] = contributions[slotIndex];
+                    contributions[slotIndex] = selected;
+                }
+            }
+
+            for (int index = 0; index < contributions.Length; index++)
+            {
+                if (!contributions[index].TryAssignRegistrationOrder(index))
+                {
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.InvalidIntentContribution,
+                        "Intent contribution order could not be frozen before Runtime startup.");
+                    return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
         }
 
         private bool TryFindEventDeclaration(
@@ -929,6 +987,10 @@ namespace CoCoFlow.Runtime.Core
 
     internal interface ICoCoHostIntentContribution
     {
+        int EventAdapterAuthoringIndex { get; }
+
+        bool TryAssignRegistrationOrder(int registrationOrder);
+
         bool TryCollect(CoCoIntentFrameRuntime runtime, in CoCoTickFrame tickFrame);
     }
 
@@ -941,6 +1003,11 @@ namespace CoCoFlow.Runtime.Core
         {
             _binding = binding;
         }
+
+        public int EventAdapterAuthoringIndex => -1;
+
+        public bool TryAssignRegistrationOrder(int registrationOrder) =>
+            _binding.RegistrationOrder == registrationOrder;
 
         public bool TryCollect(CoCoIntentFrameRuntime runtime, in CoCoTickFrame tickFrame)
         {
@@ -956,14 +1023,22 @@ namespace CoCoFlow.Runtime.Core
     {
         private readonly CoCoHostEventLane<TEvent> _lane;
         private readonly CoCoEventToIntentBinding<TEvent, TIntent> _binding;
+        private readonly int _authoringIndex;
 
         public CoCoHostEventIntentContribution(
             CoCoHostEventLane<TEvent> lane,
-            CoCoEventToIntentBinding<TEvent, TIntent> binding)
+            CoCoEventToIntentBinding<TEvent, TIntent> binding,
+            int authoringIndex)
         {
             _lane = lane;
             _binding = binding;
+            _authoringIndex = authoringIndex;
         }
+
+        public int EventAdapterAuthoringIndex => _authoringIndex;
+
+        public bool TryAssignRegistrationOrder(int registrationOrder) =>
+            _binding.TryAssignRegistrationOrder(registrationOrder);
 
         public bool TryCollect(CoCoIntentFrameRuntime runtime, in CoCoTickFrame tickFrame)
         {

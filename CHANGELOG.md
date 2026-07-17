@@ -19,8 +19,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
   several precompiled outgoing handles, then windows, Conditions, and explicit
   Priority produce at most one winner per Layer and Tick.
 - Activation-scoped `LocalSeconds` and `ActionProgress` windows with half-open
-  sweep evaluation, large-Delta crossing support, monotonic progress checks,
-  and no implicit exit when progress reaches one.
+  sweep evaluation, large-Delta crossing support, and no implicit exit when
+  progress reaches one. Progress is finite and monotonically non-decreasing;
+  equal values may stall, while a decrease cancels the candidate and latches
+  Fault. Transactional rollback restores committed authority but never permits
+  progress to move backwards.
 - Ranked Operation composition where later Layers override earlier Layers and
   children override parents, with field-level Continuous merging and final-only
   Discrete sequence allocation.
@@ -33,6 +36,8 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Exact immutable runtime binding coverage for State, Condition, Memory, Intent
   Source, and Event Adapter factories. A mismatch fails Host startup before any
   callback, Tick, or Router registration.
+- Asset declaration-list order as the authoritative Event Adapter execution
+  order; the project binding Provider cannot reorder those semantics.
 - Typed local, Targeted, and declared-broadcast event ingress using atomic
   `CoCoEventPacket<TEvent>` values, next-Tick Inbox sealing, bounded Suspend
   accumulation, Fault gating, and lifecycle-safe Router registration.
@@ -51,7 +56,12 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Made Start select initial leaves and queue Enter work without invoking user
   callbacks. Suspend preserves the instance and bounded Inbox; Stop discards it
   without synthesizing an Exit Tick.
-- Updated the package version and the two existing Package Validation Suite
+- Restricted legal Runtime lifecycle edges: `Created` cannot Stop and Host
+  public `TryDispose` accepts only `Created` or `Stopped`; Runtime `Dispose()`
+  and Unity destruction force live cleanup through `Stopped` before disposal.
+- Rejected lifecycle reentry during Host startup and Tick advancement, and made
+  Unity destruction cancel startup publication or staged authority before commit.
+- Updated the package version and the two existing Unity Package Validation Suite
   exception scopes to `0.4.0-pre.4`; no dependency or new exception was added.
 
 ### Removed
@@ -119,7 +129,7 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Made FrozenConfig immutability and deterministic fingerprints framework
   guarantees, and made complete Operation Shape validity a Pre3 compile-time
   requirement rather than a later runtime assumption.
-- Advanced the package and the two existing Package Validation Suite exception
+- Advanced the package and the two existing Unity Package Validation Suite exception
   scopes to `0.4.0-pre.3`; no package dependency or new validation exception was
   added.
 
@@ -192,7 +202,7 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Clarified that the Pre2 Durable Codec path is an internal, same-session,
   exact-layout spike; Pre13 owns the cross-session save identity and migration
   contract.
-- Advanced the package and Package Validation Suite exception scope to
+- Advanced the package and Unity Package Validation Suite exception scope to
   `0.4.0-pre.2`.
 
 ### Deferred

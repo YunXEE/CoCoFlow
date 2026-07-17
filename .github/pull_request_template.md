@@ -58,12 +58,22 @@ intact even when their proposed model is superseded.
 - [ ] Runtime binding coverage is immutable and exact for every State,
       Condition, Memory, Intent Source, and Event Adapter; a mismatch leaves the
       Host in Created with zero callback, Tick, or Router registration.
+- [ ] Event Adapter execution follows Asset declaration-list order preserved by
+      the compiled manifest; the binding Provider cannot reorder semantics.
 - [ ] Start only selects initial leaves. Enter is parent-to-child, mandatory
       Update is root-to-leaf, Exit is leaf-to-parent, and a Transition keeps its
       source path effective until the target enters on the next accepted Tick.
+- [ ] `Created` cannot Stop; Host public `TryDispose` accepts only `Created` or
+      `Stopped`; Runtime `Dispose()` and Unity destruction force live cleanup
+      internally through `Stopped`. Startup/Tick lifecycle reentry is rejected,
+      and destruction cannot publish or commit an unresolved candidate.
 - [ ] Transition endpoints are leaves, every outgoing Priority is explicit and
       unique per source leaf, and Update can request only predeclared handles.
       Completion and InterruptPolicy are not present.
+- [ ] Within one Activation, ActionProgress is finite and monotonically
+      non-decreasing; equal values may stall, while a decrease cancels the
+      candidate and latches Fault. Rollback restores committed authority and
+      never permits progress to move backwards.
 - [ ] Operation writes use fixed Layer/path-depth composition rank, Finalize
       consumes no sequence or LastTick, and only Pre5 Context commit may accept
       the staged path/memory/clock/frame/outbox candidate.
@@ -167,15 +177,16 @@ intact even when their proposed model is superseded.
 - [ ] macOS Universal IL2CPP with High Managed Stripping completed as the smoke
       target for this Head.
 - [ ] Unity Package Validation Suite passed without adding an unexplained
-      exception, and PVS package/version metadata matches `package.json`.
+      exception, and Unity Package Validation Suite package/version metadata
+      matches `package.json`.
 - [ ] Test result files, allocation/performance evidence, build logs, or
       screenshots are linked below.
 
 ## Evidence
 
 Paste concise command output, Unity test totals, allocation/benchmark summaries,
-AOT build results, Package Validation output, screenshots, logs, or links that
-allow a reviewer to verify the checks above.
+AOT build results, Unity Package Validation Suite output, screenshots, logs, or
+links that allow a reviewer to verify the checks above.
 
 - Reviewed final PR Head SHA:
 - Clean UPM Host import/result:
@@ -183,7 +194,7 @@ allow a reviewer to verify the checks above.
 - Full-package EditMode/PlayMode totals:
 - Allocation summary (100 warm-up / 10,000 measured):
 - macOS Universal IL2CPP + High Stripping artifact/log:
-- PVS result/log:
+- Unity Package Validation Suite result/log:
 - asmdef/JSON/GUID/dependency/hot-path audit summary:
 
 If any fix changes the Head after evidence was captured, mark the affected

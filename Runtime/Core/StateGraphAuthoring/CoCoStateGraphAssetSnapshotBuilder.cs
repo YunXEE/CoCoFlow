@@ -791,7 +791,7 @@ namespace CoCoFlow.Runtime.Core
             Add(ref hash, layers?.Count ?? -1);
             if (layers == null)
             {
-                AddCanonicalEventAdapterDeclarations(ref hash, eventAdapterDeclarations);
+                AddEventAdapterDeclarations(ref hash, eventAdapterDeclarations);
                 return NonZero(hash);
             }
 
@@ -914,7 +914,7 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
-            AddCanonicalEventAdapterDeclarations(ref hash, eventAdapterDeclarations);
+            AddEventAdapterDeclarations(ref hash, eventAdapterDeclarations);
 
             return NonZero(hash);
         }
@@ -958,7 +958,7 @@ namespace CoCoFlow.Runtime.Core
             return NonZero(hash);
         }
 
-        private static void AddCanonicalEventAdapterDeclarations(
+        private static void AddEventAdapterDeclarations(
             ref ulong hash,
             IReadOnlyList<CoCoEventToIntentDeclarationSource> source)
         {
@@ -968,16 +968,9 @@ namespace CoCoFlow.Runtime.Core
                 return;
             }
 
-            var ordered = new CoCoEventToIntentDeclarationSource[source.Count];
             for (int index = 0; index < source.Count; index++)
             {
-                ordered[index] = source[index];
-            }
-
-            Array.Sort(ordered, CompareEventAdapterDeclarations);
-            for (int index = 0; index < ordered.Length; index++)
-            {
-                CoCoEventToIntentDeclarationSource declaration = ordered[index];
+                CoCoEventToIntentDeclarationSource declaration = source[index];
                 if (declaration == null)
                 {
                     Add(ref hash, ulong.MaxValue);
@@ -1017,43 +1010,6 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return NonZero(hash);
-        }
-
-        private static int CompareEventAdapterDeclarations(
-            CoCoEventToIntentDeclarationSource left,
-            CoCoEventToIntentDeclarationSource right)
-        {
-            if (ReferenceEquals(left, right))
-            {
-                return 0;
-            }
-
-            if (left == null)
-            {
-                return -1;
-            }
-
-            if (right == null)
-            {
-                return 1;
-            }
-
-            int comparison = left.EventTypeId.High.CompareTo(right.EventTypeId.High);
-            if (comparison != 0)
-            {
-                return comparison;
-            }
-
-            comparison = left.EventTypeId.Low.CompareTo(right.EventTypeId.Low);
-            if (comparison != 0)
-            {
-                return comparison;
-            }
-
-            comparison = left.ProvidedIntentId.High.CompareTo(right.ProvidedIntentId.High);
-            return comparison != 0
-                ? comparison
-                : left.ProvidedIntentId.Low.CompareTo(right.ProvidedIntentId.Low);
         }
 
         private static ulong ComputeFailedConfigFingerprint(

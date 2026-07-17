@@ -118,15 +118,21 @@ The compiler records graph-level Event-to-Intent declarations. Each declaration
 serializes only one `(EventTypeId, IntentId)` pair; the catalog supplies and the
 compiled declaration captures the Event Domain, unmanaged Event payload type,
 and exact unmanaged Intent value type.
-Declarations are canonicalized by Event and Intent identity, automatically add
-their provided Intent to the Graph's requirements, and cannot exceed that
-Intent's static `MaxContributions` lower bound. One Event may provide several
+Declarations are resolved and validated by Event and Intent identity, retained
+in Asset list order, automatically add their provided Intent to the Graph's
+requirements, and cannot exceed that Intent's static `MaxContributions` lower
+bound. One Event may provide several
 different Intents, but a pair cannot repeat, and one Event identity cannot
 change Domain or payload type. Every Event declaration in one Graph must resolve
 to the same EventDomain; a mixed-Domain Graph is a compile Error. They do not
 select an Adapter implementation,
 instance, priority, broadcast policy, projection capacity, Inbox, or
 reliability policy.
+
+The Asset declaration list is the authoritative Adapter execution order. The
+compiler preserves that declaration index in the immutable manifest. Pre4's
+binding Provider must cover the manifest exactly, but it cannot sort or otherwise
+change the declared runtime order.
 
 Descriptor logic, Conditions, Freezers, and token implementations must live in
 `noEngineReferences` author assemblies whose complete dependency closure is
@@ -196,7 +202,8 @@ runtime binding coverage check. It verifies missing, extra, duplicate, and
 type-exact coverage against the compiled declarations before startup. Runtime
 binding remains outside graph compilation: a missing project Factory keeps a
 Host in `Created`, rather than turning the immutable Asset compile result into
-a scene-dependent error.
+a scene-dependent error. A valid Provider binds the compiled Adapter declarations
+without changing their Asset-defined execution order.
 
 All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
@@ -221,8 +228,12 @@ or Operation Section entry.
   `double.MaxValue`.
 - Timed evaluation sweeps the Tick's progress interval using
   `previous < end && current >= start`, so a large Delta cannot jump over an
-  eligible window. ActionProgress must be finite and monotonic within one leaf
-  Activation; reaching `1` does not complete or exit the State.
+  eligible window. ActionProgress must be finite and monotonically non-decreasing
+  within one leaf Activation; an equal value is a valid stall. Any decrease,
+  including below the last committed value, cancels the candidate and latches
+  Fault. Transactional rollback restores the last committed authority but never
+  permits progress to move backwards. Reaching `1` does not complete or exit the
+  State.
 - Zero Conditions means true. Multiple Conditions are retained in author order
   and evaluated as AND; OR remains internal to a registered Condition rather
   than becoming a public expression tree.

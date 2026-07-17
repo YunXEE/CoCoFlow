@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.CoreContracts")]
 [assembly: InternalsVisibleTo("CoCoFlow.Runtime.Core.StateGraph")]
+[assembly: InternalsVisibleTo("CoCoFlow.Runtime.StateGraphHost")]
 
 namespace CoCoFlow.Runtime.Core
 {

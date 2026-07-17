@@ -78,10 +78,12 @@ Host 运行前，Unity-facing snapshot 边界先深度冻结 Asset，再把纯�
 - Graph Operation Provides；
 - ContextFrame State Requirement。
 
-Intent Manifest 同时携带 Graph 的 canonical Event-to-Intent 静态 declaration。Pre3
+Intent Manifest 同时携带 Graph 的 immutable Event-to-Intent 静态 declaration。Pre3
 校验 Event Domain、Payload Type、Provided Intent Type、contribution capacity 下界，
 以及每 Graph 只能有一个 EventDomain。Pre4 实例化声明的 Adapter，并在 runtime
-binding coverage 不是精确匹配时拒绝 Host Start。
+binding coverage 不是精确匹配时拒绝 Host Start。Adapter 的权威执行顺序来自 Asset
+declaration list，并由 compiled manifest 保留；binding Provider 只能满足声明，不能
+改变这一语义顺序。
 
 Config Freezer 只能写入框架拥有的 typed Schema。字段快照由框架封口、防御复制并计算
 fingerprint；Snapshot 的不可变性不依赖作者自律。
@@ -124,6 +126,10 @@ Transition Tick 始终保留源路径为有效路径，因此可以同 Tick Upda
 目标在下一 Tick Enter + Update。Enter 与 Exit 是独立可选阶段，Update 每 Tick 必跑，
 每 Layer 每 Tick 最多一个 Winner。系统没有 Completion 状态，ActionProgress 到 `1`
 也不会自动退出。
+
+同一 Activation 内，ActionProgress 必须有限且单调非递减；重复当前值是合法停滞。
+任何下降都会取消候选 Tick、保留上一份已提交权威状态并锁存 Fault。事务回滚只是恢复
+上一份已提交权威状态，绝不允许 ActionProgress 倒退。
 
 Layer 与 path depth 给 Operation 写入固定等级：高 Layer 覆盖低 Layer，子 State 覆盖
 父 State。Continuous Section 按字段合成；Discrete Section 只为最终赢家消耗一次
@@ -219,6 +225,9 @@ EventDomain 惰性创建一个 internal Router，并与 ClockDomain 分离。本
 input 直接进入 Host Gateway；跨 Actor Targeted 消息按当前 GraphInstanceId 路由。
 Broadcast 只投递给显式声明对应 Adapter 的 Actor，默认不回送 Source Actor。
 
+当一个 Event 由多个已声明 Adapter 投影时，执行顺序严格采用 compiled manifest 保留的
+Asset declaration-list 顺序。项目 binding Provider 提供精确实现，但不能重排该顺序。
+
 Inbox 只有在绑定到存活且 Bindings 已冻结的 Intent Runtime 后才能进入 Running。Typed
 Lane 必须与该 Runtime 去重后的 Adapter Manifest 精确匹配，包括 EventDomain、
 EventType 和 Payload Type；每条 Lane 的 Capacity 不得超过对应 Adapter 声明的最小
@@ -252,6 +261,14 @@ ContextFrame State。
 Host 在所有 binding 检查成功后才最后注册 Router；Stop/Dispose 首先注销。Domain
 最后一个 Host 离开时释放 internal EventAgent subscription。Pre4 只开放入站能力；
 Pre5 Context commit 成功前，Host outbound seam 不得发布 EventOutbox。
+
+合法的 Runtime 实例生命周期边为 `Created -> Running`、`Running <-> Suspended`、
+`Running/Suspended -> Stopped` 与 `Created/Stopped -> Disposed`。`Created` 不可 Stop，
+Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose()` 与 Unity
+销毁则是不可拒绝的清理，会先在内部把存活实例经由 `Stopped` 拆除且不伪造 Exit。
+停止后的 Host 再次 Start 会创建全新 Runtime 实例。生命周期调用不可重入启动过程或
+正在推进的 Tick；这两个阶段发生 Unity 销毁时，会阻止实例发布或在权威状态交换前取消
+未决候选。
 
 ## Commit 与时间边界
 

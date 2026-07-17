@@ -7,6 +7,73 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
     public sealed class CoCoStateGraphRuntimeSafetyTests
     {
+        [Test]
+        public void CreatedRuntimeRejectsStopAndPreservesCreatedState()
+        {
+            SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
+
+            Assert.IsFalse(setup.Runtime.TryStop(out CoCoDiagnostic diagnostic));
+
+            Assert.IsTrue(diagnostic.IsError);
+            Assert.AreEqual(CoCoDiagnosticDomain.Lifecycle, diagnostic.Domain);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.InvalidLifecycleTransition,
+                diagnostic.Code);
+            Assert.AreEqual(CoCoRuntimeLifecycleState.Created, setup.Runtime.Lifecycle);
+            Assert.IsFalse(setup.Runtime.IsFaulted);
+        }
+
+        [TestCase(CoCoRuntimeLifecycleState.Running)]
+        [TestCase(CoCoRuntimeLifecycleState.Suspended)]
+        public void RunningAndSuspendedRuntimeStopThroughFrozenEdge(
+            CoCoRuntimeLifecycleState initialState)
+        {
+            SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
+            Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            if (initialState == CoCoRuntimeLifecycleState.Suspended)
+            {
+                Assert.IsTrue(
+                    setup.Runtime.TrySuspend(out CoCoDiagnostic suspend),
+                    suspend.Message);
+            }
+
+            Assert.IsTrue(setup.Runtime.TryStop(out CoCoDiagnostic stop), stop.Message);
+
+            Assert.AreEqual(CoCoRuntimeLifecycleState.Stopped, setup.Runtime.Lifecycle);
+            Assert.IsFalse(setup.Runtime.IsFaulted);
+        }
+
+        [TestCase(CoCoRuntimeLifecycleState.Created)]
+        [TestCase(CoCoRuntimeLifecycleState.Running)]
+        [TestCase(CoCoRuntimeLifecycleState.Suspended)]
+        [TestCase(CoCoRuntimeLifecycleState.Stopped)]
+        public void DisposeClosesEveryLiveRuntimeThroughFrozenEdges(
+            CoCoRuntimeLifecycleState initialState)
+        {
+            SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
+            if (initialState != CoCoRuntimeLifecycleState.Created)
+            {
+                Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            }
+
+            if (initialState == CoCoRuntimeLifecycleState.Suspended)
+            {
+                Assert.IsTrue(
+                    setup.Runtime.TrySuspend(out CoCoDiagnostic suspend),
+                    suspend.Message);
+            }
+            else if (initialState == CoCoRuntimeLifecycleState.Stopped)
+            {
+                Assert.IsTrue(setup.Runtime.TryStop(out CoCoDiagnostic stop), stop.Message);
+            }
+
+            Assert.DoesNotThrow(setup.Runtime.Dispose);
+
+            Assert.AreEqual(CoCoRuntimeLifecycleState.Disposed, setup.Runtime.Lifecycle);
+            Assert.DoesNotThrow(setup.Runtime.Dispose);
+            Assert.AreEqual(CoCoRuntimeLifecycleState.Disposed, setup.Runtime.Lifecycle);
+        }
+
         [TestCase(ReentryAction.Suspend)]
         [TestCase(ReentryAction.Stop)]
         [TestCase(ReentryAction.Step)]
