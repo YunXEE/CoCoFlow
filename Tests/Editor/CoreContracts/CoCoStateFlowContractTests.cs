@@ -35,8 +35,11 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(frame.TryBegin(
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoOperationFrameWriter writer));
-            Assert.IsTrue(writer.Seal());
-            Assert.IsTrue(frame.IsSealed);
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.IsValid);
+            Assert.AreSame(registry, finalized.Registry);
+            Assert.IsTrue(finalized.Commit());
+            Assert.IsFalse(finalized.IsValid);
         }
 
         [Test]
@@ -295,10 +298,11 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(frame.TryBegin(
                 CreateTickFrame(1UL, 1UL, 1UL),
                 out CoCoOperationFrameWriter writer));
-            Assert.IsTrue(writer.Seal());
-            Assert.IsFalse(frame.TryGet(
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsFalse(finalized.TryGet(
                 foreignHandle,
                 out CoCoOperationSectionEntry<IAlternateMovementSection> _));
+            Assert.IsTrue(finalized.Commit());
         }
 
         [Test]
@@ -411,50 +415,246 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(writer.Write(distanceField, 6));
             Assert.IsTrue(writer.Write(damageField, 12));
             Assert.IsTrue(CoCoActivationId.TryCreate(5UL, out CoCoActivationId activationId));
-            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId, out CoCoOperationSequence sequence));
-            Assert.AreEqual(1UL, sequence.Value);
-            Assert.IsTrue(writer.Seal());
-            Assert.IsTrue(frame.TryGet(
+            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(
                 movementHandle,
                 out CoCoOperationSectionEntry<IMovementSection> movement));
-            Assert.IsTrue(frame.TryGet(
+            Assert.IsTrue(finalized.TryGet(
                 attackHandle,
                 out CoCoOperationSectionEntry<IAttackSection> attack));
             Assert.IsTrue(movement.Header.Enabled);
             Assert.AreEqual(6, movement.View.Distance);
             Assert.IsTrue(attack.Header.Enabled);
             Assert.AreEqual(activationId, attack.Header.ActivationId);
-            Assert.AreEqual(sequence, attack.Header.OperationSequence);
+            Assert.AreEqual(1UL, attack.Header.OperationSequence.Value);
             Assert.AreEqual(12, attack.View.Damage);
+            Assert.IsTrue(finalized.Commit());
 
             Assert.IsFalse(frame.TryBegin(CreateTickFrame(1UL, 1UL, 2UL), out _));
 
             IMovementSection reusedView = movement.View;
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(2UL, 1UL, 2UL), out writer));
-            Assert.IsTrue(writer.Seal());
-            Assert.IsTrue(frame.TryGet(movementHandle, out movement));
-            Assert.IsTrue(frame.TryGet(attackHandle, out attack));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(movementHandle, out movement));
+            Assert.IsTrue(finalized.TryGet(attackHandle, out attack));
             Assert.IsTrue(movement.Header.Enabled);
             Assert.AreEqual(0, movement.View.Distance);
             Assert.AreSame(reusedView, movement.View);
             Assert.IsFalse(attack.Header.Enabled);
             Assert.AreEqual(0, attack.View.Damage);
+            Assert.IsTrue(finalized.Commit());
 
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(3UL, 2UL, 3UL), out writer));
-            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId, out CoCoOperationSequence cancelled));
-            Assert.AreEqual(1UL, cancelled.Value);
-            Assert.IsTrue(writer.Cancel());
+            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(attackHandle, out attack));
+            Assert.AreEqual(1UL, attack.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Cancel());
 
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(3UL, 1UL, 4UL), out writer));
-            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId, out CoCoOperationSequence continued));
-            Assert.AreEqual(2UL, continued.Value);
-            Assert.IsTrue(writer.Seal());
+            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(attackHandle, out attack));
+            Assert.AreEqual(2UL, attack.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Commit());
 
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(4UL, 2UL, 5UL), out writer));
-            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId, out CoCoOperationSequence newEpoch));
-            Assert.AreEqual(1UL, newEpoch.Value);
-            Assert.IsTrue(writer.Seal());
+            Assert.IsTrue(writer.EnableDiscrete(attackHandle, activationId));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(attackHandle, out attack));
+            Assert.AreEqual(1UL, attack.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Commit());
             Assert.IsFalse(frame.TryBegin(CreateTickFrame(5UL, 1UL, 6UL), out _));
+        }
+
+        [Test]
+        public void OperationFrameComposesContinuousFieldsIndependentlyByRank()
+        {
+            CreateContinuousPairOperationFrame(
+                92UL,
+                out CoCoOperationFrame frame,
+                out CoCoOperationSectionHandle<IContinuousPairSection> handle,
+                out CoCoOperationSectionField<int> horizontalField,
+                out CoCoOperationSectionField<int> verticalField);
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                1,
+                out CoCoOperationWriteRank parentRank));
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                2,
+                out CoCoOperationWriteRank childRank));
+
+            Assert.IsTrue(frame.TryBegin(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.Write(parentRank, horizontalField, 1));
+            Assert.IsTrue(writer.Write(childRank, verticalField, 20));
+            Assert.IsTrue(writer.Write(parentRank, horizontalField, 2));
+            Assert.IsTrue(writer.Write(parentRank, verticalField, 10));
+            Assert.IsTrue(writer.Write(childRank, horizontalField, 3));
+            Assert.IsTrue(writer.Write(childRank, horizontalField, 4));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(
+                handle,
+                out CoCoOperationSectionEntry<IContinuousPairSection> entry));
+            Assert.AreEqual(4, entry.View.Horizontal);
+            Assert.AreEqual(20, entry.View.Vertical);
+            Assert.IsTrue(finalized.Commit());
+        }
+
+        [Test]
+        public void OperationFrameParentExitCannotOverwriteChildContribution()
+        {
+            CreateMovementOperationFrame(
+                93UL,
+                out CoCoOperationFrame frame,
+                out CoCoOperationSectionHandle<IMovementSection> handle,
+                out CoCoOperationSectionField<int> distanceField);
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                1,
+                out CoCoOperationWriteRank parentRank));
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                2,
+                out CoCoOperationWriteRank childRank));
+
+            Assert.IsTrue(frame.TryBegin(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.Write(childRank, distanceField, 8));
+            Assert.IsTrue(
+                writer.Write(parentRank, distanceField, -1),
+                "A lower-ranked parent Exit contribution is accepted but cannot replace its child.");
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(
+                handle,
+                out CoCoOperationSectionEntry<IMovementSection> entry));
+            Assert.AreEqual(8, entry.View.Distance);
+            Assert.IsTrue(finalized.Commit());
+        }
+
+        [Test]
+        public void OperationFrameHigherLayerOverridesDeeperPathInLowerLayer()
+        {
+            CreateMovementOperationFrame(
+                94UL,
+                out CoCoOperationFrame frame,
+                out CoCoOperationSectionHandle<IMovementSection> handle,
+                out CoCoOperationSectionField<int> distanceField);
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                99,
+                out CoCoOperationWriteRank deepLowerLayer));
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                1,
+                0,
+                out CoCoOperationWriteRank shallowHigherLayer));
+
+            Assert.IsTrue(frame.TryBegin(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.Write(deepLowerLayer, distanceField, 7));
+            Assert.IsTrue(writer.Write(shallowHigherLayer, distanceField, 9));
+            Assert.IsTrue(writer.Write(deepLowerLayer, distanceField, 11));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(
+                handle,
+                out CoCoOperationSectionEntry<IMovementSection> entry));
+            Assert.AreEqual(9, entry.View.Distance);
+            Assert.IsTrue(finalized.Commit());
+        }
+
+        [Test]
+        public void OperationFrameDiscreteWinnerGetsOneSequenceAtFinalizeAndCommit()
+        {
+            CreateAttackOperationFrame(
+                95UL,
+                out CoCoOperationFrame frame,
+                out CoCoOperationSectionHandle<IAttackSection> handle);
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                0,
+                out CoCoOperationWriteRank lowerRank));
+            Assert.IsTrue(CoCoOperationWriteRank.TryCreate(
+                0,
+                1,
+                out CoCoOperationWriteRank higherRank));
+            Assert.IsTrue(CoCoActivationId.TryCreate(1UL, out CoCoActivationId firstActivation));
+            Assert.IsTrue(CoCoActivationId.TryCreate(2UL, out CoCoActivationId secondActivation));
+            Assert.IsTrue(CoCoActivationId.TryCreate(3UL, out CoCoActivationId finalActivation));
+            CoCoTickFrame firstTick = CreateTickFrame(1UL, 1UL, 1UL);
+
+            Assert.IsTrue(frame.TryBegin(firstTick, out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.EnableDiscrete(lowerRank, handle, firstActivation));
+            Assert.IsTrue(writer.EnableDiscrete(higherRank, handle, secondActivation));
+            Assert.IsTrue(writer.EnableDiscrete(lowerRank, handle, firstActivation));
+            Assert.IsTrue(writer.EnableDiscrete(higherRank, handle, finalActivation));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(
+                handle,
+                out CoCoOperationSectionEntry<IAttackSection> entry));
+            Assert.AreEqual(finalActivation, entry.Header.ActivationId);
+            Assert.AreEqual(1UL, entry.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Cancel());
+
+            Assert.IsTrue(frame.TryBegin(firstTick, out writer));
+            Assert.IsTrue(writer.EnableDiscrete(higherRank, handle, finalActivation));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(handle, out entry));
+            Assert.AreEqual(1UL, entry.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Commit());
+
+            Assert.IsTrue(frame.TryBegin(
+                CreateTickFrame(2UL, 1UL, 2UL),
+                out writer));
+            Assert.IsTrue(writer.EnableDiscrete(lowerRank, handle, firstActivation));
+            Assert.IsTrue(writer.EnableDiscrete(higherRank, handle, secondActivation));
+            Assert.IsTrue(writer.EnableDiscrete(higherRank, handle, finalActivation));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.TryGet(handle, out entry));
+            Assert.AreEqual(finalActivation, entry.Header.ActivationId);
+            Assert.AreEqual(2UL, entry.Header.OperationSequence.Value);
+            Assert.IsTrue(finalized.Commit());
+        }
+
+        [Test]
+        public void OperationFrameFinalizeCancelRollsBackWhileCommitAdvancesTick()
+        {
+            CreateMovementOperationFrame(
+                96UL,
+                out CoCoOperationFrame frame,
+                out _,
+                out CoCoOperationSectionField<int> distanceField);
+            CoCoTickFrame firstTick = CreateTickFrame(1UL, 1UL, 1UL);
+
+            Assert.IsTrue(frame.TryBegin(firstTick, out CoCoOperationFrameWriter writer));
+            Assert.IsTrue(writer.Write(distanceField, 1));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsFalse(writer.IsValid);
+            Assert.IsFalse(frame.TryBegin(CreateTickFrame(2UL, 1UL, 2UL), out _));
+            Assert.IsTrue(finalized.Cancel());
+            Assert.IsFalse(finalized.IsValid);
+
+            Assert.IsTrue(frame.TryBegin(firstTick, out writer));
+            Assert.IsTrue(writer.Write(distanceField, 2));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.Commit());
+            Assert.IsFalse(finalized.Commit());
+            Assert.IsFalse(frame.TryBegin(firstTick, out _));
+
+            CoCoTickFrame secondTick = CreateTickFrame(2UL, 1UL, 2UL);
+            Assert.IsTrue(frame.TryBegin(secondTick, out writer));
+            Assert.IsTrue(writer.Write(distanceField, 3));
+            Assert.IsTrue(writer.Cancel());
+            Assert.IsTrue(frame.TryBegin(secondTick, out writer));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.Cancel());
+            Assert.IsTrue(frame.TryBegin(secondTick, out writer));
+            Assert.IsTrue(writer.TryFinalize(out finalized));
+            Assert.IsTrue(finalized.Commit());
         }
 
         [Test]
@@ -491,11 +691,12 @@ namespace CoCoFlow.Runtime.Core.Tests
             var value = new NestedValue(17, true, 9);
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(1UL, 1UL, 1UL), out CoCoOperationFrameWriter writer));
             Assert.IsTrue(writer.Write(field, value));
-            Assert.IsTrue(writer.Seal());
-            Assert.IsTrue(frame.TryGet(handle, out CoCoOperationSectionEntry<INestedValueSection> entry));
+            Assert.IsTrue(writer.TryFinalize(out CoCoFinalizedOperationFrame finalized));
+            Assert.IsTrue(finalized.TryGet(handle, out CoCoOperationSectionEntry<INestedValueSection> entry));
             Assert.AreEqual(17, entry.View.Value.Count);
             Assert.IsTrue(entry.View.Value.Flags.Enabled);
             Assert.AreEqual(9, entry.View.Value.Flags.Code);
+            Assert.IsTrue(finalized.Commit());
         }
 
         [Test]
@@ -2335,6 +2536,96 @@ namespace CoCoFlow.Runtime.Core.Tests
                 roleType.FullName);
         }
 
+        private static void CreateContinuousPairOperationFrame(
+            ulong seed,
+            out CoCoOperationFrame frame,
+            out CoCoOperationSectionHandle<IContinuousPairSection> handle,
+            out CoCoOperationSectionField<int> horizontalField,
+            out CoCoOperationSectionField<int> verticalField)
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+            Assert.IsTrue(builder.TryRegister(
+                CreateSectionId(seed, 1UL),
+                CoCoOperationSectionMode.Continuous,
+                new ContinuousPairViewFactory(),
+                out CoCoOperationSectionRequirement requirement,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(seed, 2UL),
+                out CoCoOperationSectionRegistry registry,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(registry.TryResolve(requirement, out handle));
+            Assert.IsTrue(registry.TryResolveField(handle, 0, out horizontalField));
+            Assert.IsTrue(registry.TryResolveField(handle, 1, out verticalField));
+            Assert.IsTrue(CoCoOperationFrame.TryCreate(
+                registry,
+                CreateGraphInstanceId(seed),
+                new[] { requirement },
+                out frame,
+                out diagnostic),
+                diagnostic.Message);
+        }
+
+        private static void CreateMovementOperationFrame(
+            ulong seed,
+            out CoCoOperationFrame frame,
+            out CoCoOperationSectionHandle<IMovementSection> handle,
+            out CoCoOperationSectionField<int> distanceField)
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+            Assert.IsTrue(builder.TryRegister(
+                CreateSectionId(seed, 1UL),
+                CoCoOperationSectionMode.Continuous,
+                new MovementViewFactory(),
+                out CoCoOperationSectionRequirement requirement,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(seed, 2UL),
+                out CoCoOperationSectionRegistry registry,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(registry.TryResolve(requirement, out handle));
+            Assert.IsTrue(registry.TryResolveField(handle, 0, out distanceField));
+            Assert.IsTrue(CoCoOperationFrame.TryCreate(
+                registry,
+                CreateGraphInstanceId(seed),
+                new[] { requirement },
+                out frame,
+                out diagnostic),
+                diagnostic.Message);
+        }
+
+        private static void CreateAttackOperationFrame(
+            ulong seed,
+            out CoCoOperationFrame frame,
+            out CoCoOperationSectionHandle<IAttackSection> handle)
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+            Assert.IsTrue(builder.TryRegister(
+                CreateSectionId(seed, 1UL),
+                CoCoOperationSectionMode.Discrete,
+                new AttackViewFactory(),
+                out CoCoOperationSectionRequirement requirement,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze(
+                CreateLayoutId(seed, 2UL),
+                out CoCoOperationSectionRegistry registry,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(registry.TryResolve(requirement, out handle));
+            Assert.IsTrue(CoCoOperationFrame.TryCreate(
+                registry,
+                CreateGraphInstanceId(seed),
+                new[] { requirement },
+                out frame,
+                out diagnostic),
+                diagnostic.Message);
+        }
+
         private static void AssertInvalidSection<TSection>()
             where TSection : class, ICoCoOperationSection
         {
@@ -2364,6 +2655,12 @@ namespace CoCoFlow.Runtime.Core.Tests
         private interface IMovementSection : ICoCoOperationSection
         {
             int Distance { get; }
+        }
+
+        private interface IContinuousPairSection : ICoCoOperationSection
+        {
+            int Horizontal { get; }
+            int Vertical { get; }
         }
 
         private interface IManifestOnlySection : ICoCoOperationSection
@@ -2468,6 +2765,26 @@ namespace CoCoFlow.Runtime.Core.Tests
             public int Distance => _reader.Read(_distanceField);
         }
 
+        private sealed class ContinuousPairView : IContinuousPairSection
+        {
+            private readonly CoCoOperationSectionReader _reader;
+            private readonly CoCoOperationSectionField<int> _horizontalField;
+            private readonly CoCoOperationSectionField<int> _verticalField;
+
+            public ContinuousPairView(
+                CoCoOperationSectionReader reader,
+                CoCoOperationSectionField<int> horizontalField,
+                CoCoOperationSectionField<int> verticalField)
+            {
+                _reader = reader;
+                _horizontalField = horizontalField;
+                _verticalField = verticalField;
+            }
+
+            public int Horizontal => _reader.Read(_horizontalField);
+            public int Vertical => _reader.Read(_verticalField);
+        }
+
         private sealed class AlternateMovementView : IAlternateMovementSection
         {
             public int Distance => 0;
@@ -2522,6 +2839,26 @@ namespace CoCoFlow.Runtime.Core.Tests
                 }
 
                 return new MovementView(context.Reader, field);
+            }
+        }
+
+        private sealed class ContinuousPairViewFactory :
+            ICoCoOperationSectionViewFactory<IContinuousPairSection>
+        {
+            public IContinuousPairSection Create(
+                in CoCoOperationSectionViewContext<IContinuousPairSection> context)
+            {
+                if (!context.TryGetField(0, out CoCoOperationSectionField<int> horizontalField) ||
+                    !context.TryGetField(1, out CoCoOperationSectionField<int> verticalField))
+                {
+                    throw new InvalidOperationException(
+                        "Continuous pair fields were not pre-resolved.");
+                }
+
+                return new ContinuousPairView(
+                    context.Reader,
+                    horizontalField,
+                    verticalField);
             }
         }
 
