@@ -5,6 +5,74 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.4] - 2026-07-17
+
+### Added
+
+- An engine-independent StateGraph Runtime with per-Host StateLogic, Condition,
+  double Memory banks, ActiveLeaf state, Actor Clock, staged Tick, and latched
+  Fault ownership; multiple Hosts share only the immutable compiled graph.
+- Pure C# State callbacks with optional `OnEnter`, mandatory `Update`, and
+  optional `OnExit`, including parent-to-child Enter, root-to-leaf Update, and
+  leaf-to-parent Exit ordering.
+- Declaration-and-evaluation Transition handling: leaf Update may request
+  several precompiled outgoing handles, then windows, Conditions, and explicit
+  Priority produce at most one winner per Layer and Tick.
+- Activation-scoped `LocalSeconds` and `ActionProgress` windows with half-open
+  sweep evaluation, large-Delta crossing support, monotonic progress checks,
+  and no implicit exit when progress reaches one.
+- Ranked Operation composition where later Layers override earlier Layers and
+  children override parents, with field-level Continuous merging and final-only
+  Discrete sequence allocation.
+- A transactional OperationFrame
+  `TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit/Cancel`
+  protocol. Finalize freezes a candidate without consuming Sequence or LastTick.
+- `CoCoStateGraphHost` as the only new public MonoBehaviour and the Actor's
+  unified gameplay-event boundary, backed by internal Clock/Driver, Gateway,
+  per-Domain Router, Inbox, Registry, and EventAgent bridge objects.
+- Exact immutable runtime binding coverage for State, Condition, Memory, Intent
+  Source, and Event Adapter factories. A mismatch fails Host startup before any
+  callback, Tick, or Router registration.
+- Typed local, Targeted, and declared-broadcast event ingress using atomic
+  `CoCoEventPacket<TEvent>` values, next-Tick Inbox sealing, bounded Suspend
+  accumulation, Fault gating, and lifecycle-safe Router registration.
+
+### Changed
+
+- Redefined the prerelease StateGraph Schema v1 in place. Transition endpoints
+  must be leaves, outgoing Priority is explicit and unique per source leaf, and
+  all Event declarations in one Graph must belong to one EventDomain.
+- Made Asset Layer list order the runtime composition order from low to high.
+  Reordering changes the content fingerprint and `DenseIndex` order without
+  changing stable Layer IDs.
+- Kept a Transition Tick on its source path through Update and Exit; the
+  committed target enters and updates on the next accepted Tick. A self-loop
+  reactivates only the leaf and resets its Activation and Memory.
+- Made Start select initial leaves and queue Enter work without invoking user
+  callbacks. Suspend preserves the instance and bounded Inbox; Stop discards it
+  without synthesizing an Exit Tick.
+- Updated the package version and the two existing Package Validation Suite
+  exception scopes to `0.4.0-pre.4`; no dependency or new exception was added.
+
+### Removed
+
+- Framework-level Completion, `RequireSourceCompletion`,
+  `AllowDuringSourceActivation`, and the entire InterruptPolicy surface.
+- Equal-Priority tie breaking within one source leaf, composite-State
+  Transition endpoints, and any implication that ActionProgress reaching one
+  automatically exits a State.
+
+### Deferred
+
+- Pre5 owns the explicit Host Operator list, Operator contracts/execution,
+  Outcome aggregation, ContextFrame commit, and committed EventOutbox
+  publication. Pre4 intentionally exposes no production commit shortcut.
+- Pre6 owns Temporal history, Restore, rewind, and new TimelineEpoch creation;
+  Pre11 owns Animator/Playable/SMB replacement and visual reverse mapping.
+- Network Drivers, durable persistence, production Samples, cross-Layer calls,
+  queries, signals, Transitions, arbitrary `ChangeState`, and 0.3.9 runtime or
+  experimental Pre3 Asset migration are not part of Pre4.
+
 ## [0.4.0-pre.3] - 2026-07-16
 
 ### Added
