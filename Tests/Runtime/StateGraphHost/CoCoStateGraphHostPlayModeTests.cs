@@ -143,6 +143,83 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TeardownReentryDuringFinalizeIsRejectedWithoutBreakingAcceptedTick(
+            bool dispose)
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: true);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            var coordinator = new ReentrantTeardownCoordinator(dispose);
+            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
+                coordinator,
+                out CoCoDiagnostic coordinatorInstall));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            Require(host.TryStart(out CoCoDiagnostic start));
+
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            CoCoStateGraphHostRuntimeBindings bindings = GetBindings(host);
+            CoCoGraphInstanceId graphInstanceId = host.GraphInstanceId;
+            CoCoStateId activeLeaf = host.ActivePaths[0].ActiveLeaf;
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.EqualTo(1));
+
+            Require(host.TryStep(0.02d, out CoCoDiagnostic firstStep));
+
+            Assert.That(coordinator.Attempted, Is.True);
+            Assert.That(coordinator.TeardownResult, Is.False);
+            Assert.That(
+                coordinator.TeardownDiagnostic.Domain,
+                Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(
+                coordinator.TeardownDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+            Assert.That(GetRuntime(host), Is.SameAs(runtime));
+            Assert.That(GetBindings(host), Is.SameAs(bindings));
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            Assert.That(host.Fault.IsFaulted, Is.False);
+            Assert.That(host.GraphInstanceId, Is.EqualTo(graphInstanceId));
+            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(activeLeaf));
+            Assert.That(runtime.Clock.Tick.Value, Is.EqualTo(1UL));
+            Assert.That(GetCommittedMemoryValue(runtime), Is.EqualTo(1));
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.EqualTo(1));
+
+            Require(host.TryStep(0.02d, out CoCoDiagnostic secondStep));
+            Assert.That(runtime.Clock.Tick.Value, Is.EqualTo(2UL));
+            Assert.That(GetCommittedMemoryValue(runtime), Is.EqualTo(2));
+            Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
+            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void SynchronousDestroyDuringFinalizeDefersTeardownUntilTickResolution()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: true);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            var coordinator = new DestroyingCoordinator();
+            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
+                coordinator,
+                out CoCoDiagnostic coordinatorInstall));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            Require(host.TryStart(out CoCoDiagnostic start));
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            bool stepped = false;
+            CoCoDiagnostic step = default;
+
+            Assert.DoesNotThrow(() => stepped = host.TryStep(0.02d, out step));
+
+            Assert.That(stepped, Is.True, step.Message);
+            Assert.That(coordinator.Called, Is.True);
+            Assert.That(host == null, Is.True);
+            Assert.That(runtime.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Disposed));
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+            Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
+            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(1));
+        }
+
         [Test]
         public void RunningDisposeUnregistersRouterWithoutExitAndIsSingleUse()
         {
@@ -980,6 +1057,66 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoContextFrame committedContext,
                 out CoCoDiagnostic diagnostic)
             {
+                decision = CoCoStateGraphTransactionDecision.Accept;
+                committedContext = previousContext;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+        }
+
+        private sealed class ReentrantTeardownCoordinator :
+            ICoCoStateGraphTransactionCoordinator
+        {
+            private readonly bool _dispose;
+
+            public ReentrantTeardownCoordinator(bool dispose)
+            {
+                _dispose = dispose;
+            }
+
+            public bool Attempted { get; private set; }
+            public bool TeardownResult { get; private set; }
+            public CoCoDiagnostic TeardownDiagnostic { get; private set; }
+
+            public bool TryFinalize(
+                CoCoStateGraphHost host,
+                in CoCoStagedGraphStep stagedStep,
+                in CoCoContextFrame previousContext,
+                out CoCoStateGraphTransactionDecision decision,
+                out CoCoContextFrame committedContext,
+                out CoCoDiagnostic diagnostic)
+            {
+                if (!Attempted)
+                {
+                    Attempted = true;
+                    CoCoDiagnostic teardownDiagnostic;
+                    TeardownResult = _dispose
+                        ? host.TryDispose(out teardownDiagnostic)
+                        : host.TryStop(out teardownDiagnostic);
+                    TeardownDiagnostic = teardownDiagnostic;
+                }
+
+                decision = CoCoStateGraphTransactionDecision.Accept;
+                committedContext = previousContext;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+        }
+
+        private sealed class DestroyingCoordinator : ICoCoStateGraphTransactionCoordinator
+        {
+            public bool Called { get; private set; }
+
+            public bool TryFinalize(
+                CoCoStateGraphHost host,
+                in CoCoStagedGraphStep stagedStep,
+                in CoCoContextFrame previousContext,
+                out CoCoStateGraphTransactionDecision decision,
+                out CoCoContextFrame committedContext,
+                out CoCoDiagnostic diagnostic)
+            {
+                Called = true;
+                UnityEngine.Object.DestroyImmediate(host.gameObject);
                 decision = CoCoStateGraphTransactionDecision.Accept;
                 committedContext = previousContext;
                 diagnostic = CoCoDiagnostic.None;

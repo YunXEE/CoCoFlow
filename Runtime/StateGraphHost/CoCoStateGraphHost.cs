@@ -29,6 +29,8 @@ namespace CoCoFlow.Runtime.Core
         private CoCoDiagnostic _lastDiagnostic;
         private int _lastAutomaticFrame = -1;
         private bool _reliableOverflowPending;
+        private bool _isAdvancing;
+        private bool _destroyRequested;
 
         public CoCoStateGraphAsset StateGraphAsset => stateGraphAsset;
         internal CoCoStateGraphDriver Driver => driver;
@@ -76,11 +78,22 @@ namespace CoCoFlow.Runtime.Core
 
         private void OnDestroy()
         {
+            if (_isAdvancing)
+            {
+                _destroyRequested = true;
+                return;
+            }
+
             DisposeHost();
         }
 
         public bool TryStart(out CoCoDiagnostic diagnostic)
         {
+            if (RejectLifecycleReentry(out diagnostic))
+            {
+                return false;
+            }
+
             if (_lifecycle != CoCoRuntimeLifecycleState.Created &&
                 _lifecycle != CoCoRuntimeLifecycleState.Stopped)
             {
@@ -251,6 +264,11 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TrySuspend(out CoCoDiagnostic diagnostic)
         {
+            if (RejectLifecycleReentry(out diagnostic))
+            {
+                return false;
+            }
+
             diagnostic = CoCoDiagnostic.None;
             if (_runtime == null || _runtime.IsFaulted)
             {
@@ -290,6 +308,11 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryResume(out CoCoDiagnostic diagnostic)
         {
+            if (RejectLifecycleReentry(out diagnostic))
+            {
+                return false;
+            }
+
             diagnostic = CoCoDiagnostic.None;
             if (_runtime == null || _runtime.IsFaulted || LatchPendingOverflow(out diagnostic))
             {
@@ -327,6 +350,11 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryStop(out CoCoDiagnostic diagnostic)
         {
+            if (RejectLifecycleReentry(out diagnostic))
+            {
+                return false;
+            }
+
             if (_runtime == null ||
                 _lifecycle == CoCoRuntimeLifecycleState.Stopped ||
                 _lifecycle == CoCoRuntimeLifecycleState.Disposed)
@@ -338,7 +366,20 @@ namespace CoCoFlow.Runtime.Core
 
             // Unregister first so no packet can target a tearing-down instance.
             _bindings?.UnregisterRouter();
-            _runtime.TryStop(out diagnostic);
+            if (!_runtime.TryStop(out diagnostic))
+            {
+                if (_bindings != null && !_bindings.RegisterRouter(this))
+                {
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.DuplicateIdentifier,
+                        "Host could not restore Router registration after Stop was rejected.");
+                    _runtime.TryLatchExternalFault(diagnostic);
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
             DisposeInstance();
             _lifecycle = CoCoRuntimeLifecycleState.Stopped;
             _lastDiagnostic = diagnostic;
@@ -347,6 +388,11 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryDispose(out CoCoDiagnostic diagnostic)
         {
+            if (RejectLifecycleReentry(out diagnostic))
+            {
+                return false;
+            }
+
             if (_lifecycle == CoCoRuntimeLifecycleState.Disposed)
             {
                 diagnostic = LifecycleError("Host has already been disposed.");
@@ -427,6 +473,31 @@ namespace CoCoFlow.Runtime.Core
         }
 
         private bool TryAdvance(double deltaTime, out CoCoDiagnostic diagnostic)
+        {
+            if (_isAdvancing)
+            {
+                diagnostic = LifecycleError("StateGraph Host cannot reenter its active Tick.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            _isAdvancing = true;
+            try
+            {
+                return TryAdvanceCore(deltaTime, out diagnostic);
+            }
+            finally
+            {
+                _isAdvancing = false;
+                if (_destroyRequested)
+                {
+                    _destroyRequested = false;
+                    DisposeHost();
+                }
+            }
+        }
+
+        private bool TryAdvanceCore(double deltaTime, out CoCoDiagnostic diagnostic)
         {
             ICoCoStateGraphTransactionCoordinator coordinator =
                 CoCoStateGraphTransactionCoordinatorRegistry.Current;
@@ -613,6 +684,20 @@ namespace CoCoFlow.Runtime.Core
                 "A reliable Event overflowed this Actor Inbox.");
             _runtime.TryLatchExternalFault(diagnostic);
             _reliableOverflowPending = false;
+            return true;
+        }
+
+        private bool RejectLifecycleReentry(out CoCoDiagnostic diagnostic)
+        {
+            if (!_isAdvancing)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return false;
+            }
+
+            diagnostic = LifecycleError(
+                "StateGraph Host lifecycle cannot change while a Tick is advancing.");
+            _lastDiagnostic = diagnostic;
             return true;
         }
 
