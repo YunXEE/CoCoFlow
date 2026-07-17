@@ -24,7 +24,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             bool includeManifestRequirements,
             uint descriptorRevision = 1U,
             ulong intentFactorySemanticFingerprint = 101UL,
-            ulong operationFactorySemanticFingerprint = 102UL)
+            ulong operationFactorySemanticFingerprint = 102UL,
+            bool providesActionProgress = false)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             CoCoIntentId[] intents = null;
@@ -73,7 +74,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 new CoCoStateRuntimeRegistration<
                     TestStateLogic,
                     TestStateConfigSchema,
-                    TestActivationMemory>(TestFrozenConfigSchemas.StateSchema),
+                    TestActivationMemory>(
+                    TestFrozenConfigSchemas.StateSchema,
+                    providesActionProgress),
                 intents,
                 operations,
                 blocks,
@@ -86,7 +89,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     TestStateCondition,
                     TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
                 intents,
-                operations,
                 blocks,
                 out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic);
             Require(builder.TryFreeze(
@@ -124,7 +126,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 SecondChildStateId,
                 10,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 new[]
                 {
                     new CoCoConditionSource(ConditionDescriptorId, ConditionConfig(5))
@@ -135,7 +136,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 FirstChildStateId,
                 5,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 Array.Empty<CoCoConditionSource>());
             CoCoTransitionSource[] transitions = reverseInputOrder
                 ? new[] { secondTransition, firstTransition }

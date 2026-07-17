@@ -24,7 +24,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 missingTarget,
                 0,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 Array.Empty<CoCoConditionSource>());
             var layer = new CoCoStateLayerSource(
                 CoCoStateGraphTestFactory.LayerId,
@@ -161,7 +160,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 secondLayerStateId,
                 0,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 Array.Empty<CoCoConditionSource>());
             var firstLayer = new CoCoStateLayerSource(
                 CoCoStateGraphTestFactory.LayerId,
@@ -287,7 +285,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void InvalidTransitionWindowAndInterruptPolicyAreBothReported()
+        public void InvalidTransitionWindowIsReported()
         {
             var transition = new CoCoTransitionSource(
                 CoCoStateGraphTestFactory.FirstTransitionId,
@@ -295,7 +293,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphTestFactory.RootStateId,
                 0,
                 default,
-                CoCoTransitionInterruptPolicy.None,
                 Array.Empty<CoCoConditionSource>());
             var layer = new CoCoStateLayerSource(
                 CoCoStateGraphTestFactory.LayerId,
@@ -318,10 +315,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 result,
                 CoCoDiagnosticCode.InvalidTransitionWindow,
                 CoCoGraphField.Window);
-            RequireDiagnostic(
-                result,
-                CoCoDiagnosticCode.InvalidInterruptPolicy,
-                CoCoGraphField.InterruptPolicy);
         }
 
         [TestCase(CoCoTransitionWindowMode.LocalSeconds, 0d, 1d, true)]
@@ -331,10 +324,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [TestCase(CoCoTransitionWindowMode.LocalSeconds, double.NaN, 1d, false)]
         [TestCase(CoCoTransitionWindowMode.LocalSeconds, 0d, double.PositiveInfinity, false)]
         [TestCase(CoCoTransitionWindowMode.LocalSeconds, double.NegativeInfinity, 1d, false)]
-        [TestCase(CoCoTransitionWindowMode.Normalized, 0d, 1d, true)]
-        [TestCase(CoCoTransitionWindowMode.Normalized, 0.25d, 0.75d, true)]
-        [TestCase(CoCoTransitionWindowMode.Normalized, 0d, 1.000001d, false)]
-        [TestCase(CoCoTransitionWindowMode.Normalized, 0.5d, 0.5d, false)]
+        [TestCase(CoCoTransitionWindowMode.ActionProgress, 0d, 1d, true)]
+        [TestCase(CoCoTransitionWindowMode.ActionProgress, 0.25d, 0.75d, true)]
+        [TestCase(CoCoTransitionWindowMode.ActionProgress, 0d, 1.000001d, false)]
+        [TestCase(CoCoTransitionWindowMode.ActionProgress, 0.5d, 0.5d, false)]
         [TestCase(CoCoTransitionWindowMode.None, 0d, 1d, false)]
         public void TransitionWindowCreationEnforcesTheFrozenIntervalContract(
             CoCoTransitionWindowMode mode,
@@ -371,59 +364,204 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(0d, window.EndExclusive);
         }
 
-        [TestCase(
-            CoCoTransitionWindowMode.Always,
-            CoCoTransitionInterruptPolicy.RequireSourceCompletion,
-            true)]
-        [TestCase(
-            CoCoTransitionWindowMode.LocalSeconds,
-            CoCoTransitionInterruptPolicy.RequireSourceCompletion,
-            false)]
-        [TestCase(
-            CoCoTransitionWindowMode.Normalized,
-            CoCoTransitionInterruptPolicy.RequireSourceCompletion,
-            false)]
-        [TestCase(
-            CoCoTransitionWindowMode.Always,
-            CoCoTransitionInterruptPolicy.AllowDuringSourceActivation,
-            true)]
-        [TestCase(
-            CoCoTransitionWindowMode.LocalSeconds,
-            CoCoTransitionInterruptPolicy.AllowDuringSourceActivation,
-            true)]
-        [TestCase(
-            CoCoTransitionWindowMode.Normalized,
-            CoCoTransitionInterruptPolicy.AllowDuringSourceActivation,
-            true)]
-        public void CompilerEnforcesTheWindowInterruptMatrix(
-            CoCoTransitionWindowMode mode,
-            CoCoTransitionInterruptPolicy policy,
-            bool expectedSuccess)
+        [Test]
+        public void ActionProgressKeepsItsSerializedNumericValue()
         {
-            CoCoTransitionWindow window;
-            if (mode == CoCoTransitionWindowMode.Always)
-            {
-                window = CoCoTransitionWindow.Always;
-            }
-            else
-            {
-                Assert.IsTrue(CoCoTransitionWindow.TryCreate(
-                    mode,
-                    0d,
-                    mode == CoCoTransitionWindowMode.Normalized ? 1d : double.MaxValue,
-                    out window));
-            }
+            Assert.AreEqual(3, (int)CoCoTransitionWindowMode.ActionProgress);
+        }
 
-            CoCoStateGraphCompileResult result = CompileSingleSelfLoop(window, policy);
+        [Test]
+        public void CompositeTransitionEndpointsAreRejectedAtTheirExactFields()
+        {
+            var transition = new CoCoTransitionSource(
+                CoCoStateGraphTestFactory.FirstTransitionId,
+                CoCoStateGraphTestFactory.RootStateId,
+                CoCoStateGraphTestFactory.RootStateId,
+                0,
+                CoCoTransitionWindow.Always,
+                Array.Empty<CoCoConditionSource>());
+            var layer = new CoCoStateLayerSource(
+                CoCoStateGraphTestFactory.LayerId,
+                CoCoStateGraphTestFactory.RootStateId,
+                new[]
+                {
+                    CoCoStateGraphTestFactory.State(
+                        CoCoStateGraphTestFactory.RootStateId,
+                        default,
+                        CoCoStateGraphTestFactory.FirstChildStateId,
+                        1),
+                    CoCoStateGraphTestFactory.State(
+                        CoCoStateGraphTestFactory.FirstChildStateId,
+                        CoCoStateGraphTestFactory.RootStateId,
+                        default,
+                        2)
+                },
+                new[] { transition });
 
-            Assert.AreEqual(expectedSuccess, result.Succeeded);
-            Assert.AreEqual(expectedSuccess, result.Graph != null);
+            CoCoStateGraphCompileResult result = Compile(
+                CoCoStateGraphTestFactory.Source(layer, 3101UL));
+
+            Assert.IsFalse(result.Succeeded);
+            RequireDiagnostic(
+                result,
+                CoCoDiagnosticCode.NonLeafTransitionEndpoint,
+                CoCoGraphField.SourceState);
+            RequireDiagnostic(
+                result,
+                CoCoDiagnosticCode.NonLeafTransitionEndpoint,
+                CoCoGraphField.TargetState);
+        }
+
+        [Test]
+        public void DuplicateOutgoingPrioritiesFromOneLeafAreRejected()
+        {
+            CoCoStateId stateId = CoCoStateGraphTestFactory.RootStateId;
+            var layer = new CoCoStateLayerSource(
+                CoCoStateGraphTestFactory.LayerId,
+                stateId,
+                new[] { CoCoStateGraphTestFactory.State(stateId, default, default, 1) },
+                new[]
+                {
+                    Transition(
+                        CoCoStateGraphTestFactory.FirstTransitionId,
+                        stateId,
+                        stateId,
+                        7),
+                    Transition(
+                        CoCoStateGraphTestFactory.SecondTransitionId,
+                        stateId,
+                        stateId,
+                        7)
+                });
+
+            CoCoStateGraphCompileResult result = Compile(
+                CoCoStateGraphTestFactory.Source(layer, 3102UL));
+
+            Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(
-                expectedSuccess ? 0 : 1,
+                2,
                 result.Diagnostics.Count(diagnostic =>
-                    diagnostic.Diagnostic.Code == CoCoDiagnosticCode.InvalidInterruptPolicy));
+                    diagnostic.Diagnostic.Code == CoCoDiagnosticCode.DuplicateTransitionPriority &&
+                    diagnostic.Location.Field == CoCoGraphField.Priority));
+        }
+
+        [Test]
+        public void EqualPrioritiesFromDifferentSourceLeavesAreAllowed()
+        {
+            CoCoStateId firstStateId = CoCoStateGraphTestFactory.RootStateId;
+            CoCoStateId secondStateId = CoCoStateGraphTestFactory.SecondChildStateId;
+            var layer = new CoCoStateLayerSource(
+                CoCoStateGraphTestFactory.LayerId,
+                firstStateId,
+                new[]
+                {
+                    CoCoStateGraphTestFactory.State(firstStateId, default, default, 1),
+                    CoCoStateGraphTestFactory.State(secondStateId, default, default, 2)
+                },
+                new[]
+                {
+                    Transition(
+                        CoCoStateGraphTestFactory.FirstTransitionId,
+                        firstStateId,
+                        firstStateId,
+                        7),
+                    Transition(
+                        CoCoStateGraphTestFactory.SecondTransitionId,
+                        secondStateId,
+                        secondStateId,
+                        7)
+                });
+
+            CoCoStateGraphCompileResult result = Compile(
+                CoCoStateGraphTestFactory.Source(layer, 3103UL));
+
+            Assert.IsTrue(result.Succeeded);
             Assert.IsFalse(result.Diagnostics.Any(diagnostic =>
-                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.InvalidTransitionWindow));
+                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.DuplicateTransitionPriority));
+        }
+
+        [Test]
+        public void ActionProgressWindowRequiresAnOptedInSourceState()
+        {
+            Assert.IsTrue(CoCoTransitionWindow.TryCreate(
+                CoCoTransitionWindowMode.ActionProgress,
+                0.25d,
+                0.75d,
+                out CoCoTransitionWindow window));
+
+            CoCoStateGraphCompileResult missingProvider = CompileSingleSelfLoop(window);
+            Assert.IsFalse(missingProvider.Succeeded);
+            RequireDiagnostic(
+                missingProvider,
+                CoCoDiagnosticCode.MissingActionProgressProvider,
+                CoCoGraphField.Window);
+
+            catalog = CoCoStateGraphTestFactory.CreateCatalog(
+                false,
+                providesActionProgress: true);
+            CoCoStateGraphCompileResult providerDeclared = CompileSingleSelfLoop(window);
+            Assert.IsTrue(providerDeclared.Succeeded);
+            Assert.IsFalse(providerDeclared.Diagnostics.Any(diagnostic =>
+                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.MissingActionProgressProvider));
+        }
+
+        [Test]
+        public void ParentAndChildOperationOverlapWarnsButStillCompiles()
+        {
+            catalog = CoCoStateGraphTestFactory.CreateCatalog(true);
+
+            CoCoStateGraphCompileResult result = Compile(
+                CoCoStateGraphTestFactory.CreateHierarchicalSource(3104UL));
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.AreEqual(
+                2,
+                result.Diagnostics.Count(diagnostic =>
+                    diagnostic.Diagnostic.Code == CoCoDiagnosticCode.ActivePathOperationOverlap &&
+                    diagnostic.Diagnostic.IsWarning &&
+                    diagnostic.Location.Field == CoCoGraphField.Descriptor));
+        }
+
+        [Test]
+        public void SameOperationAcrossLayersDoesNotWarn()
+        {
+            catalog = CoCoStateGraphTestFactory.CreateCatalog(true);
+            CoCoLayerId secondLayerId = CoCoStateGraphTestFactory.CreateLayerId(2UL);
+            CoCoStateId secondStateId = CoCoStateGraphTestFactory.CreateStateId(40UL);
+            var source = new CoCoStateGraphSource(
+                CoCoStateGraphCompiler.CurrentSchemaVersion,
+                3105UL,
+                CoCoStateGraphTestFactory.GraphId,
+                new[]
+                {
+                    new CoCoStateLayerSource(
+                        CoCoStateGraphTestFactory.LayerId,
+                        CoCoStateGraphTestFactory.RootStateId,
+                        new[]
+                        {
+                            CoCoStateGraphTestFactory.State(
+                                CoCoStateGraphTestFactory.RootStateId,
+                                default,
+                                default,
+                                1)
+                        },
+                        Array.Empty<CoCoTransitionSource>()),
+                    new CoCoStateLayerSource(
+                        secondLayerId,
+                        secondStateId,
+                        new[]
+                        {
+                            CoCoStateGraphTestFactory.State(secondStateId, default, default, 2)
+                        },
+                        Array.Empty<CoCoTransitionSource>())
+                },
+                Array.Empty<CoCoEventToIntentDeclarationSource>());
+
+            CoCoStateGraphCompileResult result = Compile(source);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsFalse(result.Diagnostics.Any(diagnostic =>
+                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.ActivePathOperationOverlap));
         }
 
         [Test]
@@ -462,9 +600,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         private CoCoStateGraphCompileResult Compile(CoCoStateGraphSource source) =>
             new CoCoStateGraphCompiler().Compile(source, catalog);
 
-        private CoCoStateGraphCompileResult CompileSingleSelfLoop(
-            CoCoTransitionWindow window,
-            CoCoTransitionInterruptPolicy policy)
+        private CoCoStateGraphCompileResult CompileSingleSelfLoop(CoCoTransitionWindow window)
         {
             var transition = new CoCoTransitionSource(
                 CoCoStateGraphTestFactory.FirstTransitionId,
@@ -472,7 +608,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphTestFactory.RootStateId,
                 0,
                 window,
-                policy,
                 Array.Empty<CoCoConditionSource>());
             var layer = new CoCoStateLayerSource(
                 CoCoStateGraphTestFactory.LayerId,
@@ -488,6 +623,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 new[] { transition });
             return Compile(CoCoStateGraphTestFactory.Source(layer, 3100UL));
         }
+
+        private static CoCoTransitionSource Transition(
+            CoCoTransitionId transitionId,
+            CoCoStateId sourceStateId,
+            CoCoStateId targetStateId,
+            int priority) =>
+            new CoCoTransitionSource(
+                transitionId,
+                sourceStateId,
+                targetStateId,
+                priority,
+                CoCoTransitionWindow.Always,
+                Array.Empty<CoCoConditionSource>());
 
         private static CoCoGraphDiagnostic RequireDiagnostic(
             CoCoStateGraphCompileResult result,

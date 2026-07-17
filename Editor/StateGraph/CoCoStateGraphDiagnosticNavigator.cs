@@ -216,8 +216,6 @@ namespace CoCoFlow.Editor.StateGraph
                     return transition.FindPropertyRelative("priority");
                 case CoCoGraphField.Window:
                     return transition.FindPropertyRelative("windowMode");
-                case CoCoGraphField.InterruptPolicy:
-                    return transition.FindPropertyRelative("interruptPolicy");
                 case CoCoGraphField.Conditions:
                 case CoCoGraphField.Config:
                 case CoCoGraphField.Descriptor:

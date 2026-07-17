@@ -72,7 +72,10 @@ namespace CoCoFlow.Runtime.Core
         InvalidFrozenConfig = 46,
         ManifestConflict = 47,
         InvalidTransitionWindow = 48,
-        InvalidInterruptPolicy = 49
+        NonLeafTransitionEndpoint = 50,
+        DuplicateTransitionPriority = 51,
+        MissingActionProgressProvider = 52,
+        ActivePathOperationOverlap = 53
     }
 
     public enum CoCoDiagnosticSeverity

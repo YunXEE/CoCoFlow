@@ -114,6 +114,41 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
         }
 
+        [Test]
+        public void LayerListOrderChangesContentFingerprintAndSnapshotOrder()
+        {
+            CoCoStateGraphAsset asset = CreateSavedAsset();
+            CoCoLayerId secondLayerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Upper");
+            CoCoStateGraphAuthoringOperations.AddState(
+                asset,
+                secondLayerId,
+                default,
+                CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig { Value = 3 },
+                "Upper State");
+            CoCoStateGraphAsset reversed = Object.Instantiate(asset);
+            try
+            {
+                CoCoStateGraphAssetSnapshot originalSnapshot = Snapshot(asset);
+                reversed.Layers.Reverse();
+                CoCoStateGraphAssetSnapshot reversedSnapshot = Snapshot(reversed);
+
+                Assert.AreNotEqual(
+                    originalSnapshot.ContentFingerprint,
+                    reversedSnapshot.ContentFingerprint);
+                Assert.AreEqual(
+                    ToLayerId(asset.Layers[0].LayerId),
+                    originalSnapshot.Source.Layers[0].LayerId);
+                Assert.AreEqual(
+                    ToLayerId(reversed.Layers[0].LayerId),
+                    reversedSnapshot.Source.Layers[0].LayerId);
+            }
+            finally
+            {
+                Object.DestroyImmediate(reversed);
+            }
+        }
+
         private static CoCoStateGraphAsset CreateSavedAsset()
         {
             var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
@@ -141,7 +176,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 asset,
                 layerId,
                 firstStateId,
-                secondStateId);
+                secondStateId,
+                priority: 0);
             CoCoStateGraphTransitionRecord transition = asset.Layers[0].Transitions[0];
             transition.Conditions.Add(new CoCoStateGraphConditionRecord(
                 Serialize(CoCoStateGraphTestFactory.ConditionDescriptorId),

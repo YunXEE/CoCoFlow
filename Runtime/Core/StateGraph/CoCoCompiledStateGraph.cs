@@ -31,7 +31,6 @@ namespace CoCoFlow.Runtime.Core
             int targetStateIndex,
             int priority,
             CoCoTransitionWindow window,
-            CoCoTransitionInterruptPolicy interruptPolicy,
             CoCoCompiledCondition[] conditions)
         {
             TransitionId = transitionId;
@@ -40,7 +39,6 @@ namespace CoCoFlow.Runtime.Core
             TargetStateIndex = targetStateIndex;
             Priority = priority;
             Window = window;
-            InterruptPolicy = interruptPolicy;
             _conditions = Array.AsReadOnly((CoCoCompiledCondition[])conditions.Clone());
         }
 
@@ -50,7 +48,6 @@ namespace CoCoFlow.Runtime.Core
         public int TargetStateIndex { get; }
         public int Priority { get; }
         public CoCoTransitionWindow Window { get; }
-        public CoCoTransitionInterruptPolicy InterruptPolicy { get; }
         public IReadOnlyList<CoCoCompiledCondition> Conditions => _conditions;
     }
 

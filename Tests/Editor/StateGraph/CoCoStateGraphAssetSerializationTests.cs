@@ -75,6 +75,48 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void TransitionContractChangesInPlaceWithinSchemaV1()
+        {
+            CoCoStateGraphAsset asset = CreateSavedAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId stateId = CoCoStateGraphAuthoringOperations.AddState(
+                asset,
+                layerId,
+                default,
+                StateDescriptorId(11UL),
+                displayName: "Action");
+            CoCoStateGraphAuthoringOperations.AddTransition(
+                asset,
+                layerId,
+                stateId,
+                stateId,
+                priority: 4);
+            var serialized = new SerializedObject(asset);
+            SerializedProperty transition = serialized.FindProperty("layers")
+                .GetArrayElementAtIndex(0)
+                .FindPropertyRelative("transitions")
+                .GetArrayElementAtIndex(0);
+
+            Assert.AreEqual(1U, asset.SchemaVersion);
+            Assert.IsNull(transition.FindPropertyRelative("interruptPolicy"));
+            transition.FindPropertyRelative("windowMode").intValue =
+                (int)CoCoTransitionWindowMode.ActionProgress;
+            transition.FindPropertyRelative("windowStartInclusive").doubleValue = 0.25d;
+            transition.FindPropertyRelative("windowEndExclusive").doubleValue = 0.75d;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceUpdate);
+
+            CoCoStateGraphAsset reloaded =
+                AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath);
+            Assert.AreEqual(1U, reloaded.SchemaVersion);
+            Assert.AreEqual(
+                CoCoTransitionWindowMode.ActionProgress,
+                reloaded.Layers[0].Transitions[0].WindowMode);
+        }
+
+        [Test]
         public void AuthoringOperationsParticipateInUndoAndRedoWithoutChangingRestoredIds()
         {
             CoCoStateGraphAsset asset = CreateSavedAsset();
@@ -114,7 +156,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 asset,
                 layerId,
                 rootStateId,
-                childStateId);
+                childStateId,
+                priority: 0);
             Undo.FlushUndoRecordObjects();
             Undo.ClearAll();
             CoCoStateGraphLayerRecord layer = asset.Layers[0];
@@ -184,7 +227,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 asset,
                 layerId,
                 rootStateId,
-                childStateId);
+                childStateId,
+                priority: 0);
             Undo.FlushUndoRecordObjects();
             Undo.ClearAll();
 

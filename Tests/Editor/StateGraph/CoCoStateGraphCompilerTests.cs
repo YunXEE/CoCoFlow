@@ -23,7 +23,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(result.Succeeded);
             Assert.IsFalse(result.HasErrors);
             Assert.IsNotNull(result.Graph);
-            Assert.AreEqual(0, result.Diagnostics.Count);
+            Assert.AreEqual(
+                2,
+                result.Diagnostics.Count(diagnostic =>
+                    diagnostic.Diagnostic.Code == CoCoDiagnosticCode.ActivePathOperationOverlap));
             Assert.AreEqual(source.ContentFingerprint, result.ContentFingerprint);
             Assert.AreEqual(source.ContentFingerprint, result.Graph.ContentFingerprint);
             Assert.AreEqual(source.SchemaVersion, result.Graph.SchemaVersion);
@@ -95,7 +98,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CompileNormalizesAuthoringOrderDeterministically()
+        public void CompileNormalizesStateAndTransitionAuthoringOrderDeterministically()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(true);
             var compiler = new CoCoStateGraphCompiler();
@@ -127,6 +130,50 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void LayerDenseIndicesPreserveSourceOrderInsteadOfLayerIdentityOrder()
+        {
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoLayerId higherIdFirst = CoCoStateGraphTestFactory.CreateLayerId(20UL);
+            CoCoLayerId lowerIdSecond = CoCoStateGraphTestFactory.CreateLayerId(10UL);
+            CoCoStateId firstStateId = CoCoStateGraphTestFactory.CreateStateId(200UL);
+            CoCoStateId secondStateId = CoCoStateGraphTestFactory.CreateStateId(100UL);
+            var firstLayer = new CoCoStateLayerSource(
+                higherIdFirst,
+                firstStateId,
+                new[]
+                {
+                    CoCoStateGraphTestFactory.State(firstStateId, default, default, 1)
+                },
+                System.Array.Empty<CoCoTransitionSource>());
+            var secondLayer = new CoCoStateLayerSource(
+                lowerIdSecond,
+                secondStateId,
+                new[]
+                {
+                    CoCoStateGraphTestFactory.State(secondStateId, default, default, 2)
+                },
+                System.Array.Empty<CoCoTransitionSource>());
+            var source = new CoCoStateGraphSource(
+                CoCoStateGraphCompiler.CurrentSchemaVersion,
+                2050UL,
+                CoCoStateGraphTestFactory.GraphId,
+                new[] { firstLayer, secondLayer },
+                System.Array.Empty<CoCoEventToIntentDeclarationSource>());
+
+            CoCoStateGraphCompileResult result = new CoCoStateGraphCompiler().Compile(source, catalog);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.AreEqual(higherIdFirst, result.Graph.Layers[0].LayerId);
+            Assert.AreEqual(0, result.Graph.Layers[0].DenseIndex);
+            Assert.AreEqual(lowerIdSecond, result.Graph.Layers[1].LayerId);
+            Assert.AreEqual(1, result.Graph.Layers[1].DenseIndex);
+            Assert.IsTrue(result.Graph.TryGetLayer(higherIdFirst, out CoCoCompiledStateLayer first));
+            Assert.AreSame(result.Graph.Layers[0], first);
+            Assert.IsTrue(result.Graph.TryGetLayer(lowerIdSecond, out CoCoCompiledStateLayer second));
+            Assert.AreSame(result.Graph.Layers[1], second);
+        }
+
+        [Test]
         public void TerminalStateWithoutTransitionsCompilesSuccessfully()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
@@ -145,7 +192,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void OutgoingTransitionsSortByPriorityDescendingThenIdentityAscending()
+        public void OutgoingTransitionsSortByUniquePriorityDescending()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
             CoCoStateId stateId = CoCoStateGraphTestFactory.RootStateId;
@@ -156,7 +203,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             {
                 Transition(higherId, stateId, 5),
                 Transition(lowerPriorityId, stateId, 1),
-                Transition(lowerId, stateId, 5)
+                Transition(lowerId, stateId, 3)
             };
             var layer = new CoCoStateLayerSource(
                 CoCoStateGraphTestFactory.LayerId,
@@ -173,7 +220,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(result.Succeeded);
             CollectionAssert.AreEqual(
-                new[] { lowerId, higherId, lowerPriorityId },
+                new[] { higherId, lowerId, lowerPriorityId },
                 result.Graph.Layers[0].Transitions.Select(transition => transition.TransitionId));
             Assert.IsTrue(result.Graph.Layers[0].Transitions.All(
                 transition => transition.Conditions.Count == 0));
@@ -194,7 +241,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 stateId,
                 0,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 new[]
                 {
                     new CoCoConditionSource(
@@ -243,7 +289,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 stateId,
                 priority,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 System.Array.Empty<CoCoConditionSource>());
         }
     }

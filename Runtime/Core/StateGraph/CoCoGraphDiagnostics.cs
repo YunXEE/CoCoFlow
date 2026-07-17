@@ -29,7 +29,6 @@ namespace CoCoFlow.Runtime.Core
         TargetState = 10,
         Priority = 11,
         Window = 12,
-        InterruptPolicy = 13,
         Conditions = 14,
         Manifest = 15,
         AssetGuidStamp = 16,

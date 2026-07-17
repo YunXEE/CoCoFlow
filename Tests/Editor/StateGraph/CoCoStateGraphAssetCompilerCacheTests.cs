@@ -196,7 +196,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     asset,
                     layerId,
                     stateId,
-                    stateId);
+                    stateId,
+                    priority: 0);
                 CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
                 var compiler = new CoCoStateGraphAssetCompiler(
                     new CoCoStateGraphCompilationCache());

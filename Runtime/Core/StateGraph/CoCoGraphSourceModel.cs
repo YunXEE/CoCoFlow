@@ -8,7 +8,7 @@ namespace CoCoFlow.Runtime.Core
         None = 0,
         Always = 1,
         LocalSeconds = 2,
-        Normalized = 3
+        ActionProgress = 3
     }
 
     public readonly struct CoCoTransitionWindow : IEquatable<CoCoTransitionWindow>
@@ -33,12 +33,12 @@ namespace CoCoFlow.Runtime.Core
                                 StartInclusive == 0d &&
                                 EndExclusive == 0d) ||
                                ((Mode == CoCoTransitionWindowMode.LocalSeconds ||
-                                 Mode == CoCoTransitionWindowMode.Normalized) &&
+                                 Mode == CoCoTransitionWindowMode.ActionProgress) &&
                                 IsFinite(StartInclusive) &&
                                 IsFinite(EndExclusive) &&
                                 StartInclusive >= 0d &&
                                 StartInclusive < EndExclusive &&
-                                (Mode != CoCoTransitionWindowMode.Normalized || EndExclusive <= 1d));
+                                (Mode != CoCoTransitionWindowMode.ActionProgress || EndExclusive <= 1d));
 
         public static bool TryCreate(
             CoCoTransitionWindowMode mode,
@@ -91,13 +91,6 @@ namespace CoCoFlow.Runtime.Core
         private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
     }
 
-    public enum CoCoTransitionInterruptPolicy
-    {
-        None = 0,
-        RequireSourceCompletion = 1,
-        AllowDuringSourceActivation = 2
-    }
-
     public sealed class CoCoConditionSource
     {
         public CoCoConditionSource(
@@ -122,7 +115,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateId targetStateId,
             int priority,
             CoCoTransitionWindow window,
-            CoCoTransitionInterruptPolicy interruptPolicy,
             IReadOnlyList<CoCoConditionSource> conditions)
         {
             TransitionId = transitionId;
@@ -130,7 +122,6 @@ namespace CoCoFlow.Runtime.Core
             TargetStateId = targetStateId;
             Priority = priority;
             Window = window;
-            InterruptPolicy = interruptPolicy;
             _conditions = CoCoGraphSourceCollections.Clone(conditions);
         }
 
@@ -139,7 +130,6 @@ namespace CoCoFlow.Runtime.Core
         public CoCoStateId TargetStateId { get; }
         public int Priority { get; }
         public CoCoTransitionWindow Window { get; }
-        public CoCoTransitionInterruptPolicy InterruptPolicy { get; }
         public IReadOnlyList<CoCoConditionSource> Conditions => _conditions;
     }
 

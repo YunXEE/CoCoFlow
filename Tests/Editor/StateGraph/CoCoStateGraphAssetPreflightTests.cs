@@ -268,7 +268,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
                 null,
                 null,
-                null,
                 out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 out CoCoGraphDescriptorCatalog result,
@@ -292,7 +291,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 asset,
                 layerId,
                 stateId,
-                stateId);
+                stateId,
+                priority: 0);
             asset.Layers[0].Transitions[0].Conditions.Add(new CoCoStateGraphConditionRecord(
                 Serialize(CoCoStateGraphTestFactory.ConditionDescriptorId),
                 new TestConditionAuthoringConfig { Threshold = 1 }));

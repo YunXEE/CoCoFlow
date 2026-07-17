@@ -142,7 +142,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(layer.States[0].ParentStateId, duplicatedRoot.ParentStateId);
             Assert.AreEqual(duplicatedChild.StateId, duplicatedRoot.InitialChildStateId);
             Assert.AreEqual(duplicatedRoot.StateId, duplicatedChild.ParentStateId);
-            Assert.AreEqual(duplicatedRoot.StateId, duplicatedTransition.SourceStateId);
+            Assert.AreEqual(duplicatedChild.StateId, duplicatedTransition.SourceStateId);
             Assert.AreEqual(duplicatedChild.StateId, duplicatedTransition.TargetStateId);
             Assert.AreNotEqual(outsideStateId, duplicatedTransition.SourceStateId);
             Assert.AreNotEqual(outsideStateId, duplicatedTransition.TargetStateId);
@@ -245,9 +245,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 Assert.AreEqual(
                     sourceTransition.WindowEndExclusive,
                     duplicatedTransition.WindowEndExclusive);
-                Assert.AreEqual(
-                    sourceTransition.InterruptPolicy,
-                    duplicatedTransition.InterruptPolicy);
                 Assert.AreEqual(
                     sourceTransition.Conditions.Count,
                     duplicatedTransition.Conditions.Count);
@@ -374,20 +371,20 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphAuthoringOperations.AddTransition(
                 asset,
                 layerId,
-                rootStateId,
                 childStateId,
+                outsideStateId,
                 30);
             CoCoStateGraphAuthoringOperations.AddTransition(
                 asset,
                 layerId,
                 outsideStateId,
-                rootStateId,
+                childStateId,
                 20);
             CoCoStateGraphAuthoringOperations.AddTransition(
                 asset,
                 layerId,
                 childStateId,
-                outsideStateId,
+                childStateId,
                 10);
             var serialized = new SerializedObject(asset);
             SerializedProperty firstTransition = serialized.FindProperty("layers")
@@ -395,11 +392,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 .FindPropertyRelative("transitions")
                 .GetArrayElementAtIndex(0);
             firstTransition.FindPropertyRelative("windowMode").enumValueIndex =
-                (int)CoCoTransitionWindowMode.Normalized;
+                (int)CoCoTransitionWindowMode.ActionProgress;
             firstTransition.FindPropertyRelative("windowStartInclusive").doubleValue = 0.25d;
             firstTransition.FindPropertyRelative("windowEndExclusive").doubleValue = 0.75d;
-            firstTransition.FindPropertyRelative("interruptPolicy").enumValueIndex =
-                (int)CoCoTransitionInterruptPolicy.AllowDuringSourceActivation;
             serialized.ApplyModifiedPropertiesWithoutUndo();
             CoCoConditionDescriptorId conditionDescriptorId = ConditionDescriptorId(11UL);
             asset.Layers[0].Transitions[0].Conditions.Add(new CoCoStateGraphConditionRecord(

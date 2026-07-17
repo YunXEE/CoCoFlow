@@ -165,6 +165,7 @@ namespace CoCoFlow.Runtime.Core
 
                 // Phase 3: descriptor resolution and frozen-config compatibility.
                 ValidateDescriptorsAndConfigs();
+                ValidateActivePathOperationOverlaps();
                 ValidateEventAdapterDeclarations();
 
                 // Phase 4: reachability warnings, only for structurally coherent layers.
@@ -183,19 +184,10 @@ namespace CoCoFlow.Runtime.Core
                     return null;
                 }
 
-                var layerSources = new CoCoStateLayerSource[_source.Layers.Count];
-                for (int index = 0; index < _source.Layers.Count; index++)
+                var layers = new CoCoCompiledStateLayer[_source.Layers.Count];
+                for (int layerIndex = 0; layerIndex < _source.Layers.Count; layerIndex++)
                 {
-                    layerSources[index] = _source.Layers[index];
-                }
-
-                Array.Sort(layerSources, (left, right) => StringComparer.Ordinal.Compare(
-                    left.LayerId.ToString(),
-                    right.LayerId.ToString()));
-                var layers = new CoCoCompiledStateLayer[layerSources.Length];
-                for (int layerIndex = 0; layerIndex < layerSources.Length; layerIndex++)
-                {
-                    layers[layerIndex] = BuildLayer(layerSources[layerIndex], layerIndex);
+                    layers[layerIndex] = BuildLayer(_source.Layers[layerIndex], layerIndex);
                 }
 
                 return new CoCoCompiledStateGraph(
@@ -441,6 +433,107 @@ namespace CoCoFlow.Runtime.Core
                         if (transition != null)
                         {
                             ValidateConditionDescriptors(layer, layerIndex, transition, transitionIndex);
+                            ValidateActionProgressProvider(layer, layerIndex, transition, transitionIndex);
+                        }
+                    }
+                }
+            }
+
+            private void ValidateActionProgressProvider(
+                CoCoStateLayerSource layer,
+                int layerIndex,
+                CoCoTransitionSource transition,
+                int transitionIndex)
+            {
+                if (transition.Window.Mode != CoCoTransitionWindowMode.ActionProgress ||
+                    !TryFindState(layer, transition.SourceStateId, out CoCoStateSource sourceState, out _) ||
+                    !_catalog.TryGetStateDescriptor(
+                        sourceState.DescriptorId,
+                        out CoCoStateDescriptor descriptor))
+                {
+                    return;
+                }
+
+                if (!descriptor.ProvidesActionProgress)
+                {
+                    AddError(
+                        CoCoDiagnosticDomain.State,
+                        CoCoDiagnosticCode.MissingActionProgressProvider,
+                        "An ActionProgress Window requires its source State runtime registration to provide ActionProgress.",
+                        TransitionLocation(
+                            layerIndex,
+                            transitionIndex,
+                            layer,
+                            transition,
+                            CoCoGraphField.Window));
+                }
+            }
+
+            private void ValidateActivePathOperationOverlaps()
+            {
+                if (_catalog == null || !_catalog.IsFrozen || _source.Layers == null)
+                {
+                    return;
+                }
+
+                for (int layerIndex = 0; layerIndex < _source.Layers.Count; layerIndex++)
+                {
+                    CoCoStateLayerSource layer = _source.Layers[layerIndex];
+                    if (layer?.States == null)
+                    {
+                        continue;
+                    }
+
+                    for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
+                    {
+                        CoCoStateSource state = layer.States[stateIndex];
+                        if (state == null ||
+                            !_catalog.TryGetStateDescriptor(
+                                state.DescriptorId,
+                                out CoCoStateDescriptor descriptor) ||
+                            descriptor.OperationProvides.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var providedByState = new HashSet<CoCoOperationSectionId>(descriptor.OperationProvides);
+                        var reported = new HashSet<CoCoOperationSectionId>();
+                        var visited = new HashSet<CoCoStateId>();
+                        CoCoStateId ancestorId = state.ParentStateId;
+                        while (ancestorId.IsValid && visited.Add(ancestorId))
+                        {
+                            if (!TryFindState(layer, ancestorId, out CoCoStateSource ancestor, out _))
+                            {
+                                break;
+                            }
+
+                            if (_catalog.TryGetStateDescriptor(
+                                    ancestor.DescriptorId,
+                                    out CoCoStateDescriptor ancestorDescriptor))
+                            {
+                                for (int operationIndex = 0;
+                                     operationIndex < ancestorDescriptor.OperationProvides.Count;
+                                     operationIndex++)
+                                {
+                                    CoCoOperationSectionId operationId =
+                                        ancestorDescriptor.OperationProvides[operationIndex];
+                                    if (providedByState.Contains(operationId) && reported.Add(operationId))
+                                    {
+                                        AddWarning(
+                                            CoCoDiagnosticDomain.Operation,
+                                            CoCoDiagnosticCode.ActivePathOperationOverlap,
+                                            $"State and ancestor {ancestor.StateId} both provide Operation Section {operationId} on one ActivePath.",
+                                            StateLocation(
+                                                layerIndex,
+                                                stateIndex,
+                                                layer,
+                                                state,
+                                                CoCoGraphField.Descriptor));
+                                    }
+                                }
+                            }
+
+                            ancestorId = ancestor.ParentStateId;
                         }
                     }
                 }
@@ -483,6 +576,7 @@ namespace CoCoFlow.Runtime.Core
 
                 var seen = new HashSet<CoCoEventToIntentDeclarationKey>();
                 var countsByIntent = new Dictionary<CoCoIntentId, int>();
+                CoCoEventDomainId graphEventDomain = default;
                 for (int declarationIndex = 0;
                      declarationIndex < _source.EventAdapterDeclarations.Count;
                      declarationIndex++)
@@ -545,6 +639,20 @@ namespace CoCoFlow.Runtime.Core
                             CoCoDiagnosticDomain.Intent,
                             CoCoDiagnosticCode.ManifestConflict,
                             "Event Adapter declaration does not match its provided Intent registration.",
+                            location);
+                        continue;
+                    }
+
+                    if (!graphEventDomain.IsValid)
+                    {
+                        graphEventDomain = registration.EventDomainId;
+                    }
+                    else if (graphEventDomain != registration.EventDomainId)
+                    {
+                        AddError(
+                            CoCoDiagnosticDomain.Intent,
+                            CoCoDiagnosticCode.EventDomainMismatch,
+                            "All Event Adapter declarations in one StateGraph must use the same EventDomain.",
                             location);
                         continue;
                     }
@@ -729,6 +837,9 @@ namespace CoCoFlow.Runtime.Core
                     return;
                 }
 
+                var firstPriorityOwners =
+                    new Dictionary<CoCoStateId, Dictionary<int, int>>();
+                var reportedPriorityOwners = new HashSet<int>();
                 for (int transitionIndex = 0;
                      transitionIndex < layer.Transitions.Count;
                      transitionIndex++)
@@ -744,7 +855,7 @@ namespace CoCoFlow.Runtime.Core
                         continue;
                     }
 
-                    ValidateTransitionEndpoint(
+                    bool validSource = ValidateTransitionEndpoint(
                         layer,
                         layerIndex,
                         transition,
@@ -761,6 +872,39 @@ namespace CoCoFlow.Runtime.Core
                         CoCoGraphField.TargetState,
                         localStates);
 
+                    if (validSource)
+                    {
+                        if (!firstPriorityOwners.TryGetValue(
+                                transition.SourceStateId,
+                                out Dictionary<int, int> priorities))
+                        {
+                            priorities = new Dictionary<int, int>();
+                            firstPriorityOwners.Add(transition.SourceStateId, priorities);
+                        }
+
+                        if (priorities.TryGetValue(transition.Priority, out int firstTransitionIndex))
+                        {
+                            if (reportedPriorityOwners.Add(firstTransitionIndex))
+                            {
+                                AddDuplicateTransitionPriorityError(
+                                    layer,
+                                    layerIndex,
+                                    firstTransitionIndex,
+                                    layer.Transitions[firstTransitionIndex]);
+                            }
+
+                            AddDuplicateTransitionPriorityError(
+                                layer,
+                                layerIndex,
+                                transitionIndex,
+                                transition);
+                        }
+                        else
+                        {
+                            priorities.Add(transition.Priority, transitionIndex);
+                        }
+                    }
+
                     if (!transition.Window.IsValid)
                     {
                         AddError(
@@ -775,32 +919,11 @@ namespace CoCoFlow.Runtime.Core
                                 CoCoGraphField.Window));
                     }
 
-                    bool validInterrupt =
-                        (transition.InterruptPolicy ==
-                         CoCoTransitionInterruptPolicy.RequireSourceCompletion &&
-                         transition.Window.Mode == CoCoTransitionWindowMode.Always) ||
-                        (transition.InterruptPolicy ==
-                         CoCoTransitionInterruptPolicy.AllowDuringSourceActivation &&
-                         transition.Window.IsValid);
-                    if (!validInterrupt)
-                    {
-                        AddError(
-                            CoCoDiagnosticDomain.State,
-                            CoCoDiagnosticCode.InvalidInterruptPolicy,
-                            "Transition InterruptPolicy is incompatible with its Window.",
-                            TransitionLocation(
-                                layerIndex,
-                                transitionIndex,
-                                layer,
-                                transition,
-                                CoCoGraphField.InterruptPolicy));
-                    }
-
                     ValidateConditionTopology(layer, layerIndex, transition, transitionIndex);
                 }
             }
 
-            private void ValidateTransitionEndpoint(
+            private bool ValidateTransitionEndpoint(
                 CoCoStateLayerSource layer,
                 int layerIndex,
                 CoCoTransitionSource transition,
@@ -811,7 +934,17 @@ namespace CoCoFlow.Runtime.Core
             {
                 if (stateId.IsValid && localStates.ContainsKey(stateId))
                 {
-                    return;
+                    if (!HasChildState(layer, stateId))
+                    {
+                        return true;
+                    }
+
+                    AddError(
+                        CoCoDiagnosticDomain.Topology,
+                        CoCoDiagnosticCode.NonLeafTransitionEndpoint,
+                        "Transition endpoints must be terminal leaf States.",
+                        TransitionLocation(layerIndex, transitionIndex, layer, transition, field));
+                    return false;
                 }
 
                 bool belongsToOtherLayer = stateId.IsValid &&
@@ -826,6 +959,25 @@ namespace CoCoFlow.Runtime.Core
                         ? "Transition endpoints must belong to the same Layer."
                         : "Transition endpoint does not resolve to a State in its Layer.",
                     TransitionLocation(layerIndex, transitionIndex, layer, transition, field));
+                return false;
+            }
+
+            private void AddDuplicateTransitionPriorityError(
+                CoCoStateLayerSource layer,
+                int layerIndex,
+                int transitionIndex,
+                CoCoTransitionSource transition)
+            {
+                AddError(
+                    CoCoDiagnosticDomain.State,
+                    CoCoDiagnosticCode.DuplicateTransitionPriority,
+                    "Outgoing Transitions from one source leaf State must use unique priorities.",
+                    TransitionLocation(
+                        layerIndex,
+                        transitionIndex,
+                        layer,
+                        transition,
+                        CoCoGraphField.Priority));
             }
 
             private void ValidateConditionTopology(
@@ -1118,7 +1270,6 @@ namespace CoCoFlow.Runtime.Core
                         stateIndices[source.TargetStateId],
                         source.Priority,
                         source.Window,
-                        source.InterruptPolicy,
                         conditions);
                 }
 
@@ -1277,7 +1428,6 @@ namespace CoCoFlow.Runtime.Core
             private void AddRequirements(CoCoConditionDescriptor descriptor)
             {
                 AddAll(_intentRequirements, descriptor.IntentRequirements);
-                AddAll(_operationProvides, descriptor.OperationProvides);
                 AddAll(_contextStateRequirements, descriptor.ContextStateRequirements);
             }
 
@@ -1448,6 +1598,50 @@ namespace CoCoFlow.Runtime.Core
                     left.ToString(),
                     right.ToString()));
                 return values;
+            }
+
+            private static bool TryFindState(
+                CoCoStateLayerSource layer,
+                CoCoStateId stateId,
+                out CoCoStateSource state,
+                out int stateIndex)
+            {
+                if (layer?.States != null)
+                {
+                    for (int index = 0; index < layer.States.Count; index++)
+                    {
+                        CoCoStateSource candidate = layer.States[index];
+                        if (candidate != null && candidate.StateId == stateId)
+                        {
+                            state = candidate;
+                            stateIndex = index;
+                            return true;
+                        }
+                    }
+                }
+
+                state = null;
+                stateIndex = -1;
+                return false;
+            }
+
+            private static bool HasChildState(CoCoStateLayerSource layer, CoCoStateId stateId)
+            {
+                if (layer?.States == null)
+                {
+                    return false;
+                }
+
+                for (int index = 0; index < layer.States.Count; index++)
+                {
+                    CoCoStateSource candidate = layer.States[index];
+                    if (candidate != null && candidate.ParentStateId == stateId)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             private static int[] GetChildren(

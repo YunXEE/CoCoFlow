@@ -187,6 +187,38 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void CompilerRejectsDeclarationsFromDifferentEventDomains()
+        {
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+            RegisterPrimaryIntent(builder, PrimaryIntentId, 4);
+            RegisterAlternateIntent(builder, AlternateIntentId, 4);
+            RegisterPrimaryDeclaration(builder, PrimaryEventType, PrimaryIntentId);
+            Assert.IsTrue(builder.TryRegisterEventToIntentDeclaration<
+                AlternateTestGraphEvent,
+                AlternateTestIntent>(
+                AlternateDomain,
+                AlternateEventType,
+                AlternateIntentId,
+                out CoCoDiagnostic declarationDiagnostic), declarationDiagnostic.Message);
+            CoCoGraphDescriptorCatalog catalog = FreezeWithState(builder);
+
+            CoCoStateGraphCompileResult result = Compile(
+                catalog,
+                Declaration(PrimaryEventType, PrimaryIntentId),
+                Declaration(AlternateEventType, AlternateIntentId));
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsNull(result.Graph);
+            CoCoGraphDiagnostic[] diagnostics = result.Diagnostics.Where(diagnostic =>
+                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.EventDomainMismatch).ToArray();
+            Assert.AreEqual(1, diagnostics.Length);
+            Assert.AreEqual(
+                CoCoGraphElementKind.EventAdapterDeclaration,
+                diagnostics[0].Location.ElementKind);
+            Assert.AreEqual(1, diagnostics[0].Location.EventAdapterDeclarationIndex);
+        }
+
+        [Test]
         public void CompilerRejectsDeclarationsBeyondIntentCapacityLowerBound()
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();

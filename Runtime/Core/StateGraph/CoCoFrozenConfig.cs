@@ -665,18 +665,21 @@ namespace CoCoFlow.Runtime.Core
             Type logicType,
             Type configSchemaType,
             ulong configSchemaFingerprint,
-            Type activationMemoryType)
+            Type activationMemoryType,
+            bool providesActionProgress)
         {
             LogicType = logicType;
             ConfigSchemaType = configSchemaType;
             ConfigSchemaFingerprint = configSchemaFingerprint;
             ActivationMemoryType = activationMemoryType;
+            ProvidesActionProgress = providesActionProgress;
         }
 
         public Type LogicType { get; }
         public Type ConfigSchemaType { get; }
         public ulong ConfigSchemaFingerprint { get; }
         public Type ActivationMemoryType { get; }
+        public bool ProvidesActionProgress { get; }
     }
 
     public sealed class CoCoStateRuntimeRegistration<TLogic, TSchema, TMemory> :
@@ -685,12 +688,15 @@ namespace CoCoFlow.Runtime.Core
         where TSchema : struct, ICoCoFrozenConfigSchema
         where TMemory : CoCoActivationMemory
     {
-        public CoCoStateRuntimeRegistration(CoCoFrozenConfigSchema<TSchema> configSchema)
+        public CoCoStateRuntimeRegistration(
+            CoCoFrozenConfigSchema<TSchema> configSchema,
+            bool providesActionProgress = false)
             : base(
                 typeof(TLogic),
                 typeof(TSchema),
                 RequireSchema(configSchema).Fingerprint,
-                typeof(TMemory))
+                typeof(TMemory),
+                providesActionProgress)
         {
             ConfigSchema = configSchema;
         }

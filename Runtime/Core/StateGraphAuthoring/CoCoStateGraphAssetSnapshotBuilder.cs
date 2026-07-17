@@ -625,7 +625,6 @@ namespace CoCoFlow.Runtime.Core
                 targetStateId,
                 transition.Priority,
                 window,
-                transition.InterruptPolicy,
                 conditionSources);
         }
 
@@ -881,7 +880,6 @@ namespace CoCoFlow.Runtime.Core
                         Add(ref hash, 0x494E56414C494457UL);
                         Add(ref hash, invalidWindowFingerprint);
                     }
-                    Add(ref hash, (int)transition.InterruptPolicy);
                     Add(ref hash, transition.Conditions?.Count ?? -1);
                     if (transition.Conditions == null)
                     {

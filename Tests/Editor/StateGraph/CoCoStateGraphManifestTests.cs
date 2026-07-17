@@ -182,7 +182,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void ConditionAloneContributesAllThreeManifestKinds()
+        public void ConditionContributesOnlyReadRequirementManifestKinds()
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             Assert.IsTrue(builder.TryRegisterIntent(
@@ -234,7 +234,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     TestStateCondition,
                     TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
                 new[] { CoCoStateGraphTestFactory.IntentId },
-                new[] { CoCoStateGraphTestFactory.OperationSectionId },
                 new[] { CoCoStateGraphTestFactory.StateBlockId },
                 out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
@@ -247,13 +246,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(1, result.Graph.IntentRequirements.Count);
-            Assert.AreEqual(1, result.Graph.OperationProvides.Count);
+            Assert.AreEqual(0, result.Graph.OperationProvides.Count);
             Assert.AreEqual(1, result.Graph.ContextStateRequirements.BlockCount);
             Assert.AreEqual(1, result.Graph.ContextStateRequirements.SlotCount);
-            Assert.AreEqual(
-                CoCoStateGraphTestFactory.OperationSectionId,
-                result.Graph.OperationProvides.Provides[0].SectionId);
-            Assert.AreEqual(701UL, result.Graph.OperationProvides.Provides[0].ViewFactorySemanticFingerprint);
             Assert.AreEqual(0, CoCoStateGraphFixtureCounters.OperationViewCreated);
         }
 
