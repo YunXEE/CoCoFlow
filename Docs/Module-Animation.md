@@ -1,6 +1,6 @@
 # Module: Animation
 
-> Pre2 transition note (`0.4.0-pre.2`): `AnimHandler`, `AnimEventSmb`, and the
+> Pre4 transition note (`0.4.0-pre.4`): `AnimHandler`, `AnimEventSmb`, and the
 > current Animator Controller tooling are retained 0.3.9 implementations. They
 > remain historical/transition code until Animation V2 in Pre11 and are not
 > frozen 0.4 APIs.
@@ -81,6 +81,23 @@ reinjection.
 
 After injection, configure each state's event list in the `AnimEventSmb`
 inspector. `Trigger Time` is normalized state time in the `0..1` range.
+
+## StateGraph ActionProgress boundary
+
+Pre4 StateGraph Transition windows use an Activation-scoped `ActionProgress`
+value in `0..1`, not a fixed duration and not a Completion flag. This lets
+slow-motion, speed-up, and ordinary forward animation playback retain the same
+proportional gameplay window. The Runtime sweeps the crossed half-open interval
+`[StartInclusive, EndExclusive)` each Tick, so a large positive Delta cannot
+silently jump over the window; reaching `1` never exits a State automatically.
+
+The retained `AnimEventSmb` normalized-time callbacks are one possible project
+input for a later Tick, but they are not the Transition evaluator. A callback
+must enter through a typed Event-to-Intent Adapter and can then contribute the
+next Tick's progress or intent. It cannot request a Transition or modify the
+current Tick. Pre11 owns a formal Animator/Playable progress adapter and any
+mapping needed for visual reverse playback. StateGraph time remains forward;
+negative Tick Delta and true gameplay reverse execution are outside the design.
 
 ## Boundaries
 

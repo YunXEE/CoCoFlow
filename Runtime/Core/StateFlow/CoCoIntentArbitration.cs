@@ -327,7 +327,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoEventDomainId EventDomainId { get; }
         public CoCoEventTypeId EventTypeId { get; }
         public CoCoIntentSourceRequirement<TIntent> Requirement { get; }
-        public int RegistrationOrder { get; }
+        public int RegistrationOrder { get; private set; }
         public int ProjectionCapacity => _scratch.Length;
         public bool IsValid => _runtime != null &&
                                !_runtime.IsDisposed &&
@@ -343,6 +343,18 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoIntentContribution<TIntent>[] Scratch => _scratch;
 
         internal bool IsOwnedBy(CoCoIntentFrameRuntime runtime) => ReferenceEquals(_runtime, runtime);
+
+        internal bool TryAssignRegistrationOrder(int registrationOrder)
+        {
+            if (registrationOrder < 0 || _runtime == null || _runtime.IsDisposed ||
+                _runtime.AreBindingsFrozen)
+            {
+                return false;
+            }
+
+            RegistrationOrder = registrationOrder;
+            return true;
+        }
 
         internal bool TryClaimProjection(ulong frameGeneration)
         {

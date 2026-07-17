@@ -139,8 +139,6 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private CoCoTransitionWindowMode windowMode = CoCoTransitionWindowMode.Always;
         [SerializeField] private double windowStartInclusive;
         [SerializeField] private double windowEndExclusive;
-        [SerializeField] private CoCoTransitionInterruptPolicy interruptPolicy =
-            CoCoTransitionInterruptPolicy.AllowDuringSourceActivation;
 
         internal CoCoStateGraphTransitionRecord(
             CoCoSerializedId128 transitionId,
@@ -178,7 +176,6 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoTransitionWindowMode WindowMode => windowMode;
         internal double WindowStartInclusive => windowStartInclusive;
         internal double WindowEndExclusive => windowEndExclusive;
-        internal CoCoTransitionInterruptPolicy InterruptPolicy => interruptPolicy;
     }
 
     [Serializable]

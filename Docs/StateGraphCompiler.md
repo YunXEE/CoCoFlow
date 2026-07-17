@@ -1,10 +1,17 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.3` · Updated 2026-07-16
+> Contract status: `0.4.0-pre.4` · Updated 2026-07-17
 
-Pre3 introduces the stable Unity authoring schema and the engine-independent
-compiler for the CoCoFlow 0.4 layered HFSM. It does not introduce a scene Host,
-run user state logic, or execute a Tick.
+Pre3 introduced the Unity authoring schema and engine-independent compiler for
+the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
+schema and adds the Runtime and Host described in
+[StateGraph Runtime and Host](StateGraphRuntime.md).
+
+The serialized Schema remains version 1. Because no StateGraph asset had been
+formally delivered before Pre4, this prerelease v1 is redefined in place and no
+migration is promised for experimental Pre3 assets. Completion and
+InterruptPolicy fields are removed, and the normalized transition window is
+now the ActionProgress window.
 
 ## Authoring authority
 
@@ -27,6 +34,12 @@ this flat serialized schema.
 Cross-Layer transitions, references, queries, messages, and calls are invalid.
 Communication between independent Layers must leave StateGraph and use the
 later State Flow boundaries.
+
+The Asset Layer list is semantic order: first is the lowest composition Layer
+and last is the highest. Reordering the list preserves Layer IDs but changes
+runtime composition and the content fingerprint. The compiler preserves that
+list order, and a Layer's `DenseIndex` is its composition index rather than an
+ID-derived sort position.
 
 ## Stable identity
 
@@ -96,21 +109,30 @@ reinterpret rejected data.
 
 State and Condition behavior is represented by stable descriptor identities
 registered before compilation. Compilation verifies and freezes those
-descriptors; creating StateLogic, Condition, or Reducer instances is a later
-Host boundary. The pure `CoCoStateGraphCompiler` itself does not invoke a
-Freezer, StateLogic, Condition, Reducer, Factory, or Event-to-Intent Adapter.
+descriptors; creating StateLogic, Condition, Memory, Adapter, or Reducer
+instances is a Host runtime boundary. The pure `CoCoStateGraphCompiler` itself
+does not invoke a Freezer, StateLogic, Condition, Reducer, Factory, or
+Event-to-Intent Adapter.
 
-Pre3 does compile graph-level Event-to-Intent declarations. Each declaration
+The compiler records graph-level Event-to-Intent declarations. Each declaration
 serializes only one `(EventTypeId, IntentId)` pair; the catalog supplies and the
 compiled declaration captures the Event Domain, unmanaged Event payload type,
 and exact unmanaged Intent value type.
-Declarations are canonicalized by Event and Intent identity, automatically add
-their provided Intent to the Graph's requirements, and cannot exceed that
-Intent's static `MaxContributions` lower bound. One Event may provide several
+Declarations are resolved and validated by Event and Intent identity, retained
+in Asset list order, automatically add their provided Intent to the Graph's
+requirements, and cannot exceed that Intent's static `MaxContributions` lower
+bound. One Event may provide several
 different Intents, but a pair cannot repeat, and one Event identity cannot
-change Domain or payload type. They do not select an Adapter implementation,
+change Domain or payload type. Every Event declaration in one Graph must resolve
+to the same EventDomain; a mixed-Domain Graph is a compile Error. They do not
+select an Adapter implementation,
 instance, priority, broadcast policy, projection capacity, Inbox, or
 reliability policy.
+
+The Asset declaration list is the authoritative Adapter execution order. The
+compiler preserves that declaration index in the immutable manifest. Pre4's
+binding Provider must cover the manifest exactly, but it cannot sort or otherwise
+change the declared runtime order.
 
 Descriptor logic, Conditions, Freezers, and token implementations must live in
 `noEngineReferences` author assemblies whose complete dependency closure is
@@ -153,7 +175,10 @@ One successful compile produces three deterministic, deduplicated manifests:
 - `CoCoContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
   Slot state required to resume graph evaluation deterministically.
 
-Every State and Condition descriptor may contribute to all three manifests.
+State descriptors may contribute to all three manifests. Conditions may declare
+the Intent and previous Context state they read, but cannot declare or write an
+Operation Section. A Condition only reads frozen Intent, previous Context,
+Tick, Config, LocalSeconds, and ActionProgress during runtime evaluation.
 Repeated identical requirement IDs canonicalize to one sorted entry. Reusing a
 Manifest ID for different registered metadata is a compile-time
 `ManifestConflict`.
@@ -173,9 +198,12 @@ for the validated Section interfaces and recursively used unmanaged value
 metadata so High Managed Stripping does not erase the static Shape contract.
 
 Pre4 owns the actual Host, Source, Event-to-Intent Adapter instances, Inbox, and
-scene binding coverage check. It must verify missing, extra, duplicate, and
-type-exact Adapter coverage against the compiled Pre3 declarations. Pre3 does
-not treat a missing runtime Adapter or scene binding as a graph compile error.
+runtime binding coverage check. It verifies missing, extra, duplicate, and
+type-exact coverage against the compiled declarations before startup. Runtime
+binding remains outside graph compilation: a missing project Factory keeps a
+Host in `Created`, rather than turning the immutable Asset compile result into
+a scene-dependent error. A valid Provider binds the compiled Adapter declarations
+without changing their Asset-defined execution order.
 
 All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
@@ -183,22 +211,39 @@ or Operation Section entry.
 
 ## Transition contract
 
-- `Always` has no timed interval. `LocalSeconds` and `Normalized` use `double`
-  intervals with the exact form `[StartInclusive, EndExclusive)`.
+- Source and target must both be leaves in the same Layer. Composite States can
+  occur on an active path but cannot be transitioned to or from directly.
+- Every Transition carries an explicit Priority. Outgoing edges of the same
+  source leaf must use unique Priorities; another source or Layer may reuse the
+  same value.
+- State Update requests zero or more predeclared outgoing Transition handles.
+  It cannot invent an edge or target at runtime. Window and Condition evaluation
+  happens after Update, then the highest eligible Priority is the sole winner
+  for that Layer and Tick.
+- `Always` has no timed interval. `LocalSeconds` and `ActionProgress` use
+  `double` intervals with the exact form `[StartInclusive, EndExclusive)`.
 - A timed interval requires finite values, `StartInclusive >= 0`, and
-  `StartInclusive < EndExclusive`. `Normalized` also requires
+  `StartInclusive < EndExclusive`. `ActionProgress` also requires
   `EndExclusive <= 1`. An open-ended `LocalSeconds` window is represented by
   `double.MaxValue`.
-- `RequireSourceCompletion` is valid only with `Always`.
-  `AllowDuringSourceActivation` accepts all three Window modes.
+- Timed evaluation sweeps the Tick's progress interval using
+  `previous < end && current >= start`, so a large Delta cannot jump over an
+  eligible window. ActionProgress must be finite and monotonically non-decreasing
+  within one leaf Activation; an equal value is a valid stall. Any decrease,
+  including below the last committed value, cancels the candidate and latches
+  Fault. Transactional rollback restores the last committed authority but never
+  permits progress to move backwards. Reaching `1` does not complete or exit the
+  State.
 - Zero Conditions means true. Multiple Conditions are retained in author order
-  and evaluated as AND by the later runtime; OR remains internal to a registered
-  Condition rather than becoming a public expression tree.
-- Candidate order is Priority descending, then Transition ID ascending. Equal
-  priority is not a diagnostic. Terminal States, self-loops, and ordinary
-  Transition cycles are valid.
+  and evaluated as AND; OR remains internal to a registered Condition rather
+  than becoming a public expression tree.
+- Completion, `RequireSourceCompletion`, `AllowDuringSourceActivation`, and the
+  entire InterruptPolicy are absent. A leaf with no outgoing edge is valid and
+  performs no Transition evaluation. Self-loops and ordinary cycles are valid.
 
-Pre3 compiles and sorts this data but does not evaluate transition candidates.
+The Runtime evaluates this declaration-and-request model. A Transition Tick
+keeps the source path effective through Update and Exit; the committed target
+enters and updates on the next accepted Tick.
 
 ## Validation and diagnostics
 
@@ -207,10 +252,14 @@ diagnostic set contains zero Errors; Warnings do not produce a partial or
 pruned graph.
 
 Errors include invalid or duplicate identities, missing State references,
-hierarchy cycles, invalid initial children, illegal descriptor or Config data,
-invalid or duplicate Event-to-Intent declarations, capacity violations, and
-every Cross-Layer edge. An unreachable State is a Warning. A State with no
-outgoing Transition is a valid terminal State, and ordinary Transition cycles
+hierarchy cycles, invalid initial children, non-leaf Transition endpoints,
+duplicate outgoing Priority, illegal descriptor or Config data, invalid or
+duplicate Event-to-Intent declarations, mixed EventDomains, capacity
+violations, and every Cross-Layer edge. An unreachable State is a Warning. A
+parent and child declaring the same Operation Section also produces a
+non-blocking warning because the child will override the parent; the same
+Section declared in different Layers is normal composition and is not warned.
+A State with no outgoing Transition is valid, and ordinary Transition cycles
 are valid HFSM behavior.
 
 Every graph diagnostic carries severity, code, and a location that can identify
@@ -233,21 +282,21 @@ mutable state. Asset access, snapshot extraction, import handling, and cache
 invalidation remain on the Unity main thread. Pre3 does not add Jobs, Burst,
 parallel scheduling, or a background compilation service.
 
-When Pre4 creates multiple Hosts from one Asset, they may share the compiled
-graph but must own separate GraphInstance, ActivationMemory, Intent Runtime,
-ContextFrame storage, Inbox, and lifecycle state.
+Multiple Hosts using one Asset share only the immutable compiled graph. Each
+owns a separate GraphInstance, StateLogic/Condition instances, double Memory
+banks, ActiveLeaf values, Clock, Intent Runtime, ContextFrame storage, Inbox,
+pending staged Tick, and Fault state.
 
 ## Deferred boundaries
 
-- **Pre4** owns `CoCoStateGraphHost`, Clock/Driver integration, runtime instance
-  construction, real binding coverage, EventRouter, EventAgent, and Inbox
-  lifecycle.
-- **Pre5** owns State evaluation orchestration, Operator execution, Outcome,
-  ContextFrame Commit, and EventOutbox publication.
-- **Pre6** owns Temporal history and rewind/resume.
+- **Pre5** owns the explicit Host Operator list, Operator execution, Outcome,
+  ContextFrame Commit, and committed EventOutbox publication.
+- **Pre6** owns Temporal history, Restore, rewind, and new Epoch creation.
+- **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
 - **Pre15/Pre16** own production authoring UX, replacement Samples, and complete
   cross-module performance and lifecycle certification.
 
-There is no generated mega-`.cs` file, build-time baked compiled Asset, 0.3.9
-compatibility runtime, or automatic migration path in Pre3.
+There is no generated mega-`.cs` file, build-time baked compiled Asset,
+cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
+migration path in Pre4.

@@ -140,8 +140,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(2, result.Graph.IntentRequirements.Count);
             Assert.AreEqual(2, result.Graph.IntentRequirements.AdapterCount);
-            CollectionAssert.AreEquivalent(
-                new[] { PrimaryIntentId, AlternateIntentId },
+            CollectionAssert.AreEqual(
+                new[] { AlternateIntentId, PrimaryIntentId },
                 result.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.ProvidedIntentId));
         }
@@ -184,6 +184,38 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 diagnostic.Diagnostic.Code == CoCoDiagnosticCode.DuplicateIdentifier &&
                 diagnostic.Location.ElementKind == CoCoGraphElementKind.EventAdapterDeclaration &&
                 diagnostic.Location.EventAdapterDeclarationIndex == 1));
+        }
+
+        [Test]
+        public void CompilerRejectsDeclarationsFromDifferentEventDomains()
+        {
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+            RegisterPrimaryIntent(builder, PrimaryIntentId, 4);
+            RegisterAlternateIntent(builder, AlternateIntentId, 4);
+            RegisterPrimaryDeclaration(builder, PrimaryEventType, PrimaryIntentId);
+            Assert.IsTrue(builder.TryRegisterEventToIntentDeclaration<
+                AlternateTestGraphEvent,
+                AlternateTestIntent>(
+                AlternateDomain,
+                AlternateEventType,
+                AlternateIntentId,
+                out CoCoDiagnostic declarationDiagnostic), declarationDiagnostic.Message);
+            CoCoGraphDescriptorCatalog catalog = FreezeWithState(builder);
+
+            CoCoStateGraphCompileResult result = Compile(
+                catalog,
+                Declaration(PrimaryEventType, PrimaryIntentId),
+                Declaration(AlternateEventType, AlternateIntentId));
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsNull(result.Graph);
+            CoCoGraphDiagnostic[] diagnostics = result.Diagnostics.Where(diagnostic =>
+                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.EventDomainMismatch).ToArray();
+            Assert.AreEqual(1, diagnostics.Length);
+            Assert.AreEqual(
+                CoCoGraphElementKind.EventAdapterDeclaration,
+                diagnostics[0].Location.ElementKind);
+            Assert.AreEqual(1, diagnostics[0].Location.EventAdapterDeclarationIndex);
         }
 
         [Test]
@@ -232,7 +264,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CatalogAndManifestFingerprintsIgnoreDeclarationRegistrationAndAuthorOrder()
+        public void CatalogIgnoresRegistrationOrderWhileManifestPreservesGraphAuthorOrder()
         {
             CoCoGraphDescriptorCatalog firstCatalog = CreateTwoDeclarationCatalog(false);
             CoCoGraphDescriptorCatalog reversedCatalog = CreateTwoDeclarationCatalog(true);
@@ -251,16 +283,15 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(first.Succeeded);
             Assert.IsTrue(reversed.Succeeded);
-            Assert.AreEqual(
+            Assert.AreNotEqual(
                 first.Graph.IntentRequirements.LayoutId,
                 reversed.Graph.IntentRequirements.LayoutId);
             CollectionAssert.AreEqual(
-                new[] { PrimaryEventType, AlternateEventType },
+                new[] { AlternateEventType, PrimaryEventType },
                 first.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.EventTypeId));
             CollectionAssert.AreEqual(
-                first.Graph.IntentRequirements.EventAdapterDeclarations
-                    .Select(declaration => declaration.EventTypeId),
+                new[] { PrimaryEventType, AlternateEventType },
                 reversed.Graph.IntentRequirements.EventAdapterDeclarations
                     .Select(declaration => declaration.EventTypeId));
         }

@@ -64,7 +64,57 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CanonicalContentFingerprintIgnoresAuthorOrderButDuplicateLocationDoesNot()
+        public void ValidDeclarationOrderChangesContentFingerprintAndIntentLayout()
+        {
+            CoCoStateGraphAsset first = CreateTransientAsset("valid-order-guid");
+            CoCoStateGraphAsset second = null;
+            try
+            {
+                AddDeclaration(first, EventType(101UL), CoCoStateGraphTestFactory.IntentId);
+                AddDeclaration(first, EventType(102UL), AlternateIntentId);
+                second = UnityEngine.Object.Instantiate(first);
+                second.EventAdapterDeclarations.Reverse();
+
+                CoCoGraphDescriptorCatalog catalog = CreateCatalog();
+                CoCoStateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
+                CoCoStateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
+
+                Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
+                Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
+
+                var compiler = new CoCoStateGraphAssetCompiler(
+                    new CoCoStateGraphCompilationCache());
+                CoCoStateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
+                CoCoStateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
+
+                Assert.IsTrue(firstResult.Succeeded, JoinDiagnostics(firstResult));
+                Assert.IsTrue(secondResult.Succeeded, JoinDiagnostics(secondResult));
+                Assert.AreNotEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
+                Assert.AreNotEqual(
+                    firstResult.Graph.IntentRequirements.LayoutId,
+                    secondResult.Graph.IntentRequirements.LayoutId);
+                CollectionAssert.AreEqual(
+                    new[] { EventType(101UL), EventType(102UL) },
+                    firstResult.Graph.IntentRequirements.EventAdapterDeclarations
+                        .Select(declaration => declaration.EventTypeId));
+                CollectionAssert.AreEqual(
+                    new[] { EventType(102UL), EventType(101UL) },
+                    secondResult.Graph.IntentRequirements.EventAdapterDeclarations
+                        .Select(declaration => declaration.EventTypeId));
+            }
+            finally
+            {
+                if (second != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(second);
+                }
+
+                UnityEngine.Object.DestroyImmediate(first);
+            }
+        }
+
+        [Test]
+        public void ContentFingerprintPreservesAuthorOrderAndDuplicateLocation()
         {
             CoCoStateGraphAsset first = CreateTransientAsset("duplicate-order-guid");
             CoCoStateGraphAsset second = null;
@@ -83,7 +133,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
                 CoCoStateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
 
-                Assert.AreEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
+                Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
                 Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
 
                 var compiler = new CoCoStateGraphAssetCompiler(
@@ -91,7 +141,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
                 CoCoStateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
 
-                Assert.AreEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
+                Assert.AreNotEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
                 Assert.AreEqual(2, FindDiagnosticIndex(
                     firstResult,
                     CoCoDiagnosticCode.DuplicateIdentifier));
@@ -111,7 +161,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CanonicalContentFingerprintIgnoresAuthorOrderButInvalidLocationDoesNot()
+        public void ContentFingerprintPreservesAuthorOrderAndInvalidLocation()
         {
             CoCoStateGraphAsset first = CreateTransientAsset("invalid-order-guid");
             CoCoStateGraphAsset second = null;
@@ -128,7 +178,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
                 CoCoStateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
 
-                Assert.AreEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
+                Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
                 Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
 
                 var compiler = new CoCoStateGraphAssetCompiler(
@@ -136,7 +186,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
                 CoCoStateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
 
-                Assert.AreEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
+                Assert.AreNotEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
                 Assert.AreEqual(1, FindDiagnosticIndex(
                     firstResult,
                     CoCoDiagnosticCode.InvalidIdentifier));

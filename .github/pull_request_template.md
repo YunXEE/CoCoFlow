@@ -46,12 +46,37 @@ intact even when their proposed model is superseded.
       Inbox, IntentFrame, raw Envelope, unpublished Outbox, or Unity Object graph.
 - [ ] Missing or invalid graph-internal Intent requirements, Operation provides,
       and ContextFrame state requirements reject compilation with a structured
-      diagnostic; actual Host/scene binding coverage rejects startup in Pre4.
+      diagnostic; actual project runtime binding coverage rejects Host startup.
 - [ ] A Graph compile with any Error produces no partial/pruned compiled graph;
       Warnings remain non-blocking and location-capable.
 - [ ] Compiled graph data is immutable and shared only as read-only topology;
       per-Host activation, lifecycle, Inbox, and Context state is never cached in
       the Asset result.
+- [ ] The only required Actor component is `CoCoStateGraphHost` with one
+      `CoCoStateGraphAsset`; Runtime, Clock, Inbox, Router, Logic, Condition, and
+      Memory are not components, and Host performs no scene/child/legacy scan.
+- [ ] Runtime binding coverage is immutable and exact for every State,
+      Condition, Memory, Intent Source, and Event Adapter; a mismatch leaves the
+      Host in Created with zero callback, Tick, or Router registration.
+- [ ] Event Adapter execution follows Asset declaration-list order preserved by
+      the compiled manifest; the binding Provider cannot reorder semantics.
+- [ ] Start only selects initial leaves. Enter is parent-to-child, mandatory
+      Update is root-to-leaf, Exit is leaf-to-parent, and a Transition keeps its
+      source path effective until the target enters on the next accepted Tick.
+- [ ] `Created` cannot Stop; Host public `TryDispose` accepts only `Created` or
+      `Stopped`; Runtime `Dispose()` and Unity destruction force live cleanup
+      internally through `Stopped`. Startup/Tick lifecycle reentry is rejected,
+      and destruction cannot publish or commit an unresolved candidate.
+- [ ] Transition endpoints are leaves, every outgoing Priority is explicit and
+      unique per source leaf, and Update can request only predeclared handles.
+      Completion and InterruptPolicy are not present.
+- [ ] Within one Activation, ActionProgress is finite and monotonically
+      non-decreasing; equal values may stall, while a decrease cancels the
+      candidate and latches Fault. Rollback restores committed authority and
+      never permits progress to move backwards.
+- [ ] Operation writes use fixed Layer/path-depth composition rank, Finalize
+      consumes no sequence or LastTick, and only Pre5 Context commit may accept
+      the staged path/memory/clock/frame/outbox candidate.
 - [ ] Unchanged Graph/content/catalog/schema keys share both successful and
       failed compile-result identities; failed results keep `Graph == null`, and
       a throwing cache factory is evicted.
@@ -61,6 +86,9 @@ intact even when their proposed model is superseded.
 - [ ] Pre3 compiles graph-level Event-to-Intent static declarations into the
       Intent manifest without Adapter instances; Pre4 owns missing, extra,
       duplicate, and type-exact runtime coverage and binding.
+- [ ] One Graph uses at most one EventDomain; no declarations create no
+      Inbox/Router, local ingress bypasses Router, and cross-Actor routing uses
+      atomic `CoCoEventPacket<TEvent>` rather than `PublishWithEnvelope`.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.
@@ -71,6 +99,9 @@ intact even when their proposed model is superseded.
 - [ ] This Pre PR targets `dev/0.4.0`, never `master` directly.
 - [ ] Every accepted Tick has a finite positive delta; Pause/Suspend produces
       zero Tick and zero Intent sampling, and rewind does not use negative delta.
+- [ ] Actor TimeScale is finite and positive; Unity Update/FixedUpdate schedules
+      at most one CoCoTick per frame, while each Manual call is one independent
+      Tick without accumulator or catch-up.
 
 ## Serialization and rollback
 
@@ -123,6 +154,7 @@ intact even when their proposed model is superseded.
 - Unity version:
 - Host project/revision:
 - Package reference/tag/commit:
+- Final PR Head SHA under test:
 
 - [ ] Clean package import completed without Console compile errors.
 - [ ] Core contract EditMode tests passed.
@@ -134,20 +166,40 @@ intact even when their proposed model is superseded.
       Layer/subtree duplication, cache, and diagnostic navigation EditMode tests
       passed.
 - [ ] Relevant existing EditMode and PlayMode tests passed.
-- [ ] Warmed steady-state Frame access, Intent arbitration, Mailbox processing,
-      and Codec paths meet the allocation gate owned by this Pre.
+- [ ] StateGraph Runtime EditMode and Host lifecycle/event PlayMode suites passed
+      for this Pre's focused and full-package runs.
+- [ ] After 100 warm-up and 10,000 measured iterations, normal Step, layered
+      composition, Transition, Router-to-Inbox-to-Step, and Suspend/Resume meet
+      the zero steady-state managed-allocation gate.
 - [ ] Required generic Section, EventPacket, Adapter, Codec, StateGraph snapshot,
       descriptor, and manifest paths passed an IL2CPP/AOT smoke build with the
       configured stripping level.
-- [ ] Unity Package Validation Suite passed for the package.
+- [ ] macOS Universal IL2CPP with High Managed Stripping completed as the smoke
+      target for this Head.
+- [ ] Unity Package Validation Suite passed without adding an unexplained
+      exception, and Unity Package Validation Suite package/version metadata
+      matches `package.json`.
 - [ ] Test result files, allocation/performance evidence, build logs, or
       screenshots are linked below.
 
 ## Evidence
 
 Paste concise command output, Unity test totals, allocation/benchmark summaries,
-AOT build results, Package Validation output, screenshots, logs, or links that
-allow a reviewer to verify the checks above.
+AOT build results, Unity Package Validation Suite output, screenshots, logs, or
+links that allow a reviewer to verify the checks above.
+
+- Reviewed final PR Head SHA:
+- Clean UPM Host import/result:
+- Focused EditMode/PlayMode totals:
+- Full-package EditMode/PlayMode totals:
+- Allocation summary (100 warm-up / 10,000 measured):
+- macOS Universal IL2CPP + High Stripping artifact/log:
+- Unity Package Validation Suite result/log:
+- asmdef/JSON/GUID/dependency/hot-path audit summary:
+
+If any fix changes the Head after evidence was captured, mark the affected
+evidence stale and rerun it. A green run from an earlier commit is not final-head
+evidence.
 
 ## Deferred work
 

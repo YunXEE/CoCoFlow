@@ -99,6 +99,7 @@ namespace CoCoFlow.Runtime.Core
             ConfigSchemaType = registration.ConfigSchemaType;
             ConfigSchemaFingerprint = registration.ConfigSchemaFingerprint;
             ActivationMemoryType = registration.RuntimeRegistration.ActivationMemoryType;
+            ProvidesActionProgress = registration.RuntimeRegistration.ProvidesActionProgress;
             RuntimeRegistration = registration.RuntimeRegistration;
             _intentRequirements = Array.AsReadOnly(registration.IntentRequirements);
             _operationProvides = Array.AsReadOnly(registration.OperationProvides);
@@ -112,6 +113,7 @@ namespace CoCoFlow.Runtime.Core
         public Type ConfigSchemaType { get; }
         public ulong ConfigSchemaFingerprint { get; }
         public Type ActivationMemoryType { get; }
+        public bool ProvidesActionProgress { get; }
         public CoCoStateRuntimeRegistration RuntimeRegistration { get; }
         public IReadOnlyList<CoCoIntentId> IntentRequirements => _intentRequirements;
         public IReadOnlyList<CoCoOperationSectionId> OperationProvides => _operationProvides;
@@ -121,7 +123,6 @@ namespace CoCoFlow.Runtime.Core
     public sealed class CoCoConditionDescriptor
     {
         private readonly IReadOnlyList<CoCoIntentId> _intentRequirements;
-        private readonly IReadOnlyList<CoCoOperationSectionId> _operationProvides;
         private readonly IReadOnlyList<CoCoStateBlockId> _contextStateRequirements;
 
         internal CoCoConditionDescriptor(ICoCoConditionDescriptorRegistration registration)
@@ -134,7 +135,6 @@ namespace CoCoFlow.Runtime.Core
             ConfigSchemaFingerprint = registration.ConfigSchemaFingerprint;
             RuntimeRegistration = registration.RuntimeRegistration;
             _intentRequirements = Array.AsReadOnly(registration.IntentRequirements);
-            _operationProvides = Array.AsReadOnly(registration.OperationProvides);
             _contextStateRequirements = Array.AsReadOnly(registration.ContextStateRequirements);
         }
 
@@ -146,7 +146,6 @@ namespace CoCoFlow.Runtime.Core
         public ulong ConfigSchemaFingerprint { get; }
         public CoCoConditionRuntimeRegistration RuntimeRegistration { get; }
         public IReadOnlyList<CoCoIntentId> IntentRequirements => _intentRequirements;
-        public IReadOnlyList<CoCoOperationSectionId> OperationProvides => _operationProvides;
         public IReadOnlyList<CoCoStateBlockId> ContextStateRequirements => _contextStateRequirements;
     }
 
@@ -262,7 +261,6 @@ namespace CoCoFlow.Runtime.Core
             ICoCoConfigFreezer<TAuthoringConfig, TSchema> configFreezer,
             CoCoConditionRuntimeRegistration<TCondition, TSchema> runtimeRegistration,
             CoCoIntentId[] intentRequirements,
-            CoCoOperationSectionId[] operationProvides,
             CoCoStateBlockId[] contextStateRequirements,
             out CoCoDiagnostic diagnostic)
             where TCondition : CoCoStateCondition
@@ -309,7 +307,6 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (!TryCloneIds(intentRequirements, out CoCoIntentId[] intents) ||
-                !TryCloneIds(operationProvides, out CoCoOperationSectionId[] operations) ||
                 !TryCloneIds(contextStateRequirements, out CoCoStateBlockId[] blocks))
             {
                 diagnostic = Error(
@@ -326,7 +323,6 @@ namespace CoCoFlow.Runtime.Core
                     configFreezer,
                     runtimeRegistration,
                     intents,
-                    operations,
                     blocks));
             AddAuthorAssemblyRoots(authorTypes);
             diagnostic = CoCoDiagnostic.None;
@@ -720,7 +716,7 @@ namespace CoCoFlow.Runtime.Core
             {
                 if (!RequirementsExist(
                         condition.IntentRequirements,
-                        condition.OperationProvides,
+                        Array.Empty<CoCoOperationSectionId>(),
                         condition.ContextStateRequirements))
                 {
                     catalog = null;
@@ -998,6 +994,7 @@ namespace CoCoFlow.Runtime.Core
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.ConfigSchemaType);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.ConfigSchemaFingerprint);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.ActivationMemoryType);
+                CoCoGraphCatalogHash.Add(ref hash, descriptor.ProvidesActionProgress ? 1UL : 0UL);
                 CoCoGraphCatalogHash.Add(ref hash, states[index].Value.FreezerType);
                 AddIds(ref hash, states[index].Value.IntentRequirements);
                 AddIds(ref hash, states[index].Value.OperationProvides);
@@ -1017,7 +1014,6 @@ namespace CoCoFlow.Runtime.Core
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.ConfigSchemaFingerprint);
                 CoCoGraphCatalogHash.Add(ref hash, conditions[index].Value.FreezerType);
                 AddIds(ref hash, conditions[index].Value.IntentRequirements);
-                AddIds(ref hash, conditions[index].Value.OperationProvides);
                 AddIds(ref hash, conditions[index].Value.ContextStateRequirements);
             }
 
@@ -1358,7 +1354,6 @@ namespace CoCoFlow.Runtime.Core
         Type FreezerType { get; }
         CoCoConditionRuntimeRegistration RuntimeRegistration { get; }
         CoCoIntentId[] IntentRequirements { get; }
-        CoCoOperationSectionId[] OperationProvides { get; }
         CoCoStateBlockId[] ContextStateRequirements { get; }
         bool Accepts(CoCoFrozenConfigSnapshot snapshot);
         bool TryFreeze(
@@ -1382,7 +1377,6 @@ namespace CoCoFlow.Runtime.Core
             ICoCoConfigFreezer<TAuthoringConfig, TSchema> freezer,
             CoCoConditionRuntimeRegistration<TCondition, TSchema> runtimeRegistration,
             CoCoIntentId[] intentRequirements,
-            CoCoOperationSectionId[] operationProvides,
             CoCoStateBlockId[] contextStateRequirements)
         {
             DescriptorId = descriptorId;
@@ -1391,7 +1385,6 @@ namespace CoCoFlow.Runtime.Core
             _schema = runtimeRegistration.ConfigSchema;
             RuntimeRegistration = runtimeRegistration;
             IntentRequirements = intentRequirements;
-            OperationProvides = operationProvides;
             ContextStateRequirements = contextStateRequirements;
         }
 
@@ -1403,7 +1396,6 @@ namespace CoCoFlow.Runtime.Core
         public Type FreezerType => _freezer.GetType();
         public CoCoConditionRuntimeRegistration RuntimeRegistration { get; }
         public CoCoIntentId[] IntentRequirements { get; }
-        public CoCoOperationSectionId[] OperationProvides { get; }
         public CoCoStateBlockId[] ContextStateRequirements { get; }
 
         public bool Accepts(CoCoFrozenConfigSnapshot snapshot) =>

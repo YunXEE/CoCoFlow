@@ -23,7 +23,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphTestFactory.RootStateId,
                 0,
                 CoCoTransitionWindow.Always,
-                CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                 conditions);
             var originalState = CoCoStateGraphTestFactory.State(
                 CoCoStateGraphTestFactory.RootStateId,
@@ -233,7 +232,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     stateId,
                     index,
                     CoCoTransitionWindow.Always,
-                    CoCoTransitionInterruptPolicy.RequireSourceCompletion,
                     Array.Empty<CoCoConditionSource>());
             }
 

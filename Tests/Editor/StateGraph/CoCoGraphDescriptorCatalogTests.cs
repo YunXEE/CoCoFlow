@@ -69,7 +69,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     TestStateCondition,
                     TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
                 new[] { intentId },
-                new[] { sectionId },
                 new[] { blockId },
                 out CoCoDiagnostic conditionDiagnostic),
                 conditionDiagnostic.Message);
@@ -93,6 +92,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 TestFrozenConfigSchemas.StateSchema.Fingerprint,
                 stateDescriptor.ConfigSchemaFingerprint);
             Assert.AreEqual(typeof(TestActivationMemory), stateDescriptor.ActivationMemoryType);
+            Assert.IsFalse(stateDescriptor.ProvidesActionProgress);
             CollectionAssert.AreEqual(new[] { intentId }, stateDescriptor.IntentRequirements);
             CollectionAssert.AreEqual(new[] { sectionId }, stateDescriptor.OperationProvides);
             CollectionAssert.AreEqual(new[] { blockId }, stateDescriptor.ContextStateRequirements);
@@ -101,7 +101,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 out CoCoConditionDescriptor conditionDescriptor));
             Assert.AreEqual(typeof(TestStateCondition), conditionDescriptor.ConditionType);
             CollectionAssert.AreEqual(new[] { intentId }, conditionDescriptor.IntentRequirements);
-            CollectionAssert.AreEqual(new[] { sectionId }, conditionDescriptor.OperationProvides);
             CollectionAssert.AreEqual(new[] { blockId }, conditionDescriptor.ContextStateRequirements);
 
             Assert.AreEqual(0, CoCoStateGraphFixtureCounters.LogicConstructed);
@@ -393,6 +392,24 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void StateActionProgressCapabilityContributesToCatalogFingerprint()
+        {
+            CoCoGraphDescriptorCatalog withoutProvider =
+                CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoGraphDescriptorCatalog withProvider =
+                CoCoStateGraphTestFactory.CreateCatalog(
+                    false,
+                    providesActionProgress: true);
+
+            Assert.AreNotEqual(withoutProvider.Fingerprint, withProvider.Fingerprint);
+            Assert.IsTrue(withProvider.TryGetStateDescriptor(
+                CoCoStateGraphTestFactory.StateDescriptorId,
+                out CoCoStateDescriptor descriptor));
+            Assert.IsTrue(descriptor.ProvidesActionProgress);
+            Assert.IsTrue(descriptor.RuntimeRegistration.ProvidesActionProgress);
+        }
+
+        [Test]
         public void SameDescriptorIdWithDifferentRevisionIsRejected()
         {
             CoCoStateDescriptorId descriptorId = StateDescriptorId(36UL);
@@ -549,7 +566,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 new CoCoConditionRuntimeRegistration<
                     TestStateCondition,
                     TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                null,
                 null,
                 null,
                 out CoCoDiagnostic registrationDiagnostic), registrationDiagnostic.Message);

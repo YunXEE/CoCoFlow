@@ -1045,14 +1045,82 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
-    /// Read-only OperationFrame surface consumed by Operators.
-    /// Frame construction and mutation remain runtime-owned concerns on the concrete frame and its writer.
+    /// Framework-owned precedence for one Operation contribution.
+    /// A larger Layer index wins first; within one Layer, a deeper active path wins.
+    /// </summary>
+    public readonly struct CoCoOperationWriteRank : IEquatable<CoCoOperationWriteRank>
+    {
+        private readonly bool _isValid;
+
+        private CoCoOperationWriteRank(int layerIndex, int pathDepth)
+        {
+            _isValid = true;
+            LayerIndex = layerIndex;
+            PathDepth = pathDepth;
+        }
+
+        public int LayerIndex { get; }
+        public int PathDepth { get; }
+        public bool IsValid => _isValid && LayerIndex >= 0 && PathDepth >= 0;
+
+        internal static CoCoOperationWriteRank Base => new CoCoOperationWriteRank(0, 0);
+
+        public static bool TryCreate(
+            int layerIndex,
+            int pathDepth,
+            out CoCoOperationWriteRank rank)
+        {
+            if (layerIndex < 0 || pathDepth < 0)
+            {
+                rank = default;
+                return false;
+            }
+
+            rank = new CoCoOperationWriteRank(layerIndex, pathDepth);
+            return true;
+        }
+
+        internal bool IsLowerThan(in CoCoOperationWriteRank other)
+        {
+            return LayerIndex < other.LayerIndex ||
+                   (LayerIndex == other.LayerIndex && PathDepth < other.PathDepth);
+        }
+
+        public bool Equals(CoCoOperationWriteRank other) =>
+            _isValid == other._isValid &&
+            LayerIndex == other.LayerIndex &&
+            PathDepth == other.PathDepth;
+
+        public override bool Equals(object obj) =>
+            obj is CoCoOperationWriteRank other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hashCode = _isValid.GetHashCode();
+                hashCode = (hashCode * 397) ^ LayerIndex;
+                hashCode = (hashCode * 397) ^ PathDepth;
+                return hashCode;
+            }
+        }
+
+        public static bool operator ==(
+            CoCoOperationWriteRank left,
+            CoCoOperationWriteRank right) => left.Equals(right);
+
+        public static bool operator !=(
+            CoCoOperationWriteRank left,
+            CoCoOperationWriteRank right) => !left.Equals(right);
+    }
+
+    /// <summary>
+    /// Read-only finalized OperationFrame surface consumed by Operators.
     /// </summary>
     public interface ICoCoOperationFrame
     {
         CoCoStateFlowFrameHeader Header { get; }
         CoCoOperationSectionRegistry Registry { get; }
-        bool IsSealed { get; }
 
         bool TryGet<TSection>(
             CoCoOperationSectionHandle<TSection> handle,
@@ -1061,27 +1129,34 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
-    /// A fixed-layout, GraphInstance-owned execution guide. Begin, write and seal all reuse preallocated storage.
+    /// A fixed-layout, GraphInstance-owned OperationFrame arena.
+    /// Begin, ranked writes, finalize and commit/cancel all reuse preallocated storage.
     /// </summary>
-    public sealed class CoCoOperationFrame : ICoCoOperationFrame
+    public sealed class CoCoOperationFrame
     {
         private readonly CoCoOperationSectionRegistry _registry;
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly byte[] _storage;
         private readonly CoCoOperationSectionEntryHeader[] _entryHeaders;
+        private readonly CoCoOperationWriteRank[] _fieldRanks;
+        private readonly bool[] _fieldHasContribution;
+        private readonly CoCoOperationWriteRank[] _discreteRanks;
+        private readonly bool[] _discreteHasContribution;
+        private readonly CoCoActivationId[] _discreteActivationIds;
         private readonly ulong[] _committedSequences;
         private readonly ulong[] _pendingSequences;
         private readonly object[] _views;
         private CoCoTimelineEpoch _committedSequenceEpoch;
         private CoCoTimelineEpoch _pendingSequenceEpoch;
-        private CoCoTickFrame _lastSealedTickFrame;
+        private CoCoTickFrame _lastCommittedTickFrame;
         private CoCoStateFlowFrameHeader _header;
         private ulong _writeToken;
+        private object _runtimeOwner;
         private bool _hasCommittedSequenceEpoch;
-        private bool _hasSealedTickFrame;
+        private bool _hasCommittedTickFrame;
         private bool _pendingSequenceEpochIsNew;
         private bool _isWriting;
-        private bool _isSealed;
+        private bool _isFinalized;
 
         private CoCoOperationFrame(
             CoCoOperationSectionRegistry registry,
@@ -1091,14 +1166,18 @@ namespace CoCoFlow.Runtime.Core
             _graphInstanceId = graphInstanceId;
             _storage = new byte[registry.ByteSize];
             _entryHeaders = new CoCoOperationSectionEntryHeader[registry.Count];
+            _fieldRanks = new CoCoOperationWriteRank[registry.ByteSize];
+            _fieldHasContribution = new bool[registry.ByteSize];
+            _discreteRanks = new CoCoOperationWriteRank[registry.Count];
+            _discreteHasContribution = new bool[registry.Count];
+            _discreteActivationIds = new CoCoActivationId[registry.Count];
             _committedSequences = new ulong[registry.Count];
             _pendingSequences = new ulong[registry.Count];
             _views = registry.CreateViews(this);
         }
 
-        public CoCoStateFlowFrameHeader Header => _header;
         public CoCoOperationSectionRegistry Registry => _registry;
-        public bool IsSealed => _isSealed;
+        public CoCoGraphInstanceId GraphInstanceId => _graphInstanceId;
 
         public static bool TryCreate(
             CoCoOperationSectionRegistry registry,
@@ -1148,13 +1227,21 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryBegin(CoCoTickFrame tickFrame, out CoCoOperationFrameWriter writer)
+        public bool TryBegin(CoCoTickFrame tickFrame, out CoCoOperationFrameWriter writer) =>
+            TryBegin(null, tickFrame, out writer);
+
+        internal bool TryBegin(
+            object runtimeOwner,
+            CoCoTickFrame tickFrame,
+            out CoCoOperationFrameWriter writer)
         {
-            if (_isWriting ||
-                (_hasSealedTickFrame &&
+            if ((_runtimeOwner != null && !ReferenceEquals(_runtimeOwner, runtimeOwner)) ||
+                _isWriting ||
+                _isFinalized ||
+                (_hasCommittedTickFrame &&
                  !CoCoStateFlowTickOrder.IsStrictlyAfter(
                      tickFrame,
-                     _lastSealedTickFrame)) ||
+                     _lastCommittedTickFrame)) ||
                 !CoCoStateFlowFrameHeader.TryCreate(
                     _graphInstanceId,
                     _registry.LayoutId,
@@ -1173,6 +1260,9 @@ namespace CoCoFlow.Runtime.Core
             }
 
             Array.Clear(_storage, 0, _storage.Length);
+            Array.Clear(_fieldHasContribution, 0, _fieldHasContribution.Length);
+            Array.Clear(_discreteHasContribution, 0, _discreteHasContribution.Length);
+            Array.Clear(_discreteActivationIds, 0, _discreteActivationIds.Length);
             for (int index = 0; index < _entryHeaders.Length; index++)
             {
                 _entryHeaders[index] = _registry.GetMode(index) == CoCoOperationSectionMode.Continuous
@@ -1182,18 +1272,51 @@ namespace CoCoFlow.Runtime.Core
 
             _header = header;
             _isWriting = true;
-            _isSealed = false;
+            _isFinalized = false;
             _writeToken = _writeToken == ulong.MaxValue ? 1UL : _writeToken + 1UL;
             writer = new CoCoOperationFrameWriter(this, _writeToken);
             return true;
         }
 
-        public bool TryGet<TSection>(
+        internal bool TryClaimRuntimeOwner(object owner, CoCoGraphInstanceId graphInstanceId)
+        {
+            lock (this)
+            {
+                if (owner == null ||
+                    !graphInstanceId.IsValid ||
+                    graphInstanceId != _graphInstanceId ||
+                    _runtimeOwner != null ||
+                    _isWriting ||
+                    _isFinalized ||
+                    _hasCommittedTickFrame ||
+                    _hasCommittedSequenceEpoch)
+                {
+                    return false;
+                }
+
+                _runtimeOwner = owner;
+                return true;
+            }
+        }
+
+        internal void ReleaseRuntimeOwner(object owner)
+        {
+            lock (this)
+            {
+                if (ReferenceEquals(_runtimeOwner, owner))
+                {
+                    _runtimeOwner = null;
+                }
+            }
+        }
+
+        internal bool TryGet<TSection>(
+            ulong token,
             CoCoOperationSectionHandle<TSection> handle,
             out CoCoOperationSectionEntry<TSection> entry)
             where TSection : class, ICoCoOperationSection
         {
-            if (!_isSealed || !_registry.ValidateHandle(handle))
+            if (!IsFinalized(token) || !_registry.ValidateHandle(handle))
             {
                 entry = default;
                 return false;
@@ -1210,7 +1333,7 @@ namespace CoCoFlow.Runtime.Core
             out TValue value)
             where TValue : unmanaged
         {
-            if (!_isSealed || !_registry.ValidateField(field))
+            if (!_isFinalized || !_registry.ValidateField(field))
             {
                 value = default;
                 return false;
@@ -1225,79 +1348,149 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool TryWrite<TValue>(
             ulong token,
+            CoCoOperationWriteRank rank,
             CoCoOperationSectionField<TValue> field,
             in TValue value)
             where TValue : unmanaged
         {
-            if (!CanWrite(token) || !_registry.ValidateField(field))
+            if (!CanWrite(token) ||
+                !rank.IsValid ||
+                !_registry.ValidateField(field))
             {
                 return false;
             }
 
+            int fieldAddress = field.ByteOffset;
+            if (_fieldHasContribution[fieldAddress] &&
+                rank.IsLowerThan(_fieldRanks[fieldAddress]))
+            {
+                return true;
+            }
+
             CoCoOperationSectionBinary.Write(_storage, field.ByteOffset, field.ByteSize, value);
+            _fieldRanks[fieldAddress] = rank;
+            _fieldHasContribution[fieldAddress] = true;
             return true;
         }
 
         internal bool TryEnableDiscrete<TSection>(
             ulong token,
+            CoCoOperationWriteRank rank,
             CoCoOperationSectionHandle<TSection> handle,
-            CoCoActivationId activationId,
-            out CoCoOperationSequence sequence)
+            CoCoActivationId activationId)
             where TSection : class, ICoCoOperationSection
         {
             if (!CanWrite(token) ||
+                !rank.IsValid ||
                 !activationId.IsValid ||
                 !_registry.ValidateHandle(handle) ||
-                _registry.GetMode(handle.DenseIndex) != CoCoOperationSectionMode.Discrete ||
-                _entryHeaders[handle.DenseIndex].Enabled ||
-                _pendingSequences[handle.DenseIndex] == ulong.MaxValue)
-            {
-                sequence = default;
-                return false;
-            }
-
-            ulong next = _pendingSequences[handle.DenseIndex] + 1UL;
-            if (!CoCoOperationSequence.TryCreate(next, out sequence))
+                _registry.GetMode(handle.DenseIndex) != CoCoOperationSectionMode.Discrete)
             {
                 return false;
             }
 
-            _pendingSequences[handle.DenseIndex] = next;
-            _entryHeaders[handle.DenseIndex] = CoCoOperationSectionEntryHeader.Discrete(
-                activationId,
-                sequence);
+            int sectionIndex = handle.DenseIndex;
+            if (_discreteHasContribution[sectionIndex] &&
+                rank.IsLowerThan(_discreteRanks[sectionIndex]))
+            {
+                return true;
+            }
+
+            _discreteRanks[sectionIndex] = rank;
+            _discreteHasContribution[sectionIndex] = true;
+            _discreteActivationIds[sectionIndex] = activationId;
             return true;
         }
 
-        internal bool Seal(ulong token)
+        internal bool TryFinalize(
+            ulong token,
+            out CoCoFinalizedOperationFrame finalized)
         {
             if (!CanWrite(token))
+            {
+                finalized = default;
+                return false;
+            }
+
+            for (int index = 0; index < _discreteHasContribution.Length; index++)
+            {
+                if (_discreteHasContribution[index] &&
+                    _pendingSequences[index] == ulong.MaxValue)
+                {
+                    finalized = default;
+                    return false;
+                }
+            }
+
+            for (int index = 0; index < _discreteHasContribution.Length; index++)
+            {
+                if (!_discreteHasContribution[index])
+                {
+                    continue;
+                }
+
+                ulong next = _pendingSequences[index] + 1UL;
+                if (!CoCoOperationSequence.TryCreate(next, out CoCoOperationSequence sequence))
+                {
+                    finalized = default;
+                    return false;
+                }
+
+                _pendingSequences[index] = next;
+                _entryHeaders[index] = CoCoOperationSectionEntryHeader.Discrete(
+                    _discreteActivationIds[index],
+                    sequence);
+            }
+
+            _isWriting = false;
+            _isFinalized = true;
+            finalized = new CoCoFinalizedOperationFrame(this, token);
+            return true;
+        }
+
+        internal bool Commit(ulong token)
+        {
+            if (!IsFinalized(token))
             {
                 return false;
             }
 
             CommitPendingSequenceEpoch();
-            _lastSealedTickFrame = _header.TickFrame;
-            _hasSealedTickFrame = true;
-            _isWriting = false;
-            _isSealed = true;
+            _lastCommittedTickFrame = _header.TickFrame;
+            _hasCommittedTickFrame = true;
+            ClearActiveTransaction();
             return true;
         }
 
-        internal bool Cancel(ulong token)
+        internal bool CancelPrepared(ulong token)
         {
             if (!CanWrite(token))
             {
                 return false;
             }
 
-            _isWriting = false;
-            _isSealed = false;
-            _header = default;
-            _pendingSequenceEpoch = default;
-            _pendingSequenceEpochIsNew = false;
+            ClearActiveTransaction();
             return true;
         }
+
+        internal bool CancelFinalized(ulong token)
+        {
+            if (!IsFinalized(token))
+            {
+                return false;
+            }
+
+            ClearActiveTransaction();
+            return true;
+        }
+
+        internal bool IsWriting(ulong token) => CanWrite(token);
+
+        internal bool IsFinalized(ulong token) =>
+            _isFinalized && token != 0UL && token == _writeToken;
+
+        internal CoCoStateFlowFrameHeader GetFinalizedHeader(ulong token) =>
+            IsFinalized(token) ? _header : default;
 
         private bool TryPrepareSequenceEpoch(CoCoTimelineEpoch epoch)
         {
@@ -1335,7 +1528,55 @@ namespace CoCoFlow.Runtime.Core
             _pendingSequenceEpochIsNew = false;
         }
 
+        private void ClearActiveTransaction()
+        {
+            _isWriting = false;
+            _isFinalized = false;
+            _header = default;
+            _pendingSequenceEpoch = default;
+            _pendingSequenceEpochIsNew = false;
+        }
+
         private bool CanWrite(ulong token) => _isWriting && token != 0UL && token == _writeToken;
+    }
+
+    /// <summary>
+    /// Read-only finalized OperationFrame candidate. Commit advances Tick and discrete Sequences;
+    /// Cancel abandons the candidate without consuming either.
+    /// </summary>
+    public readonly struct CoCoFinalizedOperationFrame : ICoCoOperationFrame
+    {
+        private readonly CoCoOperationFrame _frame;
+        private readonly ulong _token;
+
+        internal CoCoFinalizedOperationFrame(CoCoOperationFrame frame, ulong token)
+        {
+            _frame = frame;
+            _token = token;
+        }
+
+        public CoCoStateFlowFrameHeader Header =>
+            _frame != null ? _frame.GetFinalizedHeader(_token) : default;
+
+        public CoCoOperationSectionRegistry Registry => _frame?.Registry;
+        public bool IsValid => _frame != null && _frame.IsFinalized(_token);
+
+        public bool TryGet<TSection>(
+            CoCoOperationSectionHandle<TSection> handle,
+            out CoCoOperationSectionEntry<TSection> entry)
+            where TSection : class, ICoCoOperationSection
+        {
+            if (_frame == null)
+            {
+                entry = default;
+                return false;
+            }
+
+            return _frame.TryGet(_token, handle, out entry);
+        }
+
+        public bool Commit() => _frame != null && _frame.Commit(_token);
+        public bool Cancel() => _frame != null && _frame.CancelFinalized(_token);
     }
 
     public readonly struct CoCoOperationFrameWriter
@@ -1349,33 +1590,55 @@ namespace CoCoFlow.Runtime.Core
             _token = token;
         }
 
-        public bool IsValid => _frame != null && _token != 0UL;
+        public bool IsValid => _frame != null && _frame.IsWriting(_token);
 
         public bool Write<TValue>(
             CoCoOperationSectionField<TValue> field,
             in TValue value)
             where TValue : unmanaged
         {
-            return _frame != null && _frame.TryWrite(_token, field, value);
+            return Write(CoCoOperationWriteRank.Base, field, value);
+        }
+
+        public bool Write<TValue>(
+            CoCoOperationWriteRank rank,
+            CoCoOperationSectionField<TValue> field,
+            in TValue value)
+            where TValue : unmanaged
+        {
+            return _frame != null && _frame.TryWrite(_token, rank, field, value);
         }
 
         public bool EnableDiscrete<TSection>(
             CoCoOperationSectionHandle<TSection> handle,
-            CoCoActivationId activationId,
-            out CoCoOperationSequence sequence)
+            CoCoActivationId activationId)
             where TSection : class, ICoCoOperationSection
+        {
+            return EnableDiscrete(CoCoOperationWriteRank.Base, handle, activationId);
+        }
+
+        public bool EnableDiscrete<TSection>(
+            CoCoOperationWriteRank rank,
+            CoCoOperationSectionHandle<TSection> handle,
+            CoCoActivationId activationId)
+            where TSection : class, ICoCoOperationSection
+        {
+            return _frame != null &&
+                   _frame.TryEnableDiscrete(_token, rank, handle, activationId);
+        }
+
+        public bool TryFinalize(out CoCoFinalizedOperationFrame finalized)
         {
             if (_frame == null)
             {
-                sequence = default;
+                finalized = default;
                 return false;
             }
 
-            return _frame.TryEnableDiscrete(_token, handle, activationId, out sequence);
+            return _frame.TryFinalize(_token, out finalized);
         }
 
-        public bool Seal() => _frame != null && _frame.Seal(_token);
-        public bool Cancel() => _frame != null && _frame.Cancel(_token);
+        public bool Cancel() => _frame != null && _frame.CancelPrepared(_token);
     }
 
     internal interface IViewFactoryRegistration

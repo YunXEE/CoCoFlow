@@ -140,14 +140,19 @@ namespace CoCoFlow.Runtime.Core.Tests
                 CoCoDiagnosticCode.InvalidAuthoringDependency,
                 CoCoDiagnosticCode.InvalidFrozenConfig,
                 CoCoDiagnosticCode.ManifestConflict,
-                CoCoDiagnosticCode.InvalidTransitionWindow,
-                CoCoDiagnosticCode.InvalidInterruptPolicy
+                CoCoDiagnosticCode.InvalidTransitionWindow
             };
 
             for (int index = 0; index < appendedCodes.Length; index++)
             {
                 Assert.AreEqual(12 + index, (int)appendedCodes[index]);
             }
+
+            Assert.IsFalse(Enum.IsDefined(typeof(CoCoDiagnosticCode), 49));
+            Assert.AreEqual(50, (int)CoCoDiagnosticCode.NonLeafTransitionEndpoint);
+            Assert.AreEqual(51, (int)CoCoDiagnosticCode.DuplicateTransitionPriority);
+            Assert.AreEqual(52, (int)CoCoDiagnosticCode.MissingActionProgressProvider);
+            Assert.AreEqual(53, (int)CoCoDiagnosticCode.ActivePathOperationOverlap);
         }
 
         [Test]

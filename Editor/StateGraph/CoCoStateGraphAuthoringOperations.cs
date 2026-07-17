@@ -78,7 +78,7 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoLayerId layerId,
             CoCoStateId sourceStateId,
             CoCoStateId targetStateId,
-            int priority = 0)
+            int priority)
         {
             RequireAsset(asset);
             CoCoStateGraphLayerRecord layer = RequireLayer(asset, layerId);
