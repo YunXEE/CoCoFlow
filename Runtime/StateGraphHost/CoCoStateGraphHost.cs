@@ -362,8 +362,22 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (_destroyRequested)
+                {
+                    runtime.Dispose();
+                    transaction.Dispose();
+                    bindings.Dispose();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup during Runtime start.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                CommitGuard commitGuard = _commitGuard ?? new CommitGuard(this);
+
                 if (!transaction.TryValidateInitialGraphContextDefaults(
                         runtime,
+                        commitGuard,
                         out diagnostic))
                 {
                     runtime.Dispose();
@@ -387,10 +401,7 @@ namespace CoCoFlow.Runtime.Core
                 _bindings = bindings;
                 _runtime = runtime;
                 _transaction = transaction;
-                if (_commitGuard == null)
-                {
-                    _commitGuard = new CommitGuard(this);
-                }
+                _commitGuard = commitGuard;
 
                 _requiresWorldCorrection = false;
                 _reliableOverflowPending = false;

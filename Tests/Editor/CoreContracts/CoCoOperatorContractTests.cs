@@ -114,6 +114,12 @@ namespace CoCoFlow.Runtime.Core.Tests
         public void DistinctEventTypesMayReuseOneUnmanagedPayloadType()
         {
             var builder = new CoCoOperatorDescriptorBuilder();
+            Assert.IsTrue(builder.TryRequire<ITestSection>(
+                CreateSectionId(14UL),
+                CoCoOperationSectionMode.Continuous,
+                out _,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
             CoCoEventTypeId firstEventType = CreateEventTypeId(15UL);
             CoCoEventTypeId secondEventType = CreateEventTypeId(16UL);
             CoCoEventDomainId domain = CreateEventDomainId(17UL);
@@ -122,7 +128,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 domain,
                 2,
                 out CoCoEventOutboxRequirement first,
-                out CoCoDiagnostic diagnostic),
+                out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryEmit<TestEvent>(
                 secondEventType,
@@ -161,6 +167,40 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void DescriptorRequiresOneOperationSectionBeforeFreeze()
+        {
+            var builder = new CoCoOperatorDescriptorBuilder();
+            CoCoOperatorId operatorId = CreateOperatorId(19UL);
+            Assert.IsTrue(builder.TryOwnOutcome<int>(
+                CreateSlotId(19UL),
+                out CoCoDiagnostic diagnostic));
+
+            Assert.IsFalse(builder.TryFreeze<TestOperator>(
+                operatorId,
+                out CoCoOperatorDescriptor rejected,
+                out diagnostic));
+            Assert.IsNull(rejected);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperatorDescriptor, diagnostic.Code);
+            Assert.IsFalse(builder.IsFrozen);
+
+            Assert.IsTrue(builder.TryRequire<ITestSection>(
+                CreateSectionId(19UL),
+                CoCoOperationSectionMode.Continuous,
+                out CoCoOperationSectionRequirement requirement,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze<TestOperator>(
+                operatorId,
+                out CoCoOperatorDescriptor descriptor,
+                out diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(builder.IsFrozen);
+            Assert.IsTrue(descriptor.IsValid);
+            Assert.AreEqual(1, descriptor.Requires.Count);
+            Assert.AreEqual(requirement, descriptor.Requires[0]);
+        }
+
+        [Test]
         public void OutcomesDistinguishExecutionFromNormalClaimDenial()
         {
             CoCoOperatorOutcome success = CoCoOperatorOutcome.Success;
@@ -191,7 +231,13 @@ namespace CoCoFlow.Runtime.Core.Tests
             CoCoStateSlotId declaredId = CreateSlotId(21UL);
             CoCoStateSlotId undeclaredId = CreateSlotId(22UL);
             var descriptorBuilder = new CoCoOperatorDescriptorBuilder();
-            Assert.IsTrue(descriptorBuilder.TryOwnOutcome<int>(declaredId, out CoCoDiagnostic diagnostic));
+            Assert.IsTrue(descriptorBuilder.TryRequire<ITestSection>(
+                CreateSectionId(20UL),
+                CoCoOperationSectionMode.Continuous,
+                out _,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(descriptorBuilder.TryOwnOutcome<int>(declaredId, out diagnostic));
             Assert.IsTrue(descriptorBuilder.TryFreeze<TestOperator>(
                 operatorId,
                 out CoCoOperatorDescriptor descriptor,

@@ -13,6 +13,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private const int AllocationWarmupIterations = 100;
         private const int AllocationMeasuredIterations = 10000;
         private const ulong ContextDefaultFingerprint = 5051UL;
+        private const ulong PrimaryOperationFactoryFingerprint = 5091UL;
         private readonly List<UnityEngine.Object> _objects = new List<UnityEngine.Object>();
 
         public enum ClaimRestoreLifecycleCase
@@ -58,7 +59,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InstallProvider(ids);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -83,7 +87,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InstallProvider(ids);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             runtimeOperator.FailAfterWorldMutation = true;
             SetOperators(host, runtimeOperator);
 
@@ -106,7 +113,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InstallProvider(ids);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -269,7 +279,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -293,7 +306,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Assert.That(host.TryStart(out CoCoDiagnostic failure), Is.False);
@@ -318,22 +334,31 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             CoCoStateGraphHost duplicateHost = CreateHost(ids, out GameObject duplicateObject);
             var duplicate = duplicateObject.AddComponent<ContextWritingOperator>();
-            duplicate.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            duplicate.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(duplicateHost, duplicate, duplicate);
             AssertStartupOperatorFailure(duplicateHost);
 
             CoCoStateGraphHost destroyedHost = CreateHost(ids, out GameObject destroyedObject);
             var destroyed = destroyedObject.AddComponent<ContextWritingOperator>();
-            destroyed.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            destroyed.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(destroyedHost, destroyed);
             UnityEngine.Object.DestroyImmediate(destroyed);
             AssertStartupOperatorFailure(destroyedHost);
 
             CoCoStateGraphHost duplicateIdHost = CreateHost(ids, out GameObject duplicateIdObject);
             var owner = duplicateIdObject.AddComponent<ContextWritingOperator>();
-            owner.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            owner.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             var duplicateId = duplicateIdObject.AddComponent<DuplicateIdOperator>();
-            duplicateId.Configure(ids.FirstOperatorId);
+            duplicateId.Configure(ids.FirstOperatorId, ids.PrimarySectionId);
             SetOperators(duplicateIdHost, owner, duplicateId);
             AssertStartupOperatorFailure(duplicateIdHost);
 
@@ -343,7 +368,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             nestedObject.transform.SetParent(parentObject.transform);
             nestedObject.AddComponent<CoCoStateGraphHost>();
             var nestedOperator = nestedObject.AddComponent<ContextWritingOperator>();
-            nestedOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            nestedOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(parentHost, nestedOperator);
             AssertStartupOperatorFailure(parentHost);
         }
@@ -550,7 +578,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InstallProvider(ids);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject, traceCapacity: 16);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -954,7 +985,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out GameObject gameObject,
                 traceCapacity: 4);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -965,13 +999,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(trace, Is.Not.Null);
             Assert.That(trace.Capacity, Is.EqualTo(4));
             Assert.That(trace.Count, Is.EqualTo(4));
-            Assert.That(trace.TotalWritten, Is.EqualTo(8UL));
+            Assert.That(trace.TotalWritten, Is.EqualTo(10UL));
             var latest = new CoCoStateFlowTraceEntry[4];
             Assert.That(trace.CopyLatestTo(latest), Is.EqualTo(4));
             CollectionAssert.AreEqual(
                 new[]
                 {
-                    CoCoStateFlowTraceKind.Tick,
+                    CoCoStateFlowTraceKind.OperationSection,
                     CoCoStateFlowTraceKind.OperatorOutcome,
                     CoCoStateFlowTraceKind.ContextCommit,
                     CoCoStateFlowTraceKind.ActivePath
@@ -1011,7 +1045,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out GameObject gameObject,
                 traceCapacity: 16);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
-            runtimeOperator.Configure(ids.FirstOperatorId, ids.StateSlotId);
+            runtimeOperator.Configure(
+                ids.FirstOperatorId,
+                ids.StateSlotId,
+                ids.PrimarySectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -1214,6 +1251,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var provider = new OperatorCommitBindingProvider(ids);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
         }
+
+        private static bool TryBindPrimaryOperation(
+            CoCoStateGraphHostBindingBuilder builder,
+            OperatorCommitTestIds ids,
+            HostTestDiscreteSectionViewFactory factory,
+            out CoCoDiagnostic diagnostic) =>
+            builder.TryRegisterOperation(
+                ids.PrimarySectionId,
+                CoCoOperationSectionMode.Discrete,
+                factory,
+                PrimaryOperationFactoryFingerprint,
+                out CoCoOperationSectionRequirement ignored,
+                out diagnostic);
+
+        private static bool TryRegisterPrimaryOperation(
+            CoCoGraphDescriptorCatalogBuilder builder,
+            OperatorCommitTestIds ids,
+            out CoCoDiagnostic diagnostic) =>
+            builder.TryRegisterOperationSection(
+                ids.PrimarySectionId,
+                CoCoOperationSectionMode.Discrete,
+                new CoCoOperationSectionViewFactoryToken<
+                    IHostTestDiscreteSection,
+                    HostTestDiscreteSectionViewFactory>(
+                    PrimaryOperationFactoryFingerprint),
+                out diagnostic);
 
         private void InstallClaimProvider(OperatorCommitTestIds ids)
         {
@@ -1554,6 +1617,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private sealed class OperatorCommitBindingProvider : ICoCoStateGraphProjectBindingProvider
         {
             private readonly OperatorCommitTestIds _ids;
+            private readonly HostTestDiscreteSectionViewFactory _primary =
+                new HostTestDiscreteSectionViewFactory();
 
             public OperatorCommitBindingProvider(OperatorCommitTestIds ids)
             {
@@ -1568,7 +1633,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoDiagnostic diagnostic)
             {
                 const int defaultValue = 5;
-                if (!builder.TryBindContextSlot(
+                if (!TryBindPrimaryOperation(builder, _ids, _primary, out diagnostic) ||
+                    !builder.TryBindContextSlot(
                         _ids.StateBlockId,
                         _ids.StateSlotId,
                         defaultValue,
@@ -1586,7 +1652,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     context =>
                     {
                         OperatorCommitProjectFactoryProbe.RecordLogicFactory();
-                        return new HostTestLogic(context.GraphInstanceId);
+                        return new HostTestLogic(
+                            context.GraphInstanceId,
+                            operationHandle: _primary.Handle,
+                            operationField: _primary.ValueField);
                     },
                     () =>
                     {
@@ -1610,6 +1679,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             private static CoCoGraphDescriptorCatalog BuildCatalog(OperatorCommitTestIds ids)
             {
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
+                Require(TryRegisterPrimaryOperation(
+                    builder,
+                    ids,
+                    out CoCoDiagnostic operation), operation);
                 Require(builder.TryRegisterStateBlock(
                     ids.StateBlockId,
                     CoCoStateBlockOwner.Operator,
@@ -1637,7 +1710,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestStateConfigSchema,
                         HostTestMemory>(HostTestSchemas.State, false),
                     null,
-                    null,
+                    new[] { ids.PrimarySectionId },
                     new[] { ids.StateBlockId, ids.GraphStateBlockId },
                     out CoCoDiagnostic state), state);
                 Require(builder.TryFreeze(
@@ -1659,6 +1732,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             private readonly OperatorCommitTestIds _ids;
             private readonly CodecBindingMode _mode;
+            private readonly HostTestDiscreteSectionViewFactory _primary =
+                new HostTestDiscreteSectionViewFactory();
 
             public CodecBindingProvider(OperatorCommitTestIds ids, CodecBindingMode mode)
             {
@@ -1691,6 +1766,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoDiagnostic diagnostic)
             {
                 const int defaultValue = 5;
+                if (!TryBindPrimaryOperation(builder, _ids, _primary, out diagnostic))
+                {
+                    return false;
+                }
+
                 bool bound = _mode == CodecBindingMode.MissingCustom
                     ? builder.TryBindContextSlot(
                         _ids.StateBlockId,
@@ -1719,7 +1799,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
 
                 var stateFactory = new CoCoStateRuntimeFactory<HostTestLogic, HostTestMemory>(
-                    context => new HostTestLogic(context.GraphInstanceId),
+                    context => new HostTestLogic(
+                        context.GraphInstanceId,
+                        operationHandle: _primary.Handle,
+                        operationField: _primary.ValueField),
                     () => new HostTestMemory(),
                     (source, destination) => destination.Value = source.Value,
                     memory => memory.Value = 0,
@@ -1732,6 +1815,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoCodecDescriptor codec)
             {
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
+                Require(TryRegisterPrimaryOperation(
+                    builder,
+                    ids,
+                    out CoCoDiagnostic operation), operation);
                 Require(builder.TryRegisterStateBlock(
                     ids.StateBlockId,
                     CoCoStateBlockOwner.Operator,
@@ -1759,7 +1846,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestStateConfigSchema,
                         HostTestMemory>(HostTestSchemas.State, false),
                     null,
-                    null,
+                    new[] { ids.PrimarySectionId },
                     new[] { ids.StateBlockId, ids.GraphStateBlockId },
                     out CoCoDiagnostic state), state);
                 Require(builder.TryFreeze(
@@ -2173,6 +2260,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private sealed class DuplicateIdOperator : MonoBehaviour, ICoCoOperator
         {
             private CoCoOperatorId _operatorId;
+            private CoCoOperationSectionId _sectionId;
             private CoCoOperatorDescriptor _descriptor;
 
             public CoCoOperatorDescriptor Descriptor
@@ -2182,12 +2270,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     if (_descriptor == null)
                     {
                         var builder = new CoCoOperatorDescriptorBuilder();
-                        if (!builder.TryFreeze<DuplicateIdOperator>(
+                        CoCoDiagnostic requirement = default;
+                        CoCoDiagnostic freeze = default;
+                        if (!builder.TryRequire<IHostTestDiscreteSection>(
+                                _sectionId,
+                                CoCoOperationSectionMode.Discrete,
+                                out CoCoOperationSectionRequirement ignored,
+                                out requirement) ||
+                            !builder.TryFreeze<DuplicateIdOperator>(
                                 _operatorId,
                                 out _descriptor,
-                                out CoCoDiagnostic diagnostic))
+                                out freeze))
                         {
-                            throw new InvalidOperationException(diagnostic.Message);
+                            throw new InvalidOperationException(FirstError(requirement, freeze));
                         }
                     }
 
@@ -2195,7 +2290,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            public void Configure(CoCoOperatorId operatorId) => _operatorId = operatorId;
+            public void Configure(
+                CoCoOperatorId operatorId,
+                CoCoOperationSectionId sectionId)
+            {
+                _operatorId = operatorId;
+                _sectionId = sectionId;
+            }
 
             public bool TryExecute(
                 in CoCoOperatorExecutionContext context,
@@ -2224,8 +2325,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     CoCoDiagnostic requirement = default;
                     CoCoDiagnostic outcome = default;
                     CoCoDiagnostic freeze = default;
-                    if (!builder.TryRequire<IOperatorCommitPrimarySection>(
-                            _ids.PrimarySectionId,
+                    if (!builder.TryRequire<IOperatorCommitSecondarySection>(
+                            _ids.SecondarySectionId,
                             CoCoOperationSectionMode.Discrete,
                             out CoCoOperationSectionRequirement ignored,
                             out requirement) ||
@@ -2339,6 +2440,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private sealed class ContextWritingOperator : MonoBehaviour, ICoCoOperator
         {
             private CoCoOperatorId _operatorId;
+            private CoCoOperationSectionId _sectionId;
             private CoCoStateSlotId _slotId;
             private CoCoStateSlotId _unauthorizedSlotId;
             private CoCoOperatorDescriptor _descriptor;
@@ -2359,26 +2461,36 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     }
 
                     var builder = new CoCoOperatorDescriptorBuilder();
+                    CoCoDiagnostic requirement = default;
                     CoCoDiagnostic outcome = default;
                     CoCoDiagnostic freeze = default;
-                    if (!builder.TryOwnOutcome<int>(_slotId, out outcome) ||
+                    if (!builder.TryRequire<IHostTestDiscreteSection>(
+                            _sectionId,
+                            CoCoOperationSectionMode.Discrete,
+                            out CoCoOperationSectionRequirement ignored,
+                            out requirement) ||
+                        !builder.TryOwnOutcome<int>(_slotId, out outcome) ||
                         !builder.TryFreeze<ContextWritingOperator>(
                             _operatorId,
                             out _descriptor,
                             out freeze))
                     {
                         throw new InvalidOperationException(
-                            outcome.IsError ? outcome.Message : freeze.Message);
+                            FirstError(requirement, outcome, freeze));
                     }
 
                     return _descriptor;
                 }
             }
 
-            public void Configure(CoCoOperatorId operatorId, CoCoStateSlotId slotId)
+            public void Configure(
+                CoCoOperatorId operatorId,
+                CoCoStateSlotId slotId,
+                CoCoOperationSectionId sectionId)
             {
                 _operatorId = operatorId;
                 _slotId = slotId;
+                _sectionId = sectionId;
                 if (!CoCoStateSlotId.TryCreate(999UL, 1UL, out _unauthorizedSlotId))
                 {
                     throw new InvalidOperationException("Unauthorized Slot fixture id is invalid.");
@@ -2446,11 +2558,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     }
 
                     var builder = new CoCoOperatorDescriptorBuilder();
+                    CoCoDiagnostic requirement = default;
                     CoCoDiagnostic outcome = default;
                     CoCoDiagnostic eventA = default;
                     CoCoDiagnostic eventB = default;
                     CoCoDiagnostic freeze = default;
-                    if (!builder.TryOwnOutcome<int>(_ids.StateSlotId, out outcome) ||
+                    if (!builder.TryRequire<IHostTestDiscreteSection>(
+                            _ids.PrimarySectionId,
+                            CoCoOperationSectionMode.Discrete,
+                            out CoCoOperationSectionRequirement ignored,
+                            out requirement) ||
+                        !builder.TryOwnOutcome<int>(_ids.StateSlotId, out outcome) ||
                         !builder.TryEmit<OperatorCommitEventA>(
                             _ids.EventTypeA,
                             _ids.EventDomainId,
@@ -2469,6 +2587,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                             out freeze))
                     {
                         throw new InvalidOperationException(
+                            requirement.IsError ? requirement.Message :
                             outcome.IsError ? outcome.Message :
                             eventA.IsError ? eventA.Message :
                             eventB.IsError ? eventB.Message : freeze.Message);

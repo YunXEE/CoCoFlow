@@ -866,6 +866,7 @@ namespace CoCoFlow.Runtime.Core
         internal bool TryValidateInitialGraphContextDefaults(
             ICoCoStateGraphContextRuntime contextRuntime,
             CoCoContextFrameReadView defaults,
+            ICoCoStateGraphCommitGuard commitGuard,
             out CoCoDiagnostic diagnostic)
         {
             if (contextRuntime == null || _lifecycle != CoCoRuntimeLifecycleState.Running ||
@@ -892,7 +893,14 @@ namespace CoCoFlow.Runtime.Core
                     bool enterPending = isOnActivePath &&
                                         layer.CommittedEnterStartDepth >= 0 &&
                                         pathDepth >= layer.CommittedEnterStartDepth;
-                    if (!contextRuntime.TryValidateInitialStateDefault(
+                    if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                    {
+                        diagnostic = LifecycleError(
+                            "Initial Graph Context validation was cancelled by its Host before State capture.");
+                        return false;
+                    }
+
+                    bool validated = contextRuntime.TryValidateInitialStateDefault(
                             orderedStateIndex++,
                             state.CommittedMemory,
                             isOnActivePath,
@@ -902,19 +910,32 @@ namespace CoCoFlow.Runtime.Core
                             enterPending,
                             state.CommittedMemoryFingerprint,
                             defaults,
-                            out diagnostic))
+                            out diagnostic);
+
+                    if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                    {
+                        diagnostic = LifecycleError(
+                            "Initial Graph Context validation was cancelled by its Host after State capture.");
+                        return false;
+                    }
+
+                    if (!validated)
                     {
                         return false;
                     }
                 }
             }
 
-            if (!TryValidateCommittedMemoryIntegrity(out _))
+            if (!TryValidateCommittedMemoryIntegrity(
+                    commitGuard,
+                    out CoCoDiagnostic integrityDiagnostic))
             {
-                diagnostic = Error(
-                    CoCoDiagnosticDomain.Context,
-                    CoCoDiagnosticCode.InvalidContextProducer,
-                    "Initial Graph capture mutated committed ActivationMemory outside Runtime authority.");
+                diagnostic = integrityDiagnostic.Domain == CoCoDiagnosticDomain.Lifecycle
+                    ? integrityDiagnostic
+                    : Error(
+                        CoCoDiagnosticDomain.Context,
+                        CoCoDiagnosticCode.InvalidContextProducer,
+                        "Initial Graph capture mutated committed ActivationMemory outside Runtime authority.");
                 return false;
             }
 
@@ -1007,7 +1028,7 @@ namespace CoCoFlow.Runtime.Core
                     }
                 }
 
-                if (!TryValidateCommittedMemoryIntegrity(out diagnostic))
+                if (!TryValidateCommittedMemoryIntegrity(null, out diagnostic))
                 {
                     preparedClock.Cancel();
                     return false;
@@ -2117,7 +2138,9 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        private bool TryValidateCommittedMemoryIntegrity(out CoCoDiagnostic diagnostic)
+        private bool TryValidateCommittedMemoryIntegrity(
+            ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoDiagnostic diagnostic)
         {
             try
             {
@@ -2126,7 +2149,24 @@ namespace CoCoFlow.Runtime.Core
                     StateRuntime[] states = _layers[layerIndex].States;
                     for (int stateIndex = 0; stateIndex < states.Length; stateIndex++)
                     {
-                        if (!states[stateIndex].IsCommittedMemoryFingerprintCurrent)
+                        if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                        {
+                            diagnostic = LifecycleError(
+                                "Committed ActivationMemory validation was cancelled by its Host before fingerprint evaluation.");
+                            return false;
+                        }
+
+                        bool fingerprintIsCurrent =
+                            states[stateIndex].IsCommittedMemoryFingerprintCurrent;
+
+                        if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                        {
+                            diagnostic = LifecycleError(
+                                "Committed ActivationMemory validation was cancelled by its Host after fingerprint evaluation.");
+                            return false;
+                        }
+
+                        if (!fingerprintIsCurrent)
                         {
                             diagnostic = RestoreError(
                                 "Restore preparation observed mutated committed ActivationMemory.");
@@ -2137,8 +2177,11 @@ namespace CoCoFlow.Runtime.Core
             }
             catch (Exception)
             {
-                diagnostic = RestoreError(
-                    "Committed ActivationMemory fingerprint evaluation failed during restore preparation.");
+                diagnostic = commitGuard != null && commitGuard.IsCommitCancellationRequested
+                    ? LifecycleError(
+                        "Committed ActivationMemory validation was cancelled by its Host during fingerprint evaluation.")
+                    : RestoreError(
+                        "Committed ActivationMemory fingerprint evaluation failed during restore preparation.");
                 return false;
             }
 

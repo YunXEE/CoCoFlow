@@ -126,7 +126,8 @@ namespace CoCoFlow.Runtime.Core
             _emits = emits;
             _isValid = operatorId.IsValid &&
                        operatorType != null &&
-                       typeof(ICoCoOperator).IsAssignableFrom(operatorType);
+                       typeof(ICoCoOperator).IsAssignableFrom(operatorType) &&
+                       HasValidRequirement(_requires);
             Requires = Array.AsReadOnly(_requires);
             Claims = Array.AsReadOnly(_claims);
             OutcomeRequirements = Array.AsReadOnly(_outcomes);
@@ -181,6 +182,24 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return false;
+        }
+
+        private static bool HasValidRequirement(CoCoOperationSectionRequirement[] requirements)
+        {
+            if (requirements == null || requirements.Length == 0)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < requirements.Length; index++)
+            {
+                if (!requirements[index].IsValid)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 
@@ -377,12 +396,16 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
             where TOperator : class, ICoCoOperator
         {
-            if (_isFrozen || !operatorId.IsValid)
+            if (_isFrozen || !operatorId.IsValid || _requires.Count == 0)
             {
                 descriptor = null;
                 diagnostic = Error(
                     _isFrozen ? CoCoDiagnosticCode.RegistryFrozen : CoCoDiagnosticCode.InvalidOperatorDescriptor,
-                    _isFrozen ? "Operator descriptor may only be frozen once." : "OperatorId must be valid.");
+                    _isFrozen
+                        ? "Operator descriptor may only be frozen once."
+                        : !operatorId.IsValid
+                            ? "OperatorId must be valid."
+                            : "An Operator must require at least one Operation Section.");
                 return false;
             }
 

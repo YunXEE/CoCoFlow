@@ -106,12 +106,18 @@ namespace CoCoFlow.Runtime.Core.Tests
         public void WriterAcceptsOnlyDeclaredLaneAndExpiresWithTransactionToken()
         {
             var descriptorBuilder = new CoCoOperatorDescriptorBuilder();
+            Assert.IsTrue(descriptorBuilder.TryRequire<ITestSection>(
+                CreateSectionId(19UL),
+                CoCoOperationSectionMode.Continuous,
+                out _,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
             Assert.IsTrue(descriptorBuilder.TryEmit<TestEvent>(
                 CreateEventTypeId(20UL),
                 CreateEventDomainId(21UL),
                 1,
                 out CoCoEventOutboxRequirement declared,
-                out CoCoDiagnostic diagnostic),
+                out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(CoCoOperatorId.TryCreate(0UL, 22UL, out CoCoOperatorId operatorId));
             Assert.IsTrue(descriptorBuilder.TryFreeze<TestOperator>(
@@ -202,6 +208,12 @@ namespace CoCoFlow.Runtime.Core.Tests
             return id;
         }
 
+        private static CoCoOperationSectionId CreateSectionId(ulong low)
+        {
+            Assert.IsTrue(CoCoOperationSectionId.TryCreate(0UL, low, out CoCoOperationSectionId id));
+            return id;
+        }
+
         private static CoCoEventDomainId CreateEventDomainId(ulong value)
         {
             Assert.IsTrue(CoCoEventDomainId.TryCreate(value, out CoCoEventDomainId id));
@@ -238,6 +250,11 @@ namespace CoCoFlow.Runtime.Core.Tests
             }
 
             public int Value { get; }
+        }
+
+        private interface ITestSection : ICoCoOperationSection
+        {
+            int Value { get; }
         }
 
         private sealed class TestOperator : ICoCoOperator

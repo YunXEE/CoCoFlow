@@ -16,6 +16,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             CoCoStateSlotId secondGraphStateSlotId,
             CoCoStateBlockId actorStateBlockId,
             CoCoStateSlotId actorStateSlotId,
+            CoCoOperationSectionId operationSectionId,
             CoCoOperatorId operatorId)
         {
             LayerId = layerId;
@@ -28,6 +29,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             SecondGraphStateSlotId = secondGraphStateSlotId;
             ActorStateBlockId = actorStateBlockId;
             ActorStateSlotId = actorStateSlotId;
+            OperationSectionId = operationSectionId;
             OperatorId = operatorId;
         }
 
@@ -41,6 +43,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public CoCoStateSlotId SecondGraphStateSlotId { get; }
         public CoCoStateBlockId ActorStateBlockId { get; }
         public CoCoStateSlotId ActorStateSlotId { get; }
+        public CoCoOperationSectionId OperationSectionId { get; }
         public CoCoOperatorId OperatorId { get; }
 
         public static ContextAuthorityTestIds Create()
@@ -73,6 +76,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                     705UL,
                     3UL,
                     out CoCoStateSlotId actorStateSlotId) ||
+                !CoCoOperationSectionId.TryCreate(
+                    709UL,
+                    1UL,
+                    out CoCoOperationSectionId operationSectionId) ||
                 !CoCoOperatorId.TryCreate(706UL, 1UL, out CoCoOperatorId operatorId))
             {
                 throw new InvalidOperationException(
@@ -90,6 +97,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 secondGraphStateSlotId,
                 actorStateBlockId,
                 actorStateSlotId,
+                operationSectionId,
                 operatorId);
         }
     }
@@ -145,6 +153,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public static class ContextAuthorityFactoryProbe
     {
         private static bool _throwOnNextMemoryFingerprint;
+        private static Action _onNextMemoryFingerprint;
 
         public static int LogicFactoryCount { get; private set; }
         public static int MemoryFactoryCount { get; private set; }
@@ -160,6 +169,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             MemoryFingerprintCount = 0;
             MemoryFingerprintThrowCount = 0;
             _throwOnNextMemoryFingerprint = false;
+            _onNextMemoryFingerprint = null;
         }
 
         public static void RecordLogicFactory() => LogicFactoryCount++;
@@ -171,9 +181,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static void ArmNextMemoryFingerprintThrow() =>
             _throwOnNextMemoryFingerprint = true;
 
+        public static void ArmNextMemoryFingerprintCallback(Action callback) =>
+            _onNextMemoryFingerprint = callback ??
+                                       throw new ArgumentNullException(nameof(callback));
+
         public static ulong RecordMemoryFingerprint(ContextAuthorityMemory memory)
         {
             MemoryFingerprintCount++;
+            Action callback = _onNextMemoryFingerprint;
+            _onNextMemoryFingerprint = null;
+            callback?.Invoke();
             if (_throwOnNextMemoryFingerprint)
             {
                 _throwOnNextMemoryFingerprint = false;
@@ -194,6 +211,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public sealed class ContextAuthorityMemoryStateBinding :
         ICoCoActivationMemoryStateBinding<ContextAuthorityMemory, int>
     {
+        private static Action _onNextCapture;
+
         public const ulong Fingerprint = 70801UL;
 
         public static bool FailCapture { get; set; }
@@ -211,7 +230,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             ArmFingerprintThrowAfterCapture = false;
             CaptureCount = 0;
             RestorePrepareCount = 0;
+            _onNextCapture = null;
         }
+
+        public static void ArmNextCaptureCallback(Action callback) =>
+            _onNextCapture = callback ?? throw new ArgumentNullException(nameof(callback));
 
         public bool TryCapture(
             ContextAuthorityMemory memory,
@@ -219,6 +242,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             out CoCoDiagnostic diagnostic)
         {
             CaptureCount++;
+            Action callback = _onNextCapture;
+            _onNextCapture = null;
+            callback?.Invoke();
             if (memory == null || FailCapture)
             {
                 state = default;
@@ -269,12 +295,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public sealed class ContextAuthorityLogic : CoCoStateLogic, ICoCoStateUpdate
     {
         private readonly CoCoTransitionHandle _transition;
+        private readonly CoCoOperationSectionHandle<IOperatorCommitPrimarySection> _operation;
+        private readonly CoCoOperationSectionField<int> _operationValue;
 
-        public ContextAuthorityLogic(CoCoStateFactoryContext context)
+        public ContextAuthorityLogic(
+            CoCoStateFactoryContext context,
+            CoCoOperationSectionHandle<IOperatorCommitPrimarySection> operation = default,
+            CoCoOperationSectionField<int> operationValue = default)
         {
             _transition = context.OutgoingTransitions.Count == 0
                 ? default
                 : context.OutgoingTransitions[0];
+            _operation = operation;
+            _operationValue = operationValue;
         }
 
         public static bool RequestTransition { get; set; }
@@ -289,7 +322,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public void Update(CoCoStateExecutionContext context)
         {
             UpdateCount++;
-            context.Memory<ContextAuthorityMemory>().Value++;
+            ContextAuthorityMemory memory = context.Memory<ContextAuthorityMemory>();
+            memory.Value++;
+            if (_operation.IsValid && _operationValue.IsValid)
+            {
+                context.Operations.Write(_operationValue, memory.Value);
+                context.Operations.EnableDiscrete(_operation);
+            }
+
             if (RequestTransition && _transition.IsValid)
             {
                 context.RequestTransition(_transition);

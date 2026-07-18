@@ -12,6 +12,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     {
         private const int AllocationWarmupIterations = 100;
         private const int AllocationMeasuredIterations = 10000;
+        private const ulong OperationFactoryFingerprint = 70901UL;
         private readonly List<UnityEngine.Object> _objects = new List<UnityEngine.Object>();
 
         [SetUp]
@@ -45,10 +46,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void FirstTickUsesDefaultBackedPreviousAndCommitsRevisionOne()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard, true);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -119,10 +123,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void GraphCaptureFailureOccursBeforeAnyOperatorCallback()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard, true);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -141,13 +148,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SuccessfulGraphCaptureCannotMutateMemoryBeforeOperatorExecution()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard, true);
             CoCoStateGraphHost host = CreateHost(
                 ids,
                 out GameObject gameObject,
                 traceCapacity: 32);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -176,13 +186,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void FingerprintThrowDuringGraphCaptureIntegrityIsContainedAndClearsTheTick()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard, true);
             CoCoStateGraphHost host = CreateHost(
                 ids,
                 out GameObject gameObject,
                 traceCapacity: 64);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -231,13 +244,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void FingerprintThrowDuringStagedCommitPreflightIsContainedAndClearsTheTick()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard, true);
             CoCoStateGraphHost host = CreateHost(
                 ids,
                 out GameObject gameObject,
                 traceCapacity: 64);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -299,6 +315,54 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void DestroyDuringRuntimeStartStopsBeforeInitialGraphCapture()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
+            ContextAuthorityFactoryProbe.ArmNextMemoryFingerprintCallback(
+                () => UnityEngine.Object.DestroyImmediate(gameObject));
+
+            bool started = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() => started = host.TryStart(out failure));
+
+            Assert.That(started, Is.False);
+            Assert.That(failure.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(
+                failure.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+            Assert.That(host == null, Is.True);
+            Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.Zero);
+            Assert.That(ContextAuthorityLogic.UpdateCount, Is.Zero);
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+        }
+
+        [Test]
+        public void DestroyDuringFirstInitialGraphCaptureSkipsRemainingStateBindings()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
+            ContextAuthorityMemoryStateBinding.ArmNextCaptureCallback(
+                () => UnityEngine.Object.DestroyImmediate(gameObject));
+
+            bool started = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() => started = host.TryStart(out failure));
+
+            Assert.That(started, Is.False);
+            Assert.That(failure.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(
+                failure.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+            Assert.That(host == null, Is.True);
+            Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.EqualTo(1));
+            Assert.That(ContextAuthorityLogic.UpdateCount, Is.Zero);
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+        }
+
+        [Test]
         public void ActorBindingMustExactlyCoverSlotsAndStayWithinHostBoundary()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
@@ -334,14 +398,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void ActorCaptureFailurePreservesAuthorityAndMarksWorldCorrection()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.WithActor);
+            InstallProvider(ids, ContextAuthorityBindingMode.WithActor, true);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var actorBinding = gameObject.AddComponent<ContextAuthorityActorBinding>();
             actorBinding.Configure(ids.ActorStateSlotId);
             actorBinding.FailAfterWorldMutation = true;
             SetActorBinding(host, actorBinding);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -556,13 +623,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void GraphProducerOperatorAndActorBindingHaveZeroSteadyStateManagedAllocation()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
-            InstallProvider(ids, ContextAuthorityBindingMode.WithActor);
+            InstallProvider(ids, ContextAuthorityBindingMode.WithActor, true);
             CoCoStateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var actorBinding = gameObject.AddComponent<ContextAuthorityActorBinding>();
             actorBinding.Configure(ids.ActorStateSlotId);
             SetActorBinding(host, actorBinding);
             var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
-            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            runtimeOperator.Configure(
+                ids.OperatorId,
+                ids.FirstGraphStateSlotId,
+                ids.OperationSectionId);
             SetOperators(host, runtimeOperator);
 
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -732,9 +802,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private void InstallProvider(
             ContextAuthorityTestIds ids,
-            ContextAuthorityBindingMode mode)
+            ContextAuthorityBindingMode mode,
+            bool includeOperation = false)
         {
-            var provider = new ContextAuthorityBindingProvider(ids, mode);
+            var provider = new ContextAuthorityBindingProvider(ids, mode, includeOperation);
             Require(
                 CoCoStateGraphProjectBindings.TryInstall(
                     provider,
@@ -955,14 +1026,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             private readonly ContextAuthorityTestIds _ids;
             private readonly ContextAuthorityBindingMode _mode;
+            private readonly bool _includeOperation;
+            private readonly OperatorCommitPrimarySectionFactory _operation =
+                new OperatorCommitPrimarySectionFactory();
 
             public ContextAuthorityBindingProvider(
                 ContextAuthorityTestIds ids,
-                ContextAuthorityBindingMode mode)
+                ContextAuthorityBindingMode mode,
+                bool includeOperation)
             {
                 _ids = ids;
                 _mode = mode;
-                Catalog = BuildCatalog(ids, mode);
+                _includeOperation = includeOperation;
+                Catalog = BuildCatalog(ids, mode, includeOperation);
             }
 
             public CoCoGraphDescriptorCatalog Catalog { get; }
@@ -971,6 +1047,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoStateGraphHostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
+                if (_includeOperation &&
+                    !builder.TryRegisterOperation(
+                        _ids.OperationSectionId,
+                        CoCoOperationSectionMode.Discrete,
+                        _operation,
+                        OperationFactoryFingerprint,
+                        out CoCoOperationSectionRequirement ignored,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
                 CoCoGraphStateRecord<int> first = ContextAuthorityDefaults.First(
                     _ids,
                     _mode == ContextAuthorityBindingMode.GraphDefaultValueMismatch ? 91 : 0);
@@ -1024,7 +1112,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     context =>
                     {
                         ContextAuthorityFactoryProbe.RecordLogicFactory();
-                        return new ContextAuthorityLogic(context);
+                        return new ContextAuthorityLogic(
+                            context,
+                            _operation.Handle,
+                            _operation.ValueField);
                     },
                     () =>
                     {
@@ -1046,7 +1137,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             private static CoCoGraphDescriptorCatalog BuildCatalog(
                 ContextAuthorityTestIds ids,
-                ContextAuthorityBindingMode mode)
+                ContextAuthorityBindingMode mode,
+                bool includeOperation)
             {
                 bool includeActor = mode == ContextAuthorityBindingMode.WithActor;
                 CoCoContextRestorePolicy firstRestorePolicy =
@@ -1059,6 +1151,20 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         ? CoCoContextRestorePolicy.ResetToDefault
                         : CoCoContextRestorePolicy.Stored;
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
+                CoCoOperationSectionId[] operations = null;
+                if (includeOperation)
+                {
+                    Ensure(builder.TryRegisterOperationSection(
+                        ids.OperationSectionId,
+                        CoCoOperationSectionMode.Discrete,
+                        new CoCoOperationSectionViewFactoryToken<
+                            IOperatorCommitPrimarySection,
+                            OperatorCommitPrimarySectionFactory>(
+                            OperationFactoryFingerprint),
+                        out CoCoDiagnostic operation), operation);
+                    operations = new[] { ids.OperationSectionId };
+                }
+
                 Ensure(builder.TryRegisterStateBlock(
                     ids.GraphStateBlockId,
                     CoCoStateBlockOwner.Graph,
@@ -1117,7 +1223,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestStateConfigSchema,
                         ContextAuthorityMemory>(HostTestSchemas.State, false),
                     null,
-                    null,
+                    operations,
                     contextBlocks,
                     out CoCoDiagnostic state), state);
                 Ensure(builder.TryFreeze(
@@ -1148,16 +1254,25 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             public void Configure(
                 CoCoOperatorId operatorId,
-                CoCoStateSlotId graphStateSlotId)
+                CoCoStateSlotId graphStateSlotId,
+                CoCoOperationSectionId operationSectionId)
             {
                 _graphStateSlotId = graphStateSlotId;
                 var builder = new CoCoOperatorDescriptorBuilder();
-                if (!builder.TryFreeze<ContextAuthorityProbeOperator>(
+                CoCoDiagnostic requirement = default;
+                CoCoDiagnostic freeze = default;
+                if (!builder.TryRequire<IOperatorCommitPrimarySection>(
+                        operationSectionId,
+                        CoCoOperationSectionMode.Discrete,
+                        out CoCoOperationSectionRequirement ignored,
+                        out requirement) ||
+                    !builder.TryFreeze<ContextAuthorityProbeOperator>(
                         operatorId,
                         out _descriptor,
-                        out CoCoDiagnostic diagnostic))
+                        out freeze))
                 {
-                    throw new InvalidOperationException(diagnostic.Message);
+                    throw new InvalidOperationException(
+                        requirement.IsError ? requirement.Message : freeze.Message);
                 }
             }
 

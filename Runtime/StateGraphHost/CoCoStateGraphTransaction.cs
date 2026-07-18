@@ -774,6 +774,7 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool TryValidateInitialGraphContextDefaults(
             CoCoStateGraphRuntime runtime,
+            ICoCoStateGraphCommitGuard commitGuard,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed || runtime == null)
@@ -787,6 +788,7 @@ namespace CoCoFlow.Runtime.Core
             return runtime.TryValidateInitialGraphContextDefaults(
                 _contextRuntime,
                 _contextArena.Previous,
+                commitGuard,
                 out diagnostic);
         }
 
