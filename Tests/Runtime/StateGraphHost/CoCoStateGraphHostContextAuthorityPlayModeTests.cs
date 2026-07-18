@@ -323,6 +323,126 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void ResetToDefaultGraphRestoreCommitsPolicyEffectiveContextAndGraphCacheTogether()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.GraphResetToDefault);
+            CoCoStateGraphHost host = CreateHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 64);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.1d, out CoCoDiagnostic first), first);
+            ContextAuthorityLogic.RequestTransition = true;
+            Require(host.TryStep(0.1d, out CoCoDiagnostic transition), transition);
+            ContextAuthorityLogic.RequestTransition = false;
+            CoCoContextFrame source = host.CurrentContext;
+            Require(source.Retain());
+            try
+            {
+                Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+                CoCoStateGraphRuntime runtime = GetRuntime(host);
+                CoCoTickFrame resumed = CreateResumedTick(source.Header.TickFrame);
+                int logicUpdates = ContextAuthorityLogic.UpdateCount;
+                int graphCaptures = ContextAuthorityMemoryStateBinding.CaptureCount;
+                ulong traceCount = host.Trace.TotalWritten;
+
+                Require(host.TryPrepareRestore(
+                    source,
+                    resumed,
+                    out CoCoPreparedActorRestore cancelled,
+                    out CoCoContextCommitStatus cancelStatus,
+                    out CoCoDiagnostic cancelDiagnostic), cancelDiagnostic);
+                Assert.That(cancelStatus, Is.EqualTo(CoCoContextCommitStatus.None));
+                Assert.That(cancelled.Cancel(), Is.True);
+                Assert.That(host.CurrentContext, Is.EqualTo(source));
+                Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+                Assert.That(runtime.Clock.Tick, Is.EqualTo(source.Header.TickFrame.Tick));
+
+                Require(host.TryPrepareRestore(
+                    source,
+                    resumed,
+                    out CoCoPreparedActorRestore prepared,
+                    out CoCoContextCommitStatus prepareStatus,
+                    out CoCoDiagnostic prepareDiagnostic), prepareDiagnostic);
+                Assert.That(prepareStatus, Is.EqualTo(CoCoContextCommitStatus.None));
+                prepared.CommitNoFail();
+
+                Assert.That(host.CurrentContext.Revision.Value, Is.EqualTo(source.Revision.Value + 1UL));
+                Assert.That(host.CurrentContext.Header.TickFrame, Is.EqualTo(resumed));
+                Assert.That(
+                    ReadGraphState(host.CurrentContext, ids.FirstGraphStateSlotId),
+                    Is.EqualTo(ContextAuthorityDefaults.First(ids)));
+                Assert.That(
+                    ReadGraphState(host.CurrentContext, ids.SecondGraphStateSlotId),
+                    Is.EqualTo(ContextAuthorityDefaults.Second(ids)));
+                Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.FirstStateId));
+                Assert.That(runtime.Clock.Tick, Is.EqualTo(resumed.Tick));
+                Assert.That(runtime.Clock.TimelineEpoch, Is.EqualTo(resumed.TimelineEpoch));
+                Assert.That(ContextAuthorityLogic.UpdateCount, Is.EqualTo(logicUpdates));
+                Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.EqualTo(graphCaptures));
+                Assert.That(host.Trace.TotalWritten, Is.EqualTo(traceCount));
+            }
+            finally
+            {
+                Assert.That(source.Release(), Is.True);
+            }
+        }
+
+        [Test]
+        public void MixedGraphRestorePoliciesRejectPolicyEffectiveInvalidPathBeforeMemoryCallbacks()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.GraphMixedRestorePolicies);
+            CoCoStateGraphHost host = CreateHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 64);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.1d, out CoCoDiagnostic first), first);
+            ContextAuthorityLogic.RequestTransition = true;
+            Require(host.TryStep(0.1d, out CoCoDiagnostic transition), transition);
+            ContextAuthorityLogic.RequestTransition = false;
+            CoCoContextFrame oldAuthority = host.CurrentContext;
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            CoCoTimelineTick oldTick = runtime.Clock.Tick;
+            CoCoTickFrame resumed = CreateResumedTick(oldAuthority.Header.TickFrame);
+            int logicUpdates = ContextAuthorityLogic.UpdateCount;
+            int graphCaptures = ContextAuthorityMemoryStateBinding.CaptureCount;
+            int restorePrepares = ContextAuthorityMemoryStateBinding.RestorePrepareCount;
+            int memoryFingerprints = ContextAuthorityFactoryProbe.MemoryFingerprintCount;
+            ulong traceCount = host.Trace.TotalWritten;
+
+            Assert.That(host.TryValidateRestore(
+                oldAuthority,
+                resumed,
+                out CoCoContextCommitStatus validationStatus), Is.False);
+            Assert.That(validationStatus, Is.EqualTo(CoCoContextCommitStatus.RestoreFailed));
+            Assert.That(ContextAuthorityMemoryStateBinding.RestorePrepareCount, Is.EqualTo(restorePrepares));
+            Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.EqualTo(graphCaptures));
+            Assert.That(ContextAuthorityFactoryProbe.MemoryFingerprintCount, Is.EqualTo(memoryFingerprints));
+
+            Assert.That(host.TryPrepareRestore(
+                oldAuthority,
+                resumed,
+                out _,
+                out CoCoContextCommitStatus prepareStatus,
+                out CoCoDiagnostic prepareDiagnostic), Is.False);
+            Assert.That(prepareStatus, Is.EqualTo(CoCoContextCommitStatus.RestoreFailed));
+            Assert.That(prepareDiagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidGraphRestore));
+            Assert.That(host.CurrentContext, Is.EqualTo(oldAuthority));
+            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+            Assert.That(runtime.Clock.Tick, Is.EqualTo(oldTick));
+            Assert.That(ContextAuthorityLogic.UpdateCount, Is.EqualTo(logicUpdates));
+            Assert.That(ContextAuthorityMemoryStateBinding.RestorePrepareCount, Is.EqualTo(restorePrepares));
+            Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.EqualTo(graphCaptures));
+            Assert.That(ContextAuthorityFactoryProbe.MemoryFingerprintCount, Is.EqualTo(memoryFingerprints));
+            Assert.That(host.Trace.TotalWritten, Is.EqualTo(traceCount));
+        }
+
+        [Test]
         public void GraphProducerOperatorAndActorBindingHaveZeroSteadyStateManagedAllocation()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
@@ -684,7 +804,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Standard = 0,
             WithActor = 1,
             GraphDefaultValueMismatch = 2,
-            GraphDefaultFingerprintMismatch = 3
+            GraphDefaultFingerprintMismatch = 3,
+            GraphResetToDefault = 4,
+            GraphMixedRestorePolicies = 5
         }
 
         private sealed class ContextAuthorityBindingProvider :
@@ -699,7 +821,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 _ids = ids;
                 _mode = mode;
-                Catalog = BuildCatalog(ids, mode == ContextAuthorityBindingMode.WithActor);
+                Catalog = BuildCatalog(ids, mode);
             }
 
             public CoCoGraphDescriptorCatalog Catalog { get; }
@@ -783,8 +905,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             private static CoCoGraphDescriptorCatalog BuildCatalog(
                 ContextAuthorityTestIds ids,
-                bool includeActor)
+                ContextAuthorityBindingMode mode)
             {
+                bool includeActor = mode == ContextAuthorityBindingMode.WithActor;
+                CoCoContextRestorePolicy firstRestorePolicy =
+                    mode == ContextAuthorityBindingMode.GraphResetToDefault ||
+                    mode == ContextAuthorityBindingMode.GraphMixedRestorePolicies
+                        ? CoCoContextRestorePolicy.ResetToDefault
+                        : CoCoContextRestorePolicy.Stored;
+                CoCoContextRestorePolicy secondRestorePolicy =
+                    mode == ContextAuthorityBindingMode.GraphResetToDefault
+                        ? CoCoContextRestorePolicy.ResetToDefault
+                        : CoCoContextRestorePolicy.Stored;
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
                 Ensure(builder.TryRegisterStateBlock(
                     ids.GraphStateBlockId,
@@ -794,7 +926,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     ids.GraphStateBlockId,
                     ids.FirstGraphStateSlotId,
                     CoCoContextProjection.Temporal,
-                    CoCoContextRestorePolicy.Stored,
+                    firstRestorePolicy,
                     ContextAuthorityDefaults.First(ids),
                     ContextAuthorityDefaults.FirstGraphStateFingerprint,
                     default,
@@ -804,7 +936,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     ids.GraphStateBlockId,
                     ids.SecondGraphStateSlotId,
                     CoCoContextProjection.Temporal,
-                    CoCoContextRestorePolicy.Stored,
+                    secondRestorePolicy,
                     ContextAuthorityDefaults.Second(ids),
                     ContextAuthorityDefaults.SecondGraphStateFingerprint,
                     default,

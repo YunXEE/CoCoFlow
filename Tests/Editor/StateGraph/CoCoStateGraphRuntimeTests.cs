@@ -285,13 +285,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoContextFrameArena sourceArena = CreateRestoreSource(
                 fixture.Runtime,
                 out CoCoContextFrame source);
+            var restoreSource = new CoCoContextRestoreReadView(source, source.Layout);
             CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 10UL);
             var context = new RestoreContext(fixture.Graph, fixture.StateB);
             int callbackCount = fixture.Trace.Count;
 
             Assert.IsTrue(fixture.Runtime.TryValidateRestore(
                 context,
-                source,
+                restoreSource,
                 resumedTick,
                 out CoCoDiagnostic validation), validation.Message);
             Assert.AreEqual(0, context.PrepareCount);
@@ -301,7 +302,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(fixture.Runtime.TryPrepareRestore(
                 context,
-                source,
+                restoreSource,
                 resumedTick,
                 out CoCoPreparedGraphRestore prepared,
                 out CoCoDiagnostic prepare), prepare.Message);
@@ -341,12 +342,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoContextFrameArena sourceArena = CreateRestoreSource(
                 fixture.Runtime,
                 out CoCoContextFrame source);
+            var restoreSource = new CoCoContextRestoreReadView(source, source.Layout);
             CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 20UL);
             var context = new RestoreContext(fixture.Graph, fixture.StateB);
 
             Assert.IsTrue(fixture.Runtime.TryPrepareRestore(
                 context,
-                source,
+                restoreSource,
                 resumedTick,
                 out CoCoPreparedGraphRestore prepared,
                 out CoCoDiagnostic diagnostic), diagnostic.Message);
@@ -375,6 +377,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoContextFrameArena sourceArena = CreateRestoreSource(
                 fixture.Runtime,
                 out CoCoContextFrame source);
+            var restoreSource = new CoCoContextRestoreReadView(source, source.Layout);
             CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 30UL);
             var context = new RestoreContext(fixture.Graph, fixture.StateB)
             {
@@ -383,7 +386,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsFalse(fixture.Runtime.TryPrepareRestore(
                 context,
-                source,
+                restoreSource,
                 resumedTick,
                 out CoCoPreparedGraphRestore prepared,
                 out CoCoDiagnostic diagnostic));
@@ -719,12 +722,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
 
             public bool TryValidateRestore(
-                CoCoContextFrame source,
+                CoCoContextRestoreReadView source,
                 out ulong nextActivationValue,
                 out CoCoDiagnostic diagnostic)
             {
                 nextActivationValue = 200UL;
-                if (!source.IsAlive)
+                if (!source.IsValid)
                 {
                     diagnostic = RestoreError("Source frame is unavailable.");
                     return false;
@@ -736,13 +739,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             public bool TryPrepareStateRestore(
                 int orderedStateIndex,
-                CoCoContextFrame source,
+                CoCoContextRestoreReadView source,
                 CoCoActivationMemory candidateMemory,
                 out CoCoStateGraphRestoreState state,
                 out CoCoDiagnostic diagnostic)
             {
                 state = default;
-                if (!source.IsAlive || !(candidateMemory is RuntimeFixtureMemory memory) ||
+                if (!source.IsValid || !(candidateMemory is RuntimeFixtureMemory memory) ||
                     !TryResolveState(
                         orderedStateIndex,
                         out CoCoCompiledStateLayer layer,

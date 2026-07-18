@@ -1421,6 +1421,97 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void RestoreReadViewAppliesDirectPoliciesAndRejectsInvalidSlots()
+        {
+            CoCoFrameLayoutId layoutId = CreateLayoutId(49UL, 1UL);
+            CoCoStateBlockId blockId = CreateBlockId(49UL, 1UL);
+            CoCoStateSlotId storedSlotId = CreateSlotId(49UL, 1UL);
+            CoCoStateSlotId resetSlotId = CreateSlotId(49UL, 2UL);
+            CoCoStateSlotId derivedSlotId = CreateSlotId(49UL, 3UL);
+            var rebuilder = new ControllableDoubleRebuilder(storedSlotId);
+            var builder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(builder.TryAddBlock(
+                blockId,
+                CoCoStateBlockOwner.Actor,
+                out CoCoDiagnosticCode diagnosticCode));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                storedSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                1,
+                default,
+                null,
+                out diagnosticCode));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                resetSlotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.ResetToDefault,
+                5,
+                default,
+                null,
+                out diagnosticCode));
+            Assert.IsTrue(builder.TryAddDerivedSlot(
+                blockId,
+                derivedSlotId,
+                CoCoContextProjection.Temporal,
+                0,
+                default,
+                new[] { storedSlotId },
+                rebuilder,
+                out diagnosticCode));
+            Assert.IsTrue(builder.TryFreeze(
+                layoutId,
+                1U,
+                out CoCoContextFrameLayout layout,
+                out diagnosticCode));
+            Assert.IsTrue(layout.TryResolveBlock(blockId, out CoCoStateBlockHandle block));
+            Assert.IsTrue(layout.TryResolveSlot(storedSlotId, out CoCoStateSlot<int> storedSlot));
+            Assert.IsTrue(layout.TryResolveSlot(resetSlotId, out CoCoStateSlot<int> resetSlot));
+            Assert.IsTrue(layout.TryResolveSlot(derivedSlotId, out CoCoStateSlot<int> derivedSlot));
+
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(49UL), layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                CreateTickFrame(1UL, 1UL, 1UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            Assert.IsTrue(prepared.TryGetWriter(block, out CoCoContextFrameWriter writer));
+            Assert.IsTrue(writer.Write(storedSlot, 7));
+            Assert.IsTrue(writer.Write(resetSlot, 9));
+            CoCoContextFrame source = FinalizeAndCommit(prepared).Frame;
+            int rebuildCount = rebuilder.InvocationCount;
+
+            var view = new CoCoContextRestoreReadView(source, layout);
+            Assert.IsTrue(view.IsValid);
+            Assert.AreEqual(source.Header, view.Header);
+            Assert.AreSame(layout, view.Layout);
+            Assert.IsTrue(view.TryRead(storedSlot, out int stored));
+            Assert.AreEqual(7, stored);
+            Assert.IsTrue(view.TryRead(resetSlot, out int reset));
+            Assert.AreEqual(5, reset);
+            Assert.IsFalse(view.TryRead(derivedSlot, out int derived));
+            Assert.AreEqual(default(int), derived);
+            Assert.AreEqual(rebuildCount, rebuilder.InvocationCount);
+            Assert.IsFalse(view.TryRead(default(CoCoStateSlot<int>), out _));
+
+            CoCoContextFrameLayout otherLayout = CreateStoredIntLayout(
+                CreateLayoutId(49UL, 2UL),
+                CreateSlotId(49UL, 4UL),
+                11);
+            Assert.IsTrue(otherLayout.TryResolveSlot(
+                CreateSlotId(49UL, 4UL),
+                out CoCoStateSlot<int> otherSlot));
+            Assert.IsFalse(view.TryRead(otherSlot, out _));
+
+            var mismatched = new CoCoContextRestoreReadView(source, otherLayout);
+            Assert.IsFalse(mismatched.IsValid);
+            Assert.AreEqual(default(CoCoStateFlowFrameHeader), mismatched.Header);
+            Assert.IsNull(mismatched.Layout);
+            Assert.IsFalse(mismatched.TryRead(otherSlot, out _));
+        }
+
+        [Test]
         public void RestoreRequiresNewEpochAndRecordsSourceIdentity()
         {
             CoCoFrameLayoutId layoutId = CreateLayoutId(50UL, 1UL);

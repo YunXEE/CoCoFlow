@@ -63,11 +63,11 @@ namespace CoCoFlow.Runtime.Core
             out bool isOnActivePath);
 
         bool TryReadRestoreHeader(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             out CoCoStateGraphRestoreState header);
 
         bool TryPrepareRestore(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             CoCoActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic);
 
@@ -305,16 +305,15 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool TryReadRestoreHeader(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             out CoCoStateGraphRestoreState header)
         {
-            if (!source.IsAlive)
+            if (!source.TryRead(_slot, out CoCoGraphStateRecord<TState> record))
             {
                 header = default;
                 return false;
             }
 
-            CoCoGraphStateRecord<TState> record = source.Read(_slot);
             header = new CoCoStateGraphRestoreState(
                 record.LayerId,
                 record.StateId,
@@ -329,11 +328,12 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool TryPrepareRestore(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             CoCoActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic)
         {
-            if (!source.IsAlive || !(candidateMemory is TMemory typedMemory))
+            if (!source.TryRead(_slot, out CoCoGraphStateRecord<TState> record) ||
+                !(candidateMemory is TMemory typedMemory))
             {
                 diagnostic = Error(
                     CoCoDiagnosticCode.InvalidGraphRestore,
@@ -341,7 +341,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            CoCoGraphStateRecord<TState> record = source.Read(_slot);
             try
             {
                 if (!_binding.TryPrepareRestore(record.State, typedMemory, out diagnostic) ||
@@ -937,12 +936,12 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool TryValidateRestore(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             out ulong nextActivationValue,
             out CoCoDiagnostic diagnostic)
         {
             nextActivationValue = 1UL;
-            if (_isDisposed || !source.IsAlive || !_layout.IsSameInstance(source.Layout))
+            if (_isDisposed || !source.IsValid || !_layout.IsSameInstance(source.Layout))
             {
                 diagnostic = RestoreError("Graph restore requires one alive frame with the exact Host Layout.");
                 return false;
@@ -1055,7 +1054,7 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryPrepareStateRestore(
             int orderedStateIndex,
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             CoCoActivationMemory candidateMemory,
             out CoCoStateGraphRestoreState header,
             out CoCoDiagnostic diagnostic)
@@ -1078,10 +1077,10 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal bool IsRestoredActiveActivation(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             CoCoActivationId activationId)
         {
-            if (!source.IsAlive || !activationId.IsValid)
+            if (!source.IsValid || !activationId.IsValid)
             {
                 return false;
             }

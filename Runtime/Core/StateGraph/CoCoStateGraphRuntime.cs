@@ -219,13 +219,13 @@ namespace CoCoFlow.Runtime.Core
         void CancelCapture();
 
         bool TryValidateRestore(
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             out ulong nextActivationValue,
             out CoCoDiagnostic diagnostic);
 
         bool TryPrepareStateRestore(
             int orderedStateIndex,
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             CoCoActivationMemory candidateMemory,
             out CoCoStateGraphRestoreState state,
             out CoCoDiagnostic diagnostic);
@@ -924,7 +924,7 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool TryValidateRestore(
             ICoCoStateGraphContextRuntime contextRuntime,
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             in CoCoTickFrame resumedTickFrame,
             out CoCoDiagnostic diagnostic)
         {
@@ -938,7 +938,7 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool TryPrepareRestore(
             ICoCoStateGraphContextRuntime contextRuntime,
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             in CoCoTickFrame resumedTickFrame,
             out CoCoPreparedGraphRestore preparedRestore,
             out CoCoDiagnostic diagnostic)
@@ -1083,7 +1083,7 @@ namespace CoCoFlow.Runtime.Core
 
         private bool TryValidateRestoreCore(
             ICoCoStateGraphContextRuntime contextRuntime,
-            CoCoContextFrame source,
+            CoCoContextRestoreReadView source,
             in CoCoTickFrame resumedTickFrame,
             out ulong nextActivationValue,
             out CoCoDiagnostic diagnostic)
@@ -1097,7 +1097,7 @@ namespace CoCoFlow.Runtime.Core
                 _isExecutingStep ||
                 _disposeRequested ||
                 _isDisposed ||
-                !source.IsAlive ||
+                !source.IsValid ||
                 source.Header.Identity.GraphInstanceId != _graphInstanceId)
             {
                 diagnostic = RestoreError(

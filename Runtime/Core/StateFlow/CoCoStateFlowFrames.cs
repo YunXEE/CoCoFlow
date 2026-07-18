@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.CoreContracts")]
+[assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.StateGraph")]
 [assembly: InternalsVisibleTo("CoCoFlow.Runtime.Core.StateGraph")]
 [assembly: InternalsVisibleTo("CoCoFlow.Runtime.StateGraphHost")]
 
@@ -2022,6 +2023,73 @@ namespace CoCoFlow.Runtime.Core
         CoCoContextRevision Revision { get; }
         CoCoContextFrameOrigin Origin { get; }
         T Read<T>(CoCoStateSlot<T> slot) where T : unmanaged;
+    }
+
+    internal readonly struct CoCoContextRestoreReadView
+    {
+        private readonly CoCoContextFrame _source;
+        private readonly CoCoContextFrameLayout _layout;
+
+        internal CoCoContextRestoreReadView(
+            CoCoContextFrame source,
+            CoCoContextFrameLayout layout)
+        {
+            _source = source;
+            _layout = source.IsAlive &&
+                      layout != null &&
+                      layout.IsSameInstance(source.Layout)
+                ? layout
+                : null;
+        }
+
+        internal bool IsValid =>
+            _layout != null &&
+            _source.IsAlive &&
+            _layout.IsSameInstance(_source.Layout);
+
+        internal CoCoStateFlowFrameHeader Header => IsValid ? _source.Header : default;
+        internal CoCoContextFrameLayout Layout => IsValid ? _layout : null;
+
+        internal bool TryRead<TValue>(
+            CoCoStateSlot<TValue> slot,
+            out TValue value)
+            where TValue : unmanaged
+        {
+            value = default;
+            if (!IsValid ||
+                !slot.IsValid ||
+                !slot.IsFor(_layout) ||
+                slot.DenseIndex < 0 ||
+                slot.DenseIndex >= _layout.Slots.Count)
+            {
+                return false;
+            }
+
+            CoCoStateSlotDescriptor descriptor = _layout.Slots[slot.DenseIndex];
+            if (descriptor.SlotId != slot.SlotId ||
+                descriptor.DenseIndex != slot.DenseIndex ||
+                descriptor.ValueType != typeof(TValue) ||
+                descriptor.ByteOffset != slot.ByteOffset ||
+                descriptor.ByteSize != slot.ByteSize ||
+                descriptor.ByteSize != CoCoStateFlowTypeRules.SizeOf<TValue>())
+            {
+                return false;
+            }
+
+            if (descriptor.RestorePolicy == CoCoContextRestorePolicy.Stored)
+            {
+                value = _source.Read(slot);
+                return true;
+            }
+
+            if (descriptor.RestorePolicy == CoCoContextRestorePolicy.ResetToDefault)
+            {
+                value = _layout.ReadDefault(slot);
+                return true;
+            }
+
+            return false;
+        }
     }
 
     /// <summary>

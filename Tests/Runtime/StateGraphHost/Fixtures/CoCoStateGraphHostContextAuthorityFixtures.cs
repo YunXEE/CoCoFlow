@@ -144,10 +144,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
     public static class ContextAuthorityFactoryProbe
     {
+        private static bool _throwOnNextMemoryFingerprint;
+
         public static int LogicFactoryCount { get; private set; }
         public static int MemoryFactoryCount { get; private set; }
         public static int MemoryResetCount { get; private set; }
         public static int MemoryFingerprintCount { get; private set; }
+        public static int MemoryFingerprintThrowCount { get; private set; }
 
         public static void Reset()
         {
@@ -155,6 +158,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             MemoryFactoryCount = 0;
             MemoryResetCount = 0;
             MemoryFingerprintCount = 0;
+            MemoryFingerprintThrowCount = 0;
+            _throwOnNextMemoryFingerprint = false;
         }
 
         public static void RecordLogicFactory() => LogicFactoryCount++;
@@ -163,9 +168,20 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public static void RecordMemoryReset() => MemoryResetCount++;
 
+        public static void ArmNextMemoryFingerprintThrow() =>
+            _throwOnNextMemoryFingerprint = true;
+
         public static ulong RecordMemoryFingerprint(ContextAuthorityMemory memory)
         {
             MemoryFingerprintCount++;
+            if (_throwOnNextMemoryFingerprint)
+            {
+                _throwOnNextMemoryFingerprint = false;
+                MemoryFingerprintThrowCount++;
+                throw new InvalidOperationException(
+                    "Context authority fixture threw from the armed memory fingerprint phase.");
+            }
+
             return unchecked((ulong)(uint)memory.Value);
         }
     }
@@ -182,7 +198,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public static bool FailCapture { get; set; }
         public static bool MutateMemoryOnCapture { get; set; }
+        public static bool ArmFingerprintThrowAfterCapture { get; set; }
         public static int CaptureCount { get; private set; }
+        public static int RestorePrepareCount { get; private set; }
 
         public ulong SemanticFingerprint => Fingerprint;
 
@@ -190,7 +208,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         {
             FailCapture = false;
             MutateMemoryOnCapture = false;
+            ArmFingerprintThrowAfterCapture = false;
             CaptureCount = 0;
+            RestorePrepareCount = 0;
         }
 
         public bool TryCapture(
@@ -215,6 +235,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 memory.Value++;
             }
 
+            if (ArmFingerprintThrowAfterCapture)
+            {
+                ArmFingerprintThrowAfterCapture = false;
+                ContextAuthorityFactoryProbe.ArmNextMemoryFingerprintThrow();
+            }
+
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -224,6 +250,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             ContextAuthorityMemory candidateMemory,
             out CoCoDiagnostic diagnostic)
         {
+            RestorePrepareCount++;
             if (candidateMemory == null)
             {
                 diagnostic = CoCoDiagnostic.Error(

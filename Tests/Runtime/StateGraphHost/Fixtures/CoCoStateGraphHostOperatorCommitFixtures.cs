@@ -317,6 +317,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static bool TryRegisterClaimGraph(
             CoCoGraphDescriptorCatalogBuilder builder,
             OperatorCommitTestIds ids,
+            out CoCoDiagnostic diagnostic) =>
+            TryRegisterClaimGraph(
+                builder,
+                ids,
+                CoCoContextRestorePolicy.Stored,
+                CoCoContextRestorePolicy.Stored,
+                out diagnostic);
+
+        public static bool TryRegisterClaimGraph(
+            CoCoGraphDescriptorCatalogBuilder builder,
+            OperatorCommitTestIds ids,
+            CoCoContextRestorePolicy primaryClaimRestorePolicy,
+            CoCoContextRestorePolicy secondaryClaimRestorePolicy,
             out CoCoDiagnostic diagnostic)
         {
             CoCoGraphStateRecord<byte> first = CreateActiveState(ids, (byte)0);
@@ -355,7 +368,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                        ids.GraphStateBlockId,
                        ids.PrimaryClaimStateSlotId,
                        CoCoContextProjection.Temporal,
-                       CoCoContextRestorePolicy.Stored,
+                       primaryClaimRestorePolicy,
                        primary,
                        PrimaryClaimDefaultFingerprint,
                        default,
@@ -365,7 +378,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                        ids.GraphStateBlockId,
                        ids.SecondaryClaimStateSlotId,
                        CoCoContextProjection.Temporal,
-                       CoCoContextRestorePolicy.Stored,
+                       secondaryClaimRestorePolicy,
                        secondary,
                        SecondaryClaimDefaultFingerprint,
                        default,

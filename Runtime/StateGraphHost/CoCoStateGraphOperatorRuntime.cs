@@ -519,22 +519,22 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal bool TryValidateRestore(
-            CoCoContextFrame source,
+            in CoCoContextRestoreReadView restore,
             CoCoStateGraphContextRuntime contextRuntime,
             out CoCoDiagnostic diagnostic)
         {
-            if (_isDisposed || _activeToken != 0UL || !source.IsAlive ||
-                !_contextLayout.IsSameInstance(source.Layout) || contextRuntime == null)
+            if (_isDisposed || _activeToken != 0UL || !restore.IsValid ||
+                !_contextLayout.IsSameInstance(restore.Layout) || contextRuntime == null)
             {
                 diagnostic = RestoreError(
-                    "Claim restore validation requires one idle Runtime and an exact live Context frame.");
+                    "Claim restore validation requires one idle Runtime and an exact post-policy Context view.");
                 return false;
             }
 
             for (int resourceIndex = 0; resourceIndex < _claimResources.Length; resourceIndex++)
             {
                 if (!TryReadRestoreClaim(
-                        source,
+                        restore,
                         contextRuntime,
                         resourceIndex,
                         out _,
@@ -556,7 +556,7 @@ namespace CoCoFlow.Runtime.Core
                 {
                     int resourceIndex = binding.ClaimResourceIndices[claimIndex];
                     if (!TryReadRestoreClaim(
-                            source,
+                            restore,
                             contextRuntime,
                             resourceIndex,
                             out int owner,
@@ -583,14 +583,15 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal bool TryPrepareRestore(
-            CoCoContextFrame source,
+            in CoCoContextRestoreReadView restore,
             CoCoStateGraphContextRuntime contextRuntime,
             ulong token,
+            bool isSuspended,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
             if (token == 0UL || _preparedRestoreToken != 0UL ||
-                !TryValidateRestore(source, contextRuntime, out diagnostic))
+                !TryValidateRestore(restore, contextRuntime, out diagnostic))
             {
                 if (!diagnostic.IsError)
                 {
@@ -603,7 +604,7 @@ namespace CoCoFlow.Runtime.Core
             for (int resourceIndex = 0; resourceIndex < _claimResources.Length; resourceIndex++)
             {
                 if (!TryReadRestoreClaim(
-                        source,
+                        restore,
                         contextRuntime,
                         resourceIndex,
                         out _preparedRestoreClaimOwners[resourceIndex],
@@ -942,7 +943,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         private bool TryReadRestoreClaim(
-            CoCoContextFrame source,
+            in CoCoContextRestoreReadView restore,
             CoCoStateGraphContextRuntime contextRuntime,
             int resourceIndex,
             out int ownerIndex,
@@ -958,8 +959,8 @@ namespace CoCoFlow.Runtime.Core
             }
 
             ClaimResource resource = _claimResources[resourceIndex];
-            CoCoOperatorClaimState state = source.Read(resource.Slot);
-            if (!state.IsValid ||
+            if (!restore.TryRead(resource.Slot, out CoCoOperatorClaimState state) ||
+                !state.IsValid ||
                 state.ClaimId != resource.ClaimId ||
                 state.SectionId != resource.Section.SectionId)
             {
@@ -978,7 +979,7 @@ namespace CoCoFlow.Runtime.Core
             activationId = state.ActivationId;
             if (ownerIndex < 0 ||
                 FindClaimIndex(ownerIndex, resourceIndex) < 0 ||
-                !contextRuntime.IsRestoredActiveActivation(source, activationId))
+                !contextRuntime.IsRestoredActiveActivation(restore, activationId))
             {
                 ownerIndex = -1;
                 activationId = default;

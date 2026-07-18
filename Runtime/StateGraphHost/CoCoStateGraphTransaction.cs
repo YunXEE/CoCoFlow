@@ -596,8 +596,22 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateGraphRuntime runtime,
             CoCoContextFrame source,
             CoCoTickFrame resumedTickFrame,
+            out CoCoContextCommitStatus status) =>
+            TryValidateRestoreCore(
+                runtime,
+                source,
+                resumedTickFrame,
+                out _,
+                out status);
+
+        private bool TryValidateRestoreCore(
+            CoCoStateGraphRuntime runtime,
+            CoCoContextFrame source,
+            CoCoTickFrame resumedTickFrame,
+            out CoCoContextRestoreReadView restoreSource,
             out CoCoContextCommitStatus status)
         {
+            restoreSource = default;
             if (_isDisposed || runtime == null || _activeToken != 0UL ||
                 _activeRestoreToken != 0UL)
             {
@@ -610,13 +624,20 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            restoreSource = new CoCoContextRestoreReadView(source, _contextArena.Layout);
+            if (!restoreSource.IsValid)
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
             if (!runtime.TryValidateRestore(
                     _contextRuntime,
-                    source,
+                    restoreSource,
                     resumedTickFrame,
                     out _) ||
                 !_operators.TryValidateRestore(
-                    source,
+                    restoreSource,
                     _contextRuntime,
                     out _))
             {
@@ -638,7 +659,12 @@ namespace CoCoFlow.Runtime.Core
         {
             preparedRestore = default;
             diagnostic = CoCoDiagnostic.None;
-            if (!TryValidateRestore(runtime, source, resumedTickFrame, out status))
+            if (!TryValidateRestoreCore(
+                    runtime,
+                    source,
+                    resumedTickFrame,
+                    out CoCoContextRestoreReadView restoreSource,
+                    out status))
             {
                 diagnostic = RestoreError(
                     "Actor restore validation rejected Context, Graph, Clock, or Claim authority.");
@@ -678,7 +704,7 @@ namespace CoCoFlow.Runtime.Core
 
             if (!runtime.TryPrepareRestore(
                     _contextRuntime,
-                    source,
+                    restoreSource,
                     resumedTickFrame,
                     out CoCoPreparedGraphRestore graphRestore,
                     out diagnostic))
@@ -690,9 +716,10 @@ namespace CoCoFlow.Runtime.Core
 
             ulong token = ++_nextRestoreToken;
             if (!_operators.TryPrepareRestore(
-                    source,
+                    restoreSource,
                     _contextRuntime,
                     token,
+                    runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended,
                     out diagnostic))
             {
                 graphRestore.Cancel();
