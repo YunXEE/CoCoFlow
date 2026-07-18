@@ -87,7 +87,12 @@ namespace CoCoFlow.Runtime.Core
         EventOutboxOverflow = 60,
         EventSequenceExhausted = 61,
         EventPublishFailed = 62,
-        WorldCorrectionRequired = 63
+        WorldCorrectionRequired = 63,
+        InvalidContextProducer = 64,
+        ContextCaptureFailed = 65,
+        InvalidGraphRestore = 66,
+        InvalidClaimRestore = 67,
+        InvalidActorBinding = 68
     }
 
     public enum CoCoDiagnosticSeverity

@@ -18,6 +18,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(builder.TryClaim(
                 CreateClaimId(2UL),
                 section,
+                CreateSlotId(2UL),
                 17,
                 CoCoOperatorClaimSuspendPolicy.Retain,
                 out CoCoOperatorClaimRequirement claim,
@@ -50,6 +51,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(CreateSlotId(3UL), descriptor.OutcomeRequirements[0].SlotId);
             Assert.AreEqual(emit, descriptor.Emits[0]);
             Assert.IsTrue(claim.IsValid);
+            Assert.AreEqual(CreateSlotId(2UL), claim.StateSlotId);
             Assert.AreEqual(17, claim.Priority);
             Assert.AreEqual(CoCoOperatorClaimSuspendPolicy.Retain, claim.SuspendPolicy);
             Assert.AreEqual(typeof(int), descriptor.OutcomeRequirements[0].ValueType);
@@ -74,6 +76,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(builder.TryClaim(
                 CreateClaimId(11UL),
                 continuous,
+                CreateSlotId(11UL),
                 0,
                 CoCoOperatorClaimSuspendPolicy.Release,
                 out _,
@@ -90,6 +93,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(discreteBuilder.TryClaim(
                 CreateClaimId(13UL),
                 discrete,
+                CreateSlotId(13UL),
                 -4,
                 CoCoOperatorClaimSuspendPolicy.Release,
                 out _,
@@ -98,6 +102,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(discreteBuilder.TryClaim(
                 CreateClaimId(14UL),
                 discrete,
+                CreateSlotId(14UL),
                 9,
                 CoCoOperatorClaimSuspendPolicy.Retain,
                 out _,

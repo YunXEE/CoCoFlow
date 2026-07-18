@@ -1657,6 +1657,31 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
+    /// <summary>
+    /// Read-only, allocation-free view of a finalized Operation candidate.
+    /// Unlike <see cref="CoCoFinalizedOperationFrame"/>, this surface cannot commit or
+    /// cancel the candidate and is safe to expose to producer callbacks.
+    /// </summary>
+    public readonly struct CoCoStagedOperationFrame : ICoCoOperationFrame
+    {
+        private readonly CoCoFinalizedOperationFrame _frame;
+
+        internal CoCoStagedOperationFrame(CoCoFinalizedOperationFrame frame)
+        {
+            _frame = frame;
+        }
+
+        public CoCoStateFlowFrameHeader Header => _frame.Header;
+        public CoCoOperationSectionRegistry Registry => _frame.Registry;
+        public bool IsValid => _frame.IsValid;
+
+        public bool TryGet<TSection>(
+            CoCoOperationSectionHandle<TSection> handle,
+            out CoCoOperationSectionEntry<TSection> entry)
+            where TSection : class, ICoCoOperationSection =>
+            _frame.TryGet(handle, out entry);
+    }
+
     public readonly struct CoCoOperationFrameWriter
     {
         private readonly CoCoOperationFrame _frame;

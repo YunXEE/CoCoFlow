@@ -174,6 +174,19 @@ namespace CoCoFlow.Runtime.Core.Tests
             {
                 Assert.AreEqual(54 + index, (int)preFiveCodes[index]);
             }
+
+            CoCoDiagnosticCode[] contextAuthorityCodes =
+            {
+                CoCoDiagnosticCode.InvalidContextProducer,
+                CoCoDiagnosticCode.ContextCaptureFailed,
+                CoCoDiagnosticCode.InvalidGraphRestore,
+                CoCoDiagnosticCode.InvalidClaimRestore,
+                CoCoDiagnosticCode.InvalidActorBinding
+            };
+            for (int index = 0; index < contextAuthorityCodes.Length; index++)
+            {
+                Assert.AreEqual(64 + index, (int)contextAuthorityCodes[index]);
+            }
         }
 
         [Test]

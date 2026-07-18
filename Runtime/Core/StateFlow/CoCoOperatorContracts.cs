@@ -15,21 +15,25 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoOperatorClaimRequirement(
             CoCoOperatorClaimId claimId,
             CoCoOperationSectionRequirement section,
+            CoCoStateSlotId stateSlotId,
             int priority,
             CoCoOperatorClaimSuspendPolicy suspendPolicy)
         {
             ClaimId = claimId;
             Section = section;
+            StateSlotId = stateSlotId;
             Priority = priority;
             SuspendPolicy = suspendPolicy;
         }
 
         public CoCoOperatorClaimId ClaimId { get; }
         public CoCoOperationSectionRequirement Section { get; }
+        public CoCoStateSlotId StateSlotId { get; }
         public int Priority { get; }
         public CoCoOperatorClaimSuspendPolicy SuspendPolicy { get; }
         public bool IsValid => ClaimId.IsValid &&
                                Section.IsValid &&
+                               StateSlotId.IsValid &&
                                Section.Mode == CoCoOperationSectionMode.Discrete &&
                                (SuspendPolicy == CoCoOperatorClaimSuspendPolicy.Release ||
                                 SuspendPolicy == CoCoOperatorClaimSuspendPolicy.Retain);
@@ -38,6 +42,7 @@ namespace CoCoFlow.Runtime.Core
         {
             return ClaimId == other.ClaimId &&
                    Section == other.Section &&
+                   StateSlotId == other.StateSlotId &&
                    Priority == other.Priority &&
                    SuspendPolicy == other.SuspendPolicy;
         }
@@ -51,6 +56,7 @@ namespace CoCoFlow.Runtime.Core
             {
                 int hashCode = ClaimId.GetHashCode();
                 hashCode = (hashCode * 397) ^ Section.GetHashCode();
+                hashCode = (hashCode * 397) ^ StateSlotId.GetHashCode();
                 hashCode = (hashCode * 397) ^ Priority;
                 hashCode = (hashCode * 397) ^ (int)SuspendPolicy;
                 return hashCode;
@@ -242,12 +248,18 @@ namespace CoCoFlow.Runtime.Core
         public bool TryClaim(
             CoCoOperatorClaimId claimId,
             CoCoOperationSectionRequirement section,
+            CoCoStateSlotId stateSlotId,
             int priority,
             CoCoOperatorClaimSuspendPolicy suspendPolicy,
             out CoCoOperatorClaimRequirement claim,
             out CoCoDiagnostic diagnostic)
         {
-            claim = new CoCoOperatorClaimRequirement(claimId, section, priority, suspendPolicy);
+            claim = new CoCoOperatorClaimRequirement(
+                claimId,
+                section,
+                stateSlotId,
+                priority,
+                suspendPolicy);
             if (_isFrozen || !claim.IsValid || !ContainsRequirement(section))
             {
                 claim = default;
@@ -255,18 +267,20 @@ namespace CoCoFlow.Runtime.Core
                     _isFrozen ? CoCoDiagnosticCode.RegistryFrozen : CoCoDiagnosticCode.InvalidOperatorDescriptor,
                     _isFrozen
                         ? "Operator descriptor is already frozen."
-                        : "An Operator Claim must bind one of its required discrete Sections.");
+                        : "An Operator Claim must bind one required discrete Section and its canonical Graph-owned Claim State Slot.");
                 return false;
             }
 
             for (int index = 0; index < _claims.Count; index++)
             {
-                if (_claims[index].ClaimId == claimId || _claims[index].Section == section)
+                if (_claims[index].ClaimId == claimId ||
+                    _claims[index].Section == section ||
+                    _claims[index].StateSlotId == stateSlotId)
                 {
                     claim = default;
                     diagnostic = Error(
                         CoCoDiagnosticCode.OperatorClaimConflict,
-                        "An Operator cannot declare the same Claim or claimed Section twice.");
+                        "An Operator cannot declare the same Claim, claimed Section, or Claim State Slot twice.");
                     return false;
                 }
             }
