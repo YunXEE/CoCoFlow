@@ -24,6 +24,7 @@ namespace CoCoFlow.Runtime.Core
         private bool _outcomeWriteFault;
         private bool _worldMayBeDirty;
         private bool _releaseClaimsOnNextArbitration;
+        private bool _preparedReleaseClaimsOnNextArbitration;
         private ulong _preparedRestoreToken;
         private bool _isDisposed;
 
@@ -616,6 +617,9 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
+            _preparedReleaseClaimsOnNextArbitration = isSuspended
+                ? HasPreparedReleaseClaimOwner()
+                : _releaseClaimsOnNextArbitration;
             _preparedRestoreToken = token;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -634,7 +638,7 @@ namespace CoCoFlow.Runtime.Core
                 _committedClaimActivations[index] = _preparedRestoreClaimActivations[index];
             }
 
-            _releaseClaimsOnNextArbitration = false;
+            _releaseClaimsOnNextArbitration = _preparedReleaseClaimsOnNextArbitration;
             CancelPreparedRestore();
         }
 
@@ -646,6 +650,7 @@ namespace CoCoFlow.Runtime.Core
         internal void CancelPreparedRestore()
         {
             _preparedRestoreToken = 0UL;
+            _preparedReleaseClaimsOnNextArbitration = false;
             ClearOwners(_preparedRestoreClaimOwners);
             Array.Clear(
                 _preparedRestoreClaimActivations,
@@ -990,6 +995,28 @@ namespace CoCoFlow.Runtime.Core
 
             diagnostic = CoCoDiagnostic.None;
             return true;
+        }
+
+        private bool HasPreparedReleaseClaimOwner()
+        {
+            for (int operatorIndex = 0; operatorIndex < _operators.Length; operatorIndex++)
+            {
+                OperatorBinding binding = _operators[operatorIndex];
+                for (int claimIndex = 0;
+                     claimIndex < binding.Descriptor.Claims.Count;
+                     claimIndex++)
+                {
+                    int resourceIndex = binding.ClaimResourceIndices[claimIndex];
+                    if (_preparedRestoreClaimOwners[resourceIndex] == operatorIndex &&
+                        binding.Descriptor.Claims[claimIndex].SuspendPolicy ==
+                        CoCoOperatorClaimSuspendPolicy.Release)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private int FindOperatorIndex(CoCoOperatorId operatorId)
