@@ -155,6 +155,96 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoOperationSectionId left, CoCoOperationSectionId right) => !left.Equals(right);
     }
 
+    public readonly struct CoCoOperatorId : IEquatable<CoCoOperatorId>
+    {
+        private CoCoOperatorId(ulong high, ulong low)
+        {
+            High = high;
+            Low = low;
+        }
+
+        public ulong High { get; }
+        public ulong Low { get; }
+        public bool IsValid => High != 0UL || Low != 0UL;
+
+        public static bool TryCreate(ulong high, ulong low, out CoCoOperatorId id)
+        {
+            if (high == 0UL && low == 0UL)
+            {
+                id = default;
+                return false;
+            }
+
+            id = new CoCoOperatorId(high, low);
+            return true;
+        }
+
+        public static bool TryParse(string value, out CoCoOperatorId id)
+        {
+            if (!CoCoId128Parser.TryParse(value, out ulong high, out ulong low))
+            {
+                id = default;
+                return false;
+            }
+
+            return TryCreate(high, low, out id);
+        }
+
+        public bool Equals(CoCoOperatorId other) => High == other.High && Low == other.Low;
+        public override bool Equals(object obj) => obj is CoCoOperatorId other && Equals(other);
+        public override int GetHashCode() => unchecked((High.GetHashCode() * 397) ^ Low.GetHashCode());
+        public override string ToString() => High.ToString("x16", CultureInfo.InvariantCulture) +
+                                             Low.ToString("x16", CultureInfo.InvariantCulture);
+
+        public static bool operator ==(CoCoOperatorId left, CoCoOperatorId right) => left.Equals(right);
+        public static bool operator !=(CoCoOperatorId left, CoCoOperatorId right) => !left.Equals(right);
+    }
+
+    public readonly struct CoCoOperatorClaimId : IEquatable<CoCoOperatorClaimId>
+    {
+        private CoCoOperatorClaimId(ulong high, ulong low)
+        {
+            High = high;
+            Low = low;
+        }
+
+        public ulong High { get; }
+        public ulong Low { get; }
+        public bool IsValid => High != 0UL || Low != 0UL;
+
+        public static bool TryCreate(ulong high, ulong low, out CoCoOperatorClaimId id)
+        {
+            if (high == 0UL && low == 0UL)
+            {
+                id = default;
+                return false;
+            }
+
+            id = new CoCoOperatorClaimId(high, low);
+            return true;
+        }
+
+        public static bool TryParse(string value, out CoCoOperatorClaimId id)
+        {
+            if (!CoCoId128Parser.TryParse(value, out ulong high, out ulong low))
+            {
+                id = default;
+                return false;
+            }
+
+            return TryCreate(high, low, out id);
+        }
+
+        public bool Equals(CoCoOperatorClaimId other) => High == other.High && Low == other.Low;
+        public override bool Equals(object obj) => obj is CoCoOperatorClaimId other && Equals(other);
+        public override int GetHashCode() => unchecked((High.GetHashCode() * 397) ^ Low.GetHashCode());
+        public override string ToString() => High.ToString("x16", CultureInfo.InvariantCulture) +
+                                             Low.ToString("x16", CultureInfo.InvariantCulture);
+
+        public static bool operator ==(CoCoOperatorClaimId left, CoCoOperatorClaimId right) => left.Equals(right);
+        public static bool operator !=(CoCoOperatorClaimId left, CoCoOperatorClaimId right) => !left.Equals(right);
+    }
+
     public readonly struct CoCoIntentId : IEquatable<CoCoIntentId>
     {
         private CoCoIntentId(ulong high, ulong low)

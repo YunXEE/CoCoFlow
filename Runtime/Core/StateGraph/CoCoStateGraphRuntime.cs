@@ -68,29 +68,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
-    /// Read-only, allocation-free view of the finalized Operation candidate carried by a staged Tick.
-    /// </summary>
-    public readonly struct CoCoStagedOperationFrame : ICoCoOperationFrame
-    {
-        private readonly CoCoFinalizedOperationFrame _frame;
-
-        internal CoCoStagedOperationFrame(CoCoFinalizedOperationFrame frame)
-        {
-            _frame = frame;
-        }
-
-        public CoCoStateFlowFrameHeader Header => _frame.Header;
-        public CoCoOperationSectionRegistry Registry => _frame.Registry;
-        public bool IsValid => _frame.IsValid;
-
-        public bool TryGet<TSection>(
-            CoCoOperationSectionHandle<TSection> handle,
-            out CoCoOperationSectionEntry<TSection> entry)
-            where TSection : class, ICoCoOperationSection =>
-            _frame.TryGet(handle, out entry);
-    }
-
-    /// <summary>
     /// Single-use candidate Tick. Pre5 accepts or rejects this token after Context finalization.
     /// </summary>
     public readonly struct CoCoStagedGraphStep : IEquatable<CoCoStagedGraphStep>
@@ -132,6 +109,160 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoStagedGraphStep left, CoCoStagedGraphStep right) => !left.Equals(right);
     }
 
+    /// <summary>
+    /// Single-use proof that the staged Graph, OperationFrame, and Clock are ready for
+    /// the no-fail portion of their Actor authority barrier.
+    /// </summary>
+    internal readonly struct CoCoPreparedGraphCommit
+    {
+        private readonly CoCoStateGraphRuntime _runtime;
+        private readonly ulong _token;
+
+        internal CoCoPreparedGraphCommit(
+            CoCoStateGraphRuntime runtime,
+            ulong token,
+            in CoCoTickFrame tickFrame)
+        {
+            _runtime = runtime;
+            _token = token;
+            TickFrame = tickFrame;
+        }
+
+        internal CoCoTickFrame TickFrame { get; }
+        internal bool IsValid =>
+            _runtime != null && _runtime.IsPreparedCommitTokenCurrent(_token);
+        internal CoCoStateGraphRuntime Runtime => _runtime;
+        internal ulong Token => _token;
+
+        internal void CommitNoFail()
+        {
+            _runtime.CommitPreparedStepNoFail();
+        }
+    }
+
+    /// <summary>
+    /// Purely decoded metadata for one State restore candidate. ActivationMemory is prepared
+    /// separately in the Runtime's non-authoritative candidate bank.
+    /// </summary>
+    internal readonly struct CoCoStateGraphRestoreState
+    {
+        internal CoCoStateGraphRestoreState(
+            CoCoLayerId layerId,
+            CoCoStateId stateId,
+            bool isOnActivePath,
+            CoCoActivationId activationId,
+            double localSeconds,
+            double actionProgress,
+            bool enterPending,
+            ulong memoryFingerprint,
+            bool isValid)
+        {
+            LayerId = layerId;
+            StateId = stateId;
+            IsOnActivePath = isOnActivePath;
+            ActivationId = activationId;
+            LocalSeconds = localSeconds;
+            ActionProgress = actionProgress;
+            EnterPending = enterPending;
+            MemoryFingerprint = memoryFingerprint;
+            IsValid = isValid;
+        }
+
+        internal CoCoLayerId LayerId { get; }
+        internal CoCoStateId StateId { get; }
+        internal bool IsOnActivePath { get; }
+        internal CoCoActivationId ActivationId { get; }
+        internal double LocalSeconds { get; }
+        internal double ActionProgress { get; }
+        internal bool EnterPending { get; }
+        internal ulong MemoryFingerprint { get; }
+        internal bool IsValid { get; }
+    }
+
+    /// <summary>
+    /// Core-facing adapter implemented by the Host Context producer runtime. Keeping this
+    /// seam in Core prevents a reverse assembly dependency on the Unity Host assembly.
+    /// </summary>
+    internal interface ICoCoStateGraphContextRuntime
+    {
+        bool TryBeginGraphCapture(
+            in CoCoStagedGraphStep stagedStep,
+            CoCoContextFrameReadView previous,
+            in CoCoPreparedContextCommit prepared,
+            ulong token,
+            out CoCoDiagnostic diagnostic);
+
+        bool TryCaptureState(
+            int orderedStateIndex,
+            CoCoActivationMemory memory,
+            bool isOnActivePath,
+            CoCoActivationId activationId,
+            double localSeconds,
+            double actionProgress,
+            bool enterPending,
+            ulong memoryFingerprint,
+            out CoCoDiagnostic diagnostic);
+
+        bool TryValidateInitialStateDefault(
+            int orderedStateIndex,
+            CoCoActivationMemory memory,
+            bool isOnActivePath,
+            CoCoActivationId activationId,
+            double localSeconds,
+            double actionProgress,
+            bool enterPending,
+            ulong memoryFingerprint,
+            CoCoContextFrameReadView defaults,
+            out CoCoDiagnostic diagnostic);
+
+        bool TryCompleteGraphCapture(out CoCoDiagnostic diagnostic);
+        void CancelCapture();
+
+        bool TryValidateRestore(
+            CoCoContextRestoreReadView source,
+            out ulong nextActivationValue,
+            out CoCoDiagnostic diagnostic);
+
+        bool TryPrepareStateRestore(
+            int orderedStateIndex,
+            CoCoContextRestoreReadView source,
+            CoCoActivationMemory candidateMemory,
+            out CoCoStateGraphRestoreState state,
+            out CoCoDiagnostic diagnostic);
+    }
+
+    /// <summary>
+    /// Single-use proof that State banks, ActivePaths, activation allocation, and Clock
+    /// are ready for a no-callback, no-fail restore authority swap.
+    /// </summary>
+    internal readonly struct CoCoPreparedGraphRestore
+    {
+        private readonly CoCoStateGraphRuntime _runtime;
+        private readonly ulong _token;
+
+        internal CoCoPreparedGraphRestore(
+            CoCoStateGraphRuntime runtime,
+            ulong token,
+            in CoCoTickFrame tickFrame)
+        {
+            _runtime = runtime;
+            _token = token;
+            TickFrame = tickFrame;
+        }
+
+        internal CoCoTickFrame TickFrame { get; }
+        internal bool IsValid =>
+            _runtime != null && _runtime.IsPreparedRestoreTokenCurrent(_token);
+
+        internal void ApplyNoFail()
+        {
+            _runtime.ApplyPreparedRestoreNoFail();
+        }
+
+        internal bool Cancel() =>
+            _runtime != null && _runtime.CancelPreparedRestore(_token);
+    }
+
     internal interface ICoCoStateGraphCommitGuard
     {
         bool IsCommitCancellationRequested { get; }
@@ -162,6 +293,10 @@ namespace CoCoFlow.Runtime.Core
         private ulong _candidateNextActivationValue;
         private ulong _stageGeneration;
         private ulong _activeStageToken;
+        private ulong _activePreparedCommitToken;
+        private ulong _restoreGeneration;
+        private ulong _activeRestoreToken;
+        private CoCoPreparedActorClockRestore _preparedClockRestore;
         private int _executingLayerIndex;
         private int _executingStateIndex;
         private bool _acceptsTransitionRequests;
@@ -207,6 +342,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoRuntimeFault Fault => _fault;
         public bool IsFaulted => _fault.IsFaulted;
         public bool HasStagedStep => _activeStageToken != 0UL;
+        internal bool HasPreparedRestore => _activeRestoreToken != 0UL;
         public CoCoActorClock Clock => _clock;
         public IReadOnlyList<CoCoActivePath> ActivePaths => _activePaths;
 
@@ -392,6 +528,7 @@ namespace CoCoFlow.Runtime.Core
         {
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
                 HasStagedStep ||
+                HasPreparedRestore ||
                 IsFaulted ||
                 _isExecutingStep ||
                 _disposeRequested)
@@ -407,7 +544,9 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryResume(out CoCoDiagnostic diagnostic)
         {
-            if (_lifecycle != CoCoRuntimeLifecycleState.Suspended || IsFaulted)
+            if (_lifecycle != CoCoRuntimeLifecycleState.Suspended ||
+                IsFaulted ||
+                HasPreparedRestore)
             {
                 diagnostic = LifecycleError("Resume requires a healthy Suspended Runtime.");
                 return false;
@@ -446,6 +585,7 @@ namespace CoCoFlow.Runtime.Core
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
                 IsFaulted ||
                 HasStagedStep ||
+                HasPreparedRestore ||
                 _isExecutingStep ||
                 _disposeRequested)
             {
@@ -465,7 +605,7 @@ namespace CoCoFlow.Runtime.Core
         public bool TryStageStep(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoStagedGraphStep stagedStep,
             out CoCoDiagnostic diagnostic)
         {
@@ -473,6 +613,7 @@ namespace CoCoFlow.Runtime.Core
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
                 IsFaulted ||
                 HasStagedStep ||
+                HasPreparedRestore ||
                 _isExecutingStep ||
                 _disposeRequested)
             {
@@ -649,24 +790,382 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool IsStagedTokenCurrent(ulong token) => token != 0UL && token == _activeStageToken;
 
-        internal bool TryAcceptStagedStep(
-            in CoCoStagedGraphStep stagedStep,
-            out CoCoDiagnostic diagnostic) =>
-            TryAcceptStagedStep(stagedStep, null, out diagnostic);
+        internal bool IsPreparedCommitTokenCurrent(ulong token) =>
+            token != 0UL &&
+            token == _activeStageToken &&
+            token == _activePreparedCommitToken;
 
-        internal bool TryAcceptStagedStep(
+        internal bool TryCaptureGraphContext(
+            ICoCoStateGraphContextRuntime contextRuntime,
             in CoCoStagedGraphStep stagedStep,
+            CoCoContextFrameReadView previousContext,
+            in CoCoPreparedContextCommit preparedContext,
+            ulong transactionToken,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (contextRuntime == null || !Owns(stagedStep) ||
+                !contextRuntime.TryBeginGraphCapture(
+                    stagedStep,
+                    previousContext,
+                    preparedContext,
+                    transactionToken,
+                    out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticDomain.Context,
+                        CoCoDiagnosticCode.ContextCaptureFailed,
+                        "Staged Graph authority could not begin Context capture.");
+                }
+
+                return false;
+            }
+
+            int orderedStateIndex = 0;
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                IReadOnlyList<int> path =
+                    layer.Compiled.States[layer.CandidateLeafIndex].RootPathStateIndices;
+                for (int stateIndex = 0; stateIndex < layer.States.Length; stateIndex++)
+                {
+                    StateRuntime state = layer.States[stateIndex];
+                    int pathDepth = FindPathDepth(path, stateIndex);
+                    bool isOnActivePath = pathDepth >= 0;
+                    bool enterPending = isOnActivePath &&
+                                        layer.CandidateEnterStartDepth >= 0 &&
+                                        pathDepth >= layer.CandidateEnterStartDepth;
+                    if (!contextRuntime.TryCaptureState(
+                            orderedStateIndex++,
+                            state.CandidateMemory,
+                            isOnActivePath,
+                            state.CandidateActivationId,
+                            state.CandidateLocalSeconds,
+                            state.CandidateActionProgress,
+                            enterPending,
+                            state.CandidateMemoryFingerprint,
+                            out diagnostic))
+                    {
+                        contextRuntime.CancelCapture();
+                        return false;
+                    }
+                }
+            }
+
+            if (!TryValidateStagedMemoryIntegrity(out diagnostic))
+            {
+                contextRuntime.CancelCapture();
+                return false;
+            }
+
+            return contextRuntime.TryCompleteGraphCapture(out diagnostic);
+        }
+
+        internal bool TryValidateInitialGraphContextDefaults(
+            ICoCoStateGraphContextRuntime contextRuntime,
+            CoCoContextFrameReadView defaults,
             ICoCoStateGraphCommitGuard commitGuard,
             out CoCoDiagnostic diagnostic)
         {
+            if (contextRuntime == null || _lifecycle != CoCoRuntimeLifecycleState.Running ||
+                HasStagedStep || !defaults.IsValid || defaults.HasCommittedFrame)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticDomain.Context,
+                    CoCoDiagnosticCode.InvalidContextProducer,
+                    "Initial Graph defaults can be validated only after Runtime start and before the first commit.");
+                return false;
+            }
+
+            int orderedStateIndex = 0;
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                IReadOnlyList<int> path =
+                    layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices;
+                for (int stateIndex = 0; stateIndex < layer.States.Length; stateIndex++)
+                {
+                    StateRuntime state = layer.States[stateIndex];
+                    int pathDepth = FindPathDepth(path, stateIndex);
+                    bool isOnActivePath = pathDepth >= 0;
+                    bool enterPending = isOnActivePath &&
+                                        layer.CommittedEnterStartDepth >= 0 &&
+                                        pathDepth >= layer.CommittedEnterStartDepth;
+                    if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                    {
+                        diagnostic = LifecycleError(
+                            "Initial Graph Context validation was cancelled by its Host before State capture.");
+                        return false;
+                    }
+
+                    bool validated = contextRuntime.TryValidateInitialStateDefault(
+                            orderedStateIndex++,
+                            state.CommittedMemory,
+                            isOnActivePath,
+                            state.CommittedActivationId,
+                            state.CommittedLocalSeconds,
+                            state.CommittedActionProgress,
+                            enterPending,
+                            state.CommittedMemoryFingerprint,
+                            defaults,
+                            out diagnostic);
+
+                    if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                    {
+                        diagnostic = LifecycleError(
+                            "Initial Graph Context validation was cancelled by its Host after State capture.");
+                        return false;
+                    }
+
+                    if (!validated)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            if (!TryValidateCommittedMemoryIntegrity(
+                    commitGuard,
+                    out CoCoDiagnostic integrityDiagnostic))
+            {
+                diagnostic = integrityDiagnostic.Domain == CoCoDiagnosticDomain.Lifecycle
+                    ? integrityDiagnostic
+                    : Error(
+                        CoCoDiagnosticDomain.Context,
+                        CoCoDiagnosticCode.InvalidContextProducer,
+                        "Initial Graph capture mutated committed ActivationMemory outside Runtime authority.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryValidateRestore(
+            ICoCoStateGraphContextRuntime contextRuntime,
+            CoCoContextRestoreReadView source,
+            in CoCoTickFrame resumedTickFrame,
+            out CoCoDiagnostic diagnostic)
+        {
+            return TryValidateRestoreCore(
+                contextRuntime,
+                source,
+                resumedTickFrame,
+                out _,
+                out diagnostic);
+        }
+
+        internal bool TryPrepareRestore(
+            ICoCoStateGraphContextRuntime contextRuntime,
+            CoCoContextRestoreReadView source,
+            in CoCoTickFrame resumedTickFrame,
+            out CoCoPreparedGraphRestore preparedRestore,
+            out CoCoDiagnostic diagnostic)
+        {
+            preparedRestore = default;
+            if (!TryValidateRestoreCore(
+                    contextRuntime,
+                    source,
+                    resumedTickFrame,
+                    out ulong nextActivationValue,
+                    out diagnostic) ||
+                !_clock.TryPrepareRestore(
+                    _transitionHandleOwner,
+                    resumedTickFrame,
+                    out CoCoPreparedActorClockRestore preparedClock,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            bool preparedStates = false;
+            try
+            {
+                int orderedStateIndex = 0;
+                for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+                {
+                    LayerRuntime layer = _layers[layerIndex];
+                    int activeLeafIndex = -1;
+                    int activeLeafCount = 0;
+                    for (int stateIndex = 0; stateIndex < layer.States.Length; stateIndex++)
+                    {
+                        StateRuntime state = layer.States[stateIndex];
+                        if (!contextRuntime.TryPrepareStateRestore(
+                                orderedStateIndex++,
+                                source,
+                                state.CandidateMemory,
+                                out CoCoStateGraphRestoreState restoreState,
+                                out diagnostic) ||
+                            !restoreState.IsValid ||
+                            restoreState.LayerId != layer.Compiled.LayerId ||
+                            restoreState.StateId != state.Compiled.StateId ||
+                            !state.TryPrepareRestoreCandidate(restoreState))
+                        {
+                            if (!diagnostic.IsError)
+                            {
+                                diagnostic = RestoreError(
+                                    "A Graph State restore record or prepared ActivationMemory is inconsistent.");
+                            }
+
+                            preparedClock.Cancel();
+                            return false;
+                        }
+
+                        if (restoreState.IsOnActivePath && state.Compiled.IsLeaf)
+                        {
+                            activeLeafIndex = stateIndex;
+                            activeLeafCount++;
+                        }
+                    }
+
+                    if (activeLeafCount != 1 ||
+                        !TryPrepareRestoredLayer(layer, activeLeafIndex, out diagnostic))
+                    {
+                        preparedClock.Cancel();
+                        return false;
+                    }
+                }
+
+                if (!TryValidateCommittedMemoryIntegrity(null, out diagnostic))
+                {
+                    preparedClock.Cancel();
+                    return false;
+                }
+
+                _candidateNextActivationValue = nextActivationValue;
+                _restoreGeneration = _restoreGeneration == ulong.MaxValue
+                    ? 1UL
+                    : _restoreGeneration + 1UL;
+                _activeRestoreToken = _restoreGeneration;
+                _preparedClockRestore = preparedClock;
+                preparedRestore = new CoCoPreparedGraphRestore(
+                    this,
+                    _activeRestoreToken,
+                    resumedTickFrame);
+                preparedStates = true;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+            catch (Exception)
+            {
+                diagnostic = RestoreError(
+                    "Graph restore preparation threw while rebuilding candidate ActivationMemory.");
+                return false;
+            }
+            finally
+            {
+                if (!preparedStates)
+                {
+                    preparedClock.Cancel();
+                }
+            }
+        }
+
+        internal bool IsPreparedRestoreTokenCurrent(ulong token) =>
+            token != 0UL &&
+            token == _activeRestoreToken &&
+            _preparedClockRestore.IsValid;
+
+        internal void ApplyPreparedRestoreNoFail()
+        {
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                for (int stateIndex = 0; stateIndex < layer.States.Length; stateIndex++)
+                {
+                    layer.States[stateIndex].CommitCandidate();
+                }
+
+                layer.CommittedLeafIndex = layer.CandidateLeafIndex;
+                layer.CommittedEnterStartDepth = layer.CandidateEnterStartDepth;
+                layer.CommittedWinnerTransitionId = default;
+            }
+
+            _nextActivationValue = _candidateNextActivationValue;
+            _preparedClockRestore.ApplyNoFail();
+            _preparedClockRestore = default;
+            _activeRestoreToken = 0UL;
+        }
+
+        internal bool CancelPreparedRestore(ulong token)
+        {
+            if (!IsPreparedRestoreTokenCurrent(token))
+            {
+                return false;
+            }
+
+            _preparedClockRestore.Cancel();
+            _preparedClockRestore = default;
+            _activeRestoreToken = 0UL;
+            return true;
+        }
+
+        private bool TryValidateRestoreCore(
+            ICoCoStateGraphContextRuntime contextRuntime,
+            CoCoContextRestoreReadView source,
+            in CoCoTickFrame resumedTickFrame,
+            out ulong nextActivationValue,
+            out CoCoDiagnostic diagnostic)
+        {
+            nextActivationValue = 0UL;
+            if (contextRuntime == null ||
+                (_lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                HasStagedStep ||
+                HasPreparedRestore ||
+                _isExecutingStep ||
+                _disposeRequested ||
+                _isDisposed ||
+                !source.IsValid ||
+                source.Header.Identity.GraphInstanceId != _graphInstanceId)
+            {
+                diagnostic = RestoreError(
+                    "Graph restore validation requires one idle Runtime at a resolved Tick boundary and an alive frame from the same GraphInstance.");
+                return false;
+            }
+
+            if (!_clock.TryValidateRestore(
+                    _transitionHandleOwner,
+                    resumedTickFrame,
+                    out diagnostic) ||
+                !contextRuntime.TryValidateRestore(
+                    source,
+                    out nextActivationValue,
+                    out diagnostic) ||
+                nextActivationValue == 0UL ||
+                nextActivationValue == ulong.MaxValue)
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = RestoreError(
+                        "Graph Context records cannot rebuild a complete restore candidate.");
+                }
+
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryPrepareStagedCommit(
+            in CoCoStagedGraphStep stagedStep,
+            ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoPreparedGraphCommit preparedCommit,
+            out CoCoDiagnostic diagnostic)
+        {
+            preparedCommit = default;
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
                 IsFaulted ||
                 _isExecutingStep ||
                 _disposeRequested ||
+                _activePreparedCommitToken != 0UL ||
                 !Owns(stagedStep))
             {
                 diagnostic = LifecycleError(
-                    "Only a healthy Running Runtime may accept its current staged Tick.");
+                    "Only a healthy Running Runtime may prepare its current staged Tick once.");
                 return false;
             }
 
@@ -675,30 +1174,63 @@ namespace CoCoFlow.Runtime.Core
             {
                 CancelOutstandingStep(false, default);
                 diagnostic = LifecycleError(
-                    "The staged Tick was cancelled by its Host before commit.");
+                    "The staged Tick was cancelled by its Host before commit preparation.");
                 return false;
             }
 
             if (!memoryIntegrity)
             {
-                _finalizedOperationFrame.Cancel();
-                _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
-                ClearStagedStep();
+                CancelOutstandingStep(false, default);
                 LatchFault(diagnostic);
                 return false;
             }
 
-            if (!_finalizedOperationFrame.Commit())
+            if (!_finalizedOperationFrame.IsCommitReady)
             {
-                _finalizedOperationFrame.Cancel();
-                _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
                 diagnostic = OperationError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
-                    "Finalized OperationFrame could not commit.");
-                ClearStagedStep();
+                    "Finalized OperationFrame is not ready for the authority barrier.");
+                CancelOutstandingStep(false, default);
                 LatchFault(diagnostic);
                 return false;
             }
+
+            if (!_clock.IsCommitReady(_transitionHandleOwner, _stagedTickFrame))
+            {
+                diagnostic = LifecycleError(
+                    "The Runtime Clock is not ready for the authority barrier.");
+                CancelOutstandingStep(false, default);
+                LatchFault(diagnostic);
+                return false;
+            }
+
+            _activePreparedCommitToken = _activeStageToken;
+            preparedCommit = new CoCoPreparedGraphCommit(
+                this,
+                _activePreparedCommitToken,
+                _stagedTickFrame);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal void CommitPreparedStep(in CoCoPreparedGraphCommit preparedCommit)
+        {
+            if (!Owns(preparedCommit))
+            {
+                throw new InvalidOperationException(
+                    "The prepared Graph commit token is no longer ready.");
+            }
+
+            preparedCommit.CommitNoFail();
+        }
+
+        internal void CommitPreparedStepNoFail()
+        {
+            // TryPrepareStagedCommit establishes token ownership, memory integrity,
+            // OperationFrame readiness, and exact Clock candidate identity. The Host
+            // enters this unchecked method only after every other Actor participant
+            // preflights. The proof is intentionally not revalidated inside the barrier.
+            _finalizedOperationFrame.CommitPreparedNoFail();
 
             for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
             {
@@ -710,18 +1242,34 @@ namespace CoCoFlow.Runtime.Core
 
                 layer.CommittedLeafIndex = layer.CandidateLeafIndex;
                 layer.CommittedEnterStartDepth = layer.CandidateEnterStartDepth;
+                layer.CommittedWinnerTransitionId = layer.CandidateWinnerTransitionId;
             }
 
             _nextActivationValue = _candidateNextActivationValue;
-            if (!_clock.Commit(_transitionHandleOwner, _stagedTickFrame))
+            _clock.CommitPreparedNoFail();
+            ClearStagedStep();
+        }
+
+        internal bool TryAcceptStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            out CoCoDiagnostic diagnostic) =>
+            TryAcceptStagedStep(stagedStep, null, out diagnostic);
+
+        internal bool TryAcceptStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryPrepareStagedCommit(
+                    stagedStep,
+                    commitGuard,
+                    out CoCoPreparedGraphCommit preparedCommit,
+                    out diagnostic))
             {
-                diagnostic = LifecycleError("The Runtime Clock rejected its owned staged Tick.");
-                ClearStagedStep();
-                LatchFault(diagnostic);
                 return false;
             }
 
-            ClearStagedStep();
+            preparedCommit.CommitNoFail();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -851,10 +1399,143 @@ namespace CoCoFlow.Runtime.Core
             return layer.Compiled.States[path[pathIndex]].StateId;
         }
 
+        internal int CommittedTraceLayerCount => _layers.Length;
+
+        internal CoCoLayerId GetCommittedTraceLayerId(int layerIndex) =>
+            _layers[layerIndex].Compiled.LayerId;
+
+        internal int GetCommittedTracePathCount(int layerIndex)
+        {
+            LayerRuntime layer = _layers[layerIndex];
+            return layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices.Count;
+        }
+
+        internal CoCoStateId GetCommittedTracePathStateId(int layerIndex, int pathIndex)
+        {
+            LayerRuntime layer = _layers[layerIndex];
+            IReadOnlyList<int> path =
+                layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices;
+            return layer.Compiled.States[path[pathIndex]].StateId;
+        }
+
+        internal CoCoTransitionId GetCommittedTraceWinnerTransitionId(int layerIndex) =>
+            _layers[layerIndex].CommittedWinnerTransitionId;
+
+        internal void AppendCommittedStateTrace(
+            CoCoStateFlowTraceBuffer trace,
+            in CoCoTickFrame tickFrame)
+        {
+            if (trace == null)
+            {
+                return;
+            }
+
+            for (int layerIndex = 0; layerIndex < CommittedTraceLayerCount; layerIndex++)
+            {
+                CoCoLayerId layerId = GetCommittedTraceLayerId(layerIndex);
+                int pathCount = GetCommittedTracePathCount(layerIndex);
+                for (int pathIndex = 0; pathIndex < pathCount; pathIndex++)
+                {
+                    trace.Append(CoCoStateFlowTraceEntry.Path(
+                        _graphInstanceId,
+                        tickFrame,
+                        layerId,
+                        GetCommittedTracePathStateId(layerIndex, pathIndex)));
+                }
+
+                CoCoTransitionId winner =
+                    GetCommittedTraceWinnerTransitionId(layerIndex);
+                if (winner.IsValid)
+                {
+                    trace.Append(CoCoStateFlowTraceEntry.Transition(
+                        _graphInstanceId,
+                        tickFrame,
+                        layerId,
+                        winner));
+                }
+            }
+        }
+
+        internal void AppendStagedTransitionTrace(
+            CoCoStateFlowTraceBuffer trace,
+            in CoCoStagedGraphStep stagedStep,
+            CoCoStateFlowTraceFrameReference previousContext)
+        {
+            if (trace == null || !Owns(stagedStep))
+            {
+                return;
+            }
+
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                for (int transitionIndex = 0;
+                     transitionIndex < layer.CandidateAcceptedTransitions.Length;
+                     transitionIndex++)
+                {
+                    if (!layer.CandidateAcceptedTransitions[transitionIndex])
+                    {
+                        continue;
+                    }
+
+                    trace.Append(CoCoStateFlowTraceEntry.Transition(
+                        _graphInstanceId,
+                        stagedStep.TickFrame,
+                        layer.Compiled.LayerId,
+                        layer.Compiled.Transitions[transitionIndex].TransitionId,
+                        CoCoStateFlowTransitionRole.Candidate,
+                        previousContext));
+                }
+            }
+
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                if (!layer.CandidateWinnerTransitionId.IsValid)
+                {
+                    continue;
+                }
+
+                trace.Append(CoCoStateFlowTraceEntry.Transition(
+                    _graphInstanceId,
+                    stagedStep.TickFrame,
+                    layer.Compiled.LayerId,
+                    layer.CandidateWinnerTransitionId,
+                    CoCoStateFlowTransitionRole.Winner,
+                    previousContext));
+            }
+        }
+
+        internal void AppendCommittedPathTrace(
+            CoCoStateFlowTraceBuffer trace,
+            in CoCoTickFrame tickFrame,
+            CoCoStateFlowTraceFrameReference frame)
+        {
+            if (trace == null)
+            {
+                return;
+            }
+
+            for (int layerIndex = 0; layerIndex < CommittedTraceLayerCount; layerIndex++)
+            {
+                CoCoLayerId layerId = GetCommittedTraceLayerId(layerIndex);
+                int pathCount = GetCommittedTracePathCount(layerIndex);
+                for (int pathIndex = 0; pathIndex < pathCount; pathIndex++)
+                {
+                    trace.Append(CoCoStateFlowTraceEntry.Path(
+                        _graphInstanceId,
+                        tickFrame,
+                        layerId,
+                        GetCommittedTracePathStateId(layerIndex, pathIndex),
+                        frame));
+                }
+            }
+        }
+
         private bool ExecuteLayers(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoDiagnostic diagnostic)
         {
             for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
@@ -981,6 +1662,7 @@ namespace CoCoFlow.Runtime.Core
 
                 layer.CandidateLeafIndex = winner.TargetStateIndex;
                 layer.CandidateEnterStartDepth = commonCount;
+                layer.CandidateWinnerTransitionId = winner.TransitionId;
             }
 
             diagnostic = CoCoDiagnostic.None;
@@ -995,7 +1677,7 @@ namespace CoCoFlow.Runtime.Core
             bool canRequestTransition,
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoDiagnostic diagnostic)
         {
             LayerRuntime layer = _layers[layerIndex];
@@ -1107,7 +1789,7 @@ namespace CoCoFlow.Runtime.Core
             int layerIndex,
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out int winnerIndex,
             out CoCoDiagnostic diagnostic)
         {
@@ -1160,6 +1842,11 @@ namespace CoCoFlow.Runtime.Core
                     winningPriority = transition.Priority;
                     winnerIndex = transitionIndex;
                 }
+
+                if (accepted)
+                {
+                    layer.CandidateAcceptedTransitions[transitionIndex] = true;
+                }
             }
 
             diagnostic = CoCoDiagnostic.None;
@@ -1186,6 +1873,11 @@ namespace CoCoFlow.Runtime.Core
 
                     layer.CandidateLeafIndex = layer.CommittedLeafIndex;
                     layer.CandidateEnterStartDepth = layer.CommittedEnterStartDepth;
+                    layer.CandidateWinnerTransitionId = default;
+                    Array.Clear(
+                        layer.CandidateAcceptedTransitions,
+                        0,
+                        layer.CandidateAcceptedTransitions.Length);
                 }
             }
             catch (Exception)
@@ -1194,6 +1886,67 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static bool TryPrepareRestoredLayer(
+            LayerRuntime layer,
+            int activeLeafIndex,
+            out CoCoDiagnostic diagnostic)
+        {
+            IReadOnlyList<int> path =
+                layer.Compiled.States[activeLeafIndex].RootPathStateIndices;
+            int activeCount = 0;
+            int enterPendingStart = -1;
+            for (int stateIndex = 0; stateIndex < layer.States.Length; stateIndex++)
+            {
+                StateRuntime state = layer.States[stateIndex];
+                int pathDepth = FindPathDepth(path, stateIndex);
+                bool expectedActive = pathDepth >= 0;
+                if (state.RestoreIsOnActivePath != expectedActive ||
+                    state.RestoreEnterPending && !expectedActive)
+                {
+                    diagnostic = RestoreError(
+                        "Restored Graph active markers do not form one compiled Root-to-Leaf path.");
+                    return false;
+                }
+
+                if (!expectedActive)
+                {
+                    continue;
+                }
+
+                activeCount++;
+                if (state.RestoreEnterPending)
+                {
+                    if (enterPendingStart < 0)
+                    {
+                        enterPendingStart = pathDepth;
+                    }
+                }
+                else if (enterPendingStart >= 0)
+                {
+                    diagnostic = RestoreError(
+                        "Restored EnterPending markers must be one active-path suffix.");
+                    return false;
+                }
+            }
+
+            if (activeCount != path.Count)
+            {
+                diagnostic = RestoreError(
+                    "Restored Graph active markers do not cover the exact compiled path.");
+                return false;
+            }
+
+            layer.CandidateLeafIndex = activeLeafIndex;
+            layer.CandidateEnterStartDepth = enterPendingStart;
+            layer.CandidateWinnerTransitionId = default;
+            Array.Clear(
+                layer.CandidateAcceptedTransitions,
+                0,
+                layer.CandidateAcceptedTransitions.Length);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -1272,16 +2025,26 @@ namespace CoCoFlow.Runtime.Core
             stagedStep.Token != 0UL &&
             stagedStep.Token == _activeStageToken;
 
+        private bool Owns(in CoCoPreparedGraphCommit preparedCommit) =>
+            ReferenceEquals(preparedCommit.Runtime, this) &&
+            IsPreparedCommitTokenCurrent(preparedCommit.Token);
+
         private void CancelOutstandingStep(bool latchFault, CoCoDiagnostic diagnostic)
         {
-            if (!HasStagedStep)
+            if (HasStagedStep)
             {
-                return;
+                _finalizedOperationFrame.Cancel();
+                _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
+                ClearStagedStep();
             }
 
-            _finalizedOperationFrame.Cancel();
-            _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
-            ClearStagedStep();
+            if (HasPreparedRestore)
+            {
+                _preparedClockRestore.Cancel();
+                _preparedClockRestore = default;
+                _activeRestoreToken = 0UL;
+            }
+
             if (latchFault && diagnostic.IsError)
             {
                 LatchFault(diagnostic);
@@ -1290,6 +2053,7 @@ namespace CoCoFlow.Runtime.Core
 
         private void ClearStagedStep()
         {
+            _activePreparedCommitToken = 0UL;
             _activeStageToken = 0UL;
             _stagedTickFrame = default;
             _finalizedOperationFrame = default;
@@ -1367,6 +2131,57 @@ namespace CoCoFlow.Runtime.Core
             catch (Exception)
             {
                 diagnostic = StateError("ActivationMemory fingerprint evaluation failed.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryValidateCommittedMemoryIntegrity(
+            ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoDiagnostic diagnostic)
+        {
+            try
+            {
+                for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+                {
+                    StateRuntime[] states = _layers[layerIndex].States;
+                    for (int stateIndex = 0; stateIndex < states.Length; stateIndex++)
+                    {
+                        if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                        {
+                            diagnostic = LifecycleError(
+                                "Committed ActivationMemory validation was cancelled by its Host before fingerprint evaluation.");
+                            return false;
+                        }
+
+                        bool fingerprintIsCurrent =
+                            states[stateIndex].IsCommittedMemoryFingerprintCurrent;
+
+                        if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                        {
+                            diagnostic = LifecycleError(
+                                "Committed ActivationMemory validation was cancelled by its Host after fingerprint evaluation.");
+                            return false;
+                        }
+
+                        if (!fingerprintIsCurrent)
+                        {
+                            diagnostic = RestoreError(
+                                "Restore preparation observed mutated committed ActivationMemory.");
+                            return false;
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                diagnostic = commitGuard != null && commitGuard.IsCommitCancellationRequested
+                    ? LifecycleError(
+                        "Committed ActivationMemory validation was cancelled by its Host during fingerprint evaluation.")
+                    : RestoreError(
+                        "Committed ActivationMemory fingerprint evaluation failed during restore preparation.");
                 return false;
             }
 
@@ -1738,6 +2553,19 @@ namespace CoCoFlow.Runtime.Core
             return index;
         }
 
+        private static int FindPathDepth(IReadOnlyList<int> path, int stateIndex)
+        {
+            for (int depth = 0; depth < path.Count; depth++)
+            {
+                if (path[depth] == stateIndex)
+                {
+                    return depth;
+                }
+            }
+
+            return -1;
+        }
+
         private static bool WindowMatches(CoCoTransitionWindow window, StateRuntime leaf)
         {
             switch (window.Mode)
@@ -1776,6 +2604,12 @@ namespace CoCoFlow.Runtime.Core
                 CoCoDiagnosticCode.InvalidLifecycleTransition,
                 message);
 
+        private static CoCoDiagnostic RestoreError(string message) =>
+            Error(
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticCode.InvalidGraphRestore,
+                message);
+
         private static CoCoDiagnostic Error(
             CoCoDiagnosticDomain domain,
             CoCoDiagnosticCode code,
@@ -1791,6 +2625,7 @@ namespace CoCoFlow.Runtime.Core
                 Compiled = compiled;
                 States = states;
                 ConditionsByTransition = conditionsByTransition;
+                CandidateAcceptedTransitions = new bool[compiled.Transitions.Count];
                 CommittedLeafIndex = -1;
                 CandidateLeafIndex = -1;
                 CommittedEnterStartDepth = -1;
@@ -1800,10 +2635,13 @@ namespace CoCoFlow.Runtime.Core
             public CoCoCompiledStateLayer Compiled { get; }
             public StateRuntime[] States { get; }
             public ConditionRuntime[][] ConditionsByTransition { get; }
+            public bool[] CandidateAcceptedTransitions { get; }
             public int CommittedLeafIndex { get; set; }
             public int CandidateLeafIndex { get; set; }
             public int CommittedEnterStartDepth { get; set; }
             public int CandidateEnterStartDepth { get; set; }
+            public CoCoTransitionId CommittedWinnerTransitionId { get; set; }
+            public CoCoTransitionId CandidateWinnerTransitionId { get; set; }
         }
 
         private sealed class StateRuntime
@@ -1847,6 +2685,8 @@ namespace CoCoFlow.Runtime.Core
             public double CandidateActionProgress { get; set; }
             public ulong CommittedMemoryFingerprint { get; private set; }
             public ulong CandidateMemoryFingerprint { get; private set; }
+            public bool RestoreIsOnActivePath { get; private set; }
+            public bool RestoreEnterPending { get; private set; }
 
             public bool TryInitializeMemoryFingerprints()
             {
@@ -1877,6 +2717,26 @@ namespace CoCoFlow.Runtime.Core
                 CandidateActivationId = CommittedActivationId;
                 CandidateLocalSeconds = CommittedLocalSeconds;
                 CandidateActionProgress = CommittedActionProgress;
+                RestoreIsOnActivePath = false;
+                RestoreEnterPending = false;
+                return true;
+            }
+
+            public bool TryPrepareRestoreCandidate(
+                in CoCoStateGraphRestoreState restoreState)
+            {
+                ulong fingerprint = Factory.GetMemoryFingerprint(CandidateMemory);
+                if (fingerprint != restoreState.MemoryFingerprint)
+                {
+                    return false;
+                }
+
+                CandidateMemoryFingerprint = fingerprint;
+                CandidateActivationId = restoreState.ActivationId;
+                CandidateLocalSeconds = restoreState.LocalSeconds;
+                CandidateActionProgress = restoreState.ActionProgress;
+                RestoreIsOnActivePath = restoreState.IsOnActivePath;
+                RestoreEnterPending = restoreState.EnterPending;
                 return true;
             }
 
@@ -1898,6 +2758,8 @@ namespace CoCoFlow.Runtime.Core
                 CommittedActivationId = CandidateActivationId;
                 CommittedLocalSeconds = CandidateLocalSeconds;
                 CommittedActionProgress = CandidateActionProgress;
+                RestoreIsOnActivePath = false;
+                RestoreEnterPending = false;
             }
         }
 

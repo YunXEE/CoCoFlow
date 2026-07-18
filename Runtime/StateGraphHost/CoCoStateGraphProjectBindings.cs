@@ -53,7 +53,6 @@ namespace CoCoFlow.Runtime.Core
         private static void ResetAtSubsystemRegistration()
         {
             _provider = null;
-            CoCoStateGraphTransactionCoordinatorRegistry.Reset();
             CoCoStateGraphEventRouterRegistry.Reset();
             CoCoStateGraphHostIdentity.Reset();
         }
@@ -72,6 +71,29 @@ namespace CoCoFlow.Runtime.Core
         internal static bool TryValidate(
             CoCoCompiledStateGraph graph,
             ICoCoStateGraphProjectBindingProvider provider,
+            int eventLaneCapacity,
+            int eventSourceCapacity,
+            int eventDedupCapacity,
+            out CoCoDiagnostic diagnostic) =>
+            TryValidate(
+                graph,
+                provider,
+                null,
+                3,
+                0,
+                0,
+                eventLaneCapacity,
+                eventSourceCapacity,
+                eventDedupCapacity,
+                out diagnostic);
+
+        internal static bool TryValidate(
+            CoCoCompiledStateGraph graph,
+            ICoCoStateGraphProjectBindingProvider provider,
+            CoCoStateGraphHost host,
+            int contextFrameCapacity,
+            int eventOutboxCapacity,
+            int traceCapacity,
             int eventLaneCapacity,
             int eventSourceCapacity,
             int eventDedupCapacity,
@@ -114,6 +136,27 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                CoCoStateGraphTransaction transaction = null;
+                if (host != null &&
+                    !CoCoStateGraphTransaction.TryCreate(
+                        host,
+                        graph,
+                        graphInstanceId,
+                        bindings.ContextLayout,
+                        bindings.Operations,
+                        bindings.ContextProducers,
+                        contextFrameCapacity,
+                        eventOutboxCapacity,
+                        traceCapacity,
+                        out transaction,
+                        out diagnostic))
+                {
+                    bindings.Dispose();
+                    return false;
+                }
+
+                transaction?.Dispose();
+
                 bindings.Dispose();
                 diagnostic = CoCoDiagnostic.None;
                 return true;
@@ -148,13 +191,18 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly CoCoStateGraphLogicBindingsBuilder _logic;
         private readonly CoCoOperationSectionRegistryBuilder _operations;
+        private readonly CoCoContextFrameLayoutBuilder _contextLayout;
+        private readonly CoCoContextCodecRegistry _contextCodecs;
+        private readonly List<ContextCodecBinding> _contextCodecBindings;
         private readonly CoCoIntentFrameLayout _intentLayout;
         private readonly bool[] _registeredIntents;
         private readonly int[] _intentProducerCounts;
         private readonly bool[] _boundEventDeclarations;
         private readonly List<CoCoOperationSectionRequirement> _operationRequirements;
+        private readonly List<ICoCoGraphContextProducerBinding> _graphContextProducers;
         private readonly List<ICoCoHostIntentContribution> _intentContributions;
         private readonly List<ICoCoHostEventLane> _eventLanes;
+        private int _nextContextSlotIndex;
         private CoCoIntentFrameRuntime _intentRuntime;
         private CoCoDiagnostic _setupFailure;
         private bool _intentBindingsBegun;
@@ -168,6 +216,26 @@ namespace CoCoFlow.Runtime.Core
             _graphInstanceId = graphInstanceId;
             _logic = new CoCoStateGraphLogicBindingsBuilder(graph);
             _operations = new CoCoOperationSectionRegistryBuilder();
+            _contextLayout = new CoCoContextFrameLayoutBuilder();
+            _contextCodecs = new CoCoContextCodecRegistry();
+            _contextCodecBindings = new List<ContextCodecBinding>();
+            IReadOnlyList<CoCoContextStateBlockRequirement> contextBlocks =
+                graph.ContextStateRequirements.Blocks;
+            for (int blockIndex = 0; blockIndex < contextBlocks.Count; blockIndex++)
+            {
+                CoCoContextStateBlockRequirement block = contextBlocks[blockIndex];
+                if (!_contextLayout.TryAddBlock(
+                        block.BlockId,
+                        block.Owner,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    _setupFailure = RegistryError(
+                        diagnosticCode,
+                        "Compiled Context StateBlock requirements could not initialize the Host layout.");
+                    break;
+                }
+            }
+
             _intentLayout = new CoCoIntentFrameLayout(
                 graph.IntentRequirements.LayoutId,
                 graph.IntentRequirements.Count);
@@ -176,6 +244,7 @@ namespace CoCoFlow.Runtime.Core
             _boundEventDeclarations = new bool[graph.IntentRequirements.AdapterCount];
             _operationRequirements = new List<CoCoOperationSectionRequirement>(
                 graph.OperationProvides.Count);
+            _graphContextProducers = new List<ICoCoGraphContextProducerBinding>();
             _intentContributions = new List<ICoCoHostIntentContribution>();
             _eventLanes = new List<ICoCoHostEventLane>();
         }
@@ -427,6 +496,339 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        public bool TryBindContextSlot<TValue>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+        {
+            return TryBindContextSlot(
+                blockId,
+                slotId,
+                defaultValue,
+                defaultValueFingerprint,
+                null,
+                out diagnostic);
+        }
+
+        public bool TryBindContextSlot<TValue>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            ICoCoContextValueCodec<TValue> codec,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+        {
+            if (!TryGetNextContextSlot(
+                    blockId,
+                    slotId,
+                    typeof(TValue),
+                    defaultValueFingerprint,
+                    false,
+                    null,
+                    0UL,
+                    out CoCoContextStateSlotRequirement requirement,
+                    out diagnostic))
+            {
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryBindContextCodec(requirement, codec, out diagnostic))
+            {
+                return LatchFailure(diagnostic);
+            }
+
+            if (!_contextLayout.TryAddSlot(
+                    blockId,
+                    slotId,
+                    requirement.Projection,
+                    requirement.RestorePolicy,
+                    defaultValue,
+                    requirement.Codec,
+                    CopyDependencies(requirement.DerivedDependencies),
+                    out CoCoDiagnosticCode diagnosticCode))
+            {
+                diagnostic = RegistryError(
+                    diagnosticCode,
+                    "Context StateSlot binding could not be materialized in the Host layout.");
+                return LatchFailure(diagnostic);
+            }
+
+            _nextContextSlotIndex++;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        public bool TryBindGraphStateSlot<TMemory, TState, TBinding>(
+            CoCoLayerId layerId,
+            CoCoStateId stateId,
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in CoCoGraphStateRecord<TState> defaultValue,
+            ulong defaultValueFingerprint,
+            TBinding memoryBinding,
+            out CoCoDiagnostic diagnostic)
+            where TMemory : CoCoActivationMemory
+            where TState : unmanaged
+            where TBinding : ICoCoActivationMemoryStateBinding<TMemory, TState>
+        {
+            return TryBindGraphStateSlot<TMemory, TState, TBinding>(
+                layerId,
+                stateId,
+                blockId,
+                slotId,
+                defaultValue,
+                defaultValueFingerprint,
+                null,
+                memoryBinding,
+                out diagnostic);
+        }
+
+        public bool TryBindGraphStateSlot<TMemory, TState, TBinding>(
+            CoCoLayerId layerId,
+            CoCoStateId stateId,
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in CoCoGraphStateRecord<TState> defaultValue,
+            ulong defaultValueFingerprint,
+            ICoCoContextValueCodec<CoCoGraphStateRecord<TState>> codec,
+            TBinding memoryBinding,
+            out CoCoDiagnostic diagnostic)
+            where TMemory : CoCoActivationMemory
+            where TState : unmanaged
+            where TBinding : ICoCoActivationMemoryStateBinding<TMemory, TState>
+        {
+            if (_isFrozen ||
+                !defaultValue.IsValid ||
+                defaultValue.LayerId != layerId ||
+                defaultValue.StateId != stateId ||
+                !TryFindState(layerId, stateId, out CoCoCompiledState compiledState) ||
+                compiledState.Descriptor.ActivationMemoryType != typeof(TMemory) ||
+                ReferenceEquals(memoryBinding, null) ||
+                memoryBinding.SemanticFingerprint == 0UL ||
+                HasGraphProducer(slotId) ||
+                HasGraphStateProducer(layerId, stateId))
+            {
+                diagnostic = RegistryError(
+                    _isFrozen ? CoCoDiagnosticCode.RegistryFrozen : CoCoDiagnosticCode.InvalidContextProducer,
+                    "Graph State binding must uniquely match one compiled State, memory type, trusted default, and Context Slot.");
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryBindContextSlot(
+                    blockId,
+                    slotId,
+                    defaultValue,
+                    defaultValueFingerprint,
+                    codec,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            _graphContextProducers.Add(
+                new CoCoGraphStateContextBinding<TMemory, TState, TBinding>(
+                    layerId,
+                    stateId,
+                    blockId,
+                    slotId,
+                    memoryBinding));
+            return true;
+        }
+
+        public bool TryBindGraphValueSlot<TValue, TProducer>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            TProducer producer,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+            where TProducer : ICoCoGraphContextValueProducer<TValue>
+        {
+            return TryBindGraphValueSlot(
+                blockId,
+                slotId,
+                defaultValue,
+                defaultValueFingerprint,
+                null,
+                producer,
+                out diagnostic);
+        }
+
+        public bool TryBindGraphValueSlot<TValue, TProducer>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            ICoCoContextValueCodec<TValue> codec,
+            TProducer producer,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+            where TProducer : ICoCoGraphContextValueProducer<TValue>
+        {
+            if (_isFrozen || ReferenceEquals(producer, null) ||
+                producer.SemanticFingerprint == 0UL || HasGraphProducer(slotId))
+            {
+                diagnostic = RegistryError(
+                    _isFrozen ? CoCoDiagnosticCode.RegistryFrozen : CoCoDiagnosticCode.InvalidContextProducer,
+                    "Graph value binding requires one unique producer with a non-zero semantic fingerprint.");
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryBindContextSlot(
+                    blockId,
+                    slotId,
+                    defaultValue,
+                    defaultValueFingerprint,
+                    codec,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            _graphContextProducers.Add(
+                new CoCoGraphValueContextBinding<TValue, TProducer>(
+                    blockId,
+                    slotId,
+                    producer));
+            return true;
+        }
+
+        public bool TryBindClaimStateSlot(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in CoCoOperatorClaimState defaultValue,
+            ulong defaultValueFingerprint,
+            out CoCoDiagnostic diagnostic)
+        {
+            return TryBindClaimStateSlot(
+                blockId,
+                slotId,
+                defaultValue,
+                defaultValueFingerprint,
+                null,
+                out diagnostic);
+        }
+
+        public bool TryBindClaimStateSlot(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in CoCoOperatorClaimState defaultValue,
+            ulong defaultValueFingerprint,
+            ICoCoContextValueCodec<CoCoOperatorClaimState> codec,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isFrozen || !defaultValue.IsValid || defaultValue.IsHeld ||
+                HasGraphProducer(slotId))
+            {
+                diagnostic = RegistryError(
+                    _isFrozen ? CoCoDiagnosticCode.RegistryFrozen : CoCoDiagnosticCode.InvalidContextProducer,
+                    "Claim State binding requires one unique Graph-owned Slot with an unheld trusted default.");
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryBindContextSlot(
+                    blockId,
+                    slotId,
+                    defaultValue,
+                    defaultValueFingerprint,
+                    codec,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            _graphContextProducers.Add(new CoCoGraphClaimContextBinding(blockId, slotId));
+            return true;
+        }
+
+        public bool TryBindDerivedContextSlot<TValue, TRebuilder>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            TRebuilder rebuilder,
+            ulong rebuilderSemanticFingerprint,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+            where TRebuilder : ICoCoDerivedStateRebuilder<TValue>
+        {
+            return TryBindDerivedContextSlot(
+                blockId,
+                slotId,
+                defaultValue,
+                defaultValueFingerprint,
+                null,
+                rebuilder,
+                rebuilderSemanticFingerprint,
+                out diagnostic);
+        }
+
+        public bool TryBindDerivedContextSlot<TValue, TRebuilder>(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            in TValue defaultValue,
+            ulong defaultValueFingerprint,
+            ICoCoContextValueCodec<TValue> codec,
+            TRebuilder rebuilder,
+            ulong rebuilderSemanticFingerprint,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+            where TRebuilder : ICoCoDerivedStateRebuilder<TValue>
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (ReferenceEquals(rebuilder, null) ||
+                !TryGetNextContextSlot(
+                    blockId,
+                    slotId,
+                    typeof(TValue),
+                    defaultValueFingerprint,
+                    true,
+                    typeof(TRebuilder),
+                    rebuilderSemanticFingerprint,
+                    out CoCoContextStateSlotRequirement requirement,
+                    out diagnostic))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.InvalidRestoreMetadata,
+                        "Derived Context StateSlot binding requires its exact rebuilder instance.");
+                }
+
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryBindContextCodec(requirement, codec, out diagnostic))
+            {
+                return LatchFailure(diagnostic);
+            }
+
+            if (!_contextLayout.TryAddDerivedSlot(
+                    blockId,
+                    slotId,
+                    requirement.Projection,
+                    defaultValue,
+                    requirement.Codec,
+                    CopyDependencies(requirement.DerivedDependencies),
+                    rebuilder,
+                    out CoCoDiagnosticCode diagnosticCode))
+            {
+                diagnostic = RegistryError(
+                    diagnosticCode,
+                    "Derived Context StateSlot binding could not be materialized in the Host layout.");
+                return LatchFailure(diagnostic);
+            }
+
+            _nextContextSlotIndex++;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal bool TryFreeze(
             int eventLaneCapacity,
             int maxEventSources,
@@ -523,6 +925,24 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            CoCoDiagnosticCode contextDiagnosticCode = CoCoDiagnosticCode.None;
+            if (_nextContextSlotIndex != _graph.ContextStateRequirements.SlotCount ||
+                !_contextLayout.TryFreeze(
+                    _graph.ContextStateRequirements.LayoutId,
+                    _graph.ContextStateRequirements.LayoutVersion,
+                    out CoCoContextFrameLayout contextLayout,
+                    out contextDiagnosticCode) ||
+                !_contextCodecs.TryFreeze(out contextDiagnosticCode))
+            {
+                diagnostic = RegistryError(
+                    _nextContextSlotIndex != _graph.ContextStateRequirements.SlotCount
+                        ? CoCoDiagnosticCode.MissingDescriptor
+                        : contextDiagnosticCode,
+                    "Context bindings must exactly cover the compiled State Requirement manifest.");
+                DisposeIntentRuntime();
+                return false;
+            }
+
             CoCoActorEventInboxCore inbox = null;
             if (_eventLanes.Count > 0)
             {
@@ -568,6 +988,9 @@ namespace CoCoFlow.Runtime.Core
             bindings = new CoCoStateGraphHostRuntimeBindings(
                 logicBindings,
                 operationFrame,
+                contextLayout,
+                _contextCodecs,
+                _graphContextProducers.ToArray(),
                 _intentRuntime,
                 inbox,
                 intentContributions,
@@ -769,6 +1192,209 @@ namespace CoCoFlow.Runtime.Core
             return false;
         }
 
+        private bool TryFindState(
+            CoCoLayerId layerId,
+            CoCoStateId stateId,
+            out CoCoCompiledState state)
+        {
+            if (_graph.TryGetLayer(layerId, out CoCoCompiledStateLayer layer) &&
+                layer.TryGetState(stateId, out state))
+            {
+                return true;
+            }
+
+            state = null;
+            return false;
+        }
+
+        private bool HasGraphProducer(CoCoStateSlotId slotId)
+        {
+            for (int index = 0; index < _graphContextProducers.Count; index++)
+            {
+                if (_graphContextProducers[index].SlotId == slotId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool HasGraphStateProducer(CoCoLayerId layerId, CoCoStateId stateId)
+        {
+            for (int index = 0; index < _graphContextProducers.Count; index++)
+            {
+                if (_graphContextProducers[index] is ICoCoGraphStateContextBinding state &&
+                    state.LayerId == layerId && state.StateId == stateId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool TryGetNextContextSlot(
+            CoCoStateBlockId blockId,
+            CoCoStateSlotId slotId,
+            Type valueType,
+            ulong defaultValueFingerprint,
+            bool derived,
+            Type rebuilderType,
+            ulong rebuilderSemanticFingerprint,
+            out CoCoContextStateSlotRequirement requirement,
+            out CoCoDiagnostic diagnostic)
+        {
+            requirement = null;
+            if (_isFrozen || defaultValueFingerprint == 0UL)
+            {
+                diagnostic = RegistryFrozen(
+                    "Context bindings require an unfrozen Host builder and non-zero fingerprints.");
+                return false;
+            }
+
+            int flatIndex = 0;
+            IReadOnlyList<CoCoContextStateBlockRequirement> blocks =
+                _graph.ContextStateRequirements.Blocks;
+            for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
+            {
+                CoCoContextStateBlockRequirement block = blocks[blockIndex];
+                for (int slotIndex = 0; slotIndex < block.Slots.Count; slotIndex++, flatIndex++)
+                {
+                    if (flatIndex != _nextContextSlotIndex)
+                    {
+                        continue;
+                    }
+
+                    CoCoContextStateSlotRequirement next = block.Slots[slotIndex];
+                    bool matches = block.BlockId == blockId &&
+                                   next.SlotId == slotId &&
+                                   next.WriterBlockId == blockId &&
+                                   next.ValueType == valueType &&
+                                   next.DefaultValueFingerprint == defaultValueFingerprint &&
+                                   (derived
+                                       ? next.RestorePolicy == CoCoContextRestorePolicy.Derived &&
+                                         next.RebuilderType == rebuilderType &&
+                                         next.RebuilderSemanticFingerprint ==
+                                             rebuilderSemanticFingerprint
+                                       : next.RestorePolicy != CoCoContextRestorePolicy.Derived &&
+                                         next.RebuilderType == null &&
+                                         next.RebuilderSemanticFingerprint == 0UL);
+                    if (!matches)
+                    {
+                        diagnostic = RegistryError(
+                            CoCoDiagnosticCode.DescriptorTypeMismatch,
+                            "Context StateSlot binding must match the next compiled manifest entry exactly.");
+                        return false;
+                    }
+
+                    requirement = next;
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+                }
+            }
+
+            diagnostic = RegistryError(
+                CoCoDiagnosticCode.ManifestConflict,
+                "Context bindings cannot add entries beyond the compiled manifest.");
+            return false;
+        }
+
+        private static CoCoStateSlotId[] CopyDependencies(
+            IReadOnlyList<CoCoStateSlotId> dependencies)
+        {
+            if (dependencies.Count == 0)
+            {
+                return Array.Empty<CoCoStateSlotId>();
+            }
+
+            var copy = new CoCoStateSlotId[dependencies.Count];
+            for (int index = 0; index < copy.Length; index++)
+            {
+                copy[index] = dependencies[index];
+            }
+
+            return copy;
+        }
+
+        private bool TryBindContextCodec<TValue>(
+            CoCoContextStateSlotRequirement requirement,
+            ICoCoContextValueCodec<TValue> codec,
+            out CoCoDiagnostic diagnostic)
+            where TValue : unmanaged
+        {
+            if (!requirement.Codec.UsesCustomCodec)
+            {
+                if (codec == null)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+                }
+
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "A raw Context StateSlot cannot bind an extra custom codec.");
+                return false;
+            }
+
+            if (codec == null || !codec.Descriptor.Equals(requirement.Codec))
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "A custom Context StateSlot requires its exact typed codec descriptor.");
+                return false;
+            }
+
+            for (int index = 0; index < _contextCodecBindings.Count; index++)
+            {
+                ContextCodecBinding existing = _contextCodecBindings[index];
+                if (existing.ValueType == typeof(TValue) &&
+                    existing.Descriptor.Equals(codec.Descriptor))
+                {
+                    if (ReferenceEquals(existing.Codec, codec))
+                    {
+                        diagnostic = CoCoDiagnostic.None;
+                        return true;
+                    }
+
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.ManifestConflict,
+                        "Repeated Context codec bindings must reuse one exact project codec instance.");
+                    return false;
+                }
+            }
+
+            if (!_contextCodecs.TryRegister(codec, out CoCoDiagnosticCode diagnosticCode))
+            {
+                diagnostic = RegistryError(
+                    diagnosticCode,
+                    "The custom Context codec could not be registered for its exact value type.");
+                return false;
+            }
+
+            _contextCodecBindings.Add(
+                new ContextCodecBinding(typeof(TValue), codec.Descriptor, codec));
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private readonly struct ContextCodecBinding
+        {
+            public ContextCodecBinding(
+                Type valueType,
+                CoCoCodecDescriptor descriptor,
+                object codec)
+            {
+                ValueType = valueType;
+                Descriptor = descriptor;
+                Codec = codec;
+            }
+
+            public Type ValueType { get; }
+            public CoCoCodecDescriptor Descriptor { get; }
+            public object Codec { get; }
+        }
+
         private bool FrozenFailure(out CoCoDiagnostic diagnostic)
         {
             diagnostic = RegistryFrozen("Host binding builder is frozen.");
@@ -813,6 +1439,9 @@ namespace CoCoFlow.Runtime.Core
         public CoCoStateGraphHostRuntimeBindings(
             CoCoStateGraphLogicBindings logic,
             CoCoOperationFrame operations,
+            CoCoContextFrameLayout contextLayout,
+            CoCoContextCodecRegistry contextCodecs,
+            ICoCoGraphContextProducerBinding[] contextProducers,
             CoCoIntentFrameRuntime intents,
             CoCoActorEventInboxCore inbox,
             ICoCoHostIntentContribution[] intentContributions,
@@ -820,6 +1449,9 @@ namespace CoCoFlow.Runtime.Core
         {
             Logic = logic;
             Operations = operations;
+            ContextLayout = contextLayout;
+            ContextCodecs = contextCodecs;
+            ContextProducers = contextProducers ?? Array.Empty<ICoCoGraphContextProducerBinding>();
             Intents = intents;
             Inbox = inbox;
             _intentContributions = intentContributions;
@@ -828,6 +1460,9 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoStateGraphLogicBindings Logic { get; }
         public CoCoOperationFrame Operations { get; }
+        public CoCoContextFrameLayout ContextLayout { get; }
+        public CoCoContextCodecRegistry ContextCodecs { get; }
+        internal IReadOnlyList<ICoCoGraphContextProducerBinding> ContextProducers { get; }
         public CoCoIntentFrameRuntime Intents { get; }
         public CoCoActorEventInboxCore Inbox { get; }
         public bool HasEvents => _eventLanes.Length != 0;
@@ -921,11 +1556,19 @@ namespace CoCoFlow.Runtime.Core
 
         public void ResolveIntentTick(in CoCoTickFrame tickFrame)
         {
-            if (!_hasCachedIntentTick || _cachedIntentTick != tickFrame)
+            if (!IsIntentTickCommitReady(tickFrame))
             {
                 return;
             }
 
+            ResolveIntentTickNoFail();
+        }
+
+        internal bool IsIntentTickCommitReady(in CoCoTickFrame tickFrame) =>
+            _hasCachedIntentTick && _cachedIntentTick == tickFrame;
+
+        internal void ResolveIntentTickNoFail()
+        {
             _cachedIntentTick = default;
             _cachedIntentFrame = null;
             _hasCachedIntentTick = false;

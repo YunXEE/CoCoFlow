@@ -250,7 +250,7 @@ namespace CoCoFlow.Runtime.Core
         private CoCoActivationMemory _memory;
         private CoCoFrozenConfigSnapshot _config;
         private ICoCoIntentFrame _intents;
-        private CoCoContextFrame _previousContext;
+        private CoCoContextFrameReadView _previousContext;
         private CoCoTickFrame _tickFrame;
         private CoCoOperationFrameWriter _operationWriter;
         private CoCoOperationWriteRank _operationRank;
@@ -275,7 +275,7 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoTickFrame TickFrame => _tickFrame;
         public ICoCoIntentFrame Intents => _intents;
-        public CoCoContextFrame PreviousContext => _previousContext;
+        public CoCoContextFrameReadView PreviousContext => _previousContext;
         public CoCoFrozenConfigSnapshot Config => _config;
         public CoCoStateOperationWriter Operations => _isCallbackActive
             ? new CoCoStateOperationWriter(this, _callbackGeneration)
@@ -379,7 +379,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoActivationMemory memory,
             CoCoFrozenConfigSnapshot config,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             in CoCoTickFrame tickFrame,
             CoCoOperationFrameWriter operationWriter,
             CoCoOperationWriteRank operationRank,
@@ -470,7 +470,7 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoTickFrame TickFrame { get; private set; }
         public ICoCoIntentFrame Intents { get; private set; }
-        public CoCoContextFrame PreviousContext { get; private set; }
+        public CoCoContextFrameReadView PreviousContext { get; private set; }
         public CoCoFrozenConfigSnapshot Config { get; private set; }
         public CoCoLayerId LayerId { get; private set; }
         public CoCoStateId SourceStateId { get; private set; }
@@ -483,7 +483,7 @@ namespace CoCoFlow.Runtime.Core
         internal void Prepare(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             CoCoFrozenConfigSnapshot config,
             CoCoLayerId layerId,
             CoCoStateId sourceStateId,

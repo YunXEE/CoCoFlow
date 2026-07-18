@@ -1,10 +1,11 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.4` · Updated 2026-07-17
+> Contract status: `0.4.0-pre.5` · Updated 2026-07-18
 
 Pre3 introduced the Unity authoring schema and engine-independent compiler for
 the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
-schema and adds the Runtime and Host described in
+schema and adds the staged Runtime and Host. Pre5 consumes its Operation and
+Context manifests without changing the Compiler or authoring schema, as described in
 [StateGraph Runtime and Host](StateGraphRuntime.md).
 
 The serialized Schema remains version 1. Because no StateGraph asset had been
@@ -188,6 +189,20 @@ does not retain factories/rebuilders or materialize runtime layouts from a
 CompiledGraph. A later Host binding must explicitly match each AOT token's type
 and semantic fingerprint before it can supply executable instances.
 
+Pre5 does not change these Manifests or make the Compiler synthesize Context
+Slots. Instead, the Project Provider maps the existing requirements to exactly
+one producer per direct Slot: a concrete compiled State's Graph-state record, a
+Graph auxiliary producer, canonical Claim arbitration, one Operator Outcome, or
+the Host's single Actor binding. Existing Derived rebuilders remain the only
+Derived producers. Missing, extra, duplicate, owner/type/policy-incompatible, or
+multiply classified bindings reject Host startup.
+
+For Context bindings, the Project Provider supplies the actual Layout default
+and a nonzero semantic fingerprint. That fingerprint is a trusted declaration
+token compared with the Manifest; it is not a canonical hash that the framework
+recomputes from `defaultValue`. Adding canonical value hashing would change this
+frozen contract and is outside Pre5.
+
 An Operation Section Shape is complete in Pre3: total byte size, deterministic
 field count, and each field's dense index, ordinal name, unmanaged value type,
 byte offset, and size. Catalog registration and the StateFlow Registry use the
@@ -198,12 +213,14 @@ for the validated Section interfaces and recursively used unmanaged value
 metadata so High Managed Stripping does not erase the static Shape contract.
 
 Pre4 owns the actual Host, Source, Event-to-Intent Adapter instances, Inbox, and
-runtime binding coverage check. It verifies missing, extra, duplicate, and
-type-exact coverage against the compiled declarations before startup. Runtime
-binding remains outside graph compilation: a missing project Factory keeps a
-Host in `Created`, rather than turning the immutable Asset compile result into
-a scene-dependent error. A valid Provider binds the compiled Adapter declarations
-without changing their Asset-defined execution order.
+base runtime binding coverage. Pre5 extends transaction preflight with Context
+producer, Operator, Claim, Actor-binding, and Outbox coverage. This preflight
+runs before Clock creation and before `CoCoStateGraphRuntime.TryCreate`, so an
+invalid setup keeps the Host in `Created` without invoking Runtime factories,
+reset/fingerprint work, Graph capture, or Router registration. Runtime binding
+remains outside graph compilation: a missing project Factory does not turn the
+immutable Asset compile result into a scene-dependent error. A valid Provider
+binds compiled Adapter declarations without changing their Asset-defined order.
 
 All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
@@ -285,13 +302,15 @@ parallel scheduling, or a background compilation service.
 Multiple Hosts using one Asset share only the immutable compiled graph. Each
 owns a separate GraphInstance, StateLogic/Condition instances, double Memory
 banks, ActiveLeaf values, Clock, Intent Runtime, ContextFrame storage, Inbox,
-pending staged Tick, and Fault state.
+pending staged Tick, and Fault state. Its ContextFrame is the sole retainable and
+restorable Actor commit record; the Graph, Clock, and Claim caches are mirrors or
+can be rebuilt uniquely from that record.
 
 ## Deferred boundaries
 
-- **Pre5** owns the explicit Host Operator list, Operator execution, Outcome,
-  ContextFrame Commit, and committed EventOutbox publication.
-- **Pre6** owns Temporal history, Restore, rewind, and new Epoch creation.
+- **Pre6** owns Temporal history, public Restore orchestration, world correction,
+  rewind/resume, and new Epoch creation. Pre5 provides only pure validation and
+  an internal no-callback composite prepare/apply seam.
 - **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
 - **Pre15/Pre16** own production authoring UX, replacement Samples, and complete
@@ -299,4 +318,4 @@ pending staged Tick, and Fault state.
 
 There is no generated mega-`.cs` file, build-time baked compiled Asset,
 cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
-migration path in Pre4.
+migration path in Pre5.

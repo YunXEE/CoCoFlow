@@ -44,6 +44,14 @@ intact even when their proposed model is superseded.
       sealed, and authors cannot supply arbitrary frozen objects or hashes.
 - [ ] ContextFrame is the complete committed state of one Actor and contains no
       Inbox, IntentFrame, raw Envelope, unpublished Outbox, or Unity Object graph.
+      It is the sole retainable/restorable Actor commit record; Graph, Clock, and
+      Claim caches are mirrors or can be rebuilt uniquely from it.
+- [ ] Every non-Derived Context Slot has exactly one Graph-state, Graph-value,
+      canonical-Claim, Operator-Outcome, or Actor-binding producer; Derived Slots
+      remain exclusively owned by their declared rebuilders.
+- [ ] Project Context bindings supply the actual Layout defaults. Their semantic
+      fingerprints are trusted Manifest-compatibility declaration tokens, not
+      framework-computed canonical hashes of `defaultValue`.
 - [ ] Missing or invalid graph-internal Intent requirements, Operation provides,
       and ContextFrame state requirements reject compilation with a structured
       diagnostic; actual project runtime binding coverage rejects Host startup.
@@ -58,6 +66,9 @@ intact even when their proposed model is superseded.
 - [ ] Runtime binding coverage is immutable and exact for every State,
       Condition, Memory, Intent Source, and Event Adapter; a mismatch leaves the
       Host in Created with zero callback, Tick, or Router registration.
+- [ ] Context/Operator/Claim/Actor/Outbox transaction preflight completes before
+      Clock or Runtime creation; invalid setup invokes no Logic, Condition,
+      Memory factory/reset/fingerprint, Graph capture, Operator, or Actor callback.
 - [ ] Event Adapter execution follows Asset declaration-list order preserved by
       the compiled manifest; the binding Provider cannot reorder semantics.
 - [ ] Start only selects initial leaves. Enter is parent-to-child, mandatory
@@ -75,8 +86,17 @@ intact even when their proposed model is superseded.
       candidate and latches Fault. Rollback restores committed authority and
       never permits progress to move backwards.
 - [ ] Operation writes use fixed Layer/path-depth composition rank, Finalize
-      consumes no sequence or LastTick, and only Pre5 Context commit may accept
-      the staged path/memory/clock/frame/outbox candidate.
+      consumes no sequence or LastTick, and only the composite Actor commit
+      barrier may accept staged path/memory/clock/context/claim/sequence state.
+- [ ] The explicit Host Operator order is validated before Running; its deduplicated
+      requirements exactly cover Graph Operation-provides, and null, destroyed,
+      non-interface, duplicate, or nested-Host-crossing entries are rejected.
+- [ ] Claims are arbitrated before every real Operator callback; multi-Claim
+      Operators win all-or-none, and `ClaimDenied` performs no callback or write
+      without faulting an otherwise valid Tick.
+- [ ] Outcome writers expire after their callback and can write only the owning
+      Operator's declared non-Derived Context Slots. The first Tick reads layout
+      defaults and the first successful Context commit is Revision 1.
 - [ ] Unchanged Graph/content/catalog/schema keys share both successful and
       failed compile-result identities; failed results keep `Graph == null`, and
       a throwing cache factory is evicted.
@@ -92,6 +112,16 @@ intact even when their proposed model is superseded.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.
+- [ ] All Event types of one GraphInstance/Epoch share one contiguous committed
+      EventSequence range and publish in Host Operator plus append order. Trace
+      entries contain no payload, Unity Object, mutable Frame, Router, or Inbox.
+- [ ] Trace records accepted Transition Candidates in compiled order and the
+      Winner separately; value-only Frame references carry exact Layout identity
+      and never retain a ContextFrame or invent first-Tick Revision 0.
+- [ ] Pre5 Restore validation is pure and complete for Context, Clock, Graph, and
+      Claims. Its internal prepare/apply seam swaps Context and cache mirrors
+      without callbacks; public history, world correction, Resume, and new-Epoch
+      orchestration remain owned by Pre6.
 - [ ] No compatibility runtime, dual execution path, or automatic 0.3.9 migration
       layer was introduced.
 - [ ] Any Sample change is explicitly classified as removal of the 0.3.9 legacy

@@ -297,6 +297,58 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void PreparedCommitDoesNotConsumeDiscreteOperationSequenceUntilBarrier()
+        {
+            ContractIds ids = ContractIds.Create();
+            var control = new RuntimeContractControl(ids)
+            {
+                RecordCallbacks = false,
+                WriteOperations = true,
+                EnableDiscreteOperation = true
+            };
+            RuntimeFixture fixture = RuntimeFixture.Create(
+                OperationFinalizeFailureSource(ids),
+                CreateCatalog(true, CoCoOperationSectionMode.Discrete),
+                control,
+                true,
+                CoCoOperationSectionMode.Discrete);
+            Assert.IsTrue(fixture.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+
+            CoCoStagedGraphStep first = fixture.Stage(0.1d);
+            Assert.IsTrue(first.OperationFrame.TryGet(
+                fixture.OperationHandle,
+                out CoCoOperationSectionEntry<IRuntimeContractOperationSection> firstEntry));
+            Assert.AreEqual(1UL, firstEntry.Header.OperationSequence.Value);
+            Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
+                first,
+                null,
+                out CoCoPreparedGraphCommit prepared,
+                out CoCoDiagnostic prepare), prepare.Message);
+            Assert.AreEqual(0UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.IsTrue(fixture.Runtime.TryCancelStagedStep(
+                first,
+                out CoCoDiagnostic cancel), cancel.Message);
+            Assert.IsFalse(prepared.IsValid);
+
+            CoCoStagedGraphStep retry = fixture.Stage(0.1d);
+            Assert.IsTrue(retry.OperationFrame.TryGet(
+                fixture.OperationHandle,
+                out CoCoOperationSectionEntry<IRuntimeContractOperationSection> retryEntry));
+            Assert.AreEqual(
+                1UL,
+                retryEntry.Header.OperationSequence.Value,
+                "Cancelling a prepared candidate must not consume its OperationSequence.");
+            fixture.Accept(retry);
+
+            CoCoStagedGraphStep following = fixture.Stage(0.1d);
+            Assert.IsTrue(following.OperationFrame.TryGet(
+                fixture.OperationHandle,
+                out CoCoOperationSectionEntry<IRuntimeContractOperationSection> followingEntry));
+            Assert.AreEqual(2UL, followingEntry.Header.OperationSequence.Value);
+            Assert.IsTrue(fixture.Runtime.TryCancelStagedStep(following, out _));
+        }
+
+        [Test]
         public void OperationFinalizeFailureFaultsAndRollsBackClockPathAndMemory()
         {
             ContractIds ids = ContractIds.Create();

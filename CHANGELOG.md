@@ -5,6 +5,47 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.5] - 2026-07-18
+
+### Added
+
+- Explicit per-Host Operator bindings with exact Operation Section coverage,
+  typed Outcome ownership, deterministic Claim arbitration, and fixed-capacity
+  typed EventOutbox candidates.
+- Default-backed first-Tick Context reads without inventing a committed Tick 0,
+  followed by one complete ContextFrame Revision for every accepted Tick.
+- One per-Actor composite authority barrier covering staged StateGraph state,
+  OperationSequence, Clock, ContextFrame, Claims, and EventSequence before any
+  committed EventOutbox packet becomes visible.
+- Exact Graph-state, Graph-value, Claim, Operator, Actor, and Derived Context
+  producer ownership, including one explicit Actor binding when Actor-owned
+  Slots exist.
+- Immutable identity-only Runtime Trace entries with Candidate/Winner roles and
+  value-only Frame references, plus pure complete-Actor restore validation and
+  an internal no-callback composite prepare/apply seam that remains available
+  at idle faulted boundaries without clearing Fault or world-correction state.
+
+### Changed
+
+- Replaced the Pre4 internal test coordinator with the production Operator and
+  Context transaction owned by each `CoCoStateGraphHost` instance.
+- Made Context arena authority the Host's sole committed Context source and
+  made Graph, Clock, and Claim caches mirrors that can be rebuilt uniquely from
+  it. Transaction preflight now rejects invalid producer, Operator, Claim,
+  Actor-binding, and Outbox coverage before Runtime factories execute.
+- Kept Context defaults supplied by the trusted Project Provider. Their semantic
+  fingerprints are declaration tokens checked against the Manifest, not
+  framework-computed canonical hashes of the supplied values.
+- Updated the package version and the two existing Unity Package Validation
+  Suite exception scopes to `0.4.0-pre.5`; dependencies remain unchanged.
+
+### Deferred
+
+- Pre6 owns Temporal history, Host Restore Binding, rewind/resume, and new
+  TimelineEpoch orchestration; Pre7 owns Trace UI.
+- Pre11 owns concrete Animator/Playable Operators, and Pre13 owns durable
+  persistence formats, migration, and world facts.
+
 ## [0.4.0-pre.4] - 2026-07-17
 
 ### Added

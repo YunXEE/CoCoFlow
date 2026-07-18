@@ -2,11 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.4 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.5 · **Unity**: 6000+
 >
-> Pre4 adds the per-Actor StateGraph Runtime, the single Unity Host, deterministic
-> lifecycle/Transition evaluation, staged OperationFrames, Clock, Inbox, and
-> internal event routing. Operator execution and Context commit arrive in Pre5.
+> Pre5 adds explicit per-Host Operators, deterministic Claim and Outcome
+> processing, default-backed first-Tick Context reads, one composite Actor commit
+> barrier, complete Context producer ownership, committed EventOutbox
+> publication, and immutable Runtime Trace.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -115,13 +116,15 @@ Activation-scoped ActionProgress.
 
 ## StateGraph Runtime and Host
 
-One Actor needs one component and one asset:
+At minimum, one Actor needs one framework component and one asset. Actor-owned
+Slots add one explicit project binding:
 
 ```text
 Actor GameObject
 ├─ CoCoStateGraphHost        required
 │  └─ StateGraphAsset       required
-└─ Operator scripts          optional; explicit Host list arrives in Pre5
+├─ Operator scripts          optional; referenced by the Host in explicit order
+└─ Actor Context binding     required only when Actor-owned Slots exist
 ```
 
 Runtime, Clock, Inbox, Router, Logic, Condition, and Memory are not components.
@@ -129,6 +132,13 @@ The Host does not scan old Controllers, Context providers, children, or the
 scene. Multiple Hosts may share the immutable compiled graph, while each owns
 its StateLogic/Condition instances, double Memory banks, active leaves, Clock,
 Inbox, staged Tick, and latched Fault.
+
+Before any Clock or Runtime factory runs, transaction preflight requires exact
+coverage for Graph-state, Graph-value, Claim, Operator, Actor, and Derived
+Context Slots, plus Operator, Claim, Actor-binding, and Outbox configuration.
+An invalid setup leaves the Host in `Created` with no callback or Router-visible
+state. The Actor binding is one explicit Host reference, never discovered by a
+scene scan.
 
 `Start` chooses initial leaves but runs no callback. On each Layer's first Tick,
 the new path runs optional Enter parent-to-child and mandatory Update
@@ -153,8 +163,16 @@ Layer and path depth give Operation writes fixed rank: a higher Layer overrides
 a lower Layer and a child overrides its parent. Continuous Sections compose by
 field; a Discrete Section consumes a sequence only for its final winner.
 Operation Finalize creates a single-use staged Tick without changing authority.
-Pre5 must successfully commit Context before new path, memory, Clock, sequence,
-or EventOutbox state becomes visible.
+The Host accepts the staged Tick only through the Pre5 composite commit barrier;
+until then, new path, memory, Clock, Context revision, claims, operation sequence,
+and EventSequence remain invisible.
+
+The explicit Host Operator list is the deterministic execution order. Its
+deduplicated requirements must exactly cover the Graph Operation-provides
+manifest. Claims are arbitrated before any real Operator callback by Priority,
+Host order, and Operator ID. A losing Operator receives `ClaimDenied`, performs
+no callback, and contributes neither Context nor Outbox data; ordinary
+competition does not fault the Tick.
 
 See [StateGraph Runtime and Host](Docs/StateGraphRuntime.md) for Transition
 windows, self-loops, rollback, lifecycle, Fault, and event-routing semantics.
@@ -193,9 +211,9 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 ```
 
 Pre2 provides the Section contract and explicit test-layout path, Pre3 compiles
-the automatic Graph provides manifest, and Pre4 produces the finalized staged
-frame. Pre5 owns the production Operator runtime and accepts it only after the
-corresponding Context commit succeeds.
+the automatic Graph provides manifest, Pre4 produces the finalized staged frame,
+and Pre5 executes the matching Operators and accepts the frame only after the
+corresponding Context candidate finalizes successfully.
 
 ## ContextFrame and Restore
 
@@ -203,7 +221,14 @@ corresponding Context commit succeeds.
 and not a Unity scene-object graph. Its fixed StateBlock/Slot layout must contain
 the graph, activation, transition progress, Actor values, and controllable
 Operator progress needed to continue from that commit boundary, or enough data
-to rebuild them deterministically.
+to rebuild them deterministically. It is the sole retainable and restorable
+Actor commit record; live Graph, Clock, and Claim caches are only mirrors or are
+uniquely rebuilt from it.
+
+Every direct Slot has exactly one producer: a Graph state record or Graph value
+producer for Graph-owned data, Claim arbitration for a Graph-owned Claim Slot,
+one Operator Outcome for Operator-owned data, and the Host's one Actor binding
+for Actor-owned data. Existing rebuilders exclusively produce Derived Slots.
 
 Descriptor metadata has two independent axes:
 
@@ -217,6 +242,12 @@ Descriptor metadata has two independent axes:
 - A projection that includes a Derived slot must also include every transitive
   Stored/Derived dependency required to rebuild it. Reset-to-default
   dependencies are deterministic and need not be projected.
+
+The Project Provider supplies each actual Layout default and a semantic
+fingerprint that declares its compatibility with the Manifest. That token is
+not a framework-computed canonical hash of the supplied value. After Runtime
+start, the initial Graph state is captured once and checked against those
+defaults without creating a committed Revision.
 
 `ContextFrame` is a generation-scoped handle over an arena storage cell, not the
 reusable cell itself. Retaining a live Frame prevents its cell from being
@@ -241,11 +272,17 @@ Operator, other Actor, or an already delivered cross-Actor consequence.
 
 Restore must remain in the source Timeline and ClockDomain, advance the
 ExecutionSequence, and start a TimelineEpoch newer than both the restored source
-and the Actor's current authoritative Epoch. Pre2 validates descriptors and an
-internal, same-session, exact-layout Codec spike only. That spike is not a
-cross-session save format or stable wire identity. Pre6 owns Temporal storage and rewind;
-Pre13 owns durable save documents, StableEntityId-to-runtime resolution,
-migration, containers, world facts, and spawned-entity reconstruction.
+and the Actor's current authoritative Epoch. Pre5 performs pure complete-Actor
+validation and supplies an internal, tokenized prepare plus no-callback apply
+seam that exchanges Context, Graph, Clock, and Claim authority together. It
+does not expose Host Restore or invoke Actor bindings. Pre6 owns history,
+selection, world correction, rewind/resume, and new-Epoch orchestration. Pre13
+owns durable save documents, StableEntityId-to-runtime resolution, migration,
+containers, world facts, and spawned-entity reconstruction.
+
+The internal validation/prepare seam remains usable at an idle faulted boundary
+for Pre6 D12 correction. Its no-callback apply does not clear the latched Fault
+or `RequiresWorldCorrection`; Pre6 owns that recovery decision.
 
 ## Actor Mailbox Rules
 
@@ -306,10 +343,13 @@ must persist is committed as ContextFrame state.
 - Presentation-only audio, VFX, and logging events may continue using the normal
   EventBus without entering a gameplay Inbox.
 
-Host startup registers only after every binding check succeeds; Stop and Dispose
-unregister first. The final Host leaving a Domain releases its internal
-EventAgent subscription. Pre4 is ingress-only. Outbox publication through the
-Host outbound seam is forbidden until Pre5 successfully commits Context.
+Host startup registers only after every binding and Operator-coverage check
+succeeds; Stop and Dispose unregister first. The final Host leaving a Domain
+releases its internal EventAgent subscription. EventOutbox entries remain
+preallocated candidates until the composite commit assigns one contiguous
+per-GraphInstance/Epoch EventSequence range. Publication then preserves Host
+Operator order and per-Operator append order, and every callback observes the
+complete newly committed authority.
 
 Legal Runtime-instance lifecycle edges are `Created -> Running`,
 `Running <-> Suspended`, `Running/Suspended -> Stopped`, and
@@ -332,13 +372,21 @@ authority changes.
   establishes a new TimelineEpoch, and then resumes positive forward Steps.
 - StateGraph reads only the current IntentFrame and Previous ContextFrame. It
   cannot observe an Outcome produced during the current Tick.
-- ContextFrame commit is the single externally observable gameplay boundary.
+- The first Tick reads layout defaults through `CoCoContextFrameReadView`; no
+  synthetic Tick 0 or Revision 0 Frame is exposed. The first success is Revision 1.
+- ContextFrame commit is the single committed logical-authority boundary.
 - Commit failure, cancellation, Restore, or Rewind publishes no Outbox Event,
   consumes no final EventSequence, and creates no cross-Actor side effect.
+- A failure after a real Operator callback cannot roll Unity objects back. The
+  old Context remains authoritative, the Host faults, and
+  `RequiresWorldCorrection` remains set until a fresh Host instance starts.
 
-Production Outcome aggregation, ContextFrame commit, and EventOutbox publication
-are Pre5 responsibilities. Pre2 freezes and tests their protocol with pure
-contract harnesses only.
+Outcome Slot writes are limited to declared, non-Derived, Operator-owned Pre3
+Context Slots with one owner each. Trace records accepted Transition Candidates
+in compiled order and the Winner as a separate entry. Its immutable Frame
+references contain identity, exact Layout metadata, Revision, and whether a
+committed Frame exists; they never retain a Frame handle. Trace stores no
+payload, Unity object, mutable Frame, or diagnostic string.
 
 ## Repository and Package Boundary
 
@@ -377,9 +425,6 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
-- **Pre5**: explicit Host Operator references, Operator bindings/execution,
-  claims, Outcome aggregation, ContextFrame commit, and committed EventOutbox
-  publication.
 - **Pre6**: Temporal Ring Buffer, Restore, rewind, and new TimelineEpoch creation.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
@@ -390,7 +435,7 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre4 because transitional 0.3.9 modules
+The dependency set remains unchanged in Pre5 because transitional 0.3.9 modules
 still compile against it.
 
 | Package | Version | Current owner |

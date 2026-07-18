@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.4 · **Unity**：6000+
+> **版本**：0.4.0-pre.5 · **Unity**：6000+
 >
-> Pre4 加入每 Actor 独占的 StateGraph Runtime、唯一 Unity Host、确定性生命周期与
-> Transition 计算、staged OperationFrame、Clock、Inbox 和内部事件路由。Operator
-> 执行与 Context commit 归 Pre5。
+> Pre5 加入 Host 显式 Operator、确定性 Claim/Outcome、首 Tick 默认值
+> Context 读取、单一 Actor 复合提交屏障、完整 Context producer 所有权、
+> committed EventOutbox 发布与不可变 Runtime Trace。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -103,19 +103,26 @@ ActionProgress。
 
 ## StateGraph Runtime 与 Host
 
-每个 Actor 只需要一个组件和一个 Asset：
+每个 Actor 最少只需要一个框架组件和一个 Asset；存在 Actor-owned Slot 时，再显式引用
+一个项目 Actor Binding：
 
 ```text
 Actor GameObject
 ├─ CoCoStateGraphHost        必需
 │  └─ StateGraphAsset       必需
-└─ Operator scripts          可选；Pre5 增加 Host 显式引用列表
+├─ Operator scripts          可选；由 Host 以显式顺序引用
+└─ Actor Context binding     仅有 Actor-owned Slot 时必需
 ```
 
 Runtime、Clock、Inbox、Router、Logic、Condition 与 Memory 都不是组件。Host 不扫描
 旧 Controller、Context Provider、子物体或场景。多个 Host 可以共享不可变 compiled
 graph，但各自独占 StateLogic/Condition 实例、双 Memory Bank、active leaf、Clock、
 Inbox、staged Tick 与锁存 Fault。
+
+任何 Clock 或 Runtime factory 运行前，Transaction Preflight 必须精确覆盖 Graph state、
+Graph value、Claim、Operator、Actor 与 Derived Context Slot，并验证 Operator、Claim、
+Actor Binding 与 Outbox 配置。无效设置令 Host 保持 `Created`，不运行 callback，也不
+产生 Router 可见状态。Actor Binding 是 Host 的单一显式引用，不通过场景扫描发现。
 
 `Start` 只确定初始叶子，不运行 callback。每 Layer 首 Tick 的新路径先 Parent→Child
 运行可选 Enter，再 Root→Leaf 运行必选 Update。叶子 Update 可以请求零到多个预声明
@@ -134,7 +141,13 @@ Transition Tick 始终保留源路径为有效路径，因此可以同 Tick Upda
 Layer 与 path depth 给 Operation 写入固定等级：高 Layer 覆盖低 Layer，子 State 覆盖
 父 State。Continuous Section 按字段合成；Discrete Section 只为最终赢家消耗一次
 Sequence。Operation Finalize 只生成单次使用的 staged Tick，不改变权威状态。Pre5
-必须先成功提交 Context，新的 Path、Memory、Clock、Sequence 与 EventOutbox 才可见。
+的复合提交屏障是 Host 接受 staged Tick 的唯一路径；在此之前，新 Path、
+Memory、Clock、Context Revision、Claim、OperationSequence 与 EventSequence 都不可见。
+
+Host 的显式 Operator 列表同时定义确定性执行顺序，去重后的 Requirement 并集必须
+精确覆盖 Graph Operation-provides Manifest。任何真实 Operator Callback 前先按 Priority、
+Host 顺序与 Operator ID 完成 Claim 仲裁。败者得到 `ClaimDenied`，不进入 Callback，
+也不能写 Context 或 Outbox；普通竞争不会令整个 Tick Fault。
 
 Transition window、self-loop、rollback、生命周期、Fault 与事件路由的完整语义见
 [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)。
@@ -167,15 +180,21 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 ```
 
 Pre2 提供 Section 契约与显式测试 Layout，Pre3 编译自动汇总的 Graph Provides
-Manifest，Pre4 产生 finalized staged frame；Pre5 负责正式 Operator Runtime，并且只有
-对应 Context commit 成功后才接受该 Frame。
+Manifest，Pre4 产生 finalized staged frame，Pre5 执行匹配的 Operator，并且只在
+对应 Context candidate 成功 Finalize 后才接受该 Frame。
 
 ## ContextFrame 与 Restore
 
 `ContextFrame` 是单个 Actor 的完整已提交逻辑状态，不是世界快照，也不是 Unity
 场景 Object Graph。固定的 StateBlock/Slot Layout 必须包含从该 Commit Boundary
 继续运行所需的 Graph、Activation、Transition Progress、Actor 数值和可控 Operator
-进度，或包含能够确定重建它们的数据。
+进度，或包含能够确定重建它们的数据。它是唯一可以携带、Retain 与 Restore 的 Actor
+提交记录；Graph、Clock 与 Claim 的 live cache 只能是镜像，或由它唯一重建。
+
+每个直接 Slot 恰有一个 producer：Graph-owned 数据来自 Graph state record 或 Graph
+value producer，Graph-owned Claim Slot 由 Claim 仲裁写入，Operator-owned 数据来自唯一
+Operator Outcome，Actor-owned 数据来自 Host 的单一 Actor Binding；Derived Slot 仍只由
+既有 rebuilder 产生。
 
 Descriptor 元数据包含两个独立维度：
 
@@ -185,6 +204,10 @@ Descriptor 元数据包含两个独立维度：
   写入，也不形成第二个权威值。
 - 投影包含 Derived Slot 时，必须同时包含重建它所需的全部传递 Stored/Derived 依赖；
   ResetToDefault 依赖可以确定重建，因此无需进入投影。
+
+Project Provider 提供实际 Layout default，并以 semantic fingerprint 声明它与 Manifest
+兼容。该 token 不是框架从提供值重算的 canonical hash。Runtime Start 后会捕获一次初始
+Graph 状态并与这些 default 比较，但不会因此创建 committed Revision。
 
 `ContextFrame` 是 Arena Storage Cell 上带 Generation 的 Handle，不是可复用 Cell 本身。
 Retain 存活 Frame 会阻止对应 Cell 被复用；该 Generation 被释放且 Cell 复用后，所有旧
@@ -205,11 +228,16 @@ EventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，
 其他 Actor 的后果。
 
 Restore 必须保持 Source 的 Timeline 与 ClockDomain、推进 ExecutionSequence，并建立
-同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre2 只验证
-Descriptor 和 internal、same-session、exact-layout Codec Spike；该 Spike 不是跨会话
-存档格式或稳定 Wire Identity。Pre6 负责 Temporal 存储和倒放，Pre13 负责
-Durable Save Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界
-事实和生成实体重建。
+同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre5 提供完整 Actor
+纯读验证，以及 internal tokenized prepare + no-callback apply seam，一次性交换 Context、
+Graph、Clock 与 Claim 权威；它不公开 Host Restore，也不调用 Actor Binding。Pre6 负责
+History、选择、世界校正、Rewind/Resume 与 New Epoch 编排。Pre13 负责 Durable Save
+Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界事实和生成实体
+重建。
+
+internal validation/prepare seam 在 Runtime 已 Fault、但不存在 staged Tick 的边界仍可供
+Pre6 D12 校正使用；其无回调 Apply 不会清除锁存 Fault 或
+`RequiresWorldCorrection`，该恢复决定仍由 Pre6 负责。
 
 ## Actor Mailbox 规则
 
@@ -258,9 +286,11 @@ ContextFrame State。
   绑定，以便挂接替代 Runtime。
 - 音效、VFX、日志等纯表现事件可以继续使用普通 EventBus，不进入 gameplay Inbox。
 
-Host 在所有 binding 检查成功后才最后注册 Router；Stop/Dispose 首先注销。Domain
-最后一个 Host 离开时释放 internal EventAgent subscription。Pre4 只开放入站能力；
-Pre5 Context commit 成功前，Host outbound seam 不得发布 EventOutbox。
+Host 在所有 Binding 与 Operator coverage 检查成功后才最后注册 Router；
+Stop/Dispose 首先注销。Domain 最后一个 Host 离开时释放 internal EventAgent
+subscription。EventOutbox 条目在复合提交前只是预分配候选；提交时才为同一
+GraphInstance/Epoch 分配连续 EventSequence 区间。发布保留 Host Operator 顺序与每个
+Operator 的 append 顺序，且 Callback 只能观察完整的新权威。
 
 合法的 Runtime 实例生命周期边为 `Created -> Running`、`Running <-> Suspended`、
 `Running/Suspended -> Stopped` 与 `Created/Stopped -> Disposed`。`Created` 不可 Stop，
@@ -281,12 +311,20 @@ Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose
   然后继续正向 Tick。
 - StateGraph 只读取当前 IntentFrame 和 Previous ContextFrame，不能观察本 Tick
   执行中产生的 Outcome。
-- ContextFrame Commit 是唯一对外可观察的 gameplay 边界。
+- 首 Tick 通过 `CoCoContextFrameReadView` 读取 Layout 默认值，不伪造 Tick 0 或
+  Revision 0 Frame；首次成功提交为 Revision 1。
+- ContextFrame Commit 是唯一已提交的 gameplay 逻辑权威边界。
 - Commit 失败、Cancel、Restore 或 Rewind 时，零 Outbox Event、零最终 EventSequence
   消耗、零跨 Actor 副作用。
+- 真实 Operator Callback 修改 Unity 对象后再失败时，框架不伪造世界回滚；旧
+  Context 继续是权威，Host Fault，`RequiresWorldCorrection` 保持为真，
+  直到新 Host 实例启动。
 
-正式 Outcome 聚合、ContextFrame Commit 和 EventOutbox Publish 属于 Pre5。Pre2
-仅通过纯契约 Harness 冻结和验证协议。
+Outcome 只能写入 Pre3 Manifest 中已声明、非 Derived、Operator-owned 且唯一 owner
+的 Context Slot。Trace 按 compiled order 记录通过条件的 Transition Candidate，并把
+Winner 另记一条。不可变 Frame Reference 只含 identity、精确 Layout metadata、Revision
+与是否存在 committed Frame，不 Retain Frame Handle；Trace 不保存 payload、Unity Object、
+mutable Frame 或 diagnostic string。
 
 ## 仓库与包边界
 
@@ -321,8 +359,6 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 后续 0.4 工作
 
-- **Pre5**：Host 显式 Operator 引用、Operator Binding/执行/Claim、Outcome 聚合、
-  ContextFrame Commit 与 committed EventOutbox Publish。
 - **Pre6**：Temporal Ring Buffer、Restore、Rewind 与新 TimelineEpoch。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
@@ -332,7 +368,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre4 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre5 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
