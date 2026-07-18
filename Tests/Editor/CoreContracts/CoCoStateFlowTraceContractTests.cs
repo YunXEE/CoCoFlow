@@ -89,6 +89,115 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void FrameReferencesPreserveExactDefaultAndCommittedIdentityWithoutRetainingFrame()
+        {
+            CoCoContextFrameLayout layout = CreateStoredIntLayout(
+                CreateLayoutId(31UL, 1UL),
+                CreateSlotId(31UL, 2UL));
+            var arena = new CoCoContextFrameArena(CreateGraphInstanceId(31UL), layout, 2);
+
+            Assert.IsTrue(CoCoStateFlowTraceFrameReference.TryCreate(
+                arena.Previous,
+                out CoCoStateFlowTraceFrameReference defaults));
+            Assert.IsTrue(defaults.IsValid);
+            Assert.IsFalse(defaults.HasCommittedFrame);
+            Assert.IsFalse(defaults.Identity.IsValid);
+            Assert.IsFalse(defaults.Revision.IsValid);
+            Assert.AreEqual(layout.LayoutId, defaults.LayoutId);
+            Assert.AreEqual(layout.Version, defaults.LayoutVersion);
+            Assert.AreEqual(layout.SchemaHash, defaults.LayoutSchemaHash);
+
+            CoCoTickFrame tick = CreateTickFrame(1UL);
+            Assert.IsTrue(arena.TryPrepare(tick, out CoCoPreparedContextCommit prepared, out _));
+            Assert.IsTrue(prepared.TryFinalize(out CoCoFinalizedContextCommit finalized, out _));
+            finalized.CommitNoFailUnchecked();
+            Assert.IsTrue(CoCoStateFlowTraceFrameReference.TryCreate(
+                arena.Previous,
+                out CoCoStateFlowTraceFrameReference committed));
+            Assert.IsTrue(committed.IsValid);
+            Assert.IsTrue(committed.HasCommittedFrame);
+            Assert.AreEqual(CoCoStateFlowFrameKind.Context, committed.Identity.Kind);
+            Assert.AreEqual(new CoCoContextRevision(1UL), committed.Revision);
+            Assert.IsTrue(CoCoStateFlowTraceFrameReference.TryCreateCommitted(
+                CreateGraphInstanceId(31UL),
+                layout,
+                tick,
+                new CoCoContextRevision(1UL),
+                out CoCoStateFlowTraceFrameReference preflight));
+            Assert.AreEqual(committed, preflight);
+
+            CoCoStateFlowTraceEntry entry = CoCoStateFlowTraceEntry.Commit(
+                CreateGraphInstanceId(31UL),
+                tick,
+                default,
+                committed.Revision,
+                defaults,
+                committed);
+            Assert.IsTrue(entry.IsValid);
+            Assert.AreEqual(defaults, entry.PreviousContext);
+            Assert.AreEqual(committed, entry.Frame);
+
+            arena.Dispose();
+            Assert.IsTrue(defaults.IsValid);
+            Assert.IsTrue(committed.IsValid);
+            Assert.AreEqual(new CoCoContextRevision(1UL), committed.Revision);
+        }
+
+        [Test]
+        public void CandidateWinnerAndStateTransitionFiltersPreserveExactTraceRoles()
+        {
+            CoCoGraphInstanceId graph = CreateGraphInstanceId(41UL);
+            CoCoTickFrame tick = CreateTickFrame(1UL);
+            CoCoLayerId layer = CreateLayerId(42UL);
+            CoCoStateId firstState = CreateStateId(43UL);
+            CoCoStateId secondState = CreateStateId(44UL);
+            CoCoTransitionId firstTransition = CreateTransitionId(45UL);
+            CoCoTransitionId secondTransition = CreateTransitionId(46UL);
+            var buffer = new CoCoStateFlowTraceBuffer(6);
+
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Transition(
+                graph,
+                tick,
+                layer,
+                firstTransition,
+                CoCoStateFlowTransitionRole.Candidate)));
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Transition(
+                graph,
+                tick,
+                layer,
+                firstTransition,
+                CoCoStateFlowTransitionRole.Winner)));
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Transition(
+                graph,
+                tick,
+                layer,
+                secondTransition,
+                CoCoStateFlowTransitionRole.Candidate)));
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Path(graph, tick, layer, firstState)));
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Path(graph, tick, layer, secondState)));
+            Assert.IsFalse(buffer.Append(CoCoStateFlowTraceEntry.Transition(
+                graph,
+                tick,
+                layer,
+                firstTransition,
+                CoCoStateFlowTransitionRole.None)));
+
+            var copied = new CoCoStateFlowTraceEntry[3];
+            var transitionFilter = new CoCoStateFlowTraceFilter(
+                CoCoStateFlowTraceKind.Transition,
+                transitionId: firstTransition);
+            Assert.AreEqual(2, buffer.CopyLatestTo(copied, transitionFilter));
+            Assert.AreEqual(CoCoStateFlowTransitionRole.Candidate, copied[0].TransitionRole);
+            Assert.AreEqual(CoCoStateFlowTransitionRole.Winner, copied[1].TransitionRole);
+
+            var stateFilter = new CoCoStateFlowTraceFilter(
+                CoCoStateFlowTraceKind.ActivePath,
+                stateId: secondState);
+            Assert.AreEqual(1, buffer.CopyLatestTo(copied, stateFilter));
+            Assert.AreEqual(secondState, copied[0].StateId);
+        }
+
+        [Test]
         public void InvalidEntriesAreRejectedAndClearPreservesLifetimeCount()
         {
             var buffer = new CoCoStateFlowTraceBuffer(2);
@@ -199,6 +308,57 @@ namespace CoCoFlow.Runtime.Core.Tests
         private static CoCoStateId CreateStateId(ulong low)
         {
             Assert.IsTrue(CoCoStateId.TryCreate(0UL, low, out CoCoStateId id));
+            return id;
+        }
+
+        private static CoCoTransitionId CreateTransitionId(ulong low)
+        {
+            Assert.IsTrue(CoCoTransitionId.TryCreate(0UL, low, out CoCoTransitionId id));
+            return id;
+        }
+
+        private static CoCoContextFrameLayout CreateStoredIntLayout(
+            CoCoFrameLayoutId layoutId,
+            CoCoStateSlotId slotId)
+        {
+            var builder = new CoCoContextFrameLayoutBuilder();
+            CoCoStateBlockId blockId = CreateBlockId(layoutId.High, layoutId.Low);
+            Assert.IsTrue(builder.TryAddBlock(
+                blockId,
+                CoCoStateBlockOwner.Actor,
+                out CoCoDiagnosticCode diagnosticCode));
+            Assert.IsTrue(builder.TryAddSlot(
+                blockId,
+                slotId,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                7,
+                default,
+                null,
+                out diagnosticCode));
+            Assert.IsTrue(builder.TryFreeze(
+                layoutId,
+                1U,
+                out CoCoContextFrameLayout layout,
+                out diagnosticCode));
+            return layout;
+        }
+
+        private static CoCoFrameLayoutId CreateLayoutId(ulong high, ulong low)
+        {
+            Assert.IsTrue(CoCoFrameLayoutId.TryCreate(high, low, out CoCoFrameLayoutId id));
+            return id;
+        }
+
+        private static CoCoStateBlockId CreateBlockId(ulong high, ulong low)
+        {
+            Assert.IsTrue(CoCoStateBlockId.TryCreate(high, low, out CoCoStateBlockId id));
+            return id;
+        }
+
+        private static CoCoStateSlotId CreateSlotId(ulong high, ulong low)
+        {
+            Assert.IsTrue(CoCoStateSlotId.TryCreate(high, low, out CoCoStateSlotId id));
             return id;
         }
 
