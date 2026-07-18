@@ -132,6 +132,37 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoStagedGraphStep left, CoCoStagedGraphStep right) => !left.Equals(right);
     }
 
+    /// <summary>
+    /// Single-use proof that the staged Graph, OperationFrame, and Clock are ready for
+    /// the no-fail portion of their Actor authority barrier.
+    /// </summary>
+    internal readonly struct CoCoPreparedGraphCommit
+    {
+        private readonly CoCoStateGraphRuntime _runtime;
+        private readonly ulong _token;
+
+        internal CoCoPreparedGraphCommit(
+            CoCoStateGraphRuntime runtime,
+            ulong token,
+            in CoCoTickFrame tickFrame)
+        {
+            _runtime = runtime;
+            _token = token;
+            TickFrame = tickFrame;
+        }
+
+        internal CoCoTickFrame TickFrame { get; }
+        internal bool IsValid =>
+            _runtime != null && _runtime.IsPreparedCommitTokenCurrent(_token);
+        internal CoCoStateGraphRuntime Runtime => _runtime;
+        internal ulong Token => _token;
+
+        internal void CommitNoFail()
+        {
+            _runtime.CommitPreparedStepNoFail();
+        }
+    }
+
     internal interface ICoCoStateGraphCommitGuard
     {
         bool IsCommitCancellationRequested { get; }
@@ -162,6 +193,7 @@ namespace CoCoFlow.Runtime.Core
         private ulong _candidateNextActivationValue;
         private ulong _stageGeneration;
         private ulong _activeStageToken;
+        private ulong _activePreparedCommitToken;
         private int _executingLayerIndex;
         private int _executingStateIndex;
         private bool _acceptsTransitionRequests;
@@ -465,7 +497,7 @@ namespace CoCoFlow.Runtime.Core
         public bool TryStageStep(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoStagedGraphStep stagedStep,
             out CoCoDiagnostic diagnostic)
         {
@@ -649,24 +681,27 @@ namespace CoCoFlow.Runtime.Core
 
         internal bool IsStagedTokenCurrent(ulong token) => token != 0UL && token == _activeStageToken;
 
-        internal bool TryAcceptStagedStep(
-            in CoCoStagedGraphStep stagedStep,
-            out CoCoDiagnostic diagnostic) =>
-            TryAcceptStagedStep(stagedStep, null, out diagnostic);
+        internal bool IsPreparedCommitTokenCurrent(ulong token) =>
+            token != 0UL &&
+            token == _activeStageToken &&
+            token == _activePreparedCommitToken;
 
-        internal bool TryAcceptStagedStep(
+        internal bool TryPrepareStagedCommit(
             in CoCoStagedGraphStep stagedStep,
             ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoPreparedGraphCommit preparedCommit,
             out CoCoDiagnostic diagnostic)
         {
+            preparedCommit = default;
             if (_lifecycle != CoCoRuntimeLifecycleState.Running ||
                 IsFaulted ||
                 _isExecutingStep ||
                 _disposeRequested ||
+                _activePreparedCommitToken != 0UL ||
                 !Owns(stagedStep))
             {
                 diagnostic = LifecycleError(
-                    "Only a healthy Running Runtime may accept its current staged Tick.");
+                    "Only a healthy Running Runtime may prepare its current staged Tick once.");
                 return false;
             }
 
@@ -675,30 +710,63 @@ namespace CoCoFlow.Runtime.Core
             {
                 CancelOutstandingStep(false, default);
                 diagnostic = LifecycleError(
-                    "The staged Tick was cancelled by its Host before commit.");
+                    "The staged Tick was cancelled by its Host before commit preparation.");
                 return false;
             }
 
             if (!memoryIntegrity)
             {
-                _finalizedOperationFrame.Cancel();
-                _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
-                ClearStagedStep();
+                CancelOutstandingStep(false, default);
                 LatchFault(diagnostic);
                 return false;
             }
 
-            if (!_finalizedOperationFrame.Commit())
+            if (!_finalizedOperationFrame.IsCommitReady)
             {
-                _finalizedOperationFrame.Cancel();
-                _clock.Cancel(_transitionHandleOwner, _stagedTickFrame);
                 diagnostic = OperationError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
-                    "Finalized OperationFrame could not commit.");
-                ClearStagedStep();
+                    "Finalized OperationFrame is not ready for the authority barrier.");
+                CancelOutstandingStep(false, default);
                 LatchFault(diagnostic);
                 return false;
             }
+
+            if (!_clock.IsCommitReady(_transitionHandleOwner, _stagedTickFrame))
+            {
+                diagnostic = LifecycleError(
+                    "The Runtime Clock is not ready for the authority barrier.");
+                CancelOutstandingStep(false, default);
+                LatchFault(diagnostic);
+                return false;
+            }
+
+            _activePreparedCommitToken = _activeStageToken;
+            preparedCommit = new CoCoPreparedGraphCommit(
+                this,
+                _activePreparedCommitToken,
+                _stagedTickFrame);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal void CommitPreparedStep(in CoCoPreparedGraphCommit preparedCommit)
+        {
+            if (!Owns(preparedCommit))
+            {
+                throw new InvalidOperationException(
+                    "The prepared Graph commit token is no longer ready.");
+            }
+
+            preparedCommit.CommitNoFail();
+        }
+
+        internal void CommitPreparedStepNoFail()
+        {
+            // TryPrepareStagedCommit establishes token ownership, memory integrity,
+            // OperationFrame readiness, and exact Clock candidate identity. The Host
+            // enters this unchecked method only after every other Actor participant
+            // preflights. The proof is intentionally not revalidated inside the barrier.
+            _finalizedOperationFrame.CommitPreparedNoFail();
 
             for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
             {
@@ -710,18 +778,34 @@ namespace CoCoFlow.Runtime.Core
 
                 layer.CommittedLeafIndex = layer.CandidateLeafIndex;
                 layer.CommittedEnterStartDepth = layer.CandidateEnterStartDepth;
+                layer.CommittedWinnerTransitionId = layer.CandidateWinnerTransitionId;
             }
 
             _nextActivationValue = _candidateNextActivationValue;
-            if (!_clock.Commit(_transitionHandleOwner, _stagedTickFrame))
+            _clock.CommitPreparedNoFail();
+            ClearStagedStep();
+        }
+
+        internal bool TryAcceptStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            out CoCoDiagnostic diagnostic) =>
+            TryAcceptStagedStep(stagedStep, null, out diagnostic);
+
+        internal bool TryAcceptStagedStep(
+            in CoCoStagedGraphStep stagedStep,
+            ICoCoStateGraphCommitGuard commitGuard,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryPrepareStagedCommit(
+                    stagedStep,
+                    commitGuard,
+                    out CoCoPreparedGraphCommit preparedCommit,
+                    out diagnostic))
             {
-                diagnostic = LifecycleError("The Runtime Clock rejected its owned staged Tick.");
-                ClearStagedStep();
-                LatchFault(diagnostic);
                 return false;
             }
 
-            ClearStagedStep();
+            preparedCommit.CommitNoFail();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -851,10 +935,67 @@ namespace CoCoFlow.Runtime.Core
             return layer.Compiled.States[path[pathIndex]].StateId;
         }
 
+        internal int CommittedTraceLayerCount => _layers.Length;
+
+        internal CoCoLayerId GetCommittedTraceLayerId(int layerIndex) =>
+            _layers[layerIndex].Compiled.LayerId;
+
+        internal int GetCommittedTracePathCount(int layerIndex)
+        {
+            LayerRuntime layer = _layers[layerIndex];
+            return layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices.Count;
+        }
+
+        internal CoCoStateId GetCommittedTracePathStateId(int layerIndex, int pathIndex)
+        {
+            LayerRuntime layer = _layers[layerIndex];
+            IReadOnlyList<int> path =
+                layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices;
+            return layer.Compiled.States[path[pathIndex]].StateId;
+        }
+
+        internal CoCoTransitionId GetCommittedTraceWinnerTransitionId(int layerIndex) =>
+            _layers[layerIndex].CommittedWinnerTransitionId;
+
+        internal void AppendCommittedStateTrace(
+            CoCoStateFlowTraceBuffer trace,
+            in CoCoTickFrame tickFrame)
+        {
+            if (trace == null)
+            {
+                return;
+            }
+
+            for (int layerIndex = 0; layerIndex < CommittedTraceLayerCount; layerIndex++)
+            {
+                CoCoLayerId layerId = GetCommittedTraceLayerId(layerIndex);
+                int pathCount = GetCommittedTracePathCount(layerIndex);
+                for (int pathIndex = 0; pathIndex < pathCount; pathIndex++)
+                {
+                    trace.Append(CoCoStateFlowTraceEntry.Path(
+                        _graphInstanceId,
+                        tickFrame,
+                        layerId,
+                        GetCommittedTracePathStateId(layerIndex, pathIndex)));
+                }
+
+                CoCoTransitionId winner =
+                    GetCommittedTraceWinnerTransitionId(layerIndex);
+                if (winner.IsValid)
+                {
+                    trace.Append(CoCoStateFlowTraceEntry.Transition(
+                        _graphInstanceId,
+                        tickFrame,
+                        layerId,
+                        winner));
+                }
+            }
+        }
+
         private bool ExecuteLayers(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoDiagnostic diagnostic)
         {
             for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
@@ -981,6 +1122,7 @@ namespace CoCoFlow.Runtime.Core
 
                 layer.CandidateLeafIndex = winner.TargetStateIndex;
                 layer.CandidateEnterStartDepth = commonCount;
+                layer.CandidateWinnerTransitionId = winner.TransitionId;
             }
 
             diagnostic = CoCoDiagnostic.None;
@@ -995,7 +1137,7 @@ namespace CoCoFlow.Runtime.Core
             bool canRequestTransition,
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out CoCoDiagnostic diagnostic)
         {
             LayerRuntime layer = _layers[layerIndex];
@@ -1107,7 +1249,7 @@ namespace CoCoFlow.Runtime.Core
             int layerIndex,
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
-            in CoCoContextFrame previousContext,
+            in CoCoContextFrameReadView previousContext,
             out int winnerIndex,
             out CoCoDiagnostic diagnostic)
         {
@@ -1186,6 +1328,7 @@ namespace CoCoFlow.Runtime.Core
 
                     layer.CandidateLeafIndex = layer.CommittedLeafIndex;
                     layer.CandidateEnterStartDepth = layer.CommittedEnterStartDepth;
+                    layer.CandidateWinnerTransitionId = default;
                 }
             }
             catch (Exception)
@@ -1272,6 +1415,10 @@ namespace CoCoFlow.Runtime.Core
             stagedStep.Token != 0UL &&
             stagedStep.Token == _activeStageToken;
 
+        private bool Owns(in CoCoPreparedGraphCommit preparedCommit) =>
+            ReferenceEquals(preparedCommit.Runtime, this) &&
+            IsPreparedCommitTokenCurrent(preparedCommit.Token);
+
         private void CancelOutstandingStep(bool latchFault, CoCoDiagnostic diagnostic)
         {
             if (!HasStagedStep)
@@ -1290,6 +1437,7 @@ namespace CoCoFlow.Runtime.Core
 
         private void ClearStagedStep()
         {
+            _activePreparedCommitToken = 0UL;
             _activeStageToken = 0UL;
             _stagedTickFrame = default;
             _finalizedOperationFrame = default;
@@ -1804,6 +1952,8 @@ namespace CoCoFlow.Runtime.Core
             public int CandidateLeafIndex { get; set; }
             public int CommittedEnterStartDepth { get; set; }
             public int CandidateEnterStartDepth { get; set; }
+            public CoCoTransitionId CommittedWinnerTransitionId { get; set; }
+            public CoCoTransitionId CandidateWinnerTransitionId { get; set; }
         }
 
         private sealed class StateRuntime

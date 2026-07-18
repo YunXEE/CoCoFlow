@@ -245,6 +245,68 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void OperationReadinessFailureFaultsBeforeGraphOrClockAuthorityChanges()
+        {
+            SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
+            Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            CoCoStagedGraphStep staged = setup.Stage();
+            Assert.IsTrue(staged.FinalizedOperationFrame.Cancel());
+
+            Assert.IsFalse(setup.Runtime.TryPrepareStagedCommit(
+                staged,
+                null,
+                out CoCoPreparedGraphCommit prepared,
+                out CoCoDiagnostic diagnostic));
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsTrue(diagnostic.IsError);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.CommitPreparationFailed,
+                diagnostic.Code);
+            Assert.IsTrue(setup.Runtime.IsFaulted);
+            Assert.IsFalse(setup.Runtime.HasStagedStep);
+            Assert.AreEqual(0UL, setup.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(Ids.Root, setup.Runtime.GetActivePath(0).ActiveLeaf);
+            Assert.AreEqual(
+                0,
+                ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.Root).Value);
+        }
+
+        [Test]
+        public void ClockReadinessFailureFaultsBeforeOperationOrGraphAuthorityChanges()
+        {
+            SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
+            Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            CoCoStagedGraphStep staged = setup.Stage();
+            FieldInfo ownerField = typeof(CoCoStateGraphRuntime).GetField(
+                "_transitionHandleOwner",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(ownerField);
+            object owner = ownerField.GetValue(setup.Runtime);
+            Assert.IsTrue(setup.Runtime.Clock.Cancel(owner, staged.TickFrame));
+
+            Assert.IsFalse(setup.Runtime.TryPrepareStagedCommit(
+                staged,
+                null,
+                out CoCoPreparedGraphCommit prepared,
+                out CoCoDiagnostic diagnostic));
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsTrue(diagnostic.IsError);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.InvalidLifecycleTransition,
+                diagnostic.Code);
+            Assert.IsTrue(setup.Runtime.IsFaulted);
+            Assert.IsFalse(setup.Runtime.HasStagedStep);
+            Assert.AreEqual(0UL, setup.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(Ids.Root, setup.Runtime.GetActivePath(0).ActiveLeaf);
+            Assert.AreEqual(
+                0,
+                ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.Root).Value);
+            Assert.IsFalse(staged.OperationFrame.IsValid);
+        }
+
+        [Test]
         public void CommittedMemoryMutationIsDetectedBeforeNextCallback()
         {
             var control = new SafetyControl();

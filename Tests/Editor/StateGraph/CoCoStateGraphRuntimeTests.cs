@@ -45,6 +45,64 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void CommittedTraceSeamReportsPathAndOnlyTheCurrentTickWinner()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            Assert.AreEqual(1, fixture.Runtime.CommittedTraceLayerCount);
+            Assert.AreEqual(fixture.Layer, fixture.Runtime.GetCommittedTraceLayerId(0));
+            var trace = new CoCoStateFlowTraceBuffer(8);
+            var entries = new CoCoStateFlowTraceEntry[3];
+
+            CoCoStagedGraphStep noTransition = fixture.Stage();
+            fixture.Accept(noTransition);
+            AssertCommittedTrace(
+                fixture,
+                default,
+                fixture.Root,
+                fixture.StateA);
+            fixture.Runtime.AppendCommittedStateTrace(trace, noTransition.TickFrame);
+            Assert.AreEqual(2, trace.CopyLatestTo(entries));
+            AssertPath(entries[0], fixture, noTransition.TickFrame, fixture.Root);
+            AssertPath(entries[1], fixture, noTransition.TickFrame, fixture.StateA);
+
+            fixture.Control.RequestAtoB = true;
+            CoCoStagedGraphStep transition = fixture.Stage();
+            Assert.AreEqual(
+                default(CoCoTransitionId),
+                fixture.Runtime.GetCommittedTraceWinnerTransitionId(0),
+                "A staged winner must remain hidden until its Tick commits.");
+            fixture.Accept(transition);
+            AssertCommittedTrace(
+                fixture,
+                fixture.AToB,
+                fixture.Root,
+                fixture.StateB);
+            trace.Clear();
+            fixture.Runtime.AppendCommittedStateTrace(trace, transition.TickFrame);
+            Assert.AreEqual(3, trace.CopyLatestTo(entries));
+            AssertPath(entries[0], fixture, transition.TickFrame, fixture.Root);
+            AssertPath(entries[1], fixture, transition.TickFrame, fixture.StateB);
+            Assert.AreEqual(CoCoStateFlowTraceKind.Transition, entries[2].Kind);
+            Assert.AreEqual(fixture.Layer, entries[2].LayerId);
+            Assert.AreEqual(fixture.AToB, entries[2].TransitionId);
+
+            fixture.Control.RequestAtoB = false;
+            CoCoStagedGraphStep following = fixture.Stage();
+            fixture.Accept(following);
+            AssertCommittedTrace(
+                fixture,
+                default,
+                fixture.Root,
+                fixture.StateB);
+            trace.Clear();
+            fixture.Runtime.AppendCommittedStateTrace(trace, following.TickFrame);
+            Assert.AreEqual(2, trace.CopyLatestTo(entries));
+            AssertPath(entries[0], fixture, following.TickFrame, fixture.Root);
+            AssertPath(entries[1], fixture, following.TickFrame, fixture.StateB);
+        }
+
+        [Test]
         public void RejectedTickRollsBackPathMemoryClockAndOperationTransaction()
         {
             Fixture fixture = Fixture.Create();
@@ -73,6 +131,120 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 fixture.Trace,
                 "Candidate memory writes from the rejected Tick must not become authoritative.");
             fixture.Accept(retried);
+        }
+
+        [Test]
+        public void PreparedCommitKeepsAuthorityHiddenUntilNoFailBarrier()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+
+            fixture.Control.RequestAtoB = true;
+            CoCoStagedGraphStep transition = fixture.Stage();
+            Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
+                transition,
+                null,
+                out CoCoPreparedGraphCommit prepared,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+
+            Assert.IsTrue(prepared.IsValid);
+            Assert.AreEqual(transition.TickFrame, prepared.TickFrame);
+            Assert.IsTrue(transition.IsValid);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            prepared.CommitNoFail();
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsFalse(transition.IsValid);
+            Assert.IsFalse(transition.OperationFrame.IsValid);
+            Assert.IsFalse(fixture.Runtime.HasStagedStep);
+            Assert.AreEqual(2UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            CoCoStagedGraphStep following = fixture.Stage();
+            Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
+                following,
+                null,
+                out CoCoPreparedGraphCommit followingProof,
+                out CoCoDiagnostic followingDiagnostic), followingDiagnostic.Message);
+            followingProof.CommitNoFail();
+
+            Assert.IsFalse(followingProof.IsValid);
+            Assert.IsFalse(following.IsValid);
+            Assert.IsFalse(following.OperationFrame.IsValid);
+            Assert.IsFalse(fixture.Runtime.HasStagedStep);
+            Assert.AreEqual(3UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.Throws<InvalidOperationException>(
+                () => fixture.Runtime.CommitPreparedStep(followingProof),
+                "The checked compatibility wrapper must reject a consumed proof.");
+        }
+
+        [Test]
+        public void PreparedCommitCanStillCancelWithoutAdvancingAuthority()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+
+            fixture.Control.RequestAtoB = true;
+            CoCoStagedGraphStep transition = fixture.Stage();
+            Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
+                transition,
+                null,
+                out CoCoPreparedGraphCommit prepared,
+                out CoCoDiagnostic prepare), prepare.Message);
+            Assert.IsTrue(fixture.Runtime.TryCancelStagedStep(
+                transition,
+                out CoCoDiagnostic cancel), cancel.Message);
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsFalse(transition.IsValid);
+            Assert.IsFalse(fixture.Runtime.IsFaulted);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            fixture.Control.RequestAtoB = false;
+            CoCoStagedGraphStep retry = fixture.Stage();
+            Assert.AreEqual(2UL, retry.TickFrame.Tick.Value);
+            fixture.Accept(retry);
+        }
+
+        [Test]
+        public void PreparedCommitPreflightRejectsStaleStepWithoutDisturbingCurrentCandidate()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+
+            CoCoStagedGraphStep stale = fixture.Stage();
+            Assert.IsTrue(fixture.Runtime.TryCancelStagedStep(
+                stale,
+                out CoCoDiagnostic cancel), cancel.Message);
+            CoCoStagedGraphStep current = fixture.Stage();
+
+            Assert.IsFalse(fixture.Runtime.TryPrepareStagedCommit(
+                stale,
+                null,
+                out CoCoPreparedGraphCommit staleProof,
+                out CoCoDiagnostic staleDiagnostic));
+            Assert.IsFalse(staleProof.IsValid);
+            Assert.IsTrue(staleDiagnostic.IsError);
+            Assert.IsTrue(current.IsValid);
+            Assert.IsFalse(fixture.Runtime.IsFaulted);
+
+            Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
+                current,
+                null,
+                out CoCoPreparedGraphCommit currentProof,
+                out CoCoDiagnostic currentDiagnostic), currentDiagnostic.Message);
+            currentProof.CommitNoFail();
+
+            Assert.IsFalse(currentProof.IsValid);
+            Assert.IsFalse(current.IsValid);
+            Assert.IsFalse(fixture.Runtime.HasStagedStep);
+            Assert.AreEqual(2UL, fixture.Runtime.Clock.Tick.Value);
         }
 
         [Test]
@@ -246,6 +418,38 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(fixture.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
         }
 
+        private static void AssertCommittedTrace(
+            Fixture fixture,
+            CoCoTransitionId expectedWinner,
+            params CoCoStateId[] expectedPath)
+        {
+            Assert.AreEqual(
+                expectedWinner,
+                fixture.Runtime.GetCommittedTraceWinnerTransitionId(0));
+            Assert.AreEqual(
+                expectedPath.Length,
+                fixture.Runtime.GetCommittedTracePathCount(0));
+            for (int pathIndex = 0; pathIndex < expectedPath.Length; pathIndex++)
+            {
+                Assert.AreEqual(
+                    expectedPath[pathIndex],
+                    fixture.Runtime.GetCommittedTracePathStateId(0, pathIndex));
+            }
+        }
+
+        private static void AssertPath(
+            CoCoStateFlowTraceEntry entry,
+            Fixture fixture,
+            CoCoTickFrame tickFrame,
+            CoCoStateId stateId)
+        {
+            Assert.AreEqual(CoCoStateFlowTraceKind.ActivePath, entry.Kind);
+            Assert.AreEqual(fixture.Runtime.GraphInstanceId, entry.GraphInstanceId);
+            Assert.AreEqual(tickFrame, entry.TickFrame);
+            Assert.AreEqual(fixture.Layer, entry.LayerId);
+            Assert.AreEqual(stateId, entry.StateId);
+        }
+
         private sealed class Fixture
         {
             private static ulong _nextInstanceId = 100UL;
@@ -255,23 +459,32 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphRuntime runtime,
                 RuntimeControl control,
                 List<string> trace,
+                CoCoLayerId layer,
+                CoCoStateId root,
                 CoCoStateId stateA,
-                CoCoStateId stateB)
+                CoCoStateId stateB,
+                CoCoTransitionId aToB)
             {
                 Graph = graph;
                 Runtime = runtime;
                 Control = control;
                 Trace = trace;
+                Layer = layer;
+                Root = root;
                 StateA = stateA;
                 StateB = stateB;
+                AToB = aToB;
             }
 
             public CoCoCompiledStateGraph Graph { get; }
             public CoCoStateGraphRuntime Runtime { get; }
             public RuntimeControl Control { get; }
             public List<string> Trace { get; }
+            public CoCoLayerId Layer { get; }
+            public CoCoStateId Root { get; }
             public CoCoStateId StateA { get; }
             public CoCoStateId StateB { get; }
+            public CoCoTransitionId AToB { get; }
 
             public static Fixture Create(
                 CoCoCompiledStateGraph sharedGraph = null,
@@ -331,7 +544,16 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     clock,
                     out CoCoStateGraphRuntime runtime,
                     out diagnostic), diagnostic.Message);
-                return new Fixture(graph, runtime, control, trace, ids.StateA, ids.StateB);
+                return new Fixture(
+                    graph,
+                    runtime,
+                    control,
+                    trace,
+                    ids.Layer,
+                    ids.Root,
+                    ids.StateA,
+                    ids.StateB,
+                    ids.AToB);
             }
 
             public CoCoStagedGraphStep Stage()

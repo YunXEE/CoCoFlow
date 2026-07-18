@@ -262,20 +262,39 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        internal bool Commit(object runtimeOwner, in CoCoTickFrame tickFrame)
-        {
-            if (!ReferenceEquals(_runtimeOwner, runtimeOwner) ||
-                !_hasCandidate ||
-                _candidate != tickFrame)
-            {
-                return false;
-            }
+        internal bool IsCommitReady(object runtimeOwner, in CoCoTickFrame tickFrame) =>
+            ReferenceEquals(_runtimeOwner, runtimeOwner) &&
+            _hasCandidate &&
+            _candidate == tickFrame;
 
+        internal void CommitPreparedNoFail()
+        {
             _seconds = _candidate.TimelinePosition.Seconds;
             _tick = _candidate.Tick.Value;
             _executionSequence = _candidate.ExecutionSequence.Value;
             _candidate = default;
             _hasCandidate = false;
+        }
+
+        internal void CommitPrepared(object runtimeOwner, in CoCoTickFrame tickFrame)
+        {
+            if (!IsCommitReady(runtimeOwner, tickFrame))
+            {
+                throw new InvalidOperationException(
+                    "The staged Actor Clock token is no longer ready.");
+            }
+
+            CommitPreparedNoFail();
+        }
+
+        internal bool Commit(object runtimeOwner, in CoCoTickFrame tickFrame)
+        {
+            if (!IsCommitReady(runtimeOwner, tickFrame))
+            {
+                return false;
+            }
+
+            CommitPrepared(runtimeOwner, tickFrame);
             return true;
         }
 
