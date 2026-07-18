@@ -173,6 +173,116 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void FingerprintThrowDuringGraphCaptureIntegrityIsContainedAndClearsTheTick()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            CoCoStateGraphHost host = CreateHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 64);
+            var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
+            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            SetOperators(host, runtimeOperator);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.1d, out CoCoDiagnostic first), first);
+            CoCoContextFrame oldAuthority = host.CurrentContext;
+            CoCoGraphStateRecord<int> oldGraphState = ReadGraphState(
+                oldAuthority,
+                ids.FirstGraphStateSlotId);
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            CoCoTimelineTick oldTick = runtime.Clock.Tick;
+            int oldOperatorExecutions = runtimeOperator.ExecuteCount;
+            ulong failedTick = oldTick.Value + 1UL;
+            ContextAuthorityMemoryStateBinding.ArmFingerprintThrowAfterCapture = true;
+
+            bool stepped = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() => stepped = host.TryStep(0.1d, out failure));
+
+            Assert.That(stepped, Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(ContextAuthorityFactoryProbe.MemoryFingerprintThrowCount, Is.EqualTo(1));
+            Assert.That(runtimeOperator.ExecuteCount, Is.EqualTo(oldOperatorExecutions));
+            Assert.That(host.CurrentContext, Is.EqualTo(oldAuthority));
+            Assert.That(host.CurrentContext.Revision, Is.EqualTo(oldAuthority.Revision));
+            Assert.That(runtime.Clock.Tick, Is.EqualTo(oldTick));
+            Assert.That(
+                ReadGraphState(host.CurrentContext, ids.FirstGraphStateSlotId),
+                Is.EqualTo(oldGraphState));
+            Assert.That(host.Fault.IsFaulted, Is.True);
+            Assert.That(host.RequiresWorldCorrection, Is.False);
+            AssertCancelledTickHasNoAuthorityTrace(host, failedTick, false);
+
+            CoCoTickFrame resumed = CreateResumedTick(oldAuthority.Header.TickFrame);
+            Assert.That(host.TryValidateRestore(
+                oldAuthority,
+                resumed,
+                out CoCoContextCommitStatus restoreStatus), Is.True);
+            Assert.That(restoreStatus, Is.EqualTo(CoCoContextCommitStatus.None));
+            Assert.That(host.TryStep(0.1d, out CoCoDiagnostic rejected), Is.False);
+            Assert.That(rejected.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(runtimeOperator.ExecuteCount, Is.EqualTo(oldOperatorExecutions));
+            Assert.That(host.CurrentContext, Is.EqualTo(oldAuthority));
+        }
+
+        [Test]
+        public void FingerprintThrowDuringStagedCommitPreflightIsContainedAndClearsTheTick()
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            CoCoStateGraphHost host = CreateHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 64);
+            var runtimeOperator = gameObject.AddComponent<ContextAuthorityProbeOperator>();
+            runtimeOperator.Configure(ids.OperatorId, ids.FirstGraphStateSlotId);
+            SetOperators(host, runtimeOperator);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.1d, out CoCoDiagnostic first), first);
+            CoCoContextFrame oldAuthority = host.CurrentContext;
+            CoCoGraphStateRecord<int> oldGraphState = ReadGraphState(
+                oldAuthority,
+                ids.FirstGraphStateSlotId);
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            CoCoTimelineTick oldTick = runtime.Clock.Tick;
+            int oldOperatorExecutions = runtimeOperator.ExecuteCount;
+            ulong failedTick = oldTick.Value + 1UL;
+            runtimeOperator.ArmFingerprintThrowAfterExecution = true;
+
+            bool stepped = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() => stepped = host.TryStep(0.1d, out failure));
+
+            Assert.That(stepped, Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(ContextAuthorityFactoryProbe.MemoryFingerprintThrowCount, Is.EqualTo(1));
+            Assert.That(runtimeOperator.ExecuteCount, Is.EqualTo(oldOperatorExecutions + 1));
+            Assert.That(host.CurrentContext, Is.EqualTo(oldAuthority));
+            Assert.That(host.CurrentContext.Revision, Is.EqualTo(oldAuthority.Revision));
+            Assert.That(runtime.Clock.Tick, Is.EqualTo(oldTick));
+            Assert.That(
+                ReadGraphState(host.CurrentContext, ids.FirstGraphStateSlotId),
+                Is.EqualTo(oldGraphState));
+            Assert.That(host.Fault.IsFaulted, Is.True);
+            Assert.That(host.RequiresWorldCorrection, Is.True);
+            AssertCancelledTickHasNoAuthorityTrace(host, failedTick, true);
+
+            CoCoTickFrame resumed = CreateResumedTick(oldAuthority.Header.TickFrame);
+            Assert.That(host.TryValidateRestore(
+                oldAuthority,
+                resumed,
+                out CoCoContextCommitStatus restoreStatus), Is.True);
+            Assert.That(restoreStatus, Is.EqualTo(CoCoContextCommitStatus.None));
+            Assert.That(host.TryStep(0.1d, out CoCoDiagnostic rejected), Is.False);
+            Assert.That(rejected.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(runtimeOperator.ExecuteCount, Is.EqualTo(oldOperatorExecutions + 1));
+            Assert.That(host.CurrentContext, Is.EqualTo(oldAuthority));
+        }
+
+        [Test]
         public void InitialGraphCaptureCannotMutateCommittedMemoryBeforePublication()
         {
             ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
@@ -695,6 +805,37 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return frame.Read(slot);
         }
 
+        private static void AssertCancelledTickHasNoAuthorityTrace(
+            CoCoStateGraphHost host,
+            ulong failedTick,
+            bool expectOperatorOutcome)
+        {
+            var entries = new CoCoStateFlowTraceEntry[64];
+            int count = host.Trace.CopyLatestTo(entries);
+            bool sawTick = false;
+            bool sawCancelled = false;
+            bool sawOperatorOutcome = false;
+            for (int index = 0; index < count; index++)
+            {
+                CoCoStateFlowTraceEntry entry = entries[index];
+                if (entry.TickFrame.Tick.Value != failedTick)
+                {
+                    continue;
+                }
+
+                sawTick |= entry.Kind == CoCoStateFlowTraceKind.Tick;
+                sawCancelled |= entry.Kind == CoCoStateFlowTraceKind.Cancelled;
+                sawOperatorOutcome |= entry.Kind == CoCoStateFlowTraceKind.OperatorOutcome;
+                Assert.That(entry.Kind, Is.Not.EqualTo(CoCoStateFlowTraceKind.ContextCommit));
+                Assert.That(entry.Kind, Is.Not.EqualTo(CoCoStateFlowTraceKind.EventSequence));
+                Assert.That(entry.Kind, Is.Not.EqualTo(CoCoStateFlowTraceKind.EventPublished));
+            }
+
+            Assert.That(sawTick, Is.True);
+            Assert.That(sawCancelled, Is.True);
+            Assert.That(sawOperatorOutcome, Is.EqualTo(expectOperatorOutcome));
+        }
+
         private static CoCoContextFrameArena CreateRestoreSource(
             CoCoStateGraphHost host,
             ContextAuthorityTestIds ids,
@@ -1003,6 +1144,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public int ExecuteCount { get; private set; }
             public bool PreviousHadCommittedFrame { get; private set; }
             public CoCoGraphStateRecord<int> PreviousState { get; private set; }
+            public bool ArmFingerprintThrowAfterExecution { get; set; }
 
             public void Configure(
                 CoCoOperatorId operatorId,
@@ -1037,6 +1179,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
 
                 PreviousState = context.PreviousContext.Read(slot);
+                if (ArmFingerprintThrowAfterExecution)
+                {
+                    ArmFingerprintThrowAfterExecution = false;
+                    ContextAuthorityFactoryProbe.ArmNextMemoryFingerprintThrow();
+                }
+
                 outcome = CoCoOperatorOutcome.Success;
                 return true;
             }
