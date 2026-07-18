@@ -5,8 +5,8 @@
 > **版本**：0.4.0-pre.5 · **Unity**：6000+
 >
 > Pre5 加入 Host 显式 Operator、确定性 Claim/Outcome、首 Tick 默认值
-> Context 读取、单一 Actor 复合提交屏障、committed EventOutbox 发布与
-> 不可变 Runtime Trace。
+> Context 读取、单一 Actor 复合提交屏障、完整 Context producer 所有权、
+> committed EventOutbox 发布与不可变 Runtime Trace。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -103,19 +103,26 @@ ActionProgress。
 
 ## StateGraph Runtime 与 Host
 
-每个 Actor 只需要一个组件和一个 Asset：
+每个 Actor 最少只需要一个框架组件和一个 Asset；存在 Actor-owned Slot 时，再显式引用
+一个项目 Actor Binding：
 
 ```text
 Actor GameObject
 ├─ CoCoStateGraphHost        必需
 │  └─ StateGraphAsset       必需
-└─ Operator scripts          可选；由 Host 以显式顺序引用
+├─ Operator scripts          可选；由 Host 以显式顺序引用
+└─ Actor Context binding     仅有 Actor-owned Slot 时必需
 ```
 
 Runtime、Clock、Inbox、Router、Logic、Condition 与 Memory 都不是组件。Host 不扫描
 旧 Controller、Context Provider、子物体或场景。多个 Host 可以共享不可变 compiled
 graph，但各自独占 StateLogic/Condition 实例、双 Memory Bank、active leaf、Clock、
 Inbox、staged Tick 与锁存 Fault。
+
+任何 Clock 或 Runtime factory 运行前，Transaction Preflight 必须精确覆盖 Graph state、
+Graph value、Claim、Operator、Actor 与 Derived Context Slot，并验证 Operator、Claim、
+Actor Binding 与 Outbox 配置。无效设置令 Host 保持 `Created`，不运行 callback，也不
+产生 Router 可见状态。Actor Binding 是 Host 的单一显式引用，不通过场景扫描发现。
 
 `Start` 只确定初始叶子，不运行 callback。每 Layer 首 Tick 的新路径先 Parent→Child
 运行可选 Enter，再 Root→Leaf 运行必选 Update。叶子 Update 可以请求零到多个预声明
@@ -181,7 +188,13 @@ Manifest，Pre4 产生 finalized staged frame，Pre5 执行匹配的 Operator，
 `ContextFrame` 是单个 Actor 的完整已提交逻辑状态，不是世界快照，也不是 Unity
 场景 Object Graph。固定的 StateBlock/Slot Layout 必须包含从该 Commit Boundary
 继续运行所需的 Graph、Activation、Transition Progress、Actor 数值和可控 Operator
-进度，或包含能够确定重建它们的数据。
+进度，或包含能够确定重建它们的数据。它是唯一可以携带、Retain 与 Restore 的 Actor
+提交记录；Graph、Clock 与 Claim 的 live cache 只能是镜像，或由它唯一重建。
+
+每个直接 Slot 恰有一个 producer：Graph-owned 数据来自 Graph state record 或 Graph
+value producer，Graph-owned Claim Slot 由 Claim 仲裁写入，Operator-owned 数据来自唯一
+Operator Outcome，Actor-owned 数据来自 Host 的单一 Actor Binding；Derived Slot 仍只由
+既有 rebuilder 产生。
 
 Descriptor 元数据包含两个独立维度：
 
@@ -191,6 +204,10 @@ Descriptor 元数据包含两个独立维度：
   写入，也不形成第二个权威值。
 - 投影包含 Derived Slot 时，必须同时包含重建它所需的全部传递 Stored/Derived 依赖；
   ResetToDefault 依赖可以确定重建，因此无需进入投影。
+
+Project Provider 提供实际 Layout default，并以 semantic fingerprint 声明它与 Manifest
+兼容。该 token 不是框架从提供值重算的 canonical hash。Runtime Start 后会捕获一次初始
+Graph 状态并与这些 default 比较，但不会因此创建 committed Revision。
 
 `ContextFrame` 是 Arena Storage Cell 上带 Generation 的 Handle，不是可复用 Cell 本身。
 Retain 存活 Frame 会阻止对应 Cell 被复用；该 Generation 被释放且 Cell 复用后，所有旧
@@ -211,11 +228,16 @@ EventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，
 其他 Actor 的后果。
 
 Restore 必须保持 Source 的 Timeline 与 ClockDomain、推进 ExecutionSequence，并建立
-同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre2 只验证
-Descriptor 和 internal、same-session、exact-layout Codec Spike；该 Spike 不是跨会话
-存档格式或稳定 Wire Identity。Pre6 负责 Temporal 存储和倒放，Pre13 负责
-Durable Save Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界
-事实和生成实体重建。
+同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre5 提供完整 Actor
+纯读验证，以及 internal tokenized prepare + no-callback apply seam，一次性交换 Context、
+Graph、Clock 与 Claim 权威；它不公开 Host Restore，也不调用 Actor Binding。Pre6 负责
+History、选择、世界校正、Rewind/Resume 与 New Epoch 编排。Pre13 负责 Durable Save
+Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界事实和生成实体
+重建。
+
+internal validation/prepare seam 在 Runtime 已 Fault、但不存在 staged Tick 的边界仍可供
+Pre6 D12 校正使用；其无回调 Apply 不会清除锁存 Fault 或
+`RequiresWorldCorrection`，该恢复决定仍由 Pre6 负责。
 
 ## Actor Mailbox 规则
 
@@ -299,9 +321,10 @@ Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose
   直到新 Host 实例启动。
 
 Outcome 只能写入 Pre3 Manifest 中已声明、非 Derived、Operator-owned 且唯一 owner
-的 Context Slot。Trace 只保存不可变 identity、revision、path、transition、outcome、
-commit、sequence、publish 与 diagnostic 数据，不保存 payload、Unity Object 或 mutable
-Frame Handle。
+的 Context Slot。Trace 按 compiled order 记录通过条件的 Transition Candidate，并把
+Winner 另记一条。不可变 Frame Reference 只含 identity、精确 Layout metadata、Revision
+与是否存在 committed Frame，不 Retain Frame Handle；Trace 不保存 payload、Unity Object、
+mutable Frame 或 diagnostic string。
 
 ## 仓库与包边界
 

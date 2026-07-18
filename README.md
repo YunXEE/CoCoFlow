@@ -6,7 +6,8 @@
 >
 > Pre5 adds explicit per-Host Operators, deterministic Claim and Outcome
 > processing, default-backed first-Tick Context reads, one composite Actor commit
-> barrier, committed EventOutbox publication, and immutable Runtime Trace.
+> barrier, complete Context producer ownership, committed EventOutbox
+> publication, and immutable Runtime Trace.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -115,13 +116,15 @@ Activation-scoped ActionProgress.
 
 ## StateGraph Runtime and Host
 
-One Actor needs one component and one asset:
+At minimum, one Actor needs one framework component and one asset. Actor-owned
+Slots add one explicit project binding:
 
 ```text
 Actor GameObject
 ├─ CoCoStateGraphHost        required
 │  └─ StateGraphAsset       required
-└─ Operator scripts          optional; referenced by the Host in explicit order
+├─ Operator scripts          optional; referenced by the Host in explicit order
+└─ Actor Context binding     required only when Actor-owned Slots exist
 ```
 
 Runtime, Clock, Inbox, Router, Logic, Condition, and Memory are not components.
@@ -129,6 +132,13 @@ The Host does not scan old Controllers, Context providers, children, or the
 scene. Multiple Hosts may share the immutable compiled graph, while each owns
 its StateLogic/Condition instances, double Memory banks, active leaves, Clock,
 Inbox, staged Tick, and latched Fault.
+
+Before any Clock or Runtime factory runs, transaction preflight requires exact
+coverage for Graph-state, Graph-value, Claim, Operator, Actor, and Derived
+Context Slots, plus Operator, Claim, Actor-binding, and Outbox configuration.
+An invalid setup leaves the Host in `Created` with no callback or Router-visible
+state. The Actor binding is one explicit Host reference, never discovered by a
+scene scan.
 
 `Start` chooses initial leaves but runs no callback. On each Layer's first Tick,
 the new path runs optional Enter parent-to-child and mandatory Update
@@ -211,7 +221,14 @@ corresponding Context candidate finalizes successfully.
 and not a Unity scene-object graph. Its fixed StateBlock/Slot layout must contain
 the graph, activation, transition progress, Actor values, and controllable
 Operator progress needed to continue from that commit boundary, or enough data
-to rebuild them deterministically.
+to rebuild them deterministically. It is the sole retainable and restorable
+Actor commit record; live Graph, Clock, and Claim caches are only mirrors or are
+uniquely rebuilt from it.
+
+Every direct Slot has exactly one producer: a Graph state record or Graph value
+producer for Graph-owned data, Claim arbitration for a Graph-owned Claim Slot,
+one Operator Outcome for Operator-owned data, and the Host's one Actor binding
+for Actor-owned data. Existing rebuilders exclusively produce Derived Slots.
 
 Descriptor metadata has two independent axes:
 
@@ -225,6 +242,12 @@ Descriptor metadata has two independent axes:
 - A projection that includes a Derived slot must also include every transitive
   Stored/Derived dependency required to rebuild it. Reset-to-default
   dependencies are deterministic and need not be projected.
+
+The Project Provider supplies each actual Layout default and a semantic
+fingerprint that declares its compatibility with the Manifest. That token is
+not a framework-computed canonical hash of the supplied value. After Runtime
+start, the initial Graph state is captured once and checked against those
+defaults without creating a committed Revision.
 
 `ContextFrame` is a generation-scoped handle over an arena storage cell, not the
 reusable cell itself. Retaining a live Frame prevents its cell from being
@@ -249,11 +272,17 @@ Operator, other Actor, or an already delivered cross-Actor consequence.
 
 Restore must remain in the source Timeline and ClockDomain, advance the
 ExecutionSequence, and start a TimelineEpoch newer than both the restored source
-and the Actor's current authoritative Epoch. Pre2 validates descriptors and an
-internal, same-session, exact-layout Codec spike only. That spike is not a
-cross-session save format or stable wire identity. Pre6 owns Temporal storage and rewind;
-Pre13 owns durable save documents, StableEntityId-to-runtime resolution,
-migration, containers, world facts, and spawned-entity reconstruction.
+and the Actor's current authoritative Epoch. Pre5 performs pure complete-Actor
+validation and supplies an internal, tokenized prepare plus no-callback apply
+seam that exchanges Context, Graph, Clock, and Claim authority together. It
+does not expose Host Restore or invoke Actor bindings. Pre6 owns history,
+selection, world correction, rewind/resume, and new-Epoch orchestration. Pre13
+owns durable save documents, StableEntityId-to-runtime resolution, migration,
+containers, world facts, and spawned-entity reconstruction.
+
+The internal validation/prepare seam remains usable at an idle faulted boundary
+for Pre6 D12 correction. Its no-callback apply does not clear the latched Fault
+or `RequiresWorldCorrection`; Pre6 owns that recovery decision.
 
 ## Actor Mailbox Rules
 
@@ -353,9 +382,11 @@ authority changes.
   `RequiresWorldCorrection` remains set until a fresh Host instance starts.
 
 Outcome Slot writes are limited to declared, non-Derived, Operator-owned Pre3
-Context Slots with one owner each. Trace records immutable identity, revision,
-path, transition, outcome, commit, sequence, publish, and diagnostic data only;
-it stores no payload, Unity object, or mutable Frame handle.
+Context Slots with one owner each. Trace records accepted Transition Candidates
+in compiled order and the Winner as a separate entry. Its immutable Frame
+references contain identity, exact Layout metadata, Revision, and whether a
+committed Frame exists; they never retain a Frame handle. Trace stores no
+payload, Unity object, mutable Frame, or diagnostic string.
 
 ## Repository and Package Boundary
 

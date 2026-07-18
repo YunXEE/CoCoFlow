@@ -126,8 +126,9 @@ Schema 与诊断见
 
 - 包含 GraphInstanceId、TimelineEpoch、Tick、Revision 和 Layout 兼容身份；
 - 使用固定 StateBlock/Slot Layout，而不是公开 Root Context 或 Operation Section；
-- StateBlock Owner 固定为 Graph、Operator 或 Actor；每个 Slot 只有一个 Writer，但可以有
-  多个 Reader；
+- StateBlock Owner 固定为 Graph、Operator 或 Actor；Graph state、Graph auxiliary、
+  canonical Claim、Operator Outcome、Actor Binding 与 Derived rebuilder 必须把每个 Slot
+  精确分类并覆盖一次，但可以有多个 Reader；
 - 包含继续运行所需的 active state、transition progress、Activation、Actor 连续值和
   参与恢复的可控 Operator 进度，或包含能够唯一重建它们的值；
 - 不包含 Inbox、IntentFrame、raw Envelope、Source、执行中局部变量、未发布 Outbox
@@ -141,8 +142,15 @@ Schema 与诊断见
 - Restore 只接受已提交 ContextFrame 或合法投影，在新 TimelineEpoch 形成新 Revision，
   并记录 Source GraphInstanceId、TimelineEpoch、Tick 与 Revision。
 
-ContextFrame 只承诺单 Actor 逻辑恢复。它不恢复世界、其他 Actor，或撤销已经交付给
-其他 Actor 的 Event 后果。
+ContextFrame 是唯一可以携带、Retain 与 Restore 的 Actor 提交记录。Graph
+Path/Memory/Activation、ActorClock 与 Claim 的 live cache 只能是它的镜像，或由它唯一
+重建，不能形成第二份权威。ContextFrame 只承诺单 Actor 逻辑恢复；它不恢复世界、其他
+Actor，或撤销已经交付给其他 Actor 的 Event 后果。
+
+Layout 的实际 Default 由可信 Project Provider 提供；semantic fingerprint 是 Provider
+对该值与 Manifest 语义一致性的声明 token，不是框架从 `defaultValue` 重算的 canonical
+hash。Runtime 初始化后、公开前会捕获一次初始 Graph State 并与这些 Default 比较，
+但不产生 Revision。
 
 ## 3. Operation、Outcome 与 Commit Barrier
 
@@ -153,9 +161,10 @@ API，而是交付 OperationFrame；Operator 读取对应 Section，执行后产
 Commit 顺序固定：
 
 ```text
-Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage
-  -> Claim Arbitration -> Operators -> Outcome/Outbox Validation
-  -> Context Finalize -> Graph Commit Preflight -> Composite Preflight
+Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
+  -> Graph-owned State/Value Capture -> Claim Arbitration/Claim Capture
+  -> Operators/Outcomes/Outbox -> Actor-owned Capture -> Derived Finalize
+  -> Composite Preflight
   -> no-fail Commit -> complete EventOutbox Publish
 ```
 
@@ -166,12 +175,17 @@ ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边�
   重试结果，不推进 Tick 或 Inbox；Prepared Token 只提供 Writer 与 `TryFinalize`；
 - 任何真实 Operator Callback 前一次性计算 Claim。Discrete Claim 绑定
   `Enabled + ActivationId`；一个 Operator 的多个 Claim all-or-none，按 Priority、Host
-  列表顺序、OperatorId 稳定仲裁；正常败者得到 `ClaimDenied` 而不 Fault；
+  列表顺序、OperatorId 稳定仲裁；每个 Claim 指向一个 Graph-owned Claim State Slot，
+  同 ClaimId 的竞争者必须指向同一 Slot；正常败者得到 `ClaimDenied` 而不 Fault，
+  canonical Slot 仍由仲裁器写一次；
 - Outcome Writer 绑定 OperatorId、Transaction Token 与该 Operator 的 Slot 白名单，
   Callback 退出后立即失效。它只能写 Manifest 内非 Derived、Operator-owned 且唯一
   owner 的 Slot；后序 Operator 仍只读上一个 committed Context；
 - Writer 拒绝 Derived Slot。Finalize 在每个成功 Tick（包括 no-op Tick）从权威输入按
   确定拓扑重建所有 Derived；只有 Finalized Token 可以 Commit；
+- Graph-owned 捕获在 Claim 与任何真实 Operator Callback 前完成；Actor Binding 在
+  Operators 后捕获 Actor-owned Slot。两者与后序 Operator 都只能读取 Previous Context，
+  不能读取本 Tick candidate；
 - Derived Rebuilder 返回失败或抛异常时先放弃 Candidate，旧 ContextFrame 继续权威；
   Host 在完成取消后将抛出路径收敛为结构化 Fault Diagnostic；
 - StateGraph 不能在当前 Tick 读取执行中的 Outcome；
@@ -190,6 +204,12 @@ metadata 与 Sequence overflow，不消耗 Sequence。Commit 后按 Host Operato
 Operator append 顺序发布；同一 GraphInstance/Epoch 的所有 EventType 共用连续
 Sequence。Subscriber 异常继续隔离；基础设施异常记录 Fault 并继续发布剩余已提交
 Packet，不回收 Sequence、不自动重发、不回滚已送达 Event。
+
+Trace 先按 compiled order 记录 Source/Window 合法且 Conditions 全通过的 Transition
+Candidate，再为 Winner 单独记录一条。Frame Reference 只保存 identity、精确 Layout
+metadata、Revision 与 `HasCommittedFrame`，不 Retain Context Handle；首 Tick Previous
+引用精确 Layout Default 且 `HasCommittedFrame=false`，不伪造 Revision 0。失败事务以
+Cancelled 结束，不得出现 Commit、Sequence 或 Published。
 
 ## 4. EventPacket 与路由身份
 
@@ -323,13 +343,22 @@ ContextFrame 是完整内存状态。Descriptor 使用两组正交元数据，�
 Ring Buffer 只保存 ContextFrame，不保存 IntentFrame、Inbox 或未发布 Outbox。需要跨
 存档存在的“事件”必须先转化成 Actor Pending State 或世界事实。
 
-Pre5 只提供纯读 Restore compatibility validation 和 Arena 的低层无普通副作用 Apply
-seam，不增加 Host History/Rewind/Resume/New Epoch 或 `ICoCoContextRestoreBinding`。
+Pre5 提供完整 Actor 的纯读 Restore validation：Context identity/layout/revision/origin、
+Clock timeline/domain/epoch/tick/sequence、Graph path/activation/time/progress/memory 与
+Claim ownership 都必须一致；Actor-owned Slot 只验证 Layout/type/policy，不调用 Actor
+Binding。内部单次 tokenized `TryPrepareRestore` 在屏障外完成 copy/default/Derived 与
+Memory prepare，`CommitNoFail` 一次性交换 Context、Graph、Clock 与 Claim cache，不触发
+State、Condition、Operator、Actor Binding、Event、Trace 或 Sequence。Pre5 不增加 public
+Host Apply、History/Rewind/Resume/New Epoch 或 `ICoCoContextRestoreBinding`。
+该低层 validation/prepare seam 在 Runtime 已 Fault、但不存在 staged Tick 的边界仍可用，
+以便 Pre6 在 D12 世界校正后重建镜像；低层 Apply 本身不会清除锁存 Fault 或
+`RequiresWorldCorrection`。
 Restore 必须保持 Source 的 TimelineId 与 ClockDomainId、严格推进 ExecutionSequence；
 建立的 TimelineEpoch 必须严格大于 Source Epoch，也严格大于 Actor 当前权威 Epoch。
 Pre2 只验证 internal、same-session、exact-layout Codec Spike；它继续绑定当前
 GraphInstanceId，不是跨会话存档格式或稳定 Wire Identity。Pre6 实现 Temporal Ring
-Buffer、Rewind 和 TimelineEpoch 切换；Pre13 定义 Durable Save Document、
+Buffer、历史选择、输入阻断、Unity/D12 世界校正、Rewind/Resume 与 TimelineEpoch
+切换；Pre13 定义 Durable Save Document、
 StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container 和世界事实
 恢复。
 
@@ -345,6 +374,12 @@ StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container
 - Unity Callback、Fusion Tick 或 Manual Driver 都只能作为 Host/Driver 输入；
 - Animator/SMB Callback 不能立即调用 StateGraph 或修改当前 Frame；它只能进入表现
   路径，或经 Event/Intent 边界供后续 Tick 消化。
+
+Host 启动先完成 Compile、Provider Configure/Freeze 与 Transaction Preflight；只有 Graph
+producer、Actor Binding、Operator/Outcome/Claim 与 Outbox 容量全部合法，才创建 Clock、
+Runtime、执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
+因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
+Operator 或 Actor callback，Host 保持 `Created`。
 
 Pre5 的 `CoCoStateGraphHost` 是唯一 public MonoBehaviour；Asset 是唯一必填项，其他
 Driver、AutoStart、TimeScale 与诊断容量是同一 Host 的设置，不增加组件。Runtime、
@@ -397,9 +432,11 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 - **Pre4**：已交付纯 StateGraph Runtime、每 Actor 独占状态、Host、Clock/Driver、实际
   Event-to-Intent Adapter coverage/binding、internal EventRouter、EventAgent 订阅、
   Inbox 注册、staged Tick 与生命周期。
-- **Pre5**：已交付 Host 显式 Operator 列表、Claim/Outcome、ContextFrame 复合 Commit、
-  committed EventOutbox Publish、immutable Trace 与纯 Restore compatibility validation。
-- **Pre6**：Temporal Ring Buffer、Restore、Rewind 与新 TimelineEpoch。
+- **Pre5**：已交付 Host 显式 Operator 列表、Graph/Claim/Operator/Actor/Derived producer
+  ownership、ContextFrame 复合 Commit、committed EventOutbox Publish、immutable Trace、
+  完整 Actor 纯 Restore validation 与内部无 callback apply seam。
+- **Pre6**：Temporal Ring Buffer、public Restore 编排、世界校正、Rewind/Resume 与新
+  TimelineEpoch。
 - **Pre11**：Animator/Playable/SMB 替代与视觉倒放映射。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
 - **Pre16**：跨模块架构、性能、Mailbox、Suspend、Rewind 与幽灵订阅完整门禁。

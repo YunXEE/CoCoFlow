@@ -17,17 +17,25 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - One per-Actor composite authority barrier covering staged StateGraph state,
   OperationSequence, Clock, ContextFrame, Claims, and EventSequence before any
   committed EventOutbox packet becomes visible.
-- Immutable identity-only Runtime Trace entries with a configurable fixed ring,
-  plus pure Context restore-compatibility validation for later Temporal and
-  Persistence orchestration.
+- Exact Graph-state, Graph-value, Claim, Operator, Actor, and Derived Context
+  producer ownership, including one explicit Actor binding when Actor-owned
+  Slots exist.
+- Immutable identity-only Runtime Trace entries with Candidate/Winner roles and
+  value-only Frame references, plus pure complete-Actor restore validation and
+  an internal no-callback composite prepare/apply seam that remains available
+  at idle faulted boundaries without clearing Fault or world-correction state.
 
 ### Changed
 
 - Replaced the Pre4 internal test coordinator with the production Operator and
   Context transaction owned by each `CoCoStateGraphHost` instance.
 - Made Context arena authority the Host's sole committed Context source and
-  split Graph, OperationFrame, and Clock acceptance into fallible preflight and
-  an internal no-callback commit path.
+  made Graph, Clock, and Claim caches mirrors that can be rebuilt uniquely from
+  it. Transaction preflight now rejects invalid producer, Operator, Claim,
+  Actor-binding, and Outbox coverage before Runtime factories execute.
+- Kept Context defaults supplied by the trusted Project Provider. Their semantic
+  fingerprints are declaration tokens checked against the Manifest, not
+  framework-computed canonical hashes of the supplied values.
 - Updated the package version and the two existing Unity Package Validation
   Suite exception scopes to `0.4.0-pre.5`; dependencies remain unchanged.
 

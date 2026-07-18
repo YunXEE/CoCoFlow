@@ -15,7 +15,8 @@ The required scene surface is intentionally small:
 Actor GameObject
 ├─ CoCoStateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
-└─ Operator scripts          optional; referenced by the Host in explicit order
+├─ Operator scripts          optional; referenced by the Host in explicit order
+└─ Actor Context binding     required only when Actor-owned Slots exist
 ```
 
 `CoCoStateGraphHost` is the only public `MonoBehaviour` introduced by this
@@ -37,6 +38,11 @@ duplicate Operator IDs, entries outside its transform scope, and entries hidden
 behind a nested Host. Optional capability is represented by an explicit no-op
 Operator, not by an absent binding or runtime discovery.
 
+The Actor Context binding is also one explicit Host reference. It must implement
+the binding contract, stay inside the Host's transform scope without crossing a
+nested Host, and cover every Actor-owned writable Slot exactly once. It must be
+absent when the Layout contains no Actor-owned Slot.
+
 ## Shared graph, isolated Actor state
 
 Hosts may share one immutable compiled result from the same Asset. Everything
@@ -52,6 +58,23 @@ Context Slot requirements exactly. The deduplicated Operator requirements must
 also exactly cover the compiled Graph Operation-provides manifest. Missing,
 extra, duplicate, or type-incompatible bindings leave the Host in `Created`; no
 callback, Tick, or Router registration occurs.
+
+Transaction preflight runs before Clock creation and before
+`CoCoStateGraphRuntime.TryCreate`. It classifies every non-Derived Context Slot
+exactly once as Graph state, Graph auxiliary value, canonical Claim, Operator
+Outcome, or Actor binding output; existing rebuilders exclusively own Derived
+Slots. Invalid producer, Operator, Claim, Actor-binding, or Outbox setup is
+therefore rejected before Logic, Condition, Memory create/reset/fingerprint, or
+Graph-capture callbacks can run. A Transaction created for a later Runtime
+create/start/initial-validation failure is disposed before the Host returns.
+
+The Project Provider supplies the actual Context default, Codec, and semantic
+fingerprint for each binding. The fingerprint is the Provider's declaration of
+semantic compatibility with the Manifest, not a canonical hash recomputed from
+the supplied default value. After Runtime start but before Host publication, an
+initial Graph-state capture verifies that Graph records match those Layout
+defaults without creating Revision 0.
+
 The Asset declaration list is the authoritative Event Adapter execution order.
 The compiled manifest preserves that order; the project binding Provider may
 only satisfy the declarations and cannot reorder their runtime semantics.
@@ -59,7 +82,10 @@ only satisfy the declarations and cannot reorder their runtime semantics.
 Each State factory also supplies AOT-safe Memory create, copy, reset, and
 fingerprint operations. Memory references are valid only while the owning State
 callback is running; mutation retained past that boundary is detected and faults
-the staged Tick instead of changing committed state behind the transaction.
+the staged Tick instead of changing committed state behind the transaction. A
+Graph-state capture binding is likewise callback-scoped: Runtime rechecks both
+candidate and committed fingerprints immediately after capture and before the
+first Operator callback, and rechecks committed memory before Host publication.
 
 ## Active path and lifecycle callbacks
 
@@ -168,9 +194,10 @@ refuses another Step while that Tick is unresolved.
 Pre5 resolves that staged Tick in one fixed transaction:
 
 ```text
-Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage
-  -> Claim Arbitration -> Operators -> Outcome/Outbox Validation
-  -> Context Finalize -> Graph Commit Preflight -> Composite Preflight
+Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
+  -> Graph-owned State/Value Capture -> Claim Arbitration/Claim Capture
+  -> Operators/Outcomes/Outbox -> Actor-owned Capture -> Derived Finalize
+  -> Composite Preflight
   -> no-fail Commit -> complete Outbox Publish
 ```
 
@@ -186,8 +213,16 @@ discrete claim binds `Enabled + ActivationId`; all claims of one Operator win or
 lose together. Arbitration uses descending Priority, Host list order, then
 stable Operator ID. A loser produces `ClaimDenied`, runs no callback, and leaves
 no Context or Outbox write. Ordinary competition therefore does not fault the
-Tick. Claim authority is released on Activation change, Exit, Stop, Dispose, or
-the claim's explicit Suspend policy.
+Tick. Every Claim declaration identifies one Graph-owned Claim State Slot;
+competitors for one Claim ID must identify the same Slot, and arbitration writes
+its canonical owner once. Claim authority is released on Activation change,
+Exit, Stop, Dispose, or the claim's explicit Suspend policy.
+
+Graph capture completes before arbitration and any real Operator callback.
+Operators produce only their declared Operator-owned Slots. The single Actor
+binding captures Actor-owned Slots after Operators, but like every Operator it
+reads only Previous Context and cannot see this Tick's candidate. Derived
+rebuilding begins only after all direct producers finish.
 
 Only the composite no-fail barrier publishes Context authority, operation
 sequence, path, memory, activation, Clock, committed claims, a contiguous final
@@ -196,6 +231,12 @@ callback, allocation, capacity request, or fallible mutation. Any earlier
 failure cancels all candidates and retains the previous authority without final
 sequence consumption. Rollback cannot make `ActionProgress` move backwards
 within an Activation.
+
+The committed `ContextFrame` is the sole retainable and restorable Actor commit
+record. Live Graph banks/path/activation, Clock, and Claim state are commit-time
+mirrors or can be rebuilt uniquely from that Frame; they are never independent
+authority. The no-fail barrier swaps Context first and then commits those mirrors
+without callbacks, allocation, capacity requests, or fallible mutation.
 
 ## Clock, lifecycle, and Fault
 
@@ -270,15 +311,54 @@ are neither reclaimed nor automatically retried. Destroy, Stop, or Dispose
 requested during publication is deferred until the committed list completes.
 
 Runtime Trace is an optional fixed-capacity immutable ring. Capacity zero creates
-no buffer. Entries carry identity, revision, path, transition, Section, Operator
-outcome, commit, sequence, publish, and diagnostic codes, but never payloads,
-Unity objects, mutable Frames, Router/Inbox state, or diagnostic strings. Trace
+no buffer. Accepted Transition Candidates are emitted in compiled order after
+their source/window/conditions pass, and the Winner is emitted again with an
+explicit Winner role. A value-only Frame reference records Frame identity, exact
+Layout identity/version/schema hash, Revision, and whether a committed Frame
+exists. The first Tick therefore references exact Previous Layout defaults with
+`HasCommittedFrame == false`, never a fictional Revision 0.
+
+Successful ordering is Tick inputs, Candidates, Winner, Operation Sections,
+Operator Outcomes, Context commit, ActivePath, EventSequence, then publication
+or publish diagnostics. A failed transaction ends with Cancelled and cannot
+contain commit, sequence, or published entries. Trace never stores payloads,
+Unity objects, mutable Frames, Router/Inbox state, or diagnostic strings, and it
 does not retain Context; a caller that needs long-lived Context access must
-explicitly retain and release it.
+explicitly retain and release it. Filters may constrain entries by State ID or
+Transition ID without changing the stored evidence.
+
+## Restore seam
+
+Pre5 validates a proposed Actor restore without callbacks: Context generation,
+Graph instance, exact Layout, Revision and origin; Clock domain/timeline, Epoch,
+Tick and execution sequence; Graph path, activation, timing/progress and Memory
+records; and canonical Claim ownership against Operator descriptors. Actor-owned
+Slots receive only Layout/type/policy validation, so the Actor binding is not
+invoked.
+
+The internal restore path is single-use and tokenized:
+
+```text
+TryValidateRestore -> TryPrepareRestore -> CommitNoFail
+```
+
+Prepare performs candidate copy/default/Derived work and Memory restore binding
+outside the barrier. Failure leaves every old authority unchanged. Commit swaps
+Context, Graph, Clock, and Claim mirrors together without State Enter/Exit,
+Condition, Operator, Actor binding, Event, Trace, or Sequence work. Pre5 exposes
+no public Host Apply, History, Rewind, Seek, Resume, or New-Epoch API; Pre6 owns
+input blocking, historical selection, Unity/D12 correction, recovery, and Epoch
+orchestration around this low-level seam.
+
+The compatibility and prepare seam remains available at an idle faulted Runtime
+boundary so Pre6 can repair Graph/Clock/Claim mirrors after D12 world correction.
+Applying the low-level proof does not clear the latched Fault or
+`RequiresWorldCorrection`; that recovery decision remains Pre6 orchestration.
 
 ## Explicitly deferred
 
-- **Pre6**: Temporal history, Restore, rewind, and new TimelineEpoch creation.
+- **Pre6**: Temporal history, public Restore orchestration, rewind/resume, world
+  correction, and new TimelineEpoch creation.
 - **Pre11**: Animator/Playable/SMB replacement and presentation reverse mapping.
 - **Pre13**: durable persistence and migration.
 
