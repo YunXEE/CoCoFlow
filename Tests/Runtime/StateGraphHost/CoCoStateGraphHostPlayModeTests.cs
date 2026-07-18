@@ -1368,6 +1368,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
+                if (!TryBindGraphState(builder, _ids, out diagnostic))
+                {
+                    return false;
+                }
+
                 var stateFactory = new CoCoStateRuntimeFactory<HostTestLogic, HostTestMemory>(
                     context => new HostTestLogic(context.GraphInstanceId, firstIntent),
                     () => new HostTestMemory(),
@@ -1409,6 +1414,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     ids.EventTypeId,
                     secondIntentId,
                     out CoCoDiagnostic secondEvent));
+                Require(TryRegisterGraphState(builder, ids, out CoCoDiagnostic graphState));
                 Require(builder.TryRegisterState(
                     ids.StateDescriptorId,
                     1U,
@@ -1419,7 +1425,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestMemory>(HostTestSchemas.State, false),
                     new[] { ids.IntentId, secondIntentId },
                     null,
-                    null,
+                    new[] { ids.GraphStateBlockId },
                     out CoCoDiagnostic state));
                 Require(builder.TryFreeze(
                     out CoCoGraphDescriptorCatalog catalog,
@@ -1495,6 +1501,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
+                if (!TryBindGraphState(builder, _ids, out diagnostic))
+                {
+                    return false;
+                }
+
                 var stateFactory = new CoCoStateRuntimeFactory<HostTestLogic, HostTestMemory>(
                     context => new HostTestLogic(context.GraphInstanceId, intent),
                     () => new HostTestMemory(),
@@ -1533,6 +1544,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     secondEventTypeId,
                     ids.IntentId,
                     out CoCoDiagnostic secondEvent));
+                Require(TryRegisterGraphState(builder, ids, out CoCoDiagnostic graphState));
                 Require(builder.TryRegisterState(
                     ids.StateDescriptorId,
                     1U,
@@ -1543,7 +1555,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestMemory>(HostTestSchemas.State, false),
                     new[] { ids.IntentId },
                     null,
-                    null,
+                    new[] { ids.GraphStateBlockId },
                     out CoCoDiagnostic state));
                 Require(builder.TryFreeze(
                     out CoCoGraphDescriptorCatalog catalog,
@@ -1645,6 +1657,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
+                if (!TryBindGraphState(builder, _ids, out diagnostic))
+                {
+                    return false;
+                }
+
                 if (_omitStateFactory)
                 {
                     diagnostic = CoCoDiagnostic.None;
@@ -1736,6 +1753,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     operations = new[] { ids.OperationSectionId };
                 }
 
+                Require(TryRegisterGraphState(builder, ids, out CoCoDiagnostic graphState));
                 Require(builder.TryRegisterState(
                     ids.StateDescriptorId,
                     1U,
@@ -1746,7 +1764,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         HostTestMemory>(HostTestSchemas.State, false),
                     intents,
                     operations,
-                    null,
+                    new[] { ids.GraphStateBlockId },
                     out CoCoDiagnostic state));
                 Require(builder.TryFreeze(
                     out CoCoGraphDescriptorCatalog catalog,
@@ -1764,7 +1782,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoIntentId intentId,
                 CoCoEventTypeId eventTypeId,
                 CoCoEventDomainId eventDomainId,
-                CoCoOperationSectionId operationSectionId)
+                CoCoOperationSectionId operationSectionId,
+                CoCoStateBlockId graphStateBlockId,
+                CoCoStateSlotId graphStateSlotId)
             {
                 LayerId = layerId;
                 StateId = stateId;
@@ -1773,6 +1793,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 EventTypeId = eventTypeId;
                 EventDomainId = eventDomainId;
                 OperationSectionId = operationSectionId;
+                GraphStateBlockId = graphStateBlockId;
+                GraphStateSlotId = graphStateSlotId;
             }
 
             public CoCoLayerId LayerId { get; }
@@ -1782,6 +1804,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public CoCoEventTypeId EventTypeId { get; }
             public CoCoEventDomainId EventDomainId { get; }
             public CoCoOperationSectionId OperationSectionId { get; }
+            public CoCoStateBlockId GraphStateBlockId { get; }
+            public CoCoStateSlotId GraphStateSlotId { get; }
 
             public static HostTestIds Create()
             {
@@ -1798,6 +1822,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     107UL,
                     1UL,
                     out CoCoOperationSectionId operationSectionId));
+                Require(CoCoStateBlockId.TryCreate(
+                    108UL,
+                    1UL,
+                    out CoCoStateBlockId graphStateBlockId));
+                Require(CoCoStateSlotId.TryCreate(
+                    109UL,
+                    1UL,
+                    out CoCoStateSlotId graphStateSlotId));
                 return new HostTestIds(
                     layerId,
                     stateId,
@@ -1805,8 +1837,73 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     intentId,
                     eventTypeId,
                     domainId,
-                    operationSectionId);
+                    operationSectionId,
+                    graphStateBlockId,
+                    graphStateSlotId);
             }
+        }
+
+        private const ulong GraphStateDefaultFingerprint = 993UL;
+
+        private static bool TryRegisterGraphState(
+            CoCoGraphDescriptorCatalogBuilder builder,
+            HostTestIds ids,
+            out CoCoDiagnostic diagnostic)
+        {
+            CoCoGraphStateRecord<int> defaultState = CreateDefaultGraphState(ids);
+            return builder.TryRegisterStateBlock(
+                       ids.GraphStateBlockId,
+                       CoCoStateBlockOwner.Graph,
+                       out diagnostic) &&
+                   builder.TryRegisterStateSlot(
+                       ids.GraphStateBlockId,
+                       ids.GraphStateSlotId,
+                       CoCoContextProjection.Temporal,
+                       CoCoContextRestorePolicy.Stored,
+                       defaultState,
+                       GraphStateDefaultFingerprint,
+                       default,
+                       null,
+                       out diagnostic);
+        }
+
+        private static bool TryBindGraphState(
+            CoCoStateGraphHostBindingBuilder builder,
+            HostTestIds ids,
+            out CoCoDiagnostic diagnostic) =>
+            builder.TryBindGraphStateSlot<
+                HostTestMemory,
+                int,
+                OperatorCommitHostMemoryBinding>(
+                ids.LayerId,
+                ids.StateId,
+                ids.GraphStateBlockId,
+                ids.GraphStateSlotId,
+                CreateDefaultGraphState(ids),
+                GraphStateDefaultFingerprint,
+                new OperatorCommitHostMemoryBinding(),
+                out diagnostic);
+
+        private static CoCoGraphStateRecord<int> CreateDefaultGraphState(HostTestIds ids)
+        {
+            if (!CoCoActivationId.TryCreate(1UL, out CoCoActivationId activationId) ||
+                !CoCoGraphStateRecord<int>.TryCreate(
+                    ids.LayerId,
+                    ids.StateId,
+                    true,
+                    activationId,
+                    0d,
+                    0d,
+                    true,
+                    0UL,
+                    0,
+                    out CoCoGraphStateRecord<int> state))
+            {
+                throw new InvalidOperationException(
+                    "Host test Graph State default is invalid.");
+            }
+
+            return state;
         }
     }
 }

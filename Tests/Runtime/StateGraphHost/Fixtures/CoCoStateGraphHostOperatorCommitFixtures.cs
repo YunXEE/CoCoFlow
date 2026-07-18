@@ -294,26 +294,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                        out diagnostic);
         }
 
-        public static bool TryBindSingleState(
-            CoCoStateGraphHostBindingBuilder builder,
-            OperatorCommitTestIds ids,
-            out CoCoDiagnostic diagnostic)
-        {
-            CoCoGraphStateRecord<int> first = CreateActiveState(ids, 0);
-            return builder.TryBindGraphStateSlot<
-                HostTestMemory,
-                int,
-                OperatorCommitHostMemoryBinding>(
-                ids.LayerId,
-                ids.StateId,
-                ids.GraphStateBlockId,
-                ids.FirstGraphStateSlotId,
-                first,
-                FirstStateDefaultFingerprint,
-                new OperatorCommitHostMemoryBinding(),
-                out diagnostic);
-        }
-
         public static bool TryRegisterClaimGraph(
             CoCoGraphDescriptorCatalogBuilder builder,
             OperatorCommitTestIds ids,
@@ -386,66 +366,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                        out diagnostic);
         }
 
-        public static bool TryBindClaimGraph(
-            CoCoStateGraphHostBindingBuilder builder,
-            OperatorCommitTestIds ids,
-            out CoCoDiagnostic diagnostic) =>
-            TryBindClaimGraph(builder, ids, false, out diagnostic);
-
-        public static bool TryBindClaimGraph(
-            CoCoStateGraphHostBindingBuilder builder,
-            OperatorCommitTestIds ids,
-            bool mismatchPrimaryIdentity,
-            out CoCoDiagnostic diagnostic)
-        {
-            CoCoGraphStateRecord<byte> first = CreateActiveState(ids, (byte)0);
-            CoCoGraphStateRecord<byte> second = CreateInactiveState(ids, (byte)0);
-            CoCoOperatorClaimState primary = CoCoOperatorClaimState.Unheld(
-                mismatchPrimaryIdentity ? ids.SecondaryClaimId : ids.PrimaryClaimId,
-                ids.PrimarySectionId);
-            CoCoOperatorClaimState secondary = CoCoOperatorClaimState.Unheld(
-                ids.SecondaryClaimId,
-                ids.SecondarySectionId);
-            var memoryBinding = new OperatorCommitClaimMemoryBinding();
-            return builder.TryBindGraphStateSlot<
-                       OperatorCommitClaimMemory,
-                       byte,
-                       OperatorCommitClaimMemoryBinding>(
-                       ids.LayerId,
-                       ids.StateId,
-                       ids.GraphStateBlockId,
-                       ids.FirstGraphStateSlotId,
-                       first,
-                       FirstStateDefaultFingerprint,
-                       memoryBinding,
-                       out diagnostic) &&
-                   builder.TryBindGraphStateSlot<
-                       OperatorCommitClaimMemory,
-                       byte,
-                       OperatorCommitClaimMemoryBinding>(
-                       ids.LayerId,
-                       ids.SecondStateId,
-                       ids.GraphStateBlockId,
-                       ids.SecondGraphStateSlotId,
-                       second,
-                       SecondStateDefaultFingerprint,
-                       memoryBinding,
-                       out diagnostic) &&
-                   builder.TryBindClaimStateSlot(
-                       ids.GraphStateBlockId,
-                       ids.PrimaryClaimStateSlotId,
-                       primary,
-                       PrimaryClaimDefaultFingerprint,
-                       out diagnostic) &&
-                   builder.TryBindClaimStateSlot(
-                       ids.GraphStateBlockId,
-                       ids.SecondaryClaimStateSlotId,
-                       secondary,
-                       SecondaryClaimDefaultFingerprint,
-                       out diagnostic);
-        }
-
-        private static CoCoGraphStateRecord<TState> CreateActiveState<TState>(
+        public static CoCoGraphStateRecord<TState> CreateActiveState<TState>(
             OperatorCommitTestIds ids,
             TState state)
             where TState : unmanaged
@@ -470,7 +391,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             return record;
         }
 
-        private static CoCoGraphStateRecord<TState> CreateInactiveState<TState>(
+        public static CoCoGraphStateRecord<TState> CreateInactiveState<TState>(
             OperatorCommitTestIds ids,
             TState state)
             where TState : unmanaged

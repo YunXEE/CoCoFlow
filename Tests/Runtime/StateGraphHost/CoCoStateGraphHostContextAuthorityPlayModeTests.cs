@@ -91,7 +91,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryStep(0.1d, out CoCoDiagnostic transitionStep), transitionStep);
 
             Assert.That(host.CurrentContext.Revision.Value, Is.EqualTo(2UL));
-            Assert.That(host.ActivePaths, Has.Count.EqualTo(1));
+            Assert.That(host.ActivePaths.Count, Is.EqualTo(1));
             Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
 
             CoCoGraphStateRecord<int> source = ReadGraphState(

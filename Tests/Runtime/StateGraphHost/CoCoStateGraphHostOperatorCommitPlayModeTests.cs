@@ -1466,6 +1466,91 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             AssertNoProjectFactoryCallbacks();
         }
 
+        private static class OperatorCommitHostBindingFixture
+        {
+            public static bool TryBindSingleState(
+                CoCoStateGraphHostBindingBuilder builder,
+                OperatorCommitTestIds ids,
+                out CoCoDiagnostic diagnostic)
+            {
+                CoCoGraphStateRecord<int> first =
+                    OperatorCommitGraphContextFixture.CreateActiveState(ids, 0);
+                return builder.TryBindGraphStateSlot<
+                    HostTestMemory,
+                    int,
+                    OperatorCommitHostMemoryBinding>(
+                    ids.LayerId,
+                    ids.StateId,
+                    ids.GraphStateBlockId,
+                    ids.FirstGraphStateSlotId,
+                    first,
+                    OperatorCommitGraphContextFixture.FirstStateDefaultFingerprint,
+                    new OperatorCommitHostMemoryBinding(),
+                    out diagnostic);
+            }
+
+            public static bool TryBindClaimGraph(
+                CoCoStateGraphHostBindingBuilder builder,
+                OperatorCommitTestIds ids,
+                out CoCoDiagnostic diagnostic) =>
+                TryBindClaimGraph(builder, ids, false, out diagnostic);
+
+            public static bool TryBindClaimGraph(
+                CoCoStateGraphHostBindingBuilder builder,
+                OperatorCommitTestIds ids,
+                bool mismatchPrimaryIdentity,
+                out CoCoDiagnostic diagnostic)
+            {
+                CoCoGraphStateRecord<byte> first =
+                    OperatorCommitGraphContextFixture.CreateActiveState(ids, (byte)0);
+                CoCoGraphStateRecord<byte> second =
+                    OperatorCommitGraphContextFixture.CreateInactiveState(ids, (byte)0);
+                CoCoOperatorClaimState primary = CoCoOperatorClaimState.Unheld(
+                    mismatchPrimaryIdentity ? ids.SecondaryClaimId : ids.PrimaryClaimId,
+                    ids.PrimarySectionId);
+                CoCoOperatorClaimState secondary = CoCoOperatorClaimState.Unheld(
+                    ids.SecondaryClaimId,
+                    ids.SecondarySectionId);
+                var memoryBinding = new OperatorCommitClaimMemoryBinding();
+                return builder.TryBindGraphStateSlot<
+                           OperatorCommitClaimMemory,
+                           byte,
+                           OperatorCommitClaimMemoryBinding>(
+                           ids.LayerId,
+                           ids.StateId,
+                           ids.GraphStateBlockId,
+                           ids.FirstGraphStateSlotId,
+                           first,
+                           OperatorCommitGraphContextFixture.FirstStateDefaultFingerprint,
+                           memoryBinding,
+                           out diagnostic) &&
+                       builder.TryBindGraphStateSlot<
+                           OperatorCommitClaimMemory,
+                           byte,
+                           OperatorCommitClaimMemoryBinding>(
+                           ids.LayerId,
+                           ids.SecondStateId,
+                           ids.GraphStateBlockId,
+                           ids.SecondGraphStateSlotId,
+                           second,
+                           OperatorCommitGraphContextFixture.SecondStateDefaultFingerprint,
+                           memoryBinding,
+                           out diagnostic) &&
+                       builder.TryBindClaimStateSlot(
+                           ids.GraphStateBlockId,
+                           ids.PrimaryClaimStateSlotId,
+                           primary,
+                           OperatorCommitGraphContextFixture.PrimaryClaimDefaultFingerprint,
+                           out diagnostic) &&
+                       builder.TryBindClaimStateSlot(
+                           ids.GraphStateBlockId,
+                           ids.SecondaryClaimStateSlotId,
+                           secondary,
+                           OperatorCommitGraphContextFixture.SecondaryClaimDefaultFingerprint,
+                           out diagnostic);
+            }
+        }
+
         private sealed class OperatorCommitBindingProvider : ICoCoStateGraphProjectBindingProvider
         {
             private readonly OperatorCommitTestIds _ids;
@@ -1489,7 +1574,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         defaultValue,
                         ContextDefaultFingerprint,
                         out diagnostic) ||
-                    !OperatorCommitGraphContextFixture.TryBindSingleState(
+                    !OperatorCommitHostBindingFixture.TryBindSingleState(
                         builder,
                         _ids,
                         out diagnostic))
@@ -1625,7 +1710,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
-                if (!OperatorCommitGraphContextFixture.TryBindSingleState(
+                if (!OperatorCommitHostBindingFixture.TryBindSingleState(
                         builder,
                         _ids,
                         out diagnostic))
@@ -1792,7 +1877,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         defaultValue,
                         ContextDefaultFingerprint,
                         out diagnostic) ||
-                    !OperatorCommitGraphContextFixture.TryBindClaimGraph(
+                    !OperatorCommitHostBindingFixture.TryBindClaimGraph(
                         builder,
                         _ids,
                         _mismatchPrimaryClaimDefault,
