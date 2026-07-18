@@ -18,7 +18,9 @@ namespace CoCoFlow.Runtime.Core
         Intent = 11,
         Mailbox = 12,
         Restore = 13,
-        Codec = 14
+        Codec = 14,
+        Operator = 15,
+        EventOutbox = 16
     }
 
     public enum CoCoDiagnosticCode
@@ -75,7 +77,17 @@ namespace CoCoFlow.Runtime.Core
         NonLeafTransitionEndpoint = 50,
         DuplicateTransitionPriority = 51,
         MissingActionProgressProvider = 52,
-        ActivePathOperationOverlap = 53
+        ActivePathOperationOverlap = 53,
+        InvalidOperatorDescriptor = 54,
+        MissingOperatorBinding = 55,
+        OutcomeOwnershipConflict = 56,
+        OperatorClaimConflict = 57,
+        DuplicateOperatorActivation = 58,
+        OperatorExecutionFailed = 59,
+        EventOutboxOverflow = 60,
+        EventSequenceExhausted = 61,
+        EventPublishFailed = 62,
+        WorldCorrectionRequired = 63
     }
 
     public enum CoCoDiagnosticSeverity

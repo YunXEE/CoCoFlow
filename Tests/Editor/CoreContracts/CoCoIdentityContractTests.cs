@@ -52,6 +52,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(CoCoTimelineId.TryCreate(0UL, 0UL, out var timelineId));
             Assert.IsFalse(CoCoFrameLayoutId.TryCreate(0UL, 0UL, out var frameLayoutId));
             Assert.IsFalse(CoCoOperationSectionId.TryCreate(0UL, 0UL, out var operationSectionId));
+            Assert.IsFalse(CoCoOperatorId.TryCreate(0UL, 0UL, out var operatorId));
+            Assert.IsFalse(CoCoOperatorClaimId.TryCreate(0UL, 0UL, out var operatorClaimId));
             Assert.IsFalse(CoCoIntentId.TryCreate(0UL, 0UL, out var intentId));
             Assert.IsFalse(CoCoStateBlockId.TryCreate(0UL, 0UL, out var stateBlockId));
             Assert.IsFalse(CoCoStateSlotId.TryCreate(0UL, 0UL, out var stateSlotId));
@@ -67,6 +69,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(timelineId.IsValid);
             Assert.IsFalse(frameLayoutId.IsValid);
             Assert.IsFalse(operationSectionId.IsValid);
+            Assert.IsFalse(operatorId.IsValid);
+            Assert.IsFalse(operatorClaimId.IsValid);
             Assert.IsFalse(intentId.IsValid);
             Assert.IsFalse(stateBlockId.IsValid);
             Assert.IsFalse(stateSlotId.IsValid);
@@ -81,23 +85,27 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             Assert.IsTrue(CoCoFrameLayoutId.TryCreate(1UL, 2UL, out var frameLayoutId));
             Assert.IsTrue(CoCoOperationSectionId.TryCreate(3UL, 4UL, out var operationSectionId));
-            Assert.IsTrue(CoCoIntentId.TryCreate(5UL, 6UL, out var intentId));
-            Assert.IsTrue(CoCoStateBlockId.TryCreate(7UL, 8UL, out var stateBlockId));
-            Assert.IsTrue(CoCoStateSlotId.TryCreate(9UL, 10UL, out var stateSlotId));
-            Assert.IsTrue(CoCoEventTypeId.TryCreate(11UL, 12UL, out var eventTypeId));
-            Assert.IsTrue(CoCoStableEntityId.TryCreate(13UL, 14UL, out var stableEntityId));
-            Assert.IsTrue(CoCoCorrelationId.TryCreate(15UL, 16UL, out var correlationId));
-            Assert.IsTrue(CoCoCodecId.TryCreate(17UL, 18UL, out var codecId));
+            Assert.IsTrue(CoCoOperatorId.TryCreate(5UL, 6UL, out var operatorId));
+            Assert.IsTrue(CoCoOperatorClaimId.TryCreate(7UL, 8UL, out var operatorClaimId));
+            Assert.IsTrue(CoCoIntentId.TryCreate(9UL, 10UL, out var intentId));
+            Assert.IsTrue(CoCoStateBlockId.TryCreate(11UL, 12UL, out var stateBlockId));
+            Assert.IsTrue(CoCoStateSlotId.TryCreate(13UL, 14UL, out var stateSlotId));
+            Assert.IsTrue(CoCoEventTypeId.TryCreate(15UL, 16UL, out var eventTypeId));
+            Assert.IsTrue(CoCoStableEntityId.TryCreate(17UL, 18UL, out var stableEntityId));
+            Assert.IsTrue(CoCoCorrelationId.TryCreate(19UL, 20UL, out var correlationId));
+            Assert.IsTrue(CoCoCodecId.TryCreate(21UL, 22UL, out var codecId));
 
             AssertStableIdRoundTrip(frameLayoutId, 1UL, 2UL, CoCoFrameLayoutId.TryParse);
             AssertStableIdRoundTrip(operationSectionId, 3UL, 4UL, CoCoOperationSectionId.TryParse);
-            AssertStableIdRoundTrip(intentId, 5UL, 6UL, CoCoIntentId.TryParse);
-            AssertStableIdRoundTrip(stateBlockId, 7UL, 8UL, CoCoStateBlockId.TryParse);
-            AssertStableIdRoundTrip(stateSlotId, 9UL, 10UL, CoCoStateSlotId.TryParse);
-            AssertStableIdRoundTrip(eventTypeId, 11UL, 12UL, CoCoEventTypeId.TryParse);
-            AssertStableIdRoundTrip(stableEntityId, 13UL, 14UL, CoCoStableEntityId.TryParse);
-            AssertStableIdRoundTrip(correlationId, 15UL, 16UL, CoCoCorrelationId.TryParse);
-            AssertStableIdRoundTrip(codecId, 17UL, 18UL, CoCoCodecId.TryParse);
+            AssertStableIdRoundTrip(operatorId, 5UL, 6UL, CoCoOperatorId.TryParse);
+            AssertStableIdRoundTrip(operatorClaimId, 7UL, 8UL, CoCoOperatorClaimId.TryParse);
+            AssertStableIdRoundTrip(intentId, 9UL, 10UL, CoCoIntentId.TryParse);
+            AssertStableIdRoundTrip(stateBlockId, 11UL, 12UL, CoCoStateBlockId.TryParse);
+            AssertStableIdRoundTrip(stateSlotId, 13UL, 14UL, CoCoStateSlotId.TryParse);
+            AssertStableIdRoundTrip(eventTypeId, 15UL, 16UL, CoCoEventTypeId.TryParse);
+            AssertStableIdRoundTrip(stableEntityId, 17UL, 18UL, CoCoStableEntityId.TryParse);
+            AssertStableIdRoundTrip(correlationId, 19UL, 20UL, CoCoCorrelationId.TryParse);
+            AssertStableIdRoundTrip(codecId, 21UL, 22UL, CoCoCodecId.TryParse);
         }
 
         [Test]
@@ -166,6 +174,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             AssertImmutableId(typeof(CoCoClockDomainId), "Value");
             AssertImmutableId(typeof(CoCoFrameLayoutId), "High", "Low");
             AssertImmutableId(typeof(CoCoOperationSectionId), "High", "Low");
+            AssertImmutableId(typeof(CoCoOperatorId), "High", "Low");
+            AssertImmutableId(typeof(CoCoOperatorClaimId), "High", "Low");
             AssertImmutableId(typeof(CoCoIntentId), "High", "Low");
             AssertImmutableId(typeof(CoCoStateBlockId), "High", "Low");
             AssertImmutableId(typeof(CoCoStateSlotId), "High", "Low");
@@ -212,20 +222,24 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsTrue(CoCoFrameLayoutId.TryCreate(14UL, 15UL, out var rightFrameLayout));
             Assert.IsTrue(CoCoOperationSectionId.TryCreate(16UL, 17UL, out var leftOperationSection));
             Assert.IsTrue(CoCoOperationSectionId.TryCreate(16UL, 17UL, out var rightOperationSection));
-            Assert.IsTrue(CoCoIntentId.TryCreate(18UL, 19UL, out var leftIntent));
-            Assert.IsTrue(CoCoIntentId.TryCreate(18UL, 19UL, out var rightIntent));
-            Assert.IsTrue(CoCoStateBlockId.TryCreate(20UL, 21UL, out var leftStateBlock));
-            Assert.IsTrue(CoCoStateBlockId.TryCreate(20UL, 21UL, out var rightStateBlock));
-            Assert.IsTrue(CoCoStateSlotId.TryCreate(22UL, 23UL, out var leftStateSlot));
-            Assert.IsTrue(CoCoStateSlotId.TryCreate(22UL, 23UL, out var rightStateSlot));
-            Assert.IsTrue(CoCoEventTypeId.TryCreate(24UL, 25UL, out var leftEventType));
-            Assert.IsTrue(CoCoEventTypeId.TryCreate(24UL, 25UL, out var rightEventType));
-            Assert.IsTrue(CoCoStableEntityId.TryCreate(26UL, 27UL, out var leftStableEntity));
-            Assert.IsTrue(CoCoStableEntityId.TryCreate(26UL, 27UL, out var rightStableEntity));
-            Assert.IsTrue(CoCoCorrelationId.TryCreate(28UL, 29UL, out var leftCorrelation));
-            Assert.IsTrue(CoCoCorrelationId.TryCreate(28UL, 29UL, out var rightCorrelation));
-            Assert.IsTrue(CoCoCodecId.TryCreate(30UL, 31UL, out var leftCodec));
-            Assert.IsTrue(CoCoCodecId.TryCreate(30UL, 31UL, out var rightCodec));
+            Assert.IsTrue(CoCoOperatorId.TryCreate(18UL, 19UL, out var leftOperator));
+            Assert.IsTrue(CoCoOperatorId.TryCreate(18UL, 19UL, out var rightOperator));
+            Assert.IsTrue(CoCoOperatorClaimId.TryCreate(20UL, 21UL, out var leftOperatorClaim));
+            Assert.IsTrue(CoCoOperatorClaimId.TryCreate(20UL, 21UL, out var rightOperatorClaim));
+            Assert.IsTrue(CoCoIntentId.TryCreate(22UL, 23UL, out var leftIntent));
+            Assert.IsTrue(CoCoIntentId.TryCreate(22UL, 23UL, out var rightIntent));
+            Assert.IsTrue(CoCoStateBlockId.TryCreate(24UL, 25UL, out var leftStateBlock));
+            Assert.IsTrue(CoCoStateBlockId.TryCreate(24UL, 25UL, out var rightStateBlock));
+            Assert.IsTrue(CoCoStateSlotId.TryCreate(26UL, 27UL, out var leftStateSlot));
+            Assert.IsTrue(CoCoStateSlotId.TryCreate(26UL, 27UL, out var rightStateSlot));
+            Assert.IsTrue(CoCoEventTypeId.TryCreate(28UL, 29UL, out var leftEventType));
+            Assert.IsTrue(CoCoEventTypeId.TryCreate(28UL, 29UL, out var rightEventType));
+            Assert.IsTrue(CoCoStableEntityId.TryCreate(30UL, 31UL, out var leftStableEntity));
+            Assert.IsTrue(CoCoStableEntityId.TryCreate(30UL, 31UL, out var rightStableEntity));
+            Assert.IsTrue(CoCoCorrelationId.TryCreate(32UL, 33UL, out var leftCorrelation));
+            Assert.IsTrue(CoCoCorrelationId.TryCreate(32UL, 33UL, out var rightCorrelation));
+            Assert.IsTrue(CoCoCodecId.TryCreate(34UL, 35UL, out var leftCodec));
+            Assert.IsTrue(CoCoCodecId.TryCreate(34UL, 35UL, out var rightCodec));
             Assert.IsTrue(CoCoEventDomainId.TryCreate(32UL, out var leftEventDomain));
             Assert.IsTrue(CoCoEventDomainId.TryCreate(32UL, out var rightEventDomain));
             Assert.IsTrue(CoCoOperationSequence.TryCreate(33UL, out var leftOperationSequence));
@@ -243,6 +257,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             AssertEqualAndHash(leftClockDomain, rightClockDomain);
             AssertEqualAndHash(leftFrameLayout, rightFrameLayout);
             AssertEqualAndHash(leftOperationSection, rightOperationSection);
+            AssertEqualAndHash(leftOperator, rightOperator);
+            AssertEqualAndHash(leftOperatorClaim, rightOperatorClaim);
             AssertEqualAndHash(leftIntent, rightIntent);
             AssertEqualAndHash(leftStateBlock, rightStateBlock);
             AssertEqualAndHash(leftStateSlot, rightStateSlot);
@@ -289,6 +305,8 @@ namespace CoCoFlow.Runtime.Core.Tests
                 typeof(CoCoClockDomainId),
                 typeof(CoCoFrameLayoutId),
                 typeof(CoCoOperationSectionId),
+                typeof(CoCoOperatorId),
+                typeof(CoCoOperatorClaimId),
                 typeof(CoCoIntentId),
                 typeof(CoCoStateBlockId),
                 typeof(CoCoStateSlotId),

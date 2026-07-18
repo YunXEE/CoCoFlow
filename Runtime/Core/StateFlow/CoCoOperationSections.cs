@@ -808,6 +808,19 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryResolveDenseIndex(
+            CoCoOperationSectionRequirement requirement,
+            out int denseIndex)
+        {
+            if (!requirement.IsValid || !TryFind(requirement, out denseIndex))
+            {
+                denseIndex = -1;
+                return false;
+            }
+
+            return true;
+        }
+
         public bool TryResolveField<TSection, TValue>(
             CoCoOperationSectionHandle<TSection> handle,
             int denseFieldIndex,
@@ -1154,7 +1167,6 @@ namespace CoCoFlow.Runtime.Core
         private object _runtimeOwner;
         private bool _hasCommittedSequenceEpoch;
         private bool _hasCommittedTickFrame;
-        private bool _pendingSequenceEpochIsNew;
         private bool _isWriting;
         private bool _isFinalized;
 
@@ -1328,6 +1340,23 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryGetHeader(
+            ulong token,
+            int denseIndex,
+            out CoCoOperationSectionEntryHeader header)
+        {
+            if (!IsFinalized(token) ||
+                denseIndex < 0 ||
+                denseIndex >= _entryHeaders.Length)
+            {
+                header = default;
+                return false;
+            }
+
+            header = _entryHeaders[denseIndex];
+            return true;
+        }
+
         internal bool TryRead<TValue>(
             CoCoOperationSectionField<TValue> field,
             out TValue value)
@@ -1448,17 +1477,35 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        internal bool Commit(ulong token)
-        {
-            if (!IsFinalized(token))
-            {
-                return false;
-            }
+        internal bool IsCommitReady(ulong token) => IsFinalized(token);
 
+        internal void CommitPreparedNoFail()
+        {
             CommitPendingSequenceEpoch();
             _lastCommittedTickFrame = _header.TickFrame;
             _hasCommittedTickFrame = true;
             ClearActiveTransaction();
+        }
+
+        internal void CommitPrepared(ulong token)
+        {
+            if (!IsCommitReady(token))
+            {
+                throw new InvalidOperationException(
+                    "The finalized OperationFrame token is no longer ready.");
+            }
+
+            CommitPreparedNoFail();
+        }
+
+        internal bool Commit(ulong token)
+        {
+            if (!IsCommitReady(token))
+            {
+                return false;
+            }
+
+            CommitPrepared(token);
             return true;
         }
 
@@ -1498,7 +1545,6 @@ namespace CoCoFlow.Runtime.Core
             {
                 Array.Copy(_committedSequences, _pendingSequences, _committedSequences.Length);
                 _pendingSequenceEpoch = epoch;
-                _pendingSequenceEpochIsNew = false;
                 return true;
             }
 
@@ -1511,21 +1557,15 @@ namespace CoCoFlow.Runtime.Core
 
             Array.Clear(_pendingSequences, 0, _pendingSequences.Length);
             _pendingSequenceEpoch = epoch;
-            _pendingSequenceEpochIsNew = true;
             return true;
         }
 
         private void CommitPendingSequenceEpoch()
         {
-            if (_pendingSequenceEpochIsNew)
-            {
-                _committedSequenceEpoch = _pendingSequenceEpoch;
-                _hasCommittedSequenceEpoch = true;
-            }
-
+            _committedSequenceEpoch = _pendingSequenceEpoch;
+            _hasCommittedSequenceEpoch = true;
             Array.Copy(_pendingSequences, _committedSequences, _pendingSequences.Length);
             _pendingSequenceEpoch = default;
-            _pendingSequenceEpochIsNew = false;
         }
 
         private void ClearActiveTransaction()
@@ -1534,7 +1574,6 @@ namespace CoCoFlow.Runtime.Core
             _isFinalized = false;
             _header = default;
             _pendingSequenceEpoch = default;
-            _pendingSequenceEpochIsNew = false;
         }
 
         private bool CanWrite(ulong token) => _isWriting && token != 0UL && token == _writeToken;
@@ -1575,8 +1614,47 @@ namespace CoCoFlow.Runtime.Core
             return _frame.TryGet(_token, handle, out entry);
         }
 
+        internal bool TryGetHeader(
+            CoCoOperationSectionRequirement requirement,
+            out CoCoOperationSectionEntryHeader header)
+        {
+            if (_frame == null ||
+                !_frame.Registry.TryResolveDenseIndex(requirement, out int denseIndex))
+            {
+                header = default;
+                return false;
+            }
+
+            return _frame.TryGetHeader(_token, denseIndex, out header);
+        }
+
+        internal bool TryGetHeader(
+            int denseIndex,
+            out CoCoOperationSectionEntryHeader header)
+        {
+            if (_frame == null)
+            {
+                header = default;
+                return false;
+            }
+
+            return _frame.TryGetHeader(_token, denseIndex, out header);
+        }
+
         public bool Commit() => _frame != null && _frame.Commit(_token);
         public bool Cancel() => _frame != null && _frame.CancelFinalized(_token);
+
+        internal bool IsCommitReady => _frame != null && _frame.IsCommitReady(_token);
+
+        internal void CommitPrepared()
+        {
+            _frame.CommitPrepared(_token);
+        }
+
+        internal void CommitPreparedNoFail()
+        {
+            _frame.CommitPreparedNoFail();
+        }
     }
 
     public readonly struct CoCoOperationFrameWriter

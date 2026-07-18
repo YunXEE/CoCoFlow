@@ -101,6 +101,9 @@ namespace CoCoFlow.Runtime.Core.Tests
                 Assert.AreEqual(9 + index, (int)appendedDomains[index]);
             }
 
+            Assert.AreEqual(15, (int)CoCoDiagnosticDomain.Operator);
+            Assert.AreEqual(16, (int)CoCoDiagnosticDomain.EventOutbox);
+
             Assert.AreEqual(11, (int)CoCoDiagnosticCode.InvalidTimelinePosition);
             CoCoDiagnosticCode[] appendedCodes =
             {
@@ -153,6 +156,24 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(51, (int)CoCoDiagnosticCode.DuplicateTransitionPriority);
             Assert.AreEqual(52, (int)CoCoDiagnosticCode.MissingActionProgressProvider);
             Assert.AreEqual(53, (int)CoCoDiagnosticCode.ActivePathOperationOverlap);
+
+            CoCoDiagnosticCode[] preFiveCodes =
+            {
+                CoCoDiagnosticCode.InvalidOperatorDescriptor,
+                CoCoDiagnosticCode.MissingOperatorBinding,
+                CoCoDiagnosticCode.OutcomeOwnershipConflict,
+                CoCoDiagnosticCode.OperatorClaimConflict,
+                CoCoDiagnosticCode.DuplicateOperatorActivation,
+                CoCoDiagnosticCode.OperatorExecutionFailed,
+                CoCoDiagnosticCode.EventOutboxOverflow,
+                CoCoDiagnosticCode.EventSequenceExhausted,
+                CoCoDiagnosticCode.EventPublishFailed,
+                CoCoDiagnosticCode.WorldCorrectionRequired
+            };
+            for (int index = 0; index < preFiveCodes.Length; index++)
+            {
+                Assert.AreEqual(54 + index, (int)preFiveCodes[index]);
+            }
         }
 
         [Test]

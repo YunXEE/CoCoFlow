@@ -19,7 +19,8 @@ namespace CoCoFlow.Runtime.Core.Tests
             "EventRouter",
             "Mailbox",
             "EventInbox",
-            "EventOutbox"
+            "EventOutbox",
+            "Operator"
         };
 
         [Test]
@@ -222,6 +223,29 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsNotNull(commit);
             Assert.AreEqual(typeof(CoCoContextCommitResult), commit.ReturnType);
             Assert.AreEqual(0, commit.GetParameters().Length);
+        }
+
+        [Test]
+        public void PreFiveKeepsMutableTraceAndOutcomeRegistrationInternal()
+        {
+            Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
+            Assert.IsNull(stateFlowAssembly.GetExportedTypes().FirstOrDefault(type =>
+                type.Name == "CoCoStateFlowTraceBuffer"));
+            Assert.IsNull(stateFlowAssembly.GetExportedTypes().FirstOrDefault(type =>
+                type.Name == "CoCoOperatorOutcomeRequirement"));
+            Assert.IsNotNull(stateFlowAssembly.GetExportedTypes().FirstOrDefault(type =>
+                type == typeof(ICoCoStateFlowTrace)));
+            Assert.IsNotNull(stateFlowAssembly.GetExportedTypes().FirstOrDefault(type =>
+                type == typeof(CoCoStateFlowTraceEntry)));
+            Assert.IsNotNull(stateFlowAssembly.GetExportedTypes().FirstOrDefault(type =>
+                type == typeof(CoCoContextFrameReadView)));
+
+            Type arenaType = typeof(CoCoContextFrameArena);
+            Assert.IsNull(arenaType.GetProperty("HasAvailableCapacity"));
+            Assert.IsNull(arenaType.GetProperty("IsDisposed"));
+            Assert.IsNotNull(arenaType.GetProperty("Previous"));
+            Assert.IsNotNull(arenaType.GetMethod("TryValidateRestore"));
+            Assert.IsNotNull(arenaType.GetMethod("Dispose"));
         }
 
         [Test]
