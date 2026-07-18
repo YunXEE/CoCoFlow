@@ -75,8 +75,17 @@ intact even when their proposed model is superseded.
       candidate and latches Fault. Rollback restores committed authority and
       never permits progress to move backwards.
 - [ ] Operation writes use fixed Layer/path-depth composition rank, Finalize
-      consumes no sequence or LastTick, and only Pre5 Context commit may accept
-      the staged path/memory/clock/frame/outbox candidate.
+      consumes no sequence or LastTick, and only the composite Actor commit
+      barrier may accept staged path/memory/clock/context/claim/sequence state.
+- [ ] The explicit Host Operator order is validated before Running; its deduplicated
+      requirements exactly cover Graph Operation-provides, and null, destroyed,
+      non-interface, duplicate, or nested-Host-crossing entries are rejected.
+- [ ] Claims are arbitrated before every real Operator callback; multi-Claim
+      Operators win all-or-none, and `ClaimDenied` performs no callback or write
+      without faulting an otherwise valid Tick.
+- [ ] Outcome writers expire after their callback and can write only the owning
+      Operator's declared non-Derived Context Slots. The first Tick reads layout
+      defaults and the first successful Context commit is Revision 1.
 - [ ] Unchanged Graph/content/catalog/schema keys share both successful and
       failed compile-result identities; failed results keep `Graph == null`, and
       a throwing cache factory is evicted.
@@ -92,6 +101,9 @@ intact even when their proposed model is superseded.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.
+- [ ] All Event types of one GraphInstance/Epoch share one contiguous committed
+      EventSequence range and publish in Host Operator plus append order. Trace
+      entries contain no payload, Unity Object, mutable Frame, Router, or Inbox.
 - [ ] No compatibility runtime, dual execution path, or automatic 0.3.9 migration
       layer was introduced.
 - [ ] Any Sample change is explicitly classified as removal of the 0.3.9 legacy

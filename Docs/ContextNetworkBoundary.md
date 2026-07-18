@@ -1,12 +1,12 @@
 # CoCoFlow State Flow / Event Boundary
 
 > State Flow contract: `0.4.0-pre.2` · StateGraph runtime integration:
-> `0.4.0-pre.4` · Updated 2026-07-17
+> `0.4.0-pre.5` · Updated 2026-07-18
 >
 > This is the authoritative Pre2 data-flow and cross-Object communication
 > boundary. Pre3 implements Asset/Compiler and Pre4 implements the staged
-> StateGraph Runtime, Unity Host, ingress Router, Inbox, and Clock. Pre5 still
-> owns Operator execution and the Context commit that publishes output.
+> StateGraph Runtime, Unity Host, ingress Router, Inbox, and Clock. Pre5 completes
+> Operator execution and the composite Context commit that publishes output.
 
 ## 目标
 
@@ -84,7 +84,7 @@ StateGraph 永远只读取已经翻译并冻结的 IntentFrame。
 契约的 Frame：
 
 - Operator 通过 Section Interface 声明自己需要的执行数据；
-- Graph Operation Provides 必须覆盖全部 Operator Requirement；
+- 去重后的 Operator Requirement 并集必须与 Graph Operation Provides 精确双向匹配；
 - 多个 Operator 要求同一 Interface 时按 Interface Identity 去重；
 - 字段形状相同但 Identity 不同的 Interface 永远是不同 Section；
 - Section Interface 只允许继承框架 Marker，Section-to-Section 继承非法；
@@ -107,13 +107,15 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 
 `TryFinalize` 只冻结候选数据，不更新 LastTick，也不消耗 OperationSequence。Pre4 把
 Finalized OperationFrame 与候选 ActiveLeaf、Memory 和 Clock 一起放入单次使用的 staged
-Tick；该 Tick 接受或取消前不能开始下一 Step。Pre5 只有在 Context commit 成功后才能
-接受它。取消会保持旧 Path、Memory、Clock 与序列权威不变。
+Tick；该 Tick 接受或取消前不能开始下一 Step。Pre5 只通过与 Context、Claim、
+Clock 和 Sequence 共享的复合提交屏障接受它。取消会保持旧 Path、Memory、Clock、
+Context Revision 与序列权威不变。
 
 Pre2 冻结 Descriptor、Registry、固定 Layout 输入和显式测试构造入口。Pre3 已从
 Graph 声明自动汇总、验证并编译 Provides Manifest 与不可变 Graph Lookup。Catalog
 和 Registry 使用同一 Shape Validator；运行 binding 必须逐字段精确比较，不能只相信
-Shape fingerprint。Pre5 负责实际执行 Operator。Compiler 的具体 Schema 与诊断见
+Shape fingerprint。Pre5 在 Host 的显式序列化顺序中执行 Operator。Compiler 的具体
+Schema 与诊断见
 [StateGraph Asset and Compiler](StateGraphCompiler.md)。
 
 ### ContextFrame
@@ -131,6 +133,8 @@ Shape fingerprint。Pre5 负责实际执行 Operator。Compiler 的具体 Schema
 - 不包含 Inbox、IntentFrame、raw Envelope、Source、执行中局部变量、未发布 Outbox
   或 Unity Object 引用图；
 - 不同 GraphRuntimeInstance 不共享可变 StateBlock；
+- 首 Tick 使用 Layout 中的真实 Default 建立 `CoCoContextFrameReadView`，不构造伪
+  Tick 0 或 Revision 0 Frame；首次成功 Commit 产生 Revision 1；
 - Retain 一个存活 Frame 会阻止对应 Cell 被复用；Release 后 Cell 可以服务新的
   Generation，但所有旧 Handle 永久失效，不会因 Cell 复用重新变为可读；
 - 包括无操作 Tick 在内，每次成功 Commit 都递增 Revision；
@@ -149,35 +153,43 @@ API，而是交付 OperationFrame；Operator 读取对应 Section，执行后产
 Commit 顺序固定：
 
 ```text
-validate OperationFrame, bindings, Layout and capacities
-  -> TryPrepare and reserve one ContextFrame candidate
-  -> execute Operators
-  -> collect Outcomes and Outbox candidates
-  -> TryFinalize and rebuild Derived slots in dependency order
-  -> commit the Finalized ContextFrame
-  -> assign final EventSequence
-  -> publish EventOutbox
+Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage
+  -> Claim Arbitration -> Operators -> Outcome/Outbox Validation
+  -> Context Finalize -> Graph Commit Preflight -> Composite Preflight
+  -> no-fail Commit -> complete EventOutbox Publish
 ```
 
-ContextFrame Commit 是当前 Tick 唯一对外可观察的 gameplay 边界：
+ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边界：
 
 - Commit 成功产生一个完整的新 ContextFrame；
-- 所有可预检的验证与容量预留都发生在 Operator 执行前；Prepared Token 只提供 Writer
-  与 `TryFinalize`，不能直接 Commit；
+- 所有可预检的验证与容量预留都发生在 Operator 执行前；Context 无空 Cell 是可
+  重试结果，不推进 Tick 或 Inbox；Prepared Token 只提供 Writer 与 `TryFinalize`；
+- 任何真实 Operator Callback 前一次性计算 Claim。Discrete Claim 绑定
+  `Enabled + ActivationId`；一个 Operator 的多个 Claim all-or-none，按 Priority、Host
+  列表顺序、OperatorId 稳定仲裁；正常败者得到 `ClaimDenied` 而不 Fault；
+- Outcome Writer 绑定 OperatorId、Transaction Token 与该 Operator 的 Slot 白名单，
+  Callback 退出后立即失效。它只能写 Manifest 内非 Derived、Operator-owned 且唯一
+  owner 的 Slot；后序 Operator 仍只读上一个 committed Context；
 - Writer 拒绝 Derived Slot。Finalize 在每个成功 Tick（包括 no-op Tick）从权威输入按
   确定拓扑重建所有 Derived；只有 Finalized Token 可以 Commit；
 - Derived Rebuilder 返回失败或抛异常时先放弃 Candidate，旧 ContextFrame 继续权威；
-  异常在完成回滚后原样向 Host 传播；
+  Host 在完成取消后将抛出路径收敛为结构化 Fault Diagnostic；
 - StateGraph 不能在当前 Tick 读取执行中的 Outcome；
 - Outbox Candidate 在 Commit 前不可见；
 - Commit 失败、Cancel、Restore 或 Rewind 时，旧 ContextFrame 继续权威；
 - 失败路径同时取消 Pre4 staged Tick，不发布 Event、不消耗最终 EventSequence 或
   OperationSequence，也不产生跨 Actor 副作用；
-- 只有 Context Commit 成功后，Pre5 才一次性发布新的 ActivePath、Memory、Clock、
-  ContextFrame 与 EventOutbox。
+- no-fail barrier 内禁止 Callback、分配、容量申请与可失败 Mutation；它一次性交换
+  Context 权威，提交 OperationSequence、Graph Path/Memory/Activation、ActorClock、Claim、
+  连续 EventSequence range 与 Intent Tick；
+- 真实 Operator Callback 之后失败时，旧 Context 保持权威，Host Fault 并标记
+  `RequiresWorldCorrection`；不伪造 Unity 世界回滚。
 
-Pre2 只定义并通过测试 Harness 验证协议。Outcome 聚合、正式 Commit Runtime 和
-EventOutbox Publish 原子化属于 Pre5。
+EventOutbox 使用 typed preallocated lanes 和全局 order ledger。Finalize 只预检容量、
+metadata 与 Sequence overflow，不消耗 Sequence。Commit 后按 Host Operator 顺序、再按每个
+Operator append 顺序发布；同一 GraphInstance/Epoch 的所有 EventType 共用连续
+Sequence。Subscriber 异常继续隔离；基础设施异常记录 Fault 并继续发布剩余已提交
+Packet，不回收 Sequence、不自动重发、不回滚已送达 Event。
 
 ## 4. EventPacket 与路由身份
 
@@ -290,8 +302,9 @@ Router Callback 只能校验、路由、去重和入队；不能调用 StateGrap
 Host 完成全部启动检查后才最后注册 Router；Stop/Dispose 首先注销。一个 Domain 的
 最后 Host 离开时，Router 释放其 internal EventAgent subscription。Router callback
 只接收原子 `CoCoEventPacket<TEvent>` 并校验、入队，不调用 Runtime、Operator 或 Context；
-它不使用旧 `PublishWithEnvelope`。Pre4 只开放入站能力，Pre5 在 Context commit 成功
-后才可通过 Host internal outbound seam 发布 EventOutbox。
+它不使用旧 `PublishWithEnvelope`。Pre5 只在复合提交成功后通过 Host internal
+outbound seam 发布 EventOutbox；发布期间的 Destroy/Stop/Dispose 请求在完成整个
+committed list 后再收尾。
 
 ## 6. Projection Flags 与 Restore Policy
 
@@ -310,6 +323,8 @@ ContextFrame 是完整内存状态。Descriptor 使用两组正交元数据，�
 Ring Buffer 只保存 ContextFrame，不保存 IntentFrame、Inbox 或未发布 Outbox。需要跨
 存档存在的“事件”必须先转化成 Actor Pending State 或世界事实。
 
+Pre5 只提供纯读 Restore compatibility validation 和 Arena 的低层无普通副作用 Apply
+seam，不增加 Host History/Rewind/Resume/New Epoch 或 `ICoCoContextRestoreBinding`。
 Restore 必须保持 Source 的 TimelineId 与 ClockDomainId、严格推进 ExecutionSequence；
 建立的 TimelineEpoch 必须严格大于 Source Epoch，也严格大于 Actor 当前权威 Epoch。
 Pre2 只验证 internal、same-session、exact-layout Codec Spike；它继续绑定当前
@@ -331,7 +346,7 @@ StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container
 - Animator/SMB Callback 不能立即调用 StateGraph 或修改当前 Frame；它只能进入表现
   路径，或经 Event/Intent 边界供后续 Tick 消化。
 
-Pre4 的 `CoCoStateGraphHost` 是唯一 public MonoBehaviour；Asset 是唯一必填项，其他
+Pre5 的 `CoCoStateGraphHost` 是唯一 public MonoBehaviour；Asset 是唯一必填项，其他
 Driver、AutoStart、TimeScale 与诊断容量是同一 Host 的设置，不增加组件。Runtime、
 Clock、Inbox、Router、Logic、Condition 与 Memory 都是内部普通对象。Playable
 Animation、可控播放进度与 Root Motion 归 Pre11。
@@ -382,8 +397,8 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 - **Pre4**：已交付纯 StateGraph Runtime、每 Actor 独占状态、Host、Clock/Driver、实际
   Event-to-Intent Adapter coverage/binding、internal EventRouter、EventAgent 订阅、
   Inbox 注册、staged Tick 与生命周期。
-- **Pre5**：Host 显式 Operator 列表、Operator、Outcome、ContextFrame Commit 与
-  committed EventOutbox Publish。
+- **Pre5**：已交付 Host 显式 Operator 列表、Claim/Outcome、ContextFrame 复合 Commit、
+  committed EventOutbox Publish、immutable Trace 与纯 Restore compatibility validation。
 - **Pre6**：Temporal Ring Buffer、Restore、Rewind 与新 TimelineEpoch。
 - **Pre11**：Animator/Playable/SMB 替代与视觉倒放映射。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。

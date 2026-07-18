@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.4 · **Unity**：6000+
+> **版本**：0.4.0-pre.5 · **Unity**：6000+
 >
-> Pre4 加入每 Actor 独占的 StateGraph Runtime、唯一 Unity Host、确定性生命周期与
-> Transition 计算、staged OperationFrame、Clock、Inbox 和内部事件路由。Operator
-> 执行与 Context commit 归 Pre5。
+> Pre5 加入 Host 显式 Operator、确定性 Claim/Outcome、首 Tick 默认值
+> Context 读取、单一 Actor 复合提交屏障、committed EventOutbox 发布与
+> 不可变 Runtime Trace。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -109,7 +109,7 @@ ActionProgress。
 Actor GameObject
 ├─ CoCoStateGraphHost        必需
 │  └─ StateGraphAsset       必需
-└─ Operator scripts          可选；Pre5 增加 Host 显式引用列表
+└─ Operator scripts          可选；由 Host 以显式顺序引用
 ```
 
 Runtime、Clock、Inbox、Router、Logic、Condition 与 Memory 都不是组件。Host 不扫描
@@ -134,7 +134,13 @@ Transition Tick 始终保留源路径为有效路径，因此可以同 Tick Upda
 Layer 与 path depth 给 Operation 写入固定等级：高 Layer 覆盖低 Layer，子 State 覆盖
 父 State。Continuous Section 按字段合成；Discrete Section 只为最终赢家消耗一次
 Sequence。Operation Finalize 只生成单次使用的 staged Tick，不改变权威状态。Pre5
-必须先成功提交 Context，新的 Path、Memory、Clock、Sequence 与 EventOutbox 才可见。
+的复合提交屏障是 Host 接受 staged Tick 的唯一路径；在此之前，新 Path、
+Memory、Clock、Context Revision、Claim、OperationSequence 与 EventSequence 都不可见。
+
+Host 的显式 Operator 列表同时定义确定性执行顺序，去重后的 Requirement 并集必须
+精确覆盖 Graph Operation-provides Manifest。任何真实 Operator Callback 前先按 Priority、
+Host 顺序与 Operator ID 完成 Claim 仲裁。败者得到 `ClaimDenied`，不进入 Callback，
+也不能写 Context 或 Outbox；普通竞争不会令整个 Tick Fault。
 
 Transition window、self-loop、rollback、生命周期、Fault 与事件路由的完整语义见
 [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)。
@@ -167,8 +173,8 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 ```
 
 Pre2 提供 Section 契约与显式测试 Layout，Pre3 编译自动汇总的 Graph Provides
-Manifest，Pre4 产生 finalized staged frame；Pre5 负责正式 Operator Runtime，并且只有
-对应 Context commit 成功后才接受该 Frame。
+Manifest，Pre4 产生 finalized staged frame，Pre5 执行匹配的 Operator，并且只在
+对应 Context candidate 成功 Finalize 后才接受该 Frame。
 
 ## ContextFrame 与 Restore
 
@@ -258,9 +264,11 @@ ContextFrame State。
   绑定，以便挂接替代 Runtime。
 - 音效、VFX、日志等纯表现事件可以继续使用普通 EventBus，不进入 gameplay Inbox。
 
-Host 在所有 binding 检查成功后才最后注册 Router；Stop/Dispose 首先注销。Domain
-最后一个 Host 离开时释放 internal EventAgent subscription。Pre4 只开放入站能力；
-Pre5 Context commit 成功前，Host outbound seam 不得发布 EventOutbox。
+Host 在所有 Binding 与 Operator coverage 检查成功后才最后注册 Router；
+Stop/Dispose 首先注销。Domain 最后一个 Host 离开时释放 internal EventAgent
+subscription。EventOutbox 条目在复合提交前只是预分配候选；提交时才为同一
+GraphInstance/Epoch 分配连续 EventSequence 区间。发布保留 Host Operator 顺序与每个
+Operator 的 append 顺序，且 Callback 只能观察完整的新权威。
 
 合法的 Runtime 实例生命周期边为 `Created -> Running`、`Running <-> Suspended`、
 `Running/Suspended -> Stopped` 与 `Created/Stopped -> Disposed`。`Created` 不可 Stop，
@@ -281,12 +289,19 @@ Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose
   然后继续正向 Tick。
 - StateGraph 只读取当前 IntentFrame 和 Previous ContextFrame，不能观察本 Tick
   执行中产生的 Outcome。
-- ContextFrame Commit 是唯一对外可观察的 gameplay 边界。
+- 首 Tick 通过 `CoCoContextFrameReadView` 读取 Layout 默认值，不伪造 Tick 0 或
+  Revision 0 Frame；首次成功提交为 Revision 1。
+- ContextFrame Commit 是唯一已提交的 gameplay 逻辑权威边界。
 - Commit 失败、Cancel、Restore 或 Rewind 时，零 Outbox Event、零最终 EventSequence
   消耗、零跨 Actor 副作用。
+- 真实 Operator Callback 修改 Unity 对象后再失败时，框架不伪造世界回滚；旧
+  Context 继续是权威，Host Fault，`RequiresWorldCorrection` 保持为真，
+  直到新 Host 实例启动。
 
-正式 Outcome 聚合、ContextFrame Commit 和 EventOutbox Publish 属于 Pre5。Pre2
-仅通过纯契约 Harness 冻结和验证协议。
+Outcome 只能写入 Pre3 Manifest 中已声明、非 Derived、Operator-owned 且唯一 owner
+的 Context Slot。Trace 只保存不可变 identity、revision、path、transition、outcome、
+commit、sequence、publish 与 diagnostic 数据，不保存 payload、Unity Object 或 mutable
+Frame Handle。
 
 ## 仓库与包边界
 
@@ -321,8 +336,6 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 后续 0.4 工作
 
-- **Pre5**：Host 显式 Operator 引用、Operator Binding/执行/Claim、Outcome 聚合、
-  ContextFrame Commit 与 committed EventOutbox Publish。
 - **Pre6**：Temporal Ring Buffer、Restore、Rewind 与新 TimelineEpoch。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
@@ -332,7 +345,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre4 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre5 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|

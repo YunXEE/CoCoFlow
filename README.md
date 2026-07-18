@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.4 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.5 · **Unity**: 6000+
 >
-> Pre4 adds the per-Actor StateGraph Runtime, the single Unity Host, deterministic
-> lifecycle/Transition evaluation, staged OperationFrames, Clock, Inbox, and
-> internal event routing. Operator execution and Context commit arrive in Pre5.
+> Pre5 adds explicit per-Host Operators, deterministic Claim and Outcome
+> processing, default-backed first-Tick Context reads, one composite Actor commit
+> barrier, committed EventOutbox publication, and immutable Runtime Trace.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -121,7 +121,7 @@ One Actor needs one component and one asset:
 Actor GameObject
 ├─ CoCoStateGraphHost        required
 │  └─ StateGraphAsset       required
-└─ Operator scripts          optional; explicit Host list arrives in Pre5
+└─ Operator scripts          optional; referenced by the Host in explicit order
 ```
 
 Runtime, Clock, Inbox, Router, Logic, Condition, and Memory are not components.
@@ -153,8 +153,16 @@ Layer and path depth give Operation writes fixed rank: a higher Layer overrides
 a lower Layer and a child overrides its parent. Continuous Sections compose by
 field; a Discrete Section consumes a sequence only for its final winner.
 Operation Finalize creates a single-use staged Tick without changing authority.
-Pre5 must successfully commit Context before new path, memory, Clock, sequence,
-or EventOutbox state becomes visible.
+The Host accepts the staged Tick only through the Pre5 composite commit barrier;
+until then, new path, memory, Clock, Context revision, claims, operation sequence,
+and EventSequence remain invisible.
+
+The explicit Host Operator list is the deterministic execution order. Its
+deduplicated requirements must exactly cover the Graph Operation-provides
+manifest. Claims are arbitrated before any real Operator callback by Priority,
+Host order, and Operator ID. A losing Operator receives `ClaimDenied`, performs
+no callback, and contributes neither Context nor Outbox data; ordinary
+competition does not fault the Tick.
 
 See [StateGraph Runtime and Host](Docs/StateGraphRuntime.md) for Transition
 windows, self-loops, rollback, lifecycle, Fault, and event-routing semantics.
@@ -193,9 +201,9 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 ```
 
 Pre2 provides the Section contract and explicit test-layout path, Pre3 compiles
-the automatic Graph provides manifest, and Pre4 produces the finalized staged
-frame. Pre5 owns the production Operator runtime and accepts it only after the
-corresponding Context commit succeeds.
+the automatic Graph provides manifest, Pre4 produces the finalized staged frame,
+and Pre5 executes the matching Operators and accepts the frame only after the
+corresponding Context candidate finalizes successfully.
 
 ## ContextFrame and Restore
 
@@ -306,10 +314,13 @@ must persist is committed as ContextFrame state.
 - Presentation-only audio, VFX, and logging events may continue using the normal
   EventBus without entering a gameplay Inbox.
 
-Host startup registers only after every binding check succeeds; Stop and Dispose
-unregister first. The final Host leaving a Domain releases its internal
-EventAgent subscription. Pre4 is ingress-only. Outbox publication through the
-Host outbound seam is forbidden until Pre5 successfully commits Context.
+Host startup registers only after every binding and Operator-coverage check
+succeeds; Stop and Dispose unregister first. The final Host leaving a Domain
+releases its internal EventAgent subscription. EventOutbox entries remain
+preallocated candidates until the composite commit assigns one contiguous
+per-GraphInstance/Epoch EventSequence range. Publication then preserves Host
+Operator order and per-Operator append order, and every callback observes the
+complete newly committed authority.
 
 Legal Runtime-instance lifecycle edges are `Created -> Running`,
 `Running <-> Suspended`, `Running/Suspended -> Stopped`, and
@@ -332,13 +343,19 @@ authority changes.
   establishes a new TimelineEpoch, and then resumes positive forward Steps.
 - StateGraph reads only the current IntentFrame and Previous ContextFrame. It
   cannot observe an Outcome produced during the current Tick.
-- ContextFrame commit is the single externally observable gameplay boundary.
+- The first Tick reads layout defaults through `CoCoContextFrameReadView`; no
+  synthetic Tick 0 or Revision 0 Frame is exposed. The first success is Revision 1.
+- ContextFrame commit is the single committed logical-authority boundary.
 - Commit failure, cancellation, Restore, or Rewind publishes no Outbox Event,
   consumes no final EventSequence, and creates no cross-Actor side effect.
+- A failure after a real Operator callback cannot roll Unity objects back. The
+  old Context remains authoritative, the Host faults, and
+  `RequiresWorldCorrection` remains set until a fresh Host instance starts.
 
-Production Outcome aggregation, ContextFrame commit, and EventOutbox publication
-are Pre5 responsibilities. Pre2 freezes and tests their protocol with pure
-contract harnesses only.
+Outcome Slot writes are limited to declared, non-Derived, Operator-owned Pre3
+Context Slots with one owner each. Trace records immutable identity, revision,
+path, transition, outcome, commit, sequence, publish, and diagnostic data only;
+it stores no payload, Unity object, or mutable Frame handle.
 
 ## Repository and Package Boundary
 
@@ -377,9 +394,6 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
-- **Pre5**: explicit Host Operator references, Operator bindings/execution,
-  claims, Outcome aggregation, ContextFrame commit, and committed EventOutbox
-  publication.
 - **Pre6**: Temporal Ring Buffer, Restore, rewind, and new TimelineEpoch creation.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
@@ -390,7 +404,7 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre4 because transitional 0.3.9 modules
+The dependency set remains unchanged in Pre5 because transitional 0.3.9 modules
 still compile against it.
 
 | Package | Version | Current owner |

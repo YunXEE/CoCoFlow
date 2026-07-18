@@ -5,6 +5,39 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.5] - 2026-07-18
+
+### Added
+
+- Explicit per-Host Operator bindings with exact Operation Section coverage,
+  typed Outcome ownership, deterministic Claim arbitration, and fixed-capacity
+  typed EventOutbox candidates.
+- Default-backed first-Tick Context reads without inventing a committed Tick 0,
+  followed by one complete ContextFrame Revision for every accepted Tick.
+- One per-Actor composite authority barrier covering staged StateGraph state,
+  OperationSequence, Clock, ContextFrame, Claims, and EventSequence before any
+  committed EventOutbox packet becomes visible.
+- Immutable identity-only Runtime Trace entries with a configurable fixed ring,
+  plus pure Context restore-compatibility validation for later Temporal and
+  Persistence orchestration.
+
+### Changed
+
+- Replaced the Pre4 internal test coordinator with the production Operator and
+  Context transaction owned by each `CoCoStateGraphHost` instance.
+- Made Context arena authority the Host's sole committed Context source and
+  split Graph, OperationFrame, and Clock acceptance into fallible preflight and
+  an internal no-callback commit path.
+- Updated the package version and the two existing Unity Package Validation
+  Suite exception scopes to `0.4.0-pre.5`; dependencies remain unchanged.
+
+### Deferred
+
+- Pre6 owns Temporal history, Host Restore Binding, rewind/resume, and new
+  TimelineEpoch orchestration; Pre7 owns Trace UI.
+- Pre11 owns concrete Animator/Playable Operators, and Pre13 owns durable
+  persistence formats, migration, and world facts.
+
 ## [0.4.0-pre.4] - 2026-07-17
 
 ### Added

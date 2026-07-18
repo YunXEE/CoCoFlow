@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.4",
+  "version": "0.4.0-pre.5",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with a per-Actor StateGraph runtime, single Host, staged operations, and typed event ingress.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with per-Actor Operator execution, atomic Context commits, and committed event outbox publication.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",
@@ -22,6 +22,9 @@
     "state-graph",
     "stategraph-runtime",
     "actor-host",
+    "operator-runtime",
+    "atomic-context-commit",
+    "event-outbox",
     "core-contracts",
     "deterministic-tick",
     "state-flow",

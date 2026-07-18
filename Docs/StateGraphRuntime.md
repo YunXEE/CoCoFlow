@@ -1,11 +1,11 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Contract status: `0.4.0-pre.4` · Updated 2026-07-17
+> Contract status: `0.4.0-pre.5` · Updated 2026-07-18
 
-Pre4 adds the engine-independent StateGraph Runtime and the single Unity
-assembly point for one Actor. It deliberately stops at a staged Tick: Operator
-execution, Outcome collection, ContextFrame commit, and committed EventOutbox
-publication remain Pre5 responsibilities.
+Pre5 completes the production path from a Pre4 staged StateGraph Tick through
+explicit Operators, Claims, Outcomes, Context finalization, one composite Actor
+commit barrier, and committed EventOutbox publication. Pre4's graph staging
+remains non-authoritative until that barrier succeeds.
 
 ## Unity assembly model
 
@@ -15,7 +15,7 @@ The required scene surface is intentionally small:
 Actor GameObject
 ├─ CoCoStateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
-└─ Operator scripts          optional; explicit Host list arrives in Pre5
+└─ Operator scripts          optional; referenced by the Host in explicit order
 ```
 
 `CoCoStateGraphHost` is the only public `MonoBehaviour` introduced by this
@@ -31,9 +31,11 @@ Asset, project runtime binding, EventDomain, and Driver configuration without
 auto-adding anything.
 
 The Host never scans old `CoCoStateController` instances, Context providers,
-children, or the scene. Pre4 neither creates placeholder Operators nor executes
-an Operator. Pre5 adds an explicit Operator reference list on the Host; it does
-not add discovery by component scanning.
+children, or the scene. Its serialized Operator list is explicit and ordered;
+the Host rejects null or destroyed entries, non-Operators, duplicate references,
+duplicate Operator IDs, entries outside its transform scope, and entries hidden
+behind a nested Host. Optional capability is represented by an explicit no-op
+Operator, not by an absent binding or runtime discovery.
 
 ## Shared graph, isolated Actor state
 
@@ -45,9 +47,11 @@ Inbox, pending staged Tick, and the latched Fault.
 Project executable bindings are installed once before Host startup through an
 immutable, AOT-safe registration entry point. The Host obtains that registration
 without another component or serialized binding asset. Binding coverage must
-match the compiled State, Condition, Memory, Intent Source, and Event Adapter
-requirements exactly. Missing, extra, duplicate, or type-incompatible bindings
-leave the Host in `Created`; no callback, Tick, or Router registration occurs.
+match the compiled State, Condition, Memory, Intent Source, Event Adapter, and
+Context Slot requirements exactly. The deduplicated Operator requirements must
+also exactly cover the compiled Graph Operation-provides manifest. Missing,
+extra, duplicate, or type-incompatible bindings leave the Host in `Created`; no
+callback, Tick, or Router registration occurs.
 The Asset declaration list is the authoritative Event Adapter execution order.
 The compiled manifest preserves that order; the project binding Provider may
 only satisfy the declarations and cannot reorder their runtime semantics.
@@ -105,7 +109,7 @@ the outgoing edges of one source leaf. The same numeric Priority may be reused
 by another source or Layer because those candidates never share an arbitration
 set.
 
-Conditions are pure reads over the frozen IntentFrame, previous ContextFrame,
+Conditions are pure reads over the frozen IntentFrame, previous Context read view,
 Tick, Config, `LocalSeconds`, and `ActionProgress`. They do not declare or write
 Operation Sections. Completion and InterruptPolicy are not StateGraph concepts;
 reaching progress `1` never exits a State automatically.
@@ -161,14 +165,37 @@ the last committed Tick. Pre4 returns a single-use staged Tick containing the
 candidate active leaves, State memory, Clock, and finalized OperationFrame, and
 refuses another Step while that Tick is unresolved.
 
-Pre5 will execute Operators and Outcomes, finalize Context, and accept or cancel
-that staged Tick. Only a successful Context commit atomically publishes the new
-path, memory, Clock, ContextFrame, OperationSequence, and EventOutbox. Any
-callback, Condition, Operation Finalize, or later Pre5 failure cancels all
-candidates, leaving the previous commit authoritative with no Outbox or final
-sequence consumption. Pre4 exposes no production shortcut around that barrier;
-its tests use an internal-only coordinator to exercise acceptance and rollback.
-That rollback cannot make `ActionProgress` move backwards within an Activation.
+Pre5 resolves that staged Tick in one fixed transaction:
+
+```text
+Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage
+  -> Claim Arbitration -> Operators -> Outcome/Outbox Validation
+  -> Context Finalize -> Graph Commit Preflight -> Composite Preflight
+  -> no-fail Commit -> complete Outbox Publish
+```
+
+The first Tick receives a `CoCoContextFrameReadView` backed by the layout's
+actual defaults; there is no synthetic Tick 0 or Revision 0 Frame. The first
+successful commit creates Revision 1. An Operator writer is bound to its
+Operator ID, transaction token, and exact non-Derived Operator-owned Slot
+allowlist, and expires as soon as its callback returns. A later Operator still
+reads only the previously committed Context, never this Tick's candidate.
+
+Claims are calculated for every Operator before the first real callback. A
+discrete claim binds `Enabled + ActivationId`; all claims of one Operator win or
+lose together. Arbitration uses descending Priority, Host list order, then
+stable Operator ID. A loser produces `ClaimDenied`, runs no callback, and leaves
+no Context or Outbox write. Ordinary competition therefore does not fault the
+Tick. Claim authority is released on Activation change, Exit, Stop, Dispose, or
+the claim's explicit Suspend policy.
+
+Only the composite no-fail barrier publishes Context authority, operation
+sequence, path, memory, activation, Clock, committed claims, a contiguous final
+EventSequence range, and the resolved Intent Tick. That barrier contains no
+callback, allocation, capacity request, or fallible mutation. Any earlier
+failure cancels all candidates and retains the previous authority without final
+sequence consumption. Rollback cannot make `ActionProgress` move backwards
+within an Activation.
 
 ## Clock, lifecycle, and Fault
 
@@ -197,7 +224,10 @@ the stopped one.
 - Host lifecycle calls cannot re-enter startup or an advancing Tick. Unity
   destruction closes ingress immediately; during startup it prevents Runtime
   publication, and during a staged Tick it cancels before any Operation,
-  Memory, path, Clock, or Context authority is swapped.
+  Memory, path, Clock, or Context authority is swapped. If a real Operator has
+  already touched Unity state, the old Context still remains authoritative but
+  the Host faults with `RequiresWorldCorrection`; CoCoFlow does not fabricate a
+  Unity-world rollback.
 
 Callback or Condition exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
@@ -206,9 +236,9 @@ Stop followed by a fresh instance, or a future Pre6 Restore into a new Epoch.
 
 ## Actor event boundary
 
-The Host is the Actor's single gameplay-event boundary, but Pre4 exposes ingress
-only. StateLogic and future Operators cannot publish an immediately visible
-gameplay event.
+The Host is the Actor's single gameplay-event boundary. StateLogic cannot
+publish an immediately visible gameplay event; Operators may only append typed,
+preallocated EventOutbox candidates owned by their current transaction token.
 
 An Actor-local event enters that Host's private Gateway and Inbox directly.
 Cross-Actor Targeted and declared broadcast packets pass through one lazily
@@ -231,18 +261,28 @@ earlier than the next accepted Tick.
 
 Suspend keeps Router registration and bounded accumulation. Fault rejects new
 gameplay input, and reliable overflow latches Fault at the next safe boundary.
-Pre5 may publish a staged EventOutbox through the Host's internal outbound seam
-only after the corresponding Context commit succeeds.
+Outbox finalization validates capacity and metadata without consuming sequence.
+After commit, all event types of one GraphInstance/Epoch share one contiguous
+EventSequence range, published in Host Operator order and then append order.
+Subscriber exceptions remain isolated. An infrastructure exception records a
+Fault but publication continues for the remaining committed packets; sequences
+are neither reclaimed nor automatically retried. Destroy, Stop, or Dispose
+requested during publication is deferred until the committed list completes.
+
+Runtime Trace is an optional fixed-capacity immutable ring. Capacity zero creates
+no buffer. Entries carry identity, revision, path, transition, Section, Operator
+outcome, commit, sequence, publish, and diagnostic codes, but never payloads,
+Unity objects, mutable Frames, Router/Inbox state, or diagnostic strings. Trace
+does not retain Context; a caller that needs long-lived Context access must
+explicitly retain and release it.
 
 ## Explicitly deferred
 
-- **Pre5**: explicit Host Operator list, Operator contracts/execution, Outcome,
-  Context commit, and committed EventOutbox publication.
 - **Pre6**: Temporal history, Restore, rewind, and new TimelineEpoch creation.
 - **Pre11**: Animator/Playable/SMB replacement and presentation reverse mapping.
 - **Pre13**: durable persistence and migration.
 
-Pre4 does not add cross-Layer calls, queries, signals, or Transitions; an
+Pre5 does not add cross-Layer calls, queries, signals, or Transitions; an
 arbitrary state-change API; a network Driver; persistence; a production Sample;
 or a migration runtime for the retained 0.3.9 implementation.
 

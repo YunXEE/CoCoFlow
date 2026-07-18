@@ -1,10 +1,11 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.4` · Updated 2026-07-17
+> Contract status: `0.4.0-pre.5` · Updated 2026-07-18
 
 Pre3 introduced the Unity authoring schema and engine-independent compiler for
 the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
-schema and adds the Runtime and Host described in
+schema and adds the staged Runtime and Host. Pre5 consumes its Operation and
+Context manifests without changing the Compiler or authoring schema, as described in
 [StateGraph Runtime and Host](StateGraphRuntime.md).
 
 The serialized Schema remains version 1. Because no StateGraph asset had been
@@ -289,8 +290,6 @@ pending staged Tick, and Fault state.
 
 ## Deferred boundaries
 
-- **Pre5** owns the explicit Host Operator list, Operator execution, Outcome,
-  ContextFrame Commit, and committed EventOutbox publication.
 - **Pre6** owns Temporal history, Restore, rewind, and new Epoch creation.
 - **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
@@ -299,4 +298,4 @@ pending staged Tick, and Fault state.
 
 There is no generated mega-`.cs` file, build-time baked compiled Asset,
 cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
-migration path in Pre4.
+migration path in Pre5.
