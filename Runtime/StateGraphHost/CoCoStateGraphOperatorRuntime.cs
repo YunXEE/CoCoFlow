@@ -14,6 +14,8 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoActivationId[] _committedClaimActivations;
         private readonly int[] _candidateClaimOwners;
         private readonly CoCoActivationId[] _candidateClaimActivations;
+        private readonly int[] _preparedRestoreClaimOwners;
+        private readonly CoCoActivationId[] _preparedRestoreClaimActivations;
         private readonly bool[] _retainedClaimOwners;
         private CoCoPreparedContextCommit _preparedContext;
         private ulong _activeToken;
@@ -21,6 +23,8 @@ namespace CoCoFlow.Runtime.Core
         private int _currentOutcomeWriteCount;
         private bool _outcomeWriteFault;
         private bool _worldMayBeDirty;
+        private bool _releaseClaimsOnNextArbitration;
+        private ulong _preparedRestoreToken;
         private bool _isDisposed;
 
         private CoCoStateGraphOperatorRuntime(
@@ -37,9 +41,12 @@ namespace CoCoFlow.Runtime.Core
             _committedClaimActivations = new CoCoActivationId[claimResources.Length];
             _candidateClaimOwners = new int[claimResources.Length];
             _candidateClaimActivations = new CoCoActivationId[claimResources.Length];
+            _preparedRestoreClaimOwners = new int[claimResources.Length];
+            _preparedRestoreClaimActivations = new CoCoActivationId[claimResources.Length];
             _retainedClaimOwners = new bool[operators.Length];
             ClearOwners(_committedClaimOwners);
             ClearOwners(_candidateClaimOwners);
+            ClearOwners(_preparedRestoreClaimOwners);
         }
 
         internal int Count => _operators.Length;
@@ -140,12 +147,14 @@ namespace CoCoFlow.Runtime.Core
             CoCoContextFrameLayout contextLayout,
             CoCoOperationSectionRegistry operationRegistry,
             IReadOnlyList<MonoBehaviour> components,
+            IReadOnlyList<CoCoStateSlotId> claimStateSlots,
             out CoCoStateGraphOperatorRuntime runtime,
             out CoCoDiagnostic diagnostic)
         {
             runtime = null;
             if (host == null || graph == null || !graphInstanceId.IsValid ||
-                contextLayout == null || operationRegistry == null || components == null)
+                contextLayout == null || operationRegistry == null || components == null ||
+                claimStateSlots == null)
             {
                 diagnostic = Error(
                     CoCoDiagnosticCode.InvalidOperatorDescriptor,
@@ -159,6 +168,7 @@ namespace CoCoFlow.Runtime.Core
             var ownedOutcomes = new HashSet<CoCoStateSlotId>();
             var resources = new List<ClaimResourceBuilder>();
             var sectionClaims = new Dictionary<CoCoOperationSectionId, CoCoOperatorClaimId>();
+            var slotClaims = new Dictionary<CoCoStateSlotId, CoCoOperatorClaimId>();
             for (int operatorIndex = 0; operatorIndex < components.Count; operatorIndex++)
             {
                 MonoBehaviour component = components[operatorIndex];
@@ -202,9 +212,11 @@ namespace CoCoFlow.Runtime.Core
                     !TryResolveClaims(
                         descriptor,
                         operatorIndex,
+                        contextLayout,
                         operationRegistry,
                         resources,
                         sectionClaims,
+                        slotClaims,
                         out int[] claimResourceIndices,
                         out int[] claimSectionIndices,
                         out diagnostic))
@@ -229,7 +241,8 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (!TryValidateCoverage(graph, bindings, out diagnostic) ||
-                !TryValidateOutcomeCoverage(contextLayout, ownedOutcomes, out diagnostic))
+                !TryValidateOutcomeCoverage(contextLayout, ownedOutcomes, out diagnostic) ||
+                !TryValidateClaimCoverage(claimStateSlots, resources, out diagnostic))
             {
                 return false;
             }
@@ -255,6 +268,7 @@ namespace CoCoFlow.Runtime.Core
             in CoCoPreparedContextCommit preparedContext,
             ICoCoEventOutboxSink eventOutbox,
             ulong token,
+            ICoCoStateGraphCommitGuard commitGuard,
             CoCoStateFlowTraceBuffer trace,
             out CoCoDiagnostic diagnostic)
         {
@@ -276,7 +290,26 @@ namespace CoCoFlow.Runtime.Core
             _preparedContext = preparedContext;
             _worldMayBeDirty = false;
             _outcomeWriteFault = false;
+            CoCoStateFlowTraceFrameReference previousReference = default;
+            if (trace != null &&
+                !CoCoStateFlowTraceFrameReference.TryCreate(
+                    previousContext,
+                    out previousReference))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.OperatorExecutionFailed,
+                    "Operator trace could not snapshot the previous Context identity.");
+                ClearActiveTransaction();
+                return false;
+            }
+
             if (!TryArbitrateClaims(stagedStep.FinalizedOperationFrame, out diagnostic))
+            {
+                ClearActiveTransaction();
+                return false;
+            }
+
+            if (!TryWriteClaimCandidates(out diagnostic))
             {
                 ClearActiveTransaction();
                 return false;
@@ -299,7 +332,8 @@ namespace CoCoFlow.Runtime.Core
                     _graphInstanceId,
                     stagedStep.TickFrame,
                     binding.Descriptor.OperatorId,
-                    denied.Status));
+                    denied.Status,
+                    previousReference));
             }
 
             for (int operatorIndex = 0; operatorIndex < _operators.Length; operatorIndex++)
@@ -308,6 +342,14 @@ namespace CoCoFlow.Runtime.Core
                 if (!binding.Eligible)
                 {
                     continue;
+                }
+
+                if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                {
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled Operator execution before the next callback.");
+                    ClearActiveTransaction();
+                    return false;
                 }
 
                 CoCoOperatorOutcome outcome;
@@ -374,7 +416,8 @@ namespace CoCoFlow.Runtime.Core
                     _graphInstanceId,
                     stagedStep.TickFrame,
                     binding.Descriptor.OperatorId,
-                    outcome.Status));
+                    outcome.Status,
+                    previousReference));
                 if (outcome.Status == CoCoOperatorOutcomeStatus.Rejected)
                 {
                     diagnostic = outcome.Diagnostic.IsError
@@ -382,6 +425,14 @@ namespace CoCoFlow.Runtime.Core
                         : Error(
                             CoCoDiagnosticCode.OperatorExecutionFailed,
                             "Operator rejected the candidate transaction.");
+                    ClearActiveTransaction();
+                    return false;
+                }
+
+                if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+                {
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled Operator execution after a callback.");
                     ClearActiveTransaction();
                     return false;
                 }
@@ -456,6 +507,7 @@ namespace CoCoFlow.Runtime.Core
                 _committedClaimActivations[index] = _candidateClaimActivations[index];
             }
 
+            _releaseClaimsOnNextArbitration = false;
             ClearActiveTransaction();
         }
 
@@ -466,45 +518,160 @@ namespace CoCoFlow.Runtime.Core
             ClearActiveTransaction();
         }
 
+        internal bool TryValidateRestore(
+            CoCoContextFrame source,
+            CoCoStateGraphContextRuntime contextRuntime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed || _activeToken != 0UL || !source.IsAlive ||
+                !_contextLayout.IsSameInstance(source.Layout) || contextRuntime == null)
+            {
+                diagnostic = RestoreError(
+                    "Claim restore validation requires one idle Runtime and an exact live Context frame.");
+                return false;
+            }
+
+            for (int resourceIndex = 0; resourceIndex < _claimResources.Length; resourceIndex++)
+            {
+                if (!TryReadRestoreClaim(
+                        source,
+                        contextRuntime,
+                        resourceIndex,
+                        out _,
+                        out _,
+                        out diagnostic))
+                {
+                    return false;
+                }
+            }
+
+            for (int operatorIndex = 0; operatorIndex < _operators.Length; operatorIndex++)
+            {
+                OperatorBinding binding = _operators[operatorIndex];
+                bool ownsAny = false;
+                bool ownsAll = true;
+                for (int claimIndex = 0;
+                     claimIndex < binding.ClaimResourceIndices.Length;
+                     claimIndex++)
+                {
+                    int resourceIndex = binding.ClaimResourceIndices[claimIndex];
+                    if (!TryReadRestoreClaim(
+                            source,
+                            contextRuntime,
+                            resourceIndex,
+                            out int owner,
+                            out _,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    ownsAny |= owner == operatorIndex;
+                    ownsAll &= owner == operatorIndex;
+                }
+
+                if (ownsAny && !ownsAll)
+                {
+                    diagnostic = RestoreError(
+                        "Restored Claim ownership violates an Operator's all-or-none descriptor.");
+                    return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryPrepareRestore(
+            CoCoContextFrame source,
+            CoCoStateGraphContextRuntime contextRuntime,
+            ulong token,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (token == 0UL || _preparedRestoreToken != 0UL ||
+                !TryValidateRestore(source, contextRuntime, out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = RestoreError("Claim restore preparation requires one fresh token.");
+                }
+
+                return false;
+            }
+
+            for (int resourceIndex = 0; resourceIndex < _claimResources.Length; resourceIndex++)
+            {
+                if (!TryReadRestoreClaim(
+                        source,
+                        contextRuntime,
+                        resourceIndex,
+                        out _preparedRestoreClaimOwners[resourceIndex],
+                        out _preparedRestoreClaimActivations[resourceIndex],
+                        out diagnostic))
+                {
+                    CancelPreparedRestore();
+                    return false;
+                }
+            }
+
+            _preparedRestoreToken = token;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal void CommitPreparedRestoreNoFail(ulong token)
+        {
+            if (token == 0UL || token != _preparedRestoreToken)
+            {
+                return;
+            }
+
+            for (int index = 0; index < _claimResources.Length; index++)
+            {
+                _committedClaimOwners[index] = _preparedRestoreClaimOwners[index];
+                _committedClaimActivations[index] = _preparedRestoreClaimActivations[index];
+            }
+
+            _releaseClaimsOnNextArbitration = false;
+            CancelPreparedRestore();
+        }
+
+        internal bool IsPreparedRestoreTokenCurrent(ulong token) =>
+            !_isDisposed &&
+            token != 0UL &&
+            token == _preparedRestoreToken;
+
+        internal void CancelPreparedRestore()
+        {
+            _preparedRestoreToken = 0UL;
+            ClearOwners(_preparedRestoreClaimOwners);
+            Array.Clear(
+                _preparedRestoreClaimActivations,
+                0,
+                _preparedRestoreClaimActivations.Length);
+        }
+
         internal void Suspend()
         {
             for (int operatorIndex = 0; operatorIndex < _operators.Length; operatorIndex++)
             {
                 OperatorBinding binding = _operators[operatorIndex];
-                bool ownsCommittedClaims = false;
-                bool release = false;
                 for (int claimIndex = 0;
                      claimIndex < binding.Descriptor.Claims.Count;
                      claimIndex++)
                 {
                     int resourceIndex = binding.ClaimResourceIndices[claimIndex];
-                    if (_committedClaimOwners[resourceIndex] != operatorIndex)
-                    {
-                        continue;
-                    }
-
-                    ownsCommittedClaims = true;
-                    if (binding.Descriptor.Claims[claimIndex].SuspendPolicy ==
+                    if (_committedClaimOwners[resourceIndex] == operatorIndex &&
+                        binding.Descriptor.Claims[claimIndex].SuspendPolicy ==
                         CoCoOperatorClaimSuspendPolicy.Release)
                     {
-                        release = true;
+                        // ContextFrame remains the sole committed Claim authority while
+                        // Suspended. Apply the release as a candidate overlay on the next
+                        // arbitration, then persist it through the normal composite commit.
+                        _releaseClaimsOnNextArbitration = true;
+                        return;
                     }
-                }
-
-                if (!ownsCommittedClaims || !release)
-                {
-                    continue;
-                }
-
-                // Claim ownership is all-or-none per Operator. A Release policy on
-                // any member therefore releases the complete committed Claim set.
-                for (int claimIndex = 0;
-                     claimIndex < binding.Descriptor.Claims.Count;
-                     claimIndex++)
-                {
-                    int resourceIndex = binding.ClaimResourceIndices[claimIndex];
-                    _committedClaimOwners[resourceIndex] = -1;
-                    _committedClaimActivations[resourceIndex] = default;
                 }
             }
         }
@@ -517,8 +684,10 @@ namespace CoCoFlow.Runtime.Core
             }
 
             Cancel();
+            CancelPreparedRestore();
             ClearOwners(_committedClaimOwners);
             Array.Clear(_committedClaimActivations, 0, _committedClaimActivations.Length);
+            _releaseClaimsOnNextArbitration = false;
             _isDisposed = true;
         }
 
@@ -564,7 +733,8 @@ namespace CoCoFlow.Runtime.Core
             {
                 OperatorBinding binding = _operators[operatorIndex];
                 if (binding.Descriptor.Claims.Count == 0 ||
-                    _committedClaimOwners[binding.ClaimResourceIndices[0]] != operatorIndex)
+                    _committedClaimOwners[binding.ClaimResourceIndices[0]] != operatorIndex ||
+                    _releaseClaimsOnNextArbitration && ShouldReleaseOnSuspend(binding))
                 {
                     continue;
                 }
@@ -668,6 +838,49 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        private bool TryWriteClaimCandidates(out CoCoDiagnostic diagnostic)
+        {
+            for (int resourceIndex = 0; resourceIndex < _claimResources.Length; resourceIndex++)
+            {
+                ClaimResource resource = _claimResources[resourceIndex];
+                int ownerIndex = _candidateClaimOwners[resourceIndex];
+                CoCoOperatorClaimState state;
+                if (ownerIndex < 0)
+                {
+                    state = CoCoOperatorClaimState.Unheld(
+                        resource.ClaimId,
+                        resource.Section.SectionId);
+                }
+                else if (ownerIndex >= _operators.Length ||
+                         !CoCoOperatorClaimState.TryCreateHeld(
+                             resource.ClaimId,
+                             resource.Section.SectionId,
+                             _operators[ownerIndex].Descriptor.OperatorId,
+                             _candidateClaimActivations[resourceIndex],
+                             out state))
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.OperatorClaimConflict,
+                        "Claim arbitration produced an invalid canonical ownership record.");
+                    return false;
+                }
+
+                if (!_preparedContext.TryGetWriter(
+                        resource.Block,
+                        out CoCoContextFrameWriter writer) ||
+                    !writer.Write(resource.Slot, state))
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.OperatorClaimConflict,
+                        "Canonical Claim ownership could not be written to its Graph-owned State Slot.");
+                    return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         private bool TryValidateCommittedClaims(out CoCoDiagnostic diagnostic)
         {
             for (int resourceIndex = 0;
@@ -728,6 +941,69 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        private bool TryReadRestoreClaim(
+            CoCoContextFrame source,
+            CoCoStateGraphContextRuntime contextRuntime,
+            int resourceIndex,
+            out int ownerIndex,
+            out CoCoActivationId activationId,
+            out CoCoDiagnostic diagnostic)
+        {
+            ownerIndex = -1;
+            activationId = default;
+            if (resourceIndex < 0 || resourceIndex >= _claimResources.Length)
+            {
+                diagnostic = RestoreError("Restored Claim resource index is invalid.");
+                return false;
+            }
+
+            ClaimResource resource = _claimResources[resourceIndex];
+            CoCoOperatorClaimState state = source.Read(resource.Slot);
+            if (!state.IsValid ||
+                state.ClaimId != resource.ClaimId ||
+                state.SectionId != resource.Section.SectionId)
+            {
+                diagnostic = RestoreError(
+                    "Restored Claim identity or Operation Section does not match its descriptor.");
+                return false;
+            }
+
+            if (!state.IsHeld)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            ownerIndex = FindOperatorIndex(state.OwnerOperatorId);
+            activationId = state.ActivationId;
+            if (ownerIndex < 0 ||
+                FindClaimIndex(ownerIndex, resourceIndex) < 0 ||
+                !contextRuntime.IsRestoredActiveActivation(source, activationId))
+            {
+                ownerIndex = -1;
+                activationId = default;
+                diagnostic = RestoreError(
+                    "Restored Claim owner or Activation is inconsistent with Graph authority.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private int FindOperatorIndex(CoCoOperatorId operatorId)
+        {
+            for (int index = 0; index < _operators.Length; index++)
+            {
+                if (_operators[index].Descriptor.OperatorId == operatorId)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
         private bool IsHigherPriority(
             int candidateOperator,
             int candidateClaim,
@@ -766,6 +1042,20 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return -1;
+        }
+
+        private static bool ShouldReleaseOnSuspend(OperatorBinding binding)
+        {
+            for (int index = 0; index < binding.Descriptor.Claims.Count; index++)
+            {
+                if (binding.Descriptor.Claims[index].SuspendPolicy ==
+                    CoCoOperatorClaimSuspendPolicy.Release)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private CoCoOperatorClaimRequirement FindClaim(int operatorIndex, int resourceIndex)
@@ -936,9 +1226,11 @@ namespace CoCoFlow.Runtime.Core
         private static bool TryResolveClaims(
             CoCoOperatorDescriptor descriptor,
             int operatorIndex,
+            CoCoContextFrameLayout contextLayout,
             CoCoOperationSectionRegistry operationRegistry,
             List<ClaimResourceBuilder> resources,
             Dictionary<CoCoOperationSectionId, CoCoOperatorClaimId> sectionClaims,
+            Dictionary<CoCoStateSlotId, CoCoOperatorClaimId> slotClaims,
             out int[] resourceIndices,
             out int[] sectionIndices,
             out CoCoDiagnostic diagnostic)
@@ -950,11 +1242,20 @@ namespace CoCoFlow.Runtime.Core
                 CoCoOperatorClaimRequirement claim = descriptor.Claims[claimIndex];
                 if (!operationRegistry.TryResolveDenseIndex(
                         claim.Section,
-                        out sectionIndices[claimIndex]))
+                        out sectionIndices[claimIndex]) ||
+                    !TryResolveClaimStateSlot(
+                        contextLayout,
+                        claim.StateSlotId,
+                        out CoCoStateBlockHandle claimBlock,
+                        out CoCoStateSlot<CoCoOperatorClaimState> claimSlot,
+                        out CoCoOperatorClaimState defaultClaim) ||
+                    defaultClaim.ClaimId != claim.ClaimId ||
+                    defaultClaim.SectionId != claim.Section.SectionId ||
+                    defaultClaim.IsHeld)
                 {
                     diagnostic = Error(
                         CoCoDiagnosticCode.InvalidOperatorDescriptor,
-                        "Claim Section could not resolve against the frozen Operation registry.");
+                        "Claim Section and trusted Slot default must exactly match the frozen descriptor.");
                     return false;
                 }
 
@@ -970,6 +1271,18 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 sectionClaims[claim.Section.SectionId] = claim.ClaimId;
+                if (slotClaims.TryGetValue(
+                        claim.StateSlotId,
+                        out CoCoOperatorClaimId existingSlotClaim) &&
+                    existingSlotClaim != claim.ClaimId)
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.OperatorClaimConflict,
+                        "One Claim State Slot cannot represent multiple Claim identities.");
+                    return false;
+                }
+
+                slotClaims[claim.StateSlotId] = claim.ClaimId;
                 int resourceIndex = -1;
                 for (int index = 0; index < resources.Count; index++)
                 {
@@ -978,7 +1291,8 @@ namespace CoCoFlow.Runtime.Core
                         continue;
                     }
 
-                    if (resources[index].Section != claim.Section)
+                    if (resources[index].Section != claim.Section ||
+                        resources[index].StateSlotId != claim.StateSlotId)
                     {
                         diagnostic = Error(
                             CoCoDiagnosticCode.OperatorClaimConflict,
@@ -993,7 +1307,12 @@ namespace CoCoFlow.Runtime.Core
                 if (resourceIndex < 0)
                 {
                     resourceIndex = resources.Count;
-                    resources.Add(new ClaimResourceBuilder(claim.ClaimId, claim.Section));
+                    resources.Add(new ClaimResourceBuilder(
+                        claim.ClaimId,
+                        claim.Section,
+                        claim.StateSlotId,
+                        claimBlock,
+                        claimSlot));
                 }
 
                 resources[resourceIndex].Add(operatorIndex);
@@ -1002,6 +1321,75 @@ namespace CoCoFlow.Runtime.Core
 
             diagnostic = CoCoDiagnostic.None;
             return true;
+        }
+
+        private static bool TryValidateClaimCoverage(
+            IReadOnlyList<CoCoStateSlotId> declaredSlots,
+            List<ClaimResourceBuilder> resources,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (declaredSlots.Count != resources.Count)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.OperatorClaimConflict,
+                    "Graph-owned Claim State Slots must be consumed exactly once by Claim arbitration.");
+                return false;
+            }
+
+            for (int slotIndex = 0; slotIndex < declaredSlots.Count; slotIndex++)
+            {
+                bool found = false;
+                for (int resourceIndex = 0; resourceIndex < resources.Count; resourceIndex++)
+                {
+                    if (resources[resourceIndex].StateSlotId == declaredSlots[slotIndex])
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.OperatorClaimConflict,
+                        "A declared Claim State Slot has no matching Claim descriptor.");
+                    return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static bool TryResolveClaimStateSlot(
+            CoCoContextFrameLayout layout,
+            CoCoStateSlotId slotId,
+            out CoCoStateBlockHandle blockHandle,
+            out CoCoStateSlot<CoCoOperatorClaimState> slotHandle,
+            out CoCoOperatorClaimState defaultValue)
+        {
+            blockHandle = default;
+            slotHandle = default;
+            defaultValue = default;
+            CoCoStateSlotDescriptor slot = FindSlot(layout, slotId);
+            CoCoStateBlockDescriptor block = slot == null
+                ? null
+                : FindBlock(layout, slot.WriterBlockId);
+            if (slot == null ||
+                block == null ||
+                slot.ValueType != typeof(CoCoOperatorClaimState) ||
+                slot.RestorePolicy == CoCoContextRestorePolicy.Derived ||
+                block.Owner != CoCoStateBlockOwner.Graph ||
+                !layout.TryResolveBlock(block.BlockId, out blockHandle) ||
+                !layout.TryResolveSlot(slotId, out slotHandle))
+            {
+                return false;
+            }
+
+            defaultValue = CoCoStateFlowTypeRules.Read<CoCoOperatorClaimState>(
+                slot.DefaultBytes,
+                0);
+            return defaultValue.IsValid;
         }
 
         private static bool Matches(
@@ -1076,6 +1464,18 @@ namespace CoCoFlow.Runtime.Core
         private static CoCoDiagnostic Error(CoCoDiagnosticCode code, string message) =>
             CoCoDiagnostic.Error(CoCoDiagnosticDomain.Operator, code, message);
 
+        private static CoCoDiagnostic RestoreError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticCode.InvalidClaimRestore,
+                message);
+
+        private static CoCoDiagnostic LifecycleError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Lifecycle,
+                CoCoDiagnosticCode.InvalidLifecycleTransition,
+                message);
+
         private sealed class OperatorBinding
         {
             public OperatorBinding(
@@ -1127,15 +1527,24 @@ namespace CoCoFlow.Runtime.Core
             public ClaimResource(
                 CoCoOperatorClaimId claimId,
                 CoCoOperationSectionRequirement section,
+                CoCoStateSlotId stateSlotId,
+                CoCoStateBlockHandle block,
+                CoCoStateSlot<CoCoOperatorClaimState> slot,
                 int[] contenders)
             {
                 ClaimId = claimId;
                 Section = section;
+                StateSlotId = stateSlotId;
+                Block = block;
+                Slot = slot;
                 Contenders = contenders;
             }
 
             public CoCoOperatorClaimId ClaimId { get; }
             public CoCoOperationSectionRequirement Section { get; }
+            public CoCoStateSlotId StateSlotId { get; }
+            public CoCoStateBlockHandle Block { get; }
+            public CoCoStateSlot<CoCoOperatorClaimState> Slot { get; }
             public int[] Contenders { get; }
         }
 
@@ -1145,19 +1554,34 @@ namespace CoCoFlow.Runtime.Core
 
             public ClaimResourceBuilder(
                 CoCoOperatorClaimId claimId,
-                CoCoOperationSectionRequirement section)
+                CoCoOperationSectionRequirement section,
+                CoCoStateSlotId stateSlotId,
+                CoCoStateBlockHandle block,
+                CoCoStateSlot<CoCoOperatorClaimState> slot)
             {
                 ClaimId = claimId;
                 Section = section;
+                StateSlotId = stateSlotId;
+                Block = block;
+                Slot = slot;
             }
 
             public CoCoOperatorClaimId ClaimId { get; }
             public CoCoOperationSectionRequirement Section { get; }
+            public CoCoStateSlotId StateSlotId { get; }
+            public CoCoStateBlockHandle Block { get; }
+            public CoCoStateSlot<CoCoOperatorClaimState> Slot { get; }
 
             public void Add(int operatorIndex) => _contenders.Add(operatorIndex);
 
             public ClaimResource Freeze() =>
-                new ClaimResource(ClaimId, Section, _contenders.ToArray());
+                new ClaimResource(
+                    ClaimId,
+                    Section,
+                    StateSlotId,
+                    Block,
+                    Slot,
+                    _contenders.ToArray());
         }
     }
 }

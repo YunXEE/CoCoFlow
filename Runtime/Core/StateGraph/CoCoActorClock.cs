@@ -3,6 +3,37 @@ using System;
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
+    /// Single-use proof that an Actor Clock restore target passed every fallible check.
+    /// </summary>
+    internal readonly struct CoCoPreparedActorClockRestore
+    {
+        private readonly CoCoActorClock _clock;
+        private readonly ulong _token;
+
+        internal CoCoPreparedActorClockRestore(
+            CoCoActorClock clock,
+            ulong token,
+            in CoCoTickFrame tickFrame)
+        {
+            _clock = clock;
+            _token = token;
+            TickFrame = tickFrame;
+        }
+
+        internal CoCoTickFrame TickFrame { get; }
+        internal bool IsValid =>
+            _clock != null && _clock.IsPreparedRestoreTokenCurrent(_token);
+
+        internal void ApplyNoFail()
+        {
+            _clock.ApplyPreparedRestoreNoFail();
+        }
+
+        internal bool Cancel() =>
+            _clock != null && _clock.CancelPreparedRestore(_token);
+    }
+
+    /// <summary>
     /// Per-Actor transactional Clock. Preview is read-only; only a committed staged Tick advances time.
     /// </summary>
     public sealed class CoCoActorClock
@@ -17,6 +48,9 @@ namespace CoCoFlow.Runtime.Core
         private double _seconds;
         private ulong _tick;
         private ulong _executionSequence;
+        private ulong _restoreGeneration;
+        private ulong _activeRestoreToken;
+        private CoCoTickFrame _restoreCandidate;
         private bool _hasCandidate;
 
         private CoCoActorClock(
@@ -127,10 +161,11 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_hasCandidate)
+            if (_hasCandidate || _activeRestoreToken != 0UL)
             {
                 tickFrame = default;
-                diagnostic = LifecycleError("The staged Clock Tick must be resolved before previewing another Tick.");
+                diagnostic = LifecycleError(
+                    "The staged Clock Tick or prepared restore must be resolved before previewing another Tick.");
                 return false;
             }
 
@@ -212,6 +247,7 @@ namespace CoCoFlow.Runtime.Core
                     _runtimeOwner != null ||
                     (_graphInstanceId.IsValid && _graphInstanceId != graphInstanceId) ||
                     _hasCandidate ||
+                    _activeRestoreToken != 0UL ||
                     _seconds != 0d ||
                     _tick != 0UL ||
                     _executionSequence != 0UL)
@@ -235,6 +271,8 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 _runtimeOwner = null;
+                _restoreCandidate = default;
+                _activeRestoreToken = 0UL;
                 if (!_hasDeclaredGraphInstanceId)
                 {
                     _graphInstanceId = default;
@@ -246,6 +284,7 @@ namespace CoCoFlow.Runtime.Core
         {
             if (!ReferenceEquals(_runtimeOwner, runtimeOwner) ||
                 _hasCandidate ||
+                _activeRestoreToken != 0UL ||
                 !tickFrame.IsValid ||
                 tickFrame.TimelineId != _timelineId ||
                 tickFrame.ClockDomainId != _clockDomainId ||
@@ -266,6 +305,89 @@ namespace CoCoFlow.Runtime.Core
             ReferenceEquals(_runtimeOwner, runtimeOwner) &&
             _hasCandidate &&
             _candidate == tickFrame;
+
+        internal bool TryValidateRestore(
+            object runtimeOwner,
+            in CoCoTickFrame resumedTickFrame,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!ReferenceEquals(_runtimeOwner, runtimeOwner) ||
+                _hasCandidate ||
+                _activeRestoreToken != 0UL)
+            {
+                diagnostic = LifecycleError(
+                    "Actor Clock restore requires its owner at a resolved Tick boundary.");
+                return false;
+            }
+
+            if (!resumedTickFrame.IsValid ||
+                resumedTickFrame.TimelineId != _timelineId ||
+                resumedTickFrame.ClockDomainId != _clockDomainId ||
+                resumedTickFrame.TimelineEpoch.Value <= _epoch.Value ||
+                resumedTickFrame.ExecutionSequence.Value <= _executionSequence)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.InvalidGraphRestore,
+                    "Actor Clock restore requires the same Timeline and ClockDomain in a strictly newer Epoch and ExecutionSequence.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryPrepareRestore(
+            object runtimeOwner,
+            in CoCoTickFrame resumedTickFrame,
+            out CoCoPreparedActorClockRestore prepared,
+            out CoCoDiagnostic diagnostic)
+        {
+            prepared = default;
+            if (!TryValidateRestore(runtimeOwner, resumedTickFrame, out diagnostic))
+            {
+                return false;
+            }
+
+            _restoreGeneration = _restoreGeneration == ulong.MaxValue
+                ? 1UL
+                : _restoreGeneration + 1UL;
+            _activeRestoreToken = _restoreGeneration;
+            _restoreCandidate = resumedTickFrame;
+            prepared = new CoCoPreparedActorClockRestore(
+                this,
+                _activeRestoreToken,
+                resumedTickFrame);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool IsPreparedRestoreTokenCurrent(ulong token) =>
+            token != 0UL &&
+            token == _activeRestoreToken &&
+            _restoreCandidate.IsValid;
+
+        internal void ApplyPreparedRestoreNoFail()
+        {
+            _epoch = _restoreCandidate.TimelineEpoch;
+            _seconds = _restoreCandidate.TimelinePosition.Seconds;
+            _tick = _restoreCandidate.Tick.Value;
+            _executionSequence = _restoreCandidate.ExecutionSequence.Value;
+            _restoreCandidate = default;
+            _activeRestoreToken = 0UL;
+        }
+
+        internal bool CancelPreparedRestore(ulong token)
+        {
+            if (!IsPreparedRestoreTokenCurrent(token))
+            {
+                return false;
+            }
+
+            _restoreCandidate = default;
+            _activeRestoreToken = 0UL;
+            return true;
+        }
 
         internal void CommitPreparedNoFail()
         {

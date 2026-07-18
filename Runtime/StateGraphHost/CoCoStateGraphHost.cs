@@ -19,6 +19,7 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private bool autoStart = true;
         [SerializeField, Min(0.0001f)] private float timeScale = 1f;
         [SerializeField] private MonoBehaviour[] operators = Array.Empty<MonoBehaviour>();
+        [SerializeField] private MonoBehaviour actorContextBinding;
         [SerializeField, Min(2)] private int contextFrameCapacity = 3;
         [SerializeField, Min(0)] private int eventOutboxCapacity = 32;
         [SerializeField, Min(0)] private int traceCapacity;
@@ -49,6 +50,7 @@ namespace CoCoFlow.Runtime.Core
         internal bool AutoStart => autoStart;
         internal float TimeScale => timeScale;
         internal IReadOnlyList<MonoBehaviour> Operators => operators ?? Array.Empty<MonoBehaviour>();
+        internal MonoBehaviour ActorContextBinding => actorContextBinding;
         internal int ContextFrameCapacity => contextFrameCapacity;
         internal int EventOutboxCapacity => eventOutboxCapacity;
         internal int TraceCapacity => traceCapacity;
@@ -275,6 +277,34 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (!CoCoStateGraphTransaction.TryPreflight(
+                        this,
+                        compileResult.Graph,
+                        graphInstanceId,
+                        bindings.ContextLayout,
+                        bindings.Operations,
+                        bindings.ContextProducers,
+                        contextFrameCapacity,
+                        eventOutboxCapacity,
+                        traceCapacity,
+                        out transaction,
+                        out diagnostic))
+                {
+                    bindings.Dispose();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (_destroyRequested)
+                {
+                    transaction.Dispose();
+                    bindings.Dispose();
+                    diagnostic = LifecycleError(
+                        "Unity destruction cancelled StateGraph Host startup after transaction preflight.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
                 if (!TryCreateTimelineId(
                         compileResult.Graph.GraphId,
                         graphInstanceId,
@@ -291,6 +321,7 @@ namespace CoCoFlow.Runtime.Core
                         out CoCoActorClock clock,
                         out diagnostic))
                 {
+                    transaction.Dispose();
                     bindings.Dispose();
                     _lastDiagnostic = diagnostic;
                     return false;
@@ -305,6 +336,7 @@ namespace CoCoFlow.Runtime.Core
                         out runtime,
                         out diagnostic))
                 {
+                    transaction.Dispose();
                     bindings.Dispose();
                     _lastDiagnostic = diagnostic;
                     return false;
@@ -313,6 +345,7 @@ namespace CoCoFlow.Runtime.Core
                 if (_destroyRequested)
                 {
                     runtime.Dispose();
+                    transaction.Dispose();
                     bindings.Dispose();
                     diagnostic = LifecycleError(
                         "Unity destruction cancelled StateGraph Host startup during Runtime creation.");
@@ -323,24 +356,18 @@ namespace CoCoFlow.Runtime.Core
                 if (!runtime.TryStart(out diagnostic))
                 {
                     runtime.Dispose();
+                    transaction.Dispose();
                     bindings.Dispose();
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
 
-                if (!CoCoStateGraphTransaction.TryCreate(
-                        this,
-                        compileResult.Graph,
-                        graphInstanceId,
-                        bindings.ContextLayout,
-                        bindings.Operations,
-                        contextFrameCapacity,
-                        eventOutboxCapacity,
-                        traceCapacity,
-                        out transaction,
+                if (!transaction.TryValidateInitialGraphContextDefaults(
+                        runtime,
                         out diagnostic))
                 {
                     runtime.Dispose();
+                    transaction.Dispose();
                     bindings.Dispose();
                     _lastDiagnostic = diagnostic;
                     return false;
@@ -626,7 +653,38 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            return _transaction.TryValidateRestore(source, resumedTickFrame, out status);
+            return _transaction.TryValidateRestore(
+                _runtime,
+                source,
+                resumedTickFrame,
+                out status);
+        }
+
+        internal bool TryPrepareRestore(
+            CoCoContextFrame source,
+            CoCoTickFrame resumedTickFrame,
+            out CoCoPreparedActorRestore preparedRestore,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_transaction == null || _runtime == null)
+            {
+                preparedRestore = default;
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.InvalidGraphRestore,
+                    "Actor restore preparation requires one live Host transaction.");
+                return false;
+            }
+
+            return _transaction.TryPrepareRestore(
+                _runtime,
+                source,
+                resumedTickFrame,
+                out preparedRestore,
+                out status,
+                out diagnostic);
         }
 
         public CoCoInboxEnqueueResult TryEnqueueLocal<TEvent>(
@@ -806,6 +864,8 @@ namespace CoCoFlow.Runtime.Core
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
+
+                _transaction.AppendStagedTrace(_runtime, stagedStep);
             }
             catch (Exception)
             {

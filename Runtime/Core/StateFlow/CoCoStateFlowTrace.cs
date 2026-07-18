@@ -21,6 +21,164 @@ namespace CoCoFlow.Runtime.Core
               ActivePath
     }
 
+    public enum CoCoStateFlowTransitionRole
+    {
+        None = 0,
+        Candidate = 1,
+        Winner = 2
+    }
+
+    /// <summary>
+    /// Reference-free identity snapshot of a ContextFrame used by trace entries.
+    /// The default-backed form preserves the exact layout identity without
+    /// fabricating a committed frame header or revision.
+    /// </summary>
+    public readonly struct CoCoStateFlowTraceFrameReference : IEquatable<CoCoStateFlowTraceFrameReference>
+    {
+        private CoCoStateFlowTraceFrameReference(
+            CoCoStateFlowFrameIdentity identity,
+            CoCoFrameLayoutId layoutId,
+            uint layoutVersion,
+            ulong layoutSchemaHash,
+            CoCoContextRevision revision,
+            bool hasCommittedFrame)
+        {
+            Identity = identity;
+            LayoutId = layoutId;
+            LayoutVersion = layoutVersion;
+            LayoutSchemaHash = layoutSchemaHash;
+            Revision = revision;
+            HasCommittedFrame = hasCommittedFrame;
+        }
+
+        public CoCoStateFlowFrameIdentity Identity { get; }
+        public CoCoFrameLayoutId LayoutId { get; }
+        public uint LayoutVersion { get; }
+        public ulong LayoutSchemaHash { get; }
+        public CoCoContextRevision Revision { get; }
+        public bool HasCommittedFrame { get; }
+
+        public bool IsValid => LayoutId.IsValid &&
+                               LayoutVersion > 0U &&
+                               LayoutSchemaHash != 0UL &&
+                               (HasCommittedFrame
+                                   ? Identity.IsValid &&
+                                     Identity.Kind == CoCoStateFlowFrameKind.Context &&
+                                     Revision.IsValid
+                                   : !Identity.IsValid && !Revision.IsValid);
+
+        public static bool TryCreate(
+            CoCoContextFrameReadView context,
+            out CoCoStateFlowTraceFrameReference reference)
+        {
+            if (!context.IsValid || context.Layout == null)
+            {
+                reference = default;
+                return false;
+            }
+
+            CoCoContextFrameLayout layout = context.Layout;
+            if (context.HasCommittedFrame)
+            {
+                CoCoStateFlowFrameHeader header = context.Header;
+                if (!header.IsValid ||
+                    !header.HasExactLayoutIdentity ||
+                    header.Identity.Kind != CoCoStateFlowFrameKind.Context ||
+                    header.LayoutId != layout.LayoutId ||
+                    header.LayoutVersion != layout.Version ||
+                    header.LayoutSchemaHash != layout.SchemaHash ||
+                    !context.Revision.IsValid)
+                {
+                    reference = default;
+                    return false;
+                }
+
+                reference = new CoCoStateFlowTraceFrameReference(
+                    header.Identity,
+                    header.LayoutId,
+                    header.LayoutVersion,
+                    header.LayoutSchemaHash,
+                    context.Revision,
+                    true);
+                return true;
+            }
+
+            reference = new CoCoStateFlowTraceFrameReference(
+                default,
+                layout.LayoutId,
+                layout.Version,
+                layout.SchemaHash,
+                default,
+                false);
+            return reference.IsValid;
+        }
+
+        internal static bool TryCreateCommitted(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoContextFrameLayout layout,
+            in CoCoTickFrame tickFrame,
+            CoCoContextRevision revision,
+            out CoCoStateFlowTraceFrameReference reference)
+        {
+            if (layout == null ||
+                !revision.IsValid ||
+                !CoCoStateFlowFrameHeader.TryCreate(
+                    graphInstanceId,
+                    layout,
+                    CoCoStateFlowFrameKind.Context,
+                    tickFrame,
+                    out CoCoStateFlowFrameHeader header))
+            {
+                reference = default;
+                return false;
+            }
+
+            reference = new CoCoStateFlowTraceFrameReference(
+                header.Identity,
+                header.LayoutId,
+                header.LayoutVersion,
+                header.LayoutSchemaHash,
+                revision,
+                true);
+            return reference.IsValid;
+        }
+
+        public bool Equals(CoCoStateFlowTraceFrameReference other)
+        {
+            return Identity == other.Identity &&
+                   LayoutId == other.LayoutId &&
+                   LayoutVersion == other.LayoutVersion &&
+                   LayoutSchemaHash == other.LayoutSchemaHash &&
+                   Revision == other.Revision &&
+                   HasCommittedFrame == other.HasCommittedFrame;
+        }
+
+        public override bool Equals(object obj) =>
+            obj is CoCoStateFlowTraceFrameReference other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hashCode = Identity.GetHashCode();
+                hashCode = (hashCode * 397) ^ LayoutId.GetHashCode();
+                hashCode = (hashCode * 397) ^ (int)LayoutVersion;
+                hashCode = (hashCode * 397) ^ LayoutSchemaHash.GetHashCode();
+                hashCode = (hashCode * 397) ^ Revision.GetHashCode();
+                hashCode = (hashCode * 397) ^ HasCommittedFrame.GetHashCode();
+                return hashCode;
+            }
+        }
+
+        public static bool operator ==(
+            CoCoStateFlowTraceFrameReference left,
+            CoCoStateFlowTraceFrameReference right) => left.Equals(right);
+
+        public static bool operator !=(
+            CoCoStateFlowTraceFrameReference left,
+            CoCoStateFlowTraceFrameReference right) => !left.Equals(right);
+    }
+
     public readonly struct CoCoStateFlowTraceEntry : IEquatable<CoCoStateFlowTraceEntry>
     {
         internal CoCoStateFlowTraceEntry(
@@ -38,7 +196,10 @@ namespace CoCoFlow.Runtime.Core
             CoCoEventSequence lastEventSequence,
             CoCoDiagnosticDomain diagnosticDomain,
             CoCoDiagnosticCode diagnosticCode,
-            CoCoLayerId layerId = default)
+            CoCoLayerId layerId = default,
+            CoCoStateFlowTraceFrameReference frame = default,
+            CoCoStateFlowTraceFrameReference previousContext = default,
+            CoCoStateFlowTransitionRole transitionRole = CoCoStateFlowTransitionRole.None)
         {
             Kind = kind;
             GraphInstanceId = graphInstanceId;
@@ -55,6 +216,9 @@ namespace CoCoFlow.Runtime.Core
             DiagnosticDomain = diagnosticDomain;
             DiagnosticCode = diagnosticCode;
             LayerId = layerId;
+            Frame = frame;
+            PreviousContext = previousContext;
+            TransitionRole = transitionRole;
         }
 
         public CoCoStateFlowTraceKind Kind { get; }
@@ -72,21 +236,43 @@ namespace CoCoFlow.Runtime.Core
         public CoCoEventSequence LastEventSequence { get; }
         public CoCoDiagnosticDomain DiagnosticDomain { get; }
         public CoCoDiagnosticCode DiagnosticCode { get; }
+        public CoCoStateFlowTraceFrameReference Frame { get; }
+        public CoCoStateFlowTraceFrameReference PreviousContext { get; }
+        public CoCoStateFlowTransitionRole TransitionRole { get; }
         public bool IsValid => GraphInstanceId.IsValid &&
                                TickFrame.IsValid &&
                                IsSingleKind(Kind) &&
+                               HasValidContextReferences() &&
                                HasValidKindIdentity();
 
         internal static CoCoStateFlowTraceEntry Tick(
             CoCoGraphInstanceId graphInstanceId,
-            CoCoTickFrame tickFrame) =>
-            Create(CoCoStateFlowTraceKind.Tick, graphInstanceId, tickFrame);
+            CoCoTickFrame tickFrame,
+            CoCoStateFlowTraceFrameReference previousContext = default) =>
+            new CoCoStateFlowTraceEntry(
+                CoCoStateFlowTraceKind.Tick,
+                graphInstanceId,
+                tickFrame,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                default,
+                previousContext: previousContext);
 
         internal static CoCoStateFlowTraceEntry Transition(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
             CoCoLayerId layerId,
-            CoCoTransitionId transitionId) =>
+            CoCoTransitionId transitionId,
+            CoCoStateFlowTransitionRole transitionRole = CoCoStateFlowTransitionRole.Winner,
+            CoCoStateFlowTraceFrameReference previousContext = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.Transition,
                 graphInstanceId,
@@ -102,13 +288,16 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 default,
-                layerId);
+                layerId,
+                previousContext: previousContext,
+                transitionRole: transitionRole);
 
         internal static CoCoStateFlowTraceEntry Path(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
             CoCoLayerId layerId,
-            CoCoStateId stateId) =>
+            CoCoStateId stateId,
+            CoCoStateFlowTraceFrameReference frame = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.ActivePath,
                 graphInstanceId,
@@ -124,12 +313,14 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 default,
-                layerId);
+                layerId,
+                frame: frame);
 
         internal static CoCoStateFlowTraceEntry Operation(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
-            CoCoOperationSectionId sectionId) =>
+            CoCoOperationSectionId sectionId,
+            CoCoStateFlowTraceFrameReference previousContext = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.OperationSection,
                 graphInstanceId,
@@ -144,13 +335,15 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 default,
-                default);
+                default,
+                previousContext: previousContext);
 
         internal static CoCoStateFlowTraceEntry Operator(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
             CoCoOperatorId operatorId,
-            CoCoOperatorOutcomeStatus outcome) =>
+            CoCoOperatorOutcomeStatus outcome,
+            CoCoStateFlowTraceFrameReference previousContext = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.OperatorOutcome,
                 graphInstanceId,
@@ -165,13 +358,16 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 default,
-                default);
+                default,
+                previousContext: previousContext);
 
         internal static CoCoStateFlowTraceEntry Commit(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
             CoCoContextRevision previousRevision,
-            CoCoContextRevision newRevision) =>
+            CoCoContextRevision newRevision,
+            CoCoStateFlowTraceFrameReference previousContext = default,
+            CoCoStateFlowTraceFrameReference frame = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.ContextCommit,
                 graphInstanceId,
@@ -186,13 +382,16 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 default,
-                default);
+                default,
+                frame: frame,
+                previousContext: previousContext);
 
         internal static CoCoStateFlowTraceEntry Sequence(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
             CoCoEventSequence first,
-            CoCoEventSequence last) =>
+            CoCoEventSequence last,
+            CoCoStateFlowTraceFrameReference frame = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.EventSequence,
                 graphInstanceId,
@@ -207,12 +406,14 @@ namespace CoCoFlow.Runtime.Core
                 first,
                 last,
                 default,
-                default);
+                default,
+                frame: frame);
 
         internal static CoCoStateFlowTraceEntry Published(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
-            CoCoEventSequence sequence) =>
+            CoCoEventSequence sequence,
+            CoCoStateFlowTraceFrameReference frame = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.EventPublished,
                 graphInstanceId,
@@ -227,12 +428,15 @@ namespace CoCoFlow.Runtime.Core
                 sequence,
                 sequence,
                 default,
-                default);
+                default,
+                frame: frame);
 
         internal static CoCoStateFlowTraceEntry Diagnostic(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
-            CoCoDiagnostic diagnostic) =>
+            CoCoDiagnostic diagnostic,
+            CoCoStateFlowTraceFrameReference previousContext = default,
+            CoCoStateFlowTraceFrameReference frame = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.Diagnostic,
                 graphInstanceId,
@@ -247,12 +451,15 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 diagnostic.Domain,
-                diagnostic.Code);
+                diagnostic.Code,
+                frame: frame,
+                previousContext: previousContext);
 
         internal static CoCoStateFlowTraceEntry Cancelled(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTickFrame tickFrame,
-            CoCoDiagnostic diagnostic) =>
+            CoCoDiagnostic diagnostic,
+            CoCoStateFlowTraceFrameReference previousContext = default) =>
             new CoCoStateFlowTraceEntry(
                 CoCoStateFlowTraceKind.Cancelled,
                 graphInstanceId,
@@ -267,27 +474,8 @@ namespace CoCoFlow.Runtime.Core
                 default,
                 default,
                 diagnostic.Domain,
-                diagnostic.Code);
-
-        private static CoCoStateFlowTraceEntry Create(
-            CoCoStateFlowTraceKind kind,
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTickFrame tickFrame) =>
-            new CoCoStateFlowTraceEntry(
-                kind,
-                graphInstanceId,
-                tickFrame,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default);
+                diagnostic.Code,
+                previousContext: previousContext);
 
         private static bool IsSingleKind(CoCoStateFlowTraceKind kind)
         {
@@ -301,33 +489,55 @@ namespace CoCoFlow.Runtime.Core
             switch (Kind)
             {
                 case CoCoStateFlowTraceKind.Tick:
-                    return true;
+                    return TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.ActivePath:
-                    return LayerId.IsValid && StateId.IsValid;
+                    return LayerId.IsValid &&
+                           StateId.IsValid &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.Transition:
-                    return LayerId.IsValid && TransitionId.IsValid;
+                    return LayerId.IsValid &&
+                           TransitionId.IsValid &&
+                           (TransitionRole == CoCoStateFlowTransitionRole.Candidate ||
+                            TransitionRole == CoCoStateFlowTransitionRole.Winner);
                 case CoCoStateFlowTraceKind.OperationSection:
-                    return SectionId.IsValid;
+                    return SectionId.IsValid && TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.OperatorOutcome:
                     return OperatorId.IsValid &&
                            OperatorOutcome >= CoCoOperatorOutcomeStatus.Succeeded &&
-                           OperatorOutcome <= CoCoOperatorOutcomeStatus.ClaimDenied;
+                           OperatorOutcome <= CoCoOperatorOutcomeStatus.ClaimDenied &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.ContextCommit:
-                    return NewRevision.IsValid;
+                    return NewRevision.IsValid &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None &&
+                           (!Frame.IsValid ||
+                            (Frame.HasCommittedFrame && Frame.Revision == NewRevision)) &&
+                           (!PreviousContext.IsValid ||
+                            (PreviousContext.HasCommittedFrame
+                                ? PreviousContext.Revision == PreviousRevision
+                                : !PreviousRevision.IsValid));
                 case CoCoStateFlowTraceKind.EventSequence:
                     return FirstEventSequence.IsValid &&
                            LastEventSequence.IsValid &&
-                           FirstEventSequence.Value <= LastEventSequence.Value;
+                           FirstEventSequence.Value <= LastEventSequence.Value &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.EventPublished:
                     return FirstEventSequence.IsValid &&
-                           FirstEventSequence == LastEventSequence;
+                           FirstEventSequence == LastEventSequence &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None;
                 case CoCoStateFlowTraceKind.Diagnostic:
                 case CoCoStateFlowTraceKind.Cancelled:
                     return DiagnosticDomain != CoCoDiagnosticDomain.None &&
-                           DiagnosticCode != CoCoDiagnosticCode.None;
+                           DiagnosticCode != CoCoDiagnosticCode.None &&
+                           TransitionRole == CoCoStateFlowTransitionRole.None;
                 default:
                     return false;
             }
+        }
+
+        private bool HasValidContextReferences()
+        {
+            return (Frame == default || Frame.IsValid) &&
+                   (PreviousContext == default || PreviousContext.IsValid);
         }
 
         public bool Equals(CoCoStateFlowTraceEntry other)
@@ -346,7 +556,10 @@ namespace CoCoFlow.Runtime.Core
                    FirstEventSequence == other.FirstEventSequence &&
                    LastEventSequence == other.LastEventSequence &&
                    DiagnosticDomain == other.DiagnosticDomain &&
-                   DiagnosticCode == other.DiagnosticCode;
+                   DiagnosticCode == other.DiagnosticCode &&
+                   Frame == other.Frame &&
+                   PreviousContext == other.PreviousContext &&
+                   TransitionRole == other.TransitionRole;
         }
 
         public override bool Equals(object obj) => obj is CoCoStateFlowTraceEntry other && Equals(other);
@@ -359,9 +572,15 @@ namespace CoCoFlow.Runtime.Core
                 hashCode = (hashCode * 397) ^ GraphInstanceId.GetHashCode();
                 hashCode = (hashCode * 397) ^ TickFrame.GetHashCode();
                 hashCode = (hashCode * 397) ^ LayerId.GetHashCode();
+                hashCode = (hashCode * 397) ^ StateId.GetHashCode();
+                hashCode = (hashCode * 397) ^ TransitionId.GetHashCode();
+                hashCode = (hashCode * 397) ^ SectionId.GetHashCode();
                 hashCode = (hashCode * 397) ^ OperatorId.GetHashCode();
                 hashCode = (hashCode * 397) ^ FirstEventSequence.GetHashCode();
                 hashCode = (hashCode * 397) ^ (int)DiagnosticCode;
+                hashCode = (hashCode * 397) ^ Frame.GetHashCode();
+                hashCode = (hashCode * 397) ^ PreviousContext.GetHashCode();
+                hashCode = (hashCode * 397) ^ (int)TransitionRole;
                 return hashCode;
             }
         }
@@ -381,7 +600,9 @@ namespace CoCoFlow.Runtime.Core
             CoCoOperatorId operatorId = default,
             CoCoOperationSectionId sectionId = default,
             CoCoDiagnosticCode diagnosticCode = CoCoDiagnosticCode.None,
-            CoCoLayerId layerId = default)
+            CoCoLayerId layerId = default,
+            CoCoStateId stateId = default,
+            CoCoTransitionId transitionId = default)
         {
             Kinds = kinds;
             GraphInstanceId = graphInstanceId;
@@ -389,6 +610,8 @@ namespace CoCoFlow.Runtime.Core
             SectionId = sectionId;
             DiagnosticCode = diagnosticCode;
             LayerId = layerId;
+            StateId = stateId;
+            TransitionId = transitionId;
         }
 
         public static CoCoStateFlowTraceFilter All => new CoCoStateFlowTraceFilter(CoCoStateFlowTraceKind.All);
@@ -399,6 +622,8 @@ namespace CoCoFlow.Runtime.Core
         public CoCoOperationSectionId SectionId { get; }
         public CoCoDiagnosticCode DiagnosticCode { get; }
         public CoCoLayerId LayerId { get; }
+        public CoCoStateId StateId { get; }
+        public CoCoTransitionId TransitionId { get; }
 
         internal bool Matches(in CoCoStateFlowTraceEntry entry)
         {
@@ -411,6 +636,8 @@ namespace CoCoFlow.Runtime.Core
                    (!OperatorId.IsValid || entry.OperatorId == OperatorId) &&
                    (!SectionId.IsValid || entry.SectionId == SectionId) &&
                    (!LayerId.IsValid || entry.LayerId == LayerId) &&
+                   (!StateId.IsValid || entry.StateId == StateId) &&
+                   (!TransitionId.IsValid || entry.TransitionId == TransitionId) &&
                    (DiagnosticCode == CoCoDiagnosticCode.None || entry.DiagnosticCode == DiagnosticCode);
         }
     }

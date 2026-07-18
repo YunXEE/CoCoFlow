@@ -13,6 +13,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private SerializedProperty _autoStart;
         private SerializedProperty _timeScale;
         private SerializedProperty _operators;
+        private SerializedProperty _actorContextBinding;
         private SerializedProperty _contextFrameCapacity;
         private SerializedProperty _eventOutboxCapacity;
         private SerializedProperty _traceCapacity;
@@ -27,6 +28,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             _autoStart = serializedObject.FindProperty("autoStart");
             _timeScale = serializedObject.FindProperty("timeScale");
             _operators = serializedObject.FindProperty("operators");
+            _actorContextBinding = serializedObject.FindProperty("actorContextBinding");
             _contextFrameCapacity = serializedObject.FindProperty("contextFrameCapacity");
             _eventOutboxCapacity = serializedObject.FindProperty("eventOutboxCapacity");
             _traceCapacity = serializedObject.FindProperty("traceCapacity");
@@ -47,6 +49,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Operator Transaction", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_operators, true);
+            EditorGUILayout.PropertyField(_actorContextBinding);
             EditorGUILayout.PropertyField(_contextFrameCapacity);
             EditorGUILayout.PropertyField(_eventOutboxCapacity);
             EditorGUILayout.PropertyField(_traceCapacity);

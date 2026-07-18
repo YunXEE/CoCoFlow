@@ -103,6 +103,33 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void StagedTraceReportsAcceptedCandidateThenWinnerBeforeCommit()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
+            fixture.Accept(fixture.Stage());
+            fixture.Control.RequestAtoB = true;
+
+            CoCoStagedGraphStep staged = fixture.Stage();
+            var trace = new CoCoStateFlowTraceBuffer(4);
+            fixture.Runtime.AppendStagedTransitionTrace(trace, staged, default);
+            var entries = new CoCoStateFlowTraceEntry[4];
+            Assert.AreEqual(2, trace.CopyLatestTo(entries));
+            Assert.AreEqual(CoCoStateFlowTraceKind.Transition, entries[0].Kind);
+            Assert.AreEqual(CoCoStateFlowTransitionRole.Candidate, entries[0].TransitionRole);
+            Assert.AreEqual(fixture.AToB, entries[0].TransitionId);
+            Assert.AreEqual(CoCoStateFlowTraceKind.Transition, entries[1].Kind);
+            Assert.AreEqual(CoCoStateFlowTransitionRole.Winner, entries[1].TransitionRole);
+            Assert.AreEqual(fixture.AToB, entries[1].TransitionId);
+            Assert.AreEqual(
+                fixture.StateA,
+                fixture.Runtime.GetActivePath(0).ActiveLeaf,
+                "Trace capture must not publish the staged Graph authority.");
+
+            fixture.Accept(staged);
+        }
+
+        [Test]
         public void RejectedTickRollsBackPathMemoryClockAndOperationTransaction()
         {
             Fixture fixture = Fixture.Create();
@@ -245,6 +272,130 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsFalse(current.IsValid);
             Assert.IsFalse(fixture.Runtime.HasStagedStep);
             Assert.AreEqual(2UL, fixture.Runtime.Clock.Tick.Value);
+        }
+
+        [Test]
+        public void RestorePrepareKeepsAuthorityHiddenUntilNoFailApply()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            CoCoContextFrameArena sourceArena = CreateRestoreSource(
+                fixture.Runtime,
+                out CoCoContextFrame source);
+            CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 10UL);
+            var context = new RestoreContext(fixture.Graph, fixture.StateB);
+            int callbackCount = fixture.Trace.Count;
+
+            Assert.IsTrue(fixture.Runtime.TryValidateRestore(
+                context,
+                source,
+                resumedTick,
+                out CoCoDiagnostic validation), validation.Message);
+            Assert.AreEqual(0, context.PrepareCount);
+            Assert.AreEqual(callbackCount, fixture.Trace.Count);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            Assert.IsTrue(fixture.Runtime.TryPrepareRestore(
+                context,
+                source,
+                resumedTick,
+                out CoCoPreparedGraphRestore prepared,
+                out CoCoDiagnostic prepare), prepare.Message);
+            Assert.IsTrue(prepared.IsValid);
+            Assert.IsTrue(fixture.Runtime.HasPreparedRestore);
+            Assert.AreEqual(3, context.PrepareCount);
+            Assert.AreEqual(callbackCount, fixture.Trace.Count);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+            Assert.IsFalse(fixture.Runtime.TryPreviewNextTick(0.1d, 1d, out _, out _));
+
+            prepared.ApplyNoFail();
+
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsFalse(fixture.Runtime.HasPreparedRestore);
+            Assert.AreEqual(callbackCount, fixture.Trace.Count);
+            Assert.AreEqual(resumedTick.TimelineEpoch, fixture.Runtime.Clock.TimelineEpoch);
+            Assert.AreEqual(resumedTick.Tick, fixture.Runtime.Clock.Tick);
+            Assert.AreEqual(resumedTick.ExecutionSequence, fixture.Runtime.Clock.ExecutionSequence);
+            Assert.AreEqual(resumedTick.TimelinePosition.Seconds, fixture.Runtime.Clock.Seconds);
+            Assert.AreEqual(fixture.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            fixture.Trace.Clear();
+            fixture.Control.ActionProgress = 0.25d;
+            CoCoStagedGraphStep following = fixture.Stage();
+            Assert.IsTrue(fixture.Trace.Exists(entry => entry.StartsWith("enter:b:")));
+            fixture.Accept(following);
+            sourceArena.Dispose();
+        }
+
+        [Test]
+        public void CancelledRestorePreparationLeavesCurrentGraphAndClockAuthoritative()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+            CoCoContextFrameArena sourceArena = CreateRestoreSource(
+                fixture.Runtime,
+                out CoCoContextFrame source);
+            CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 20UL);
+            var context = new RestoreContext(fixture.Graph, fixture.StateB);
+
+            Assert.IsTrue(fixture.Runtime.TryPrepareRestore(
+                context,
+                source,
+                resumedTick,
+                out CoCoPreparedGraphRestore prepared,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+            Assert.IsTrue(prepared.Cancel());
+            Assert.IsFalse(prepared.IsValid);
+            Assert.IsFalse(fixture.Runtime.HasPreparedRestore);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+
+            fixture.Trace.Clear();
+            CoCoStagedGraphStep normal = fixture.Stage();
+            CollectionAssert.AreEqual(
+                new[] { "update:root:1", "update:a:1" },
+                fixture.Trace,
+                "Cancelled restore memory must remain outside committed authority.");
+            fixture.Accept(normal);
+            sourceArena.Dispose();
+        }
+
+        [Test]
+        public void RestoreFingerprintMismatchCancelsClockCandidateWithoutChangingAuthority()
+        {
+            Fixture fixture = Fixture.Create();
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage());
+            CoCoContextFrameArena sourceArena = CreateRestoreSource(
+                fixture.Runtime,
+                out CoCoContextFrame source);
+            CoCoTickFrame resumedTick = CreateResumedTick(fixture.Runtime.Clock, 30UL);
+            var context = new RestoreContext(fixture.Graph, fixture.StateB)
+            {
+                CorruptFingerprint = true
+            };
+
+            Assert.IsFalse(fixture.Runtime.TryPrepareRestore(
+                context,
+                source,
+                resumedTick,
+                out CoCoPreparedGraphRestore prepared,
+                out CoCoDiagnostic diagnostic));
+            Assert.IsFalse(prepared.IsValid);
+            Assert.AreEqual(CoCoDiagnosticDomain.Restore, diagnostic.Domain);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidGraphRestore, diagnostic.Code);
+            Assert.IsFalse(fixture.Runtime.HasPreparedRestore);
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(new CoCoTimelineEpoch(1UL), fixture.Runtime.Clock.TimelineEpoch);
+            Assert.AreEqual(fixture.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+            Assert.IsTrue(fixture.Runtime.TryPreviewNextTick(0.1d, 1d, out _, out _));
+            sourceArena.Dispose();
         }
 
         [Test]
@@ -448,6 +599,248 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(tickFrame, entry.TickFrame);
             Assert.AreEqual(fixture.Layer, entry.LayerId);
             Assert.AreEqual(stateId, entry.StateId);
+        }
+
+        private static CoCoContextFrameArena CreateRestoreSource(
+            CoCoStateGraphRuntime runtime,
+            out CoCoContextFrame source)
+        {
+            Assert.IsTrue(CoCoFrameLayoutId.TryCreate(
+                0xD16UL,
+                1UL,
+                out CoCoFrameLayoutId layoutId));
+            var layoutBuilder = new CoCoContextFrameLayoutBuilder();
+            Assert.IsTrue(layoutBuilder.TryFreeze(
+                layoutId,
+                1U,
+                out CoCoContextFrameLayout layout,
+                out CoCoDiagnosticCode code), code.ToString());
+            Assert.IsTrue(CoCoTimelinePosition.TryCreate(
+                runtime.Clock.Seconds,
+                out CoCoTimelinePosition position));
+            Assert.IsTrue(CoCoTickFrame.TryCreate(
+                0.1d,
+                runtime.Clock.TimelineId,
+                position,
+                runtime.Clock.Tick,
+                runtime.Clock.ClockDomainId,
+                runtime.Clock.ExecutionSequence,
+                runtime.Clock.TimelineEpoch,
+                out CoCoTickFrame tickFrame,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+            var arena = new CoCoContextFrameArena(runtime.GraphInstanceId, layout, 2);
+            Assert.IsTrue(arena.TryPrepare(
+                tickFrame,
+                out CoCoPreparedContextCommit prepared,
+                out CoCoContextCommitStatus status), status.ToString());
+            Assert.IsTrue(prepared.TryFinalize(
+                out CoCoFinalizedContextCommit finalized,
+                out status), status.ToString());
+            CoCoContextCommitResult result = finalized.Commit();
+            Assert.IsTrue(result.Succeeded, result.Status.ToString());
+            source = result.Frame;
+            return arena;
+        }
+
+        private static CoCoTickFrame CreateResumedTick(
+            CoCoActorClock clock,
+            ulong offset)
+        {
+            Assert.IsTrue(CoCoTimelinePosition.TryCreate(
+                clock.Seconds + offset,
+                out CoCoTimelinePosition position));
+            Assert.IsTrue(CoCoTickFrame.TryCreate(
+                0.1d,
+                clock.TimelineId,
+                position,
+                new CoCoTimelineTick(clock.Tick.Value + offset),
+                clock.ClockDomainId,
+                new CoCoExecutionSequence(clock.ExecutionSequence.Value + offset),
+                new CoCoTimelineEpoch(clock.TimelineEpoch.Value + 1UL),
+                out CoCoTickFrame tickFrame,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+            return tickFrame;
+        }
+
+        private sealed class RestoreContext : ICoCoStateGraphContextRuntime
+        {
+            private readonly CoCoCompiledStateGraph _graph;
+            private readonly CoCoStateId _activeLeaf;
+
+            public RestoreContext(
+                CoCoCompiledStateGraph graph,
+                CoCoStateId activeLeaf)
+            {
+                _graph = graph;
+                _activeLeaf = activeLeaf;
+            }
+
+            public bool CorruptFingerprint { get; set; }
+            public int PrepareCount { get; private set; }
+
+            public bool TryBeginGraphCapture(
+                in CoCoStagedGraphStep stagedStep,
+                CoCoContextFrameReadView previous,
+                in CoCoPreparedContextCommit prepared,
+                ulong token,
+                out CoCoDiagnostic diagnostic) =>
+                Unsupported(out diagnostic);
+
+            public bool TryCaptureState(
+                int orderedStateIndex,
+                CoCoActivationMemory memory,
+                bool isOnActivePath,
+                CoCoActivationId activationId,
+                double localSeconds,
+                double actionProgress,
+                bool enterPending,
+                ulong memoryFingerprint,
+                out CoCoDiagnostic diagnostic) =>
+                Unsupported(out diagnostic);
+
+            public bool TryValidateInitialStateDefault(
+                int orderedStateIndex,
+                CoCoActivationMemory memory,
+                bool isOnActivePath,
+                CoCoActivationId activationId,
+                double localSeconds,
+                double actionProgress,
+                bool enterPending,
+                ulong memoryFingerprint,
+                CoCoContextFrameReadView defaults,
+                out CoCoDiagnostic diagnostic) =>
+                Unsupported(out diagnostic);
+
+            public bool TryCompleteGraphCapture(out CoCoDiagnostic diagnostic) =>
+                Unsupported(out diagnostic);
+
+            public void CancelCapture()
+            {
+            }
+
+            public bool TryValidateRestore(
+                CoCoContextFrame source,
+                out ulong nextActivationValue,
+                out CoCoDiagnostic diagnostic)
+            {
+                nextActivationValue = 200UL;
+                if (!source.IsAlive)
+                {
+                    diagnostic = RestoreError("Source frame is unavailable.");
+                    return false;
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            public bool TryPrepareStateRestore(
+                int orderedStateIndex,
+                CoCoContextFrame source,
+                CoCoActivationMemory candidateMemory,
+                out CoCoStateGraphRestoreState state,
+                out CoCoDiagnostic diagnostic)
+            {
+                state = default;
+                if (!source.IsAlive || !(candidateMemory is RuntimeFixtureMemory memory) ||
+                    !TryResolveState(
+                        orderedStateIndex,
+                        out CoCoCompiledStateLayer layer,
+                        out int stateIndex))
+                {
+                    diagnostic = RestoreError("Restore fixture received an invalid State mapping.");
+                    return false;
+                }
+
+                int activeLeafIndex = -1;
+                for (int index = 0; index < layer.States.Count; index++)
+                {
+                    if (layer.States[index].StateId == _activeLeaf)
+                    {
+                        activeLeafIndex = index;
+                        break;
+                    }
+                }
+
+                if (activeLeafIndex < 0)
+                {
+                    diagnostic = RestoreError("Restore fixture active leaf is missing.");
+                    return false;
+                }
+
+                IReadOnlyList<int> path =
+                    layer.States[activeLeafIndex].RootPathStateIndices;
+                bool isActive = false;
+                for (int depth = 0; depth < path.Count; depth++)
+                {
+                    if (path[depth] == stateIndex)
+                    {
+                        isActive = true;
+                        break;
+                    }
+                }
+
+                int value = 10 + orderedStateIndex;
+                memory.Value = value;
+                ulong fingerprint = unchecked((ulong)(uint)value);
+                if (CorruptFingerprint)
+                {
+                    fingerprint++;
+                }
+
+                Assert.IsTrue(CoCoActivationId.TryCreate(
+                    (ulong)(100 + orderedStateIndex),
+                    out CoCoActivationId activationId));
+                state = new CoCoStateGraphRestoreState(
+                    layer.LayerId,
+                    layer.States[stateIndex].StateId,
+                    isActive,
+                    activationId,
+                    orderedStateIndex + 0.5d,
+                    0.25d,
+                    isActive && stateIndex == activeLeafIndex,
+                    fingerprint,
+                    true);
+                PrepareCount++;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            private bool TryResolveState(
+                int orderedStateIndex,
+                out CoCoCompiledStateLayer layer,
+                out int stateIndex)
+            {
+                int offset = 0;
+                for (int layerIndex = 0; layerIndex < _graph.Layers.Count; layerIndex++)
+                {
+                    CoCoCompiledStateLayer candidate = _graph.Layers[layerIndex];
+                    if (orderedStateIndex < offset + candidate.States.Count)
+                    {
+                        layer = candidate;
+                        stateIndex = orderedStateIndex - offset;
+                        return true;
+                    }
+
+                    offset += candidate.States.Count;
+                }
+
+                layer = null;
+                stateIndex = -1;
+                return false;
+            }
+
+            private static bool Unsupported(out CoCoDiagnostic diagnostic)
+            {
+                diagnostic = RestoreError("Capture is outside this restore fixture.");
+                return false;
+            }
+
+            private static CoCoDiagnostic RestoreError(string message) =>
+                CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.InvalidGraphRestore,
+                    message);
         }
 
         private sealed class Fixture

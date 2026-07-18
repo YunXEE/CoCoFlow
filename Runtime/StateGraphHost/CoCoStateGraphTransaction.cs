@@ -1,7 +1,34 @@
 using System;
+using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
+    internal readonly struct CoCoPreparedActorRestore
+    {
+        private readonly CoCoStateGraphTransaction _transaction;
+        private readonly ulong _token;
+
+        internal CoCoPreparedActorRestore(
+            CoCoStateGraphTransaction transaction,
+            ulong token)
+        {
+            _transaction = transaction;
+            _token = token;
+        }
+
+        internal bool IsValid =>
+            _transaction != null &&
+            _transaction.IsPreparedRestoreTokenCurrent(_token);
+
+        internal void CommitNoFail()
+        {
+            _transaction.CommitPreparedRestoreNoFail(_token);
+        }
+
+        internal bool Cancel() =>
+            _transaction != null && _transaction.CancelPreparedRestore(_token);
+    }
+
     internal sealed class CoCoStateGraphTransaction :
         ICoCoEventOutboxSink,
         ICoCoCommittedEventPublisher,
@@ -10,23 +37,31 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly CoCoStateGraphHost _host;
         private readonly CoCoContextFrameArena _contextArena;
+        private readonly CoCoStateGraphContextRuntime _contextRuntime;
         private readonly CoCoStateGraphOperatorRuntime _operators;
         private readonly ICoCoEventOutboxLane[] _outboxLanes;
         private readonly OutboxLedgerEntry[] _outboxLedger;
         private readonly CoCoStateFlowTraceBuffer _trace;
         private CoCoPreparedContextCommit _preparedContext;
+        private CoCoFinalizedContextCommit _preparedRestoreContext;
+        private CoCoPreparedGraphRestore _preparedGraphRestore;
         private CoCoTickFrame _activeTickFrame;
+        private CoCoStateFlowTraceFrameReference _activePreviousContextTrace;
         private ulong _nextTransactionToken;
         private ulong _activeToken;
+        private ulong _nextRestoreToken;
+        private ulong _activeRestoreToken;
         private ulong _lastEventSequence;
         private int _outboxLedgerCount;
         private bool _outboxWriteFault;
+        private bool _stagedTraceAppended;
         private bool _isDisposed;
 
         private CoCoStateGraphTransaction(
             CoCoStateGraphHost host,
             CoCoGraphInstanceId graphInstanceId,
             CoCoContextFrameArena contextArena,
+            CoCoStateGraphContextRuntime contextRuntime,
             CoCoStateGraphOperatorRuntime operators,
             ICoCoEventOutboxLane[] outboxLanes,
             int outboxCapacity,
@@ -35,6 +70,7 @@ namespace CoCoFlow.Runtime.Core
             _host = host;
             _graphInstanceId = graphInstanceId;
             _contextArena = contextArena;
+            _contextRuntime = contextRuntime;
             _operators = operators;
             _outboxLanes = outboxLanes;
             _outboxLedger = outboxCapacity == 0
@@ -59,6 +95,84 @@ namespace CoCoFlow.Runtime.Core
             int eventOutboxCapacity,
             int traceCapacity,
             out CoCoStateGraphTransaction transaction,
+            out CoCoDiagnostic diagnostic) =>
+            TryPreflight(
+                host,
+                graph,
+                graphInstanceId,
+                contextLayout,
+                operations,
+                Array.Empty<ICoCoGraphContextProducerBinding>(),
+                contextFrameCapacity,
+                eventOutboxCapacity,
+                traceCapacity,
+                out transaction,
+                out diagnostic);
+
+        internal static bool TryCreate(
+            CoCoStateGraphHost host,
+            CoCoCompiledStateGraph graph,
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoContextFrameLayout contextLayout,
+            CoCoOperationFrame operations,
+            IReadOnlyList<ICoCoGraphContextProducerBinding> contextProducers,
+            int contextFrameCapacity,
+            int eventOutboxCapacity,
+            int traceCapacity,
+            out CoCoStateGraphTransaction transaction,
+            out CoCoDiagnostic diagnostic) =>
+            TryPreflight(
+                host,
+                graph,
+                graphInstanceId,
+                contextLayout,
+                operations,
+                contextProducers,
+                contextFrameCapacity,
+                eventOutboxCapacity,
+                traceCapacity,
+                out transaction,
+                out diagnostic);
+
+        // This seam must run before CoCoStateGraphRuntime.TryCreate. It validates the
+        // complete Operator transaction surface without invoking State factory,
+        // Memory reset, or Memory fingerprint callbacks. On success, the returned
+        // transaction owns all preallocated resources and is reused by the Host.
+        internal static bool TryPreflight(
+            CoCoStateGraphHost host,
+            CoCoCompiledStateGraph graph,
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoContextFrameLayout contextLayout,
+            CoCoOperationFrame operations,
+            int contextFrameCapacity,
+            int eventOutboxCapacity,
+            int traceCapacity,
+            out CoCoStateGraphTransaction transaction,
+            out CoCoDiagnostic diagnostic) =>
+            TryPreflight(
+                host,
+                graph,
+                graphInstanceId,
+                contextLayout,
+                operations,
+                Array.Empty<ICoCoGraphContextProducerBinding>(),
+                contextFrameCapacity,
+                eventOutboxCapacity,
+                traceCapacity,
+                out transaction,
+                out diagnostic);
+
+        internal static bool TryPreflight(
+            CoCoStateGraphHost host,
+            CoCoCompiledStateGraph graph,
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoContextFrameLayout contextLayout,
+            CoCoOperationFrame operations,
+            IReadOnlyList<ICoCoGraphContextProducerBinding> contextProducers,
+            int contextFrameCapacity,
+            int eventOutboxCapacity,
+            int traceCapacity,
+            out CoCoStateGraphTransaction transaction,
             out CoCoDiagnostic diagnostic)
         {
             transaction = null;
@@ -67,6 +181,7 @@ namespace CoCoFlow.Runtime.Core
                 !graphInstanceId.IsValid ||
                 contextLayout == null ||
                 operations == null ||
+                contextProducers == null ||
                 contextFrameCapacity < 2 ||
                 eventOutboxCapacity < 0 ||
                 traceCapacity < 0)
@@ -79,6 +194,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             CoCoContextFrameArena arena = null;
+            CoCoStateGraphContextRuntime contextRuntime = null;
             CoCoStateGraphOperatorRuntime operatorRuntime = null;
             try
             {
@@ -86,13 +202,23 @@ namespace CoCoFlow.Runtime.Core
                     graphInstanceId,
                     contextLayout,
                     contextFrameCapacity);
-                if (!CoCoStateGraphOperatorRuntime.TryCreate(
+                if (!CoCoStateGraphContextRuntime.TryCreate(
+                        host,
+                        graph,
+                        graphInstanceId,
+                        contextLayout,
+                        contextProducers,
+                        host.ActorContextBinding,
+                        out contextRuntime,
+                        out diagnostic) ||
+                    !CoCoStateGraphOperatorRuntime.TryCreate(
                         host,
                         graph,
                         graphInstanceId,
                         contextLayout,
                         operations.Registry,
                         host.Operators,
+                        contextRuntime.ClaimSlots,
                         out operatorRuntime,
                         out diagnostic) ||
                     !operatorRuntime.TryCreateOutboxLanes(
@@ -101,6 +227,7 @@ namespace CoCoFlow.Runtime.Core
                         out diagnostic))
                 {
                     operatorRuntime?.Dispose();
+                    contextRuntime?.Dispose();
                     arena.Dispose();
                     return false;
                 }
@@ -109,6 +236,7 @@ namespace CoCoFlow.Runtime.Core
                     host,
                     graphInstanceId,
                     arena,
+                    contextRuntime,
                     operatorRuntime,
                     lanes,
                     eventOutboxCapacity,
@@ -119,6 +247,7 @@ namespace CoCoFlow.Runtime.Core
             catch (Exception)
             {
                 operatorRuntime?.Dispose();
+                contextRuntime?.Dispose();
                 arena?.Dispose();
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Operator,
@@ -135,6 +264,7 @@ namespace CoCoFlow.Runtime.Core
         {
             if (_isDisposed ||
                 _activeToken != 0UL ||
+                _activeRestoreToken != 0UL ||
                 !tickFrame.IsValid ||
                 _nextTransactionToken == ulong.MaxValue)
             {
@@ -162,13 +292,50 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            _activePreviousContextTrace = default;
+            if (_trace != null &&
+                !CoCoStateFlowTraceFrameReference.TryCreate(
+                    _contextArena.Previous,
+                    out _activePreviousContextTrace))
+            {
+                _preparedContext.Cancel();
+                _preparedContext = default;
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                diagnostic = ContextError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Trace could not capture the exact Previous Context identity.");
+                return false;
+            }
+
             _nextTransactionToken++;
             _activeToken = _nextTransactionToken;
             _activeTickFrame = tickFrame;
+            _stagedTraceAppended = false;
             ResetOutbox();
-            _trace?.Append(CoCoStateFlowTraceEntry.Tick(_graphInstanceId, tickFrame));
+            _trace?.Append(CoCoStateFlowTraceEntry.Tick(
+                _graphInstanceId,
+                tickFrame,
+                _activePreviousContextTrace));
             diagnostic = CoCoDiagnostic.None;
             return true;
+        }
+
+        internal void AppendStagedTrace(
+            CoCoStateGraphRuntime runtime,
+            in CoCoStagedGraphStep stagedStep)
+        {
+            if (_stagedTraceAppended || runtime == null || _activeToken == 0UL ||
+                !stagedStep.IsValid || stagedStep.TickFrame != _activeTickFrame)
+            {
+                return;
+            }
+
+            runtime.AppendStagedTransitionTrace(
+                _trace,
+                stagedStep,
+                _activePreviousContextTrace);
+            AppendStagedOperationTrace(stagedStep);
+            _stagedTraceAppended = true;
         }
 
         internal bool TryFinalizeAndCommit(
@@ -197,12 +364,35 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AppendStagedTrace(runtime, stagedStep);
+
+            if (!runtime.TryCaptureGraphContext(
+                    _contextRuntime,
+                    stagedStep,
+                    _contextArena.Previous,
+                    _preparedContext,
+                    _activeToken,
+                    out diagnostic))
+            {
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
+            if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+            {
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled the transaction after Graph Context capture.");
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
             if (!_operators.TryExecute(
                     stagedStep,
                     _contextArena.Previous,
                     _preparedContext,
                     this,
                     _activeToken,
+                    commitGuard,
                     _trace,
                     out diagnostic))
             {
@@ -212,6 +402,28 @@ namespace CoCoFlow.Runtime.Core
             }
 
             worldMayBeDirty = _operators.WorldMayBeDirty;
+            if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+            {
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled the transaction after Operator execution.");
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
+            if (!_contextRuntime.TryCaptureActor(
+                    stagedStep.TickFrame,
+                    _contextArena.Previous,
+                    _preparedContext,
+                    _activeToken,
+                    out bool actorMayBeDirty,
+                    out diagnostic))
+            {
+                worldMayBeDirty |= actorMayBeDirty;
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
+            worldMayBeDirty |= actorMayBeDirty;
             if (_outboxWriteFault)
             {
                 diagnostic = CoCoDiagnostic.Error(
@@ -287,6 +499,28 @@ namespace CoCoFlow.Runtime.Core
             }
 
             CoCoContextRevision previousRevision = _contextArena.Current.Revision;
+            CoCoStateFlowTraceFrameReference committedTraceFrame = default;
+            if (_trace != null)
+            {
+                ulong nextRevisionValue = previousRevision.IsValid
+                    ? previousRevision.Value + 1UL
+                    : 1UL;
+                if (!CoCoStateFlowTraceFrameReference.TryCreateCommitted(
+                        _graphInstanceId,
+                        _contextArena.Layout,
+                        stagedStep.TickFrame,
+                        new CoCoContextRevision(nextRevisionValue),
+                        out committedTraceFrame))
+                {
+                    diagnostic = ContextError(
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "Trace could not preflight the committed Context identity.");
+                    finalizedContext.Cancel();
+                    CancelCandidate(diagnostic);
+                    return false;
+                }
+            }
+
             ulong committedEventSequenceValue = _outboxLedgerCount == 0
                 ? _lastEventSequence
                 : lastEventSequence.Value;
@@ -299,40 +533,44 @@ namespace CoCoFlow.Runtime.Core
             _lastEventSequence = committedEventSequenceValue;
             bindings.ResolveIntentTickNoFail();
             authorityCommitted = true;
-            AppendCommittedAuthorityTrace(runtime, stagedStep);
             _trace?.Append(CoCoStateFlowTraceEntry.Commit(
                 _graphInstanceId,
                 stagedStep.TickFrame,
                 previousRevision,
-                committedContext.Revision));
+                committedContext.Revision,
+                _activePreviousContextTrace,
+                committedTraceFrame));
+            runtime.AppendCommittedPathTrace(
+                _trace,
+                stagedStep.TickFrame,
+                committedTraceFrame);
             if (firstEventSequence.IsValid)
             {
                 _trace?.Append(CoCoStateFlowTraceEntry.Sequence(
                     _graphInstanceId,
                     stagedStep.TickFrame,
                     firstEventSequence,
-                    lastEventSequence));
+                    lastEventSequence,
+                    committedTraceFrame));
             }
 
             bool published = PublishCommittedOutbox(
                 stagedStep.TickFrame,
                 firstEventSequence,
+                committedTraceFrame,
                 out diagnostic);
             ResetOutbox();
             ClearActiveTransaction();
             return published;
         }
 
-        private void AppendCommittedAuthorityTrace(
-            CoCoStateGraphRuntime runtime,
+        private void AppendStagedOperationTrace(
             in CoCoStagedGraphStep stagedStep)
         {
             if (_trace == null)
             {
                 return;
             }
-
-            runtime.AppendCommittedStateTrace(_trace, stagedStep.TickFrame);
 
             CoCoOperationSectionRegistry registry =
                 stagedStep.FinalizedOperationFrame.Registry;
@@ -341,7 +579,8 @@ namespace CoCoFlow.Runtime.Core
                 _trace.Append(CoCoStateFlowTraceEntry.Operation(
                     _graphInstanceId,
                     stagedStep.TickFrame,
-                    registry.Sections[sectionIndex].SectionId));
+                    registry.Sections[sectionIndex].SectionId,
+                    _activePreviousContextTrace));
             }
         }
 
@@ -354,10 +593,175 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal bool TryValidateRestore(
+            CoCoStateGraphRuntime runtime,
             CoCoContextFrame source,
             CoCoTickFrame resumedTickFrame,
-            out CoCoContextCommitStatus status) =>
-            _contextArena.TryValidateRestore(source, resumedTickFrame, out status);
+            out CoCoContextCommitStatus status)
+        {
+            if (_isDisposed || runtime == null || _activeToken != 0UL ||
+                _activeRestoreToken != 0UL)
+            {
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                return false;
+            }
+
+            if (!_contextArena.TryValidateRestore(source, resumedTickFrame, out status))
+            {
+                return false;
+            }
+
+            if (!runtime.TryValidateRestore(
+                    _contextRuntime,
+                    source,
+                    resumedTickFrame,
+                    out _) ||
+                !_operators.TryValidateRestore(
+                    source,
+                    _contextRuntime,
+                    out _))
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            status = CoCoContextCommitStatus.None;
+            return true;
+        }
+
+        internal bool TryPrepareRestore(
+            CoCoStateGraphRuntime runtime,
+            CoCoContextFrame source,
+            CoCoTickFrame resumedTickFrame,
+            out CoCoPreparedActorRestore preparedRestore,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnostic diagnostic)
+        {
+            preparedRestore = default;
+            diagnostic = CoCoDiagnostic.None;
+            if (!TryValidateRestore(runtime, source, resumedTickFrame, out status))
+            {
+                diagnostic = RestoreError(
+                    "Actor restore validation rejected Context, Graph, Clock, or Claim authority.");
+                return false;
+            }
+
+            if (_nextRestoreToken == ulong.MaxValue)
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError("Actor restore transaction tokens are exhausted.");
+                return false;
+            }
+
+            CoCoFinalizedContextCommit finalizedContext;
+            try
+            {
+                if (!_contextArena.TryPrepareRestore(
+                        source,
+                        resumedTickFrame,
+                        out finalizedContext,
+                        out status))
+                {
+                    diagnostic = RestoreError(
+                        status == CoCoContextCommitStatus.DerivedRebuildFailed
+                            ? "Derived Context rebuild rejected restore preparation."
+                            : "Context arena rejected restore preparation.");
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                status = CoCoContextCommitStatus.DerivedRebuildFailed;
+                diagnostic = RestoreError(
+                    "Derived Context rebuild threw during restore preparation.");
+                return false;
+            }
+
+            if (!runtime.TryPrepareRestore(
+                    _contextRuntime,
+                    source,
+                    resumedTickFrame,
+                    out CoCoPreparedGraphRestore graphRestore,
+                    out diagnostic))
+            {
+                finalizedContext.Cancel();
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            ulong token = ++_nextRestoreToken;
+            if (!_operators.TryPrepareRestore(
+                    source,
+                    _contextRuntime,
+                    token,
+                    out diagnostic))
+            {
+                graphRestore.Cancel();
+                finalizedContext.Cancel();
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            _preparedRestoreContext = finalizedContext;
+            _preparedGraphRestore = graphRestore;
+            _activeRestoreToken = token;
+            preparedRestore = new CoCoPreparedActorRestore(this, token);
+            status = CoCoContextCommitStatus.None;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool IsPreparedRestoreTokenCurrent(ulong token) =>
+            !_isDisposed &&
+            token != 0UL &&
+            token == _activeRestoreToken &&
+            _preparedRestoreContext.IsCommitReady &&
+            _preparedGraphRestore.IsValid &&
+            _operators.IsPreparedRestoreTokenCurrent(token);
+
+        internal void CommitPreparedRestoreNoFail(ulong token)
+        {
+            if (!IsPreparedRestoreTokenCurrent(token))
+            {
+                return;
+            }
+
+            _preparedRestoreContext.CommitNoFailUnchecked();
+            _preparedGraphRestore.ApplyNoFail();
+            _operators.CommitPreparedRestoreNoFail(token);
+            ClearPreparedRestore();
+        }
+
+        internal bool CancelPreparedRestore(ulong token)
+        {
+            if (!IsPreparedRestoreTokenCurrent(token))
+            {
+                return false;
+            }
+
+            _preparedRestoreContext.Cancel();
+            _preparedGraphRestore.Cancel();
+            _operators.CancelPreparedRestore();
+            ClearPreparedRestore();
+            return true;
+        }
+
+        internal bool TryValidateInitialGraphContextDefaults(
+            CoCoStateGraphRuntime runtime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed || runtime == null)
+            {
+                diagnostic = ContextError(
+                    CoCoDiagnosticCode.InvalidContextProducer,
+                    "Initial Graph Context validation requires one live Runtime transaction.");
+                return false;
+            }
+
+            return runtime.TryValidateInitialGraphContextDefaults(
+                _contextRuntime,
+                _contextArena.Previous,
+                out diagnostic);
+        }
 
         internal void Suspend() => _operators.Suspend();
 
@@ -448,8 +852,14 @@ namespace CoCoFlow.Runtime.Core
                 _preparedContext.Cancel();
             }
 
+            if (_activeRestoreToken != 0UL)
+            {
+                CancelPreparedRestore(_activeRestoreToken);
+            }
+
             ResetOutbox();
             _operators.Dispose();
+            _contextRuntime.Dispose();
             _contextArena.Dispose();
             _trace?.Clear();
             ClearActiveTransaction();
@@ -459,6 +869,7 @@ namespace CoCoFlow.Runtime.Core
         private bool PublishCommittedOutbox(
             in CoCoTickFrame tickFrame,
             CoCoEventSequence firstEventSequence,
+            CoCoStateFlowTraceFrameReference committedFrame,
             out CoCoDiagnostic diagnostic)
         {
             bool allPublished = true;
@@ -499,7 +910,8 @@ namespace CoCoFlow.Runtime.Core
                     _trace?.Append(CoCoStateFlowTraceEntry.Published(
                         _graphInstanceId,
                         tickFrame,
-                        sequence));
+                        sequence,
+                        committedFrame));
                 }
             }
             finally
@@ -518,7 +930,8 @@ namespace CoCoFlow.Runtime.Core
                 _trace?.Append(CoCoStateFlowTraceEntry.Diagnostic(
                     _graphInstanceId,
                     tickFrame,
-                    diagnostic));
+                    diagnostic,
+                    frame: committedFrame));
             }
 
             return allPublished;
@@ -557,6 +970,13 @@ namespace CoCoFlow.Runtime.Core
 
         private void CancelCandidate(CoCoDiagnostic diagnostic)
         {
+            if (!diagnostic.IsError)
+            {
+                diagnostic = ContextError(
+                    CoCoDiagnosticCode.CommitCancelled,
+                    "The candidate transaction was cancelled before authority commit.");
+            }
+
             _preparedContext.Cancel();
             _operators.Cancel();
             ResetOutbox();
@@ -565,7 +985,8 @@ namespace CoCoFlow.Runtime.Core
                 _trace?.Append(CoCoStateFlowTraceEntry.Cancelled(
                     _graphInstanceId,
                     _activeTickFrame,
-                    diagnostic));
+                    diagnostic,
+                    _activePreviousContextTrace));
             }
 
             ClearActiveTransaction();
@@ -587,7 +1008,16 @@ namespace CoCoFlow.Runtime.Core
         {
             _preparedContext = default;
             _activeTickFrame = default;
+            _activePreviousContextTrace = default;
             _activeToken = 0UL;
+            _stagedTraceAppended = false;
+        }
+
+        private void ClearPreparedRestore()
+        {
+            _preparedRestoreContext = default;
+            _preparedGraphRestore = default;
+            _activeRestoreToken = 0UL;
         }
 
         private static CoCoDiagnostic ContextError(CoCoDiagnosticCode code, string message) =>
@@ -597,6 +1027,12 @@ namespace CoCoFlow.Runtime.Core
             CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Lifecycle,
                 CoCoDiagnosticCode.InvalidLifecycleTransition,
+                message);
+
+        private static CoCoDiagnostic RestoreError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticCode.InvalidGraphRestore,
                 message);
 
         private readonly struct OutboxLedgerEntry
