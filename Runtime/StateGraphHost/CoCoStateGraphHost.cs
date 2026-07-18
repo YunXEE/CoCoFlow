@@ -18,13 +18,17 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private CoCoStateGraphDriver driver = CoCoStateGraphDriver.Update;
         [SerializeField] private bool autoStart = true;
         [SerializeField, Min(0.0001f)] private float timeScale = 1f;
+        [SerializeField] private MonoBehaviour[] operators = Array.Empty<MonoBehaviour>();
+        [SerializeField, Min(2)] private int contextFrameCapacity = 3;
+        [SerializeField, Min(0)] private int eventOutboxCapacity = 32;
+        [SerializeField, Min(0)] private int traceCapacity;
         [SerializeField, Min(1)] private int eventLaneCapacity = 32;
         [SerializeField, Min(1)] private int eventSourceCapacity = 32;
         [SerializeField, Min(1)] private int eventDedupCapacity = 128;
 
         private CoCoStateGraphHostRuntimeBindings _bindings;
         private CoCoStateGraphRuntime _runtime;
-        private CoCoContextFrame _committedContext;
+        private CoCoStateGraphTransaction _transaction;
         private bool _hasStoppedInstance;
         private bool _isDisposed;
         private CoCoDiagnostic _lastDiagnostic;
@@ -33,13 +37,21 @@ namespace CoCoFlow.Runtime.Core
         private bool _acceptsEventInput;
         private bool _isStarting;
         private bool _isAdvancing;
+        private bool _isPublishingCommittedEvents;
         private bool _destroyRequested;
+        private bool _stopAfterPublish;
+        private bool _disposeAfterPublish;
+        private bool _requiresWorldCorrection;
         private CommitGuard _commitGuard;
 
         public CoCoStateGraphAsset StateGraphAsset => stateGraphAsset;
         internal CoCoStateGraphDriver Driver => driver;
         internal bool AutoStart => autoStart;
         internal float TimeScale => timeScale;
+        internal IReadOnlyList<MonoBehaviour> Operators => operators ?? Array.Empty<MonoBehaviour>();
+        internal int ContextFrameCapacity => contextFrameCapacity;
+        internal int EventOutboxCapacity => eventOutboxCapacity;
+        internal int TraceCapacity => traceCapacity;
         internal int EventLaneCapacity => eventLaneCapacity;
         internal int EventSourceCapacity => eventSourceCapacity;
         internal int EventDedupCapacity => eventDedupCapacity;
@@ -52,6 +64,9 @@ namespace CoCoFlow.Runtime.Core
         public CoCoRuntimeFault Fault => _runtime?.Fault ?? default;
         public CoCoGraphInstanceId GraphInstanceId => _runtime?.GraphInstanceId ?? default;
         public IReadOnlyList<CoCoActivePath> ActivePaths => _runtime?.ActivePaths ?? Array.Empty<CoCoActivePath>();
+        public CoCoContextFrame CurrentContext => _transaction?.CurrentContext ?? default;
+        public ICoCoStateFlowTrace Trace => _transaction?.Trace;
+        public bool RequiresWorldCorrection => _requiresWorldCorrection;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
         internal bool CanAcceptEventInput =>
@@ -160,12 +175,15 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (!IsPositiveFinite(timeScale) ||
-                !Enum.IsDefined(typeof(CoCoStateGraphDriver), driver))
+                !Enum.IsDefined(typeof(CoCoStateGraphDriver), driver) ||
+                contextFrameCapacity < 2 ||
+                eventOutboxCapacity < 0 ||
+                traceCapacity < 0)
             {
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Time,
                     CoCoDiagnosticCode.NonPositiveDeltaTime,
-                    "Host TimeScale must be finite and greater than zero, and Driver must be defined.");
+                    "Host Driver, TimeScale, Context, Outbox, and Trace capacities are invalid.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -207,6 +225,7 @@ namespace CoCoFlow.Runtime.Core
                 graphInstanceId);
             CoCoStateGraphHostRuntimeBindings bindings = null;
             CoCoStateGraphRuntime runtime = null;
+            CoCoStateGraphTransaction transaction = null;
             try
             {
                 if (!provider.TryConfigure(builder, out diagnostic) || diagnostic.IsError)
@@ -309,8 +328,27 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (!CoCoStateGraphTransaction.TryCreate(
+                        this,
+                        compileResult.Graph,
+                        graphInstanceId,
+                        bindings.ContextLayout,
+                        bindings.Operations,
+                        contextFrameCapacity,
+                        eventOutboxCapacity,
+                        traceCapacity,
+                        out transaction,
+                        out diagnostic))
+                {
+                    runtime.Dispose();
+                    bindings.Dispose();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
                 if (_destroyRequested)
                 {
+                    transaction.Dispose();
                     runtime.Dispose();
                     bindings.Dispose();
                     diagnostic = LifecycleError(
@@ -321,12 +359,13 @@ namespace CoCoFlow.Runtime.Core
 
                 _bindings = bindings;
                 _runtime = runtime;
+                _transaction = transaction;
                 if (_commitGuard == null)
                 {
                     _commitGuard = new CommitGuard(this);
                 }
 
-                _committedContext = default;
+                _requiresWorldCorrection = false;
                 _reliableOverflowPending = false;
                 _lastAutomaticFrame = -1;
 
@@ -352,6 +391,11 @@ namespace CoCoFlow.Runtime.Core
                 if (runtime != null && !ReferenceEquals(_runtime, runtime))
                 {
                     runtime.Dispose();
+                }
+
+                if (transaction != null && !ReferenceEquals(_transaction, transaction))
+                {
+                    transaction.Dispose();
                 }
 
                 if (bindings == null)
@@ -410,6 +454,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            _transaction?.Suspend();
+
             diagnostic = CoCoDiagnostic.None;
             _lastDiagnostic = diagnostic;
             return true;
@@ -458,6 +504,24 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryStop(out CoCoDiagnostic diagnostic)
         {
+            if (_isPublishingCommittedEvents)
+            {
+                if (_runtime == null ||
+                    (_runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                     _runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended))
+                {
+                    diagnostic = LifecycleError(
+                        "Host has no live Graph instance to stop after committed Event publication.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                _stopAfterPublish = true;
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+
             if (RejectLifecycleReentry(out diagnostic))
             {
                 return false;
@@ -504,6 +568,22 @@ namespace CoCoFlow.Runtime.Core
 
         public bool TryDispose(out CoCoDiagnostic diagnostic)
         {
+            if (_isPublishingCommittedEvents)
+            {
+                if (!_stopAfterPublish)
+                {
+                    diagnostic = LifecycleError(
+                        "A live Host must first accept Stop before Dispose can be deferred from Event publication.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                _disposeAfterPublish = true;
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+
             if (RejectLifecycleReentry(out diagnostic))
             {
                 return false;
@@ -533,6 +613,20 @@ namespace CoCoFlow.Runtime.Core
             }
 
             return TryAdvance(deltaTime, out diagnostic);
+        }
+
+        public bool TryValidateRestore(
+            CoCoContextFrame source,
+            CoCoTickFrame resumedTickFrame,
+            out CoCoContextCommitStatus status)
+        {
+            if (_transaction == null)
+            {
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                return false;
+            }
+
+            return _transaction.TryValidateRestore(source, resumedTickFrame, out status);
         }
 
         public CoCoInboxEnqueueResult TryEnqueueLocal<TEvent>(
@@ -578,13 +672,6 @@ namespace CoCoFlow.Runtime.Core
                 return;
             }
 
-            // Pre4 intentionally has no production coordinator; automatic stepping remains inert
-            // until Pre5 installs the internal transactional coordinator.
-            if (CoCoStateGraphTransactionCoordinatorRegistry.Current == null)
-            {
-                return;
-            }
-
             _lastAutomaticFrame = Time.frameCount;
             TryAdvance(deltaTime, out _lastDiagnostic);
         }
@@ -610,29 +697,35 @@ namespace CoCoFlow.Runtime.Core
                 if (_destroyRequested)
                 {
                     _destroyRequested = false;
+                    _stopAfterPublish = false;
+                    _disposeAfterPublish = false;
                     ForceDisposeHost();
+                }
+                else
+                {
+                    CompleteDeferredPublishLifecycle();
                 }
             }
         }
 
+        internal void BeginCommittedEventPublication()
+        {
+            _isPublishingCommittedEvents = true;
+        }
+
+        internal void EndCommittedEventPublication()
+        {
+            _isPublishingCommittedEvents = false;
+        }
+
         private bool TryAdvanceCore(double deltaTime, out CoCoDiagnostic diagnostic)
         {
-            ICoCoStateGraphTransactionCoordinator coordinator =
-                CoCoStateGraphTransactionCoordinatorRegistry.Current;
             if (_runtime == null ||
+                _transaction == null ||
                 _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
                 _runtime.IsFaulted)
             {
                 diagnostic = LifecycleError("Only a healthy Running Host can Step.");
-                _lastDiagnostic = diagnostic;
-                return false;
-            }
-
-            if (coordinator == null)
-            {
-                diagnostic = RegistryError(
-                    CoCoDiagnosticCode.RegistryNotFrozen,
-                    "Pre4 has no production transaction coordinator; Pre5 must finalize Context before commit.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -657,22 +750,33 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (!_transaction.TryPrepareContext(
+                        tickFrame,
+                        out CoCoContextCommitStatus contextStatus,
+                        out diagnostic))
+                {
+                    // Capacity exhaustion occurs before Inbox seal and is intentionally retryable.
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
                 if (!_bindings.TryCollectIntents(
                         tickFrame,
                         out ICoCoIntentFrame intents,
                         out diagnostic))
                 {
-                    CoCoDiagnostic reason = diagnostic.IsError
+                    CoCoDiagnostic collectionFailure = diagnostic.IsError
                         ? diagnostic
                         : CoCoDiagnostic.Error(
                             CoCoDiagnosticDomain.Intent,
                             CoCoDiagnosticCode.CommitPreparationFailed,
                             "Intent collection failed after the Host sealed its Tick input.");
-                    _runtime.TryLatchExternalFault(reason);
+                    _transaction.Cancel(collectionFailure);
+                    _runtime.TryLatchExternalFault(collectionFailure);
                     _bindings.ResolveIntentTick(tickFrame);
                     diagnostic = _runtime.IsFaulted
                         ? _runtime.Fault.Diagnostic
-                        : reason;
+                        : collectionFailure;
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
@@ -688,7 +792,7 @@ namespace CoCoFlow.Runtime.Core
                 if (!_runtime.TryStageStep(
                         tickFrame,
                         intents,
-                        _committedContext,
+                        _transaction.PreviousContext,
                         out stagedStep,
                         out diagnostic))
                 {
@@ -696,6 +800,8 @@ namespace CoCoFlow.Runtime.Core
                     {
                         _bindings.ResolveIntentTick(tickFrame);
                     }
+
+                    _transaction.Cancel(diagnostic);
 
                     _lastDiagnostic = diagnostic;
                     return false;
@@ -711,14 +817,15 @@ namespace CoCoFlow.Runtime.Core
                         out diagnostic);
                 }
 
-                CoCoDiagnostic reason = CoCoDiagnostic.Error(
+                CoCoDiagnostic stagingFailure = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Intent,
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "Intent collection or Tick staging threw before transaction finalization.");
+                _transaction.Cancel(stagingFailure);
                 bool rejected = stagedStep.IsValid &&
                                 _runtime.TryRejectStagedStep(
                                     stagedStep,
-                                    reason,
+                                    stagingFailure,
                                     true,
                                     _commitGuard,
                                     out diagnostic);
@@ -732,10 +839,10 @@ namespace CoCoFlow.Runtime.Core
 
                 if (!rejected)
                 {
-                    _runtime.TryLatchExternalFault(reason);
+                    _runtime.TryLatchExternalFault(stagingFailure);
                     diagnostic = _runtime.IsFaulted
                         ? _runtime.Fault.Diagnostic
-                        : reason;
+                        : stagingFailure;
                 }
 
                 _bindings.ResolveIntentTick(tickFrame);
@@ -751,130 +858,81 @@ namespace CoCoFlow.Runtime.Core
                     out diagnostic);
             }
 
-            try
+            bool finalized = _transaction.TryFinalizeAndCommit(
+                _runtime,
+                _bindings,
+                stagedStep,
+                _commitGuard,
+                out bool authorityCommitted,
+                out bool worldMayBeDirty,
+                out diagnostic);
+            if (finalized)
             {
-                bool finalized = coordinator.TryFinalize(
-                        this,
-                        stagedStep,
-                        _committedContext,
-                        out CoCoStateGraphTransactionDecision decision,
-                        out CoCoContextFrame committedContext,
-                        out diagnostic);
-                if (_destroyRequested)
-                {
-                    return CancelTickForPendingDestroy(
-                        stagedStep,
-                        tickFrame,
-                        out diagnostic);
-                }
+                _lastDiagnostic = CoCoDiagnostic.None;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
 
-                if (!finalized)
-                {
-                    CoCoDiagnostic reason = diagnostic.IsError
-                        ? diagnostic
-                        : CoCoDiagnostic.Error(
-                            CoCoDiagnosticDomain.Operation,
-                            CoCoDiagnosticCode.CommitCancelled,
-                            "Transaction coordinator rejected the staged Tick.");
-                    _runtime.TryRejectStagedStep(
-                        stagedStep,
-                        reason,
-                        true,
-                        _commitGuard,
-                        out diagnostic);
-                    if (_destroyRequested)
-                    {
-                        return CancelTickForPendingDestroy(
-                            default,
-                            tickFrame,
-                            out diagnostic);
-                    }
-
-                    _bindings.ResolveIntentTick(tickFrame);
-                    _lastDiagnostic = diagnostic;
-                    return false;
-                }
-
-                if (decision == CoCoStateGraphTransactionDecision.Accept)
-                {
-                    if (!_runtime.TryAcceptStagedStep(
-                            stagedStep,
-                            _commitGuard,
-                            out diagnostic))
-                    {
-                        _bindings.ResolveIntentTick(tickFrame);
-                        _lastDiagnostic = diagnostic;
-                        return false;
-                    }
-
-                    _bindings.ResolveIntentTick(tickFrame);
-                    _committedContext = committedContext;
-                    _lastDiagnostic = CoCoDiagnostic.None;
-                    diagnostic = CoCoDiagnostic.None;
-                    return true;
-                }
-
-                bool latchFault = decision == CoCoStateGraphTransactionDecision.RejectAndFault;
-                CoCoDiagnostic rejection = diagnostic.IsError
-                    ? diagnostic
-                    : CoCoDiagnostic.Error(
-                        CoCoDiagnosticDomain.Operation,
-                        CoCoDiagnosticCode.CommitCancelled,
-                        "Transaction coordinator cancelled the staged Tick.");
-                bool rejected = _runtime.TryRejectStagedStep(
-                    stagedStep,
-                    rejection,
-                    latchFault,
-                    _commitGuard,
-                    out diagnostic);
-                if (_destroyRequested)
-                {
-                    return CancelTickForPendingDestroy(
-                        default,
-                        tickFrame,
-                        out diagnostic);
-                }
-
-                if (latchFault)
-                {
-                    _bindings.ResolveIntentTick(tickFrame);
-                }
-
+            CoCoDiagnostic reason = diagnostic.IsError
+                ? diagnostic
+                : CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Operator,
+                    CoCoDiagnosticCode.CommitCancelled,
+                    "Operator transaction cancelled the staged Tick.");
+            if (authorityCommitted)
+            {
+                // Publication happens after the complete authority barrier. A publish fault
+                // cannot roll back Context, Graph, Claims, Clock, or assigned Sequences.
+                _runtime.TryLatchExternalFault(reason);
+                diagnostic = _runtime.IsFaulted ? _runtime.Fault.Diagnostic : reason;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
-            catch (Exception)
-            {
-                if (_destroyRequested)
-                {
-                    return CancelTickForPendingDestroy(
-                        stagedStep,
-                        tickFrame,
-                        out diagnostic);
-                }
 
-                CoCoDiagnostic reason = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Operation,
-                    CoCoDiagnosticCode.CommitPreparationFailed,
-                    "Transaction coordinator threw while finalizing the staged Tick.");
+            if (worldMayBeDirty)
+            {
+                _requiresWorldCorrection = true;
+            }
+
+            if (_destroyRequested)
+            {
+                return CancelTickForPendingDestroy(
+                    stagedStep,
+                    tickFrame,
+                    out diagnostic);
+            }
+
+            if (stagedStep.IsValid)
+            {
                 _runtime.TryRejectStagedStep(
                     stagedStep,
                     reason,
                     true,
                     _commitGuard,
                     out diagnostic);
-                if (_destroyRequested)
-                {
-                    return CancelTickForPendingDestroy(
-                        default,
-                        tickFrame,
-                        out diagnostic);
-                }
-
-                _bindings.ResolveIntentTick(tickFrame);
-                _lastDiagnostic = diagnostic;
-                return false;
             }
+            else if (!_runtime.IsFaulted)
+            {
+                _runtime.TryLatchExternalFault(reason);
+                diagnostic = _runtime.IsFaulted ? _runtime.Fault.Diagnostic : reason;
+            }
+
+            _bindings.ResolveIntentTick(tickFrame);
+            if (_requiresWorldCorrection)
+            {
+                CoCoDiagnostic correction = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Operator,
+                    CoCoDiagnosticCode.WorldCorrectionRequired,
+                    "A failed Operator transaction may have changed Unity state; Restore correction is required before resuming authority.");
+                if (!_runtime.IsFaulted)
+                {
+                    _runtime.TryLatchExternalFault(correction);
+                }
+            }
+
+            diagnostic = _runtime.IsFaulted ? _runtime.Fault.Diagnostic : reason;
+            _lastDiagnostic = diagnostic;
+            return false;
         }
 
         private bool CancelTickForPendingDestroy(
@@ -884,6 +942,7 @@ namespace CoCoFlow.Runtime.Core
         {
             CoCoDiagnostic reason = LifecycleError(
                 "Unity destruction cancelled the unresolved Tick before commit.");
+            _transaction?.Cancel(reason);
             diagnostic = reason;
             if (stagedStep.IsValid &&
                 (!_runtime.TryCancelStagedStep(
@@ -932,15 +991,36 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        private void CompleteDeferredPublishLifecycle()
+        {
+            bool stop = _stopAfterPublish;
+            bool dispose = _disposeAfterPublish;
+            _stopAfterPublish = false;
+            _disposeAfterPublish = false;
+            if (stop && _runtime != null)
+            {
+                TryStop(out _);
+            }
+
+            if (dispose && !_isDisposed)
+            {
+                TryDispose(out _);
+            }
+        }
+
         private void DisposeInstance()
         {
             _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
+            _transaction?.Dispose();
+            _transaction = null;
             _bindings?.Dispose();
             _bindings = null;
             _runtime?.Dispose();
             _runtime = null;
-            _committedContext = default;
+            _isPublishingCommittedEvents = false;
+            _stopAfterPublish = false;
+            _disposeAfterPublish = false;
             _reliableOverflowPending = false;
             _lastAutomaticFrame = -1;
         }
@@ -1048,56 +1128,6 @@ namespace CoCoFlow.Runtime.Core
             }
 
             public bool IsCommitCancellationRequested => _host._destroyRequested;
-        }
-    }
-
-    internal enum CoCoStateGraphTransactionDecision
-    {
-        Accept = 1,
-        Cancel = 2,
-        RejectAndFault = 3
-    }
-
-    internal interface ICoCoStateGraphTransactionCoordinator
-    {
-        bool TryFinalize(
-            CoCoStateGraphHost host,
-            in CoCoStagedGraphStep stagedStep,
-            in CoCoContextFrame previousContext,
-            out CoCoStateGraphTransactionDecision decision,
-            out CoCoContextFrame committedContext,
-            out CoCoDiagnostic diagnostic);
-    }
-
-    internal static class CoCoStateGraphTransactionCoordinatorRegistry
-    {
-        private static ICoCoStateGraphTransactionCoordinator _current;
-
-        internal static ICoCoStateGraphTransactionCoordinator Current => _current;
-
-        internal static bool TryInstall(
-            ICoCoStateGraphTransactionCoordinator coordinator,
-            out CoCoDiagnostic diagnostic)
-        {
-            if (coordinator == null || _current != null)
-            {
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Registry,
-                    _current == null
-                        ? CoCoDiagnosticCode.MissingDescriptor
-                        : CoCoDiagnosticCode.RegistryFrozen,
-                    "StateGraph transaction coordinator must be installed exactly once.");
-                return false;
-            }
-
-            _current = coordinator;
-            diagnostic = CoCoDiagnostic.None;
-            return true;
-        }
-
-        internal static void Reset()
-        {
-            _current = null;
         }
     }
 

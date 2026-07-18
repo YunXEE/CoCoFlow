@@ -12,6 +12,10 @@ namespace CoCoFlow.Editor.StateGraphHost
         private SerializedProperty _driver;
         private SerializedProperty _autoStart;
         private SerializedProperty _timeScale;
+        private SerializedProperty _operators;
+        private SerializedProperty _contextFrameCapacity;
+        private SerializedProperty _eventOutboxCapacity;
+        private SerializedProperty _traceCapacity;
         private SerializedProperty _eventLaneCapacity;
         private SerializedProperty _eventSourceCapacity;
         private SerializedProperty _eventDedupCapacity;
@@ -22,6 +26,10 @@ namespace CoCoFlow.Editor.StateGraphHost
             _driver = serializedObject.FindProperty("driver");
             _autoStart = serializedObject.FindProperty("autoStart");
             _timeScale = serializedObject.FindProperty("timeScale");
+            _operators = serializedObject.FindProperty("operators");
+            _contextFrameCapacity = serializedObject.FindProperty("contextFrameCapacity");
+            _eventOutboxCapacity = serializedObject.FindProperty("eventOutboxCapacity");
+            _traceCapacity = serializedObject.FindProperty("traceCapacity");
             _eventLaneCapacity = serializedObject.FindProperty("eventLaneCapacity");
             _eventSourceCapacity = serializedObject.FindProperty("eventSourceCapacity");
             _eventDedupCapacity = serializedObject.FindProperty("eventDedupCapacity");
@@ -35,6 +43,13 @@ namespace CoCoFlow.Editor.StateGraphHost
             EditorGUILayout.PropertyField(_driver);
             EditorGUILayout.PropertyField(_autoStart);
             EditorGUILayout.PropertyField(_timeScale);
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Operator Transaction", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_operators, true);
+            EditorGUILayout.PropertyField(_contextFrameCapacity);
+            EditorGUILayout.PropertyField(_eventOutboxCapacity);
+            EditorGUILayout.PropertyField(_traceCapacity);
 
             using (new EditorGUILayout.FadeGroupScope(1f))
             {
@@ -61,10 +76,13 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
 
             if (!Enum.IsDefined(typeof(CoCoStateGraphDriver), host.Driver) ||
-                !IsPositiveFinite(host.TimeScale))
+                !IsPositiveFinite(host.TimeScale) ||
+                host.ContextFrameCapacity < 2 ||
+                host.EventOutboxCapacity < 0 ||
+                host.TraceCapacity < 0)
             {
                 EditorGUILayout.HelpBox(
-                    "Driver must be defined and TimeScale must be finite and greater than zero. Use Suspend for zero speed.",
+                    "Driver, TimeScale, Context capacity, Outbox capacity, and Trace capacity must be valid.",
                     MessageType.Error);
                 return;
             }
@@ -112,6 +130,10 @@ namespace CoCoFlow.Editor.StateGraphHost
             if (!CoCoStateGraphHostBindingValidation.TryValidate(
                     result.Graph,
                     provider,
+                    host,
+                    host.ContextFrameCapacity,
+                    host.EventOutboxCapacity,
+                    host.TraceCapacity,
                     host.EventLaneCapacity,
                     host.EventSourceCapacity,
                     host.EventDedupCapacity,
@@ -128,7 +150,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 ? "No Event declarations: this Host will create neither Inbox nor Router."
                 : $"{eventCount} Event Adapter declaration(s), Domain {result.Graph.IntentRequirements.EventAdapterDeclarations[0].EventDomainId}.";
             EditorGUILayout.HelpBox(
-                $"Compiled Graph is valid. Driver: {host.Driver}. {eventSummary}",
+                $"Compiled Graph and explicit Operator transaction are valid. Driver: {host.Driver}. {eventSummary}",
                 MessageType.Info);
         }
 

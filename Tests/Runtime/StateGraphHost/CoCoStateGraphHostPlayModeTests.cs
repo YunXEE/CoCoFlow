@@ -190,9 +190,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: false);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 32);
 
@@ -218,98 +215,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
         }
 
-        [TestCase(false)]
-        [TestCase(true)]
-        public void TeardownReentryDuringFinalizeIsRejectedWithoutBreakingAcceptedTick(
-            bool dispose)
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(ids, withEvent: true);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            var coordinator = new ReentrantTeardownCoordinator(dispose);
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                coordinator,
-                out CoCoDiagnostic coordinatorInstall));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-
-            CoCoStateGraphRuntime runtime = GetRuntime(host);
-            CoCoStateGraphHostRuntimeBindings bindings = GetBindings(host);
-            CoCoGraphInstanceId graphInstanceId = host.GraphInstanceId;
-            CoCoStateId activeLeaf = host.ActivePaths[0].ActiveLeaf;
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.EqualTo(1));
-
-            Require(host.TryStep(0.02d, out CoCoDiagnostic firstStep));
-
-            Assert.That(coordinator.Attempted, Is.True);
-            Assert.That(coordinator.TeardownResult, Is.False);
-            Assert.That(
-                coordinator.TeardownDiagnostic.Domain,
-                Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
-            Assert.That(
-                coordinator.TeardownDiagnostic.Code,
-                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
-            Assert.That(GetRuntime(host), Is.SameAs(runtime));
-            Assert.That(GetBindings(host), Is.SameAs(bindings));
-            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Running));
-            Assert.That(host.Fault.IsFaulted, Is.False);
-            Assert.That(host.GraphInstanceId, Is.EqualTo(graphInstanceId));
-            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(activeLeaf));
-            Assert.That(runtime.Clock.Tick.Value, Is.EqualTo(1UL));
-            Assert.That(GetCommittedMemoryValue(runtime), Is.EqualTo(1));
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.EqualTo(1));
-
-            Require(host.TryStep(0.02d, out CoCoDiagnostic secondStep));
-            Assert.That(runtime.Clock.Tick.Value, Is.EqualTo(2UL));
-            Assert.That(GetCommittedMemoryValue(runtime), Is.EqualTo(2));
-            Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(2));
-        }
-
-        [Test]
-        public void SynchronousDestroyDuringFinalizeCancelsCandidateThenDisposes()
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(ids, withEvent: true);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            var coordinator = new DestroyingCoordinator();
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                coordinator,
-                out CoCoDiagnostic coordinatorInstall));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-            CoCoStateGraphRuntime runtime = GetRuntime(host);
-            bool stepped = false;
-            CoCoDiagnostic step = default;
-
-            Assert.DoesNotThrow(() => stepped = host.TryStep(0.02d, out step));
-
-            Assert.That(stepped, Is.False);
-            Assert.That(step.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
-            Assert.That(step.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
-            Assert.That(coordinator.Called, Is.True);
-            Assert.That(host == null, Is.True);
-            Assert.That(runtime.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Disposed));
-            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
-            Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
-            Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.ExitCount, Is.Zero);
-        }
-
         [Test]
         public void SynchronousDestroyDuringStateUpdateCancelsBeforeFinalizeThenDisposes()
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: false);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            var coordinator = new AcceptingCoordinator();
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                coordinator,
-                out CoCoDiagnostic coordinatorInstall));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -322,7 +233,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(stepped, Is.False);
             Assert.That(step.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
             Assert.That(step.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
-            Assert.That(coordinator.CallCount, Is.Zero);
             Assert.That(host == null, Is.True);
             Assert.That(runtime.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Disposed));
             Assert.That(runtime.Clock.Tick.Value, Is.Zero);
@@ -338,51 +248,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            var coordinator = new AcceptingCoordinator();
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                coordinator,
-                out CoCoDiagnostic coordinatorInstall));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-            CoCoStateGraphRuntime runtime = GetRuntime(host);
-            bool destroyed = false;
-            HostTestLogic.MemoryFingerprintCallback = () =>
-            {
-                if (!destroyed && runtime.HasStagedStep)
-                {
-                    destroyed = true;
-                    UnityEngine.Object.DestroyImmediate(host.gameObject);
-                }
-            };
-
-            bool stepped = host.TryStep(0.02d, out CoCoDiagnostic step);
-
-            Assert.That(stepped, Is.False);
-            Assert.That(step.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
-            Assert.That(step.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
-            Assert.That(destroyed, Is.True);
-            Assert.That(coordinator.CallCount, Is.EqualTo(1));
-            Assert.That(host == null, Is.True);
-            Assert.That(runtime.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Disposed));
-            Assert.That(runtime.Fault.IsFaulted, Is.False);
-            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
-            Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
-            Assert.That(HostTestLogic.EnterCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.ExitCount, Is.Zero);
-        }
-
-        [Test]
-        public void SynchronousDestroyDuringRejectValidationCancelsWithoutFault()
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(ids, withEvent: true);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new FailingCoordinator(),
-                out CoCoDiagnostic coordinatorInstall));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -421,9 +286,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -505,9 +367,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -601,9 +460,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoIntentId.TryCreate(104UL, 2UL, out CoCoIntentId secondIntentId));
             var provider = new DualEventBindingProvider(ids, secondIntentId);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateDualEventAsset(ids, secondIntentId);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -638,9 +494,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoEventTypeId secondEventTypeId));
             var provider = new OrderedEventBindingProvider(ids, secondEventTypeId);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateOrderedEventAsset(ids, secondEventTypeId);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -680,9 +533,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 1);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -787,9 +637,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 withEvent: true,
                 throwingEventAdapter: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -829,9 +676,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost source = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             CoCoStateGraphHost target = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
@@ -862,140 +706,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
-        public void CancelRetriesSameFrozenIntentTickWithoutResamplingOrLosingLaterEvent()
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(ids, withEvent: true);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-
-            CoCoEventPacket<HostTestEvent> first = Packet(
-                ids,
-                host.GraphInstanceId,
-                host.GraphInstanceId,
-                1UL,
-                10,
-                CoCoEventReliability.Reliable);
-            CoCoEventPacket<HostTestEvent> arrivedAfterSeal = Packet(
-                ids,
-                host.GraphInstanceId,
-                host.GraphInstanceId,
-                2UL,
-                20,
-                CoCoEventReliability.Reliable);
-            Assert.That(host.TryEnqueueLocal(first), Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
-            var cancelThenAccept = new CancelThenAcceptCoordinator(
-                () => Assert.That(
-                    host.TryEnqueueLocal(arrivedAfterSeal),
-                    Is.EqualTo(CoCoInboxEnqueueResult.Accepted)));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                cancelThenAccept,
-                out CoCoDiagnostic coordinator));
-
-            Assert.That(host.TryStep(0.02d, out CoCoDiagnostic cancelled), Is.False);
-            Assert.That(cancelled.IsError, Is.False);
-            Assert.That(host.Fault.IsFaulted, Is.False);
-            Assert.That(HostTestEventAdapter.ProjectionCount, Is.EqualTo(1));
-
-            Require(host.TryStep(0.02d, out CoCoDiagnostic retried));
-            Assert.That(cancelThenAccept.FirstTick, Is.EqualTo(cancelThenAccept.SecondTick));
-            Assert.That(HostTestEventAdapter.ProjectionCount, Is.EqualTo(1));
-            Assert.That(HostTestLogic.GetLastIntent(host.GraphInstanceId), Is.EqualTo(10));
-
-            Require(host.TryStep(0.02d, out CoCoDiagnostic nextTick));
-            Assert.That(HostTestEventAdapter.ProjectionCount, Is.EqualTo(2));
-            Assert.That(HostTestLogic.GetLastIntent(host.GraphInstanceId), Is.EqualTo(20));
-        }
-
-        [Test]
-        public void CoordinatorFailureRollsBackAllAuthorityAndLatchesFaultUntilStop()
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(ids, withEvent: false);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new FailingCoordinator(),
-                out CoCoDiagnostic coordinator));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-
-            CoCoStateGraphRuntime runtime = GetRuntime(host);
-            CoCoStateId committedLeaf = host.ActivePaths[0].ActiveLeaf;
-            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
-            Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
-            Assert.That(GetCommittedContext(host), Is.EqualTo(default(CoCoContextFrame)));
-
-            Assert.That(host.TryStep(0.02d, out CoCoDiagnostic failed), Is.False);
-            Assert.That(failed.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
-            Assert.That(host.Fault.IsFaulted, Is.True);
-            Assert.That(HostTestLogic.UpdateCount, Is.EqualTo(1));
-            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
-            Assert.That(runtime.Clock.Seconds, Is.Zero);
-            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(committedLeaf));
-            Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
-            Assert.That(GetCommittedContext(host), Is.EqualTo(default(CoCoContextFrame)));
-
-            Assert.That(host.TryStep(0.02d, out _), Is.False);
-            Assert.That(host.TryResume(out _), Is.False);
-            Require(host.TryStop(out CoCoDiagnostic stop));
-            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Stopped));
-        }
-
-        [TestCase(false)]
-        [TestCase(true)]
-        public void CoordinatorFailureDoesNotConsumeDiscreteOperationSequence(bool throws)
-        {
-            HostTestIds ids = HostTestIds.Create();
-            var provider = new HostTestBindingProvider(
-                ids,
-                withEvent: false,
-                withDiscreteOperation: true);
-            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
-            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
-            Require(host.TryStart(out CoCoDiagnostic start));
-
-            CoCoOperationSectionHandle<IHostTestDiscreteSection> handle =
-                provider.OperationFactory.Handle;
-            Assert.That(handle.IsValid, Is.True);
-            CoCoOperationFrame operationFrame = GetBindings(host).Operations;
-            Assert.That(GetCommittedSequence(operationFrame, handle.DenseIndex), Is.Zero);
-            var coordinator = new ObservingFailureCoordinator(handle, throws);
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                coordinator,
-                out CoCoDiagnostic coordinatorInstall));
-
-            CoCoStateGraphRuntime runtime = GetRuntime(host);
-            CoCoStateId committedLeaf = host.ActivePaths[0].ActiveLeaf;
-            Assert.That(host.TryStep(0.02d, out CoCoDiagnostic failure), Is.False);
-
-            Assert.That(failure.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
-            Assert.That(coordinator.SawCandidate, Is.True);
-            Assert.That(coordinator.CandidateEnabled, Is.True);
-            Assert.That(coordinator.CandidateValue, Is.EqualTo(1));
-            Assert.That(coordinator.CandidateActivationId.IsValid, Is.True);
-            Assert.That(coordinator.CandidateSequence, Is.EqualTo(1UL));
-            Assert.That(GetCommittedSequence(operationFrame, handle.DenseIndex), Is.Zero);
-            Assert.That(host.Fault.IsFaulted, Is.True);
-            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
-            Assert.That(runtime.Clock.Seconds, Is.Zero);
-            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(committedLeaf));
-            Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
-            Assert.That(GetCommittedContext(host), Is.EqualTo(default(CoCoContextFrame)));
-        }
-
-        [Test]
         public void DeclaredBroadcastReachesEveryRegisteredHostInTheDomain()
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost first = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             CoCoStateGraphHost second = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
@@ -1021,9 +736,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost healthy = CreateHost(asset, CoCoStateGraphDriver.Manual, 1);
             CoCoStateGraphHost faulted = CreateHost(asset, CoCoStateGraphDriver.Manual, 1);
@@ -1070,9 +782,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: true);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -1198,9 +907,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids, withEvent: false);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
-            Require(CoCoStateGraphTransactionCoordinatorRegistry.TryInstall(
-                new AcceptingCoordinator(),
-                out CoCoDiagnostic coordinator));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
             CoCoStateGraphHost host = CreateHost(asset, selectedDriver, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -1418,11 +1124,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static CoCoContextFrame GetCommittedContext(CoCoStateGraphHost host)
         {
-            FieldInfo field = typeof(CoCoStateGraphHost).GetField(
-                "_committedContext",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(field, Is.Not.Null);
-            return (CoCoContextFrame)field.GetValue(host);
+            return host.CurrentContext;
         }
 
         private static void SetField<TValue>(CoCoStateGraphHost host, string fieldName, TValue value)
@@ -1471,26 +1173,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(succeeded, Is.True, diagnostic.Message);
         }
 
-        private sealed class AcceptingCoordinator : ICoCoStateGraphTransactionCoordinator
-        {
-            public int CallCount { get; private set; }
-
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                CallCount++;
-                decision = CoCoStateGraphTransactionDecision.Accept;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.None;
-                return true;
-            }
-        }
-
         private sealed class StartCallbackBindingProvider :
             ICoCoStateGraphProjectBindingProvider
         {
@@ -1515,183 +1197,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CallbackCount++;
                 _callback();
                 return _inner.TryConfigure(builder, out diagnostic);
-            }
-        }
-
-        private sealed class ReentrantTeardownCoordinator :
-            ICoCoStateGraphTransactionCoordinator
-        {
-            private readonly bool _dispose;
-
-            public ReentrantTeardownCoordinator(bool dispose)
-            {
-                _dispose = dispose;
-            }
-
-            public bool Attempted { get; private set; }
-            public bool TeardownResult { get; private set; }
-            public CoCoDiagnostic TeardownDiagnostic { get; private set; }
-
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                if (!Attempted)
-                {
-                    Attempted = true;
-                    CoCoDiagnostic teardownDiagnostic;
-                    TeardownResult = _dispose
-                        ? host.TryDispose(out teardownDiagnostic)
-                        : host.TryStop(out teardownDiagnostic);
-                    TeardownDiagnostic = teardownDiagnostic;
-                }
-
-                decision = CoCoStateGraphTransactionDecision.Accept;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.None;
-                return true;
-            }
-        }
-
-        private sealed class DestroyingCoordinator : ICoCoStateGraphTransactionCoordinator
-        {
-            public bool Called { get; private set; }
-
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                Called = true;
-                UnityEngine.Object.DestroyImmediate(host.gameObject);
-                decision = CoCoStateGraphTransactionDecision.Accept;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.None;
-                return true;
-            }
-        }
-
-        private sealed class CancelThenAcceptCoordinator : ICoCoStateGraphTransactionCoordinator
-        {
-            private readonly Action _onFirstFinalize;
-            private int _calls;
-
-            public CancelThenAcceptCoordinator(Action onFirstFinalize)
-            {
-                _onFirstFinalize = onFirstFinalize;
-            }
-
-            public CoCoTimelineTick FirstTick { get; private set; }
-            public CoCoTimelineTick SecondTick { get; private set; }
-
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                _calls++;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.None;
-                if (_calls == 1)
-                {
-                    FirstTick = stagedStep.TickFrame.Tick;
-                    _onFirstFinalize?.Invoke();
-                    decision = CoCoStateGraphTransactionDecision.Cancel;
-                    return true;
-                }
-
-                if (_calls == 2)
-                {
-                    SecondTick = stagedStep.TickFrame.Tick;
-                }
-
-                decision = CoCoStateGraphTransactionDecision.Accept;
-                return true;
-            }
-        }
-
-        private sealed class FailingCoordinator : ICoCoStateGraphTransactionCoordinator
-        {
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                decision = CoCoStateGraphTransactionDecision.RejectAndFault;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Operation,
-                    CoCoDiagnosticCode.CommitPreparationFailed,
-                    "Test transaction finalization failed.");
-                return false;
-            }
-        }
-
-        private sealed class ObservingFailureCoordinator :
-            ICoCoStateGraphTransactionCoordinator
-        {
-            private readonly CoCoOperationSectionHandle<IHostTestDiscreteSection> _handle;
-            private readonly bool _throws;
-
-            public ObservingFailureCoordinator(
-                CoCoOperationSectionHandle<IHostTestDiscreteSection> handle,
-                bool throws)
-            {
-                _handle = handle;
-                _throws = throws;
-            }
-
-            public bool SawCandidate { get; private set; }
-            public bool CandidateEnabled { get; private set; }
-            public int CandidateValue { get; private set; }
-            public CoCoActivationId CandidateActivationId { get; private set; }
-            public ulong CandidateSequence { get; private set; }
-
-            public bool TryFinalize(
-                CoCoStateGraphHost host,
-                in CoCoStagedGraphStep stagedStep,
-                in CoCoContextFrame previousContext,
-                out CoCoStateGraphTransactionDecision decision,
-                out CoCoContextFrame committedContext,
-                out CoCoDiagnostic diagnostic)
-            {
-                SawCandidate = stagedStep.OperationFrame.TryGet(
-                    _handle,
-                    out CoCoOperationSectionEntry<IHostTestDiscreteSection> entry);
-                if (SawCandidate)
-                {
-                    CandidateEnabled = entry.Header.Enabled;
-                    CandidateValue = entry.View.Value;
-                    CandidateActivationId = entry.Header.ActivationId;
-                    CandidateSequence = entry.Header.OperationSequence.Value;
-                }
-
-                if (_throws)
-                {
-                    throw new InvalidOperationException(
-                        "Test coordinator threw after observing the Discrete candidate.");
-                }
-
-                decision = CoCoStateGraphTransactionDecision.RejectAndFault;
-                committedContext = previousContext;
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Operation,
-                    CoCoDiagnosticCode.CommitPreparationFailed,
-                    "Test coordinator rejected the Discrete candidate.");
-                return false;
             }
         }
 
