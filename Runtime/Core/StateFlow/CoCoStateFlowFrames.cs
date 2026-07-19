@@ -1654,6 +1654,57 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            return TryEncodeCore(
+                frame.Header,
+                frame.Revision,
+                frame.Buffer,
+                destination,
+                out bytesWritten,
+                out diagnosticCode);
+        }
+
+        internal bool TryEncodeFinalized(
+            CoCoStateFlowFrameHeader header,
+            CoCoContextRevision revision,
+            byte[] buffer,
+            Span<byte> destination,
+            out int bytesWritten,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            bytesWritten = 0;
+            if (buffer == null ||
+                buffer.Length != _layout.ByteSize ||
+                !header.IsValid ||
+                header.Identity.Kind != CoCoStateFlowFrameKind.Context ||
+                !header.HasExactLayoutIdentity ||
+                !_layout.HasExactIdentity(
+                    header.LayoutId,
+                    header.LayoutVersion,
+                    header.LayoutSchemaHash) ||
+                !revision.IsValid)
+            {
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameHandle;
+                return false;
+            }
+
+            return TryEncodeCore(
+                header,
+                revision,
+                buffer,
+                destination,
+                out bytesWritten,
+                out diagnosticCode);
+        }
+
+        private bool TryEncodeCore(
+            CoCoStateFlowFrameHeader header,
+            CoCoContextRevision revision,
+            byte[] buffer,
+            Span<byte> destination,
+            out int bytesWritten,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            bytesWritten = 0;
             if (destination.Length < MaxEncodedSize)
             {
                 diagnosticCode = CoCoDiagnosticCode.CommitPreparationFailed;
@@ -1671,29 +1722,29 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.Identity.GraphInstanceId.Value);
+                header.Identity.GraphInstanceId.Value);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.TickFrame.TimelineId.High);
+                header.TickFrame.TimelineId.High);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.TickFrame.TimelineId.Low);
+                header.TickFrame.TimelineId.Low);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.TickFrame.ClockDomainId.Value);
+                header.TickFrame.ClockDomainId.Value);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.TickFrame.ExecutionSequence.Value);
+                header.TickFrame.ExecutionSequence.Value);
             CoCoStateFlowBinary.WriteUInt64(
                 destination,
                 ref cursor,
-                frame.Header.Identity.TimelineEpoch.Value);
-            CoCoStateFlowBinary.WriteUInt64(destination, ref cursor, frame.Header.Identity.Tick.Value);
-            CoCoStateFlowBinary.WriteUInt64(destination, ref cursor, frame.Revision.Value);
+                header.Identity.TimelineEpoch.Value);
+            CoCoStateFlowBinary.WriteUInt64(destination, ref cursor, header.Identity.Tick.Value);
+            CoCoStateFlowBinary.WriteUInt64(destination, ref cursor, revision.Value);
             CoCoStateFlowBinary.WriteUInt32(destination, ref cursor, (uint)_bindings.Length);
 
             for (int index = 0; index < _bindings.Length; index++)
@@ -1713,11 +1764,11 @@ namespace CoCoFlow.Runtime.Core
                 if (binding.Adapter == null)
                 {
                     payloadLength = slot.ByteSize;
-                    new ReadOnlySpan<byte>(frame.Buffer, slot.ByteOffset, slot.ByteSize)
+                    new ReadOnlySpan<byte>(buffer, slot.ByteOffset, slot.ByteSize)
                         .CopyTo(destination.Slice(cursor, slot.ByteSize));
                 }
                 else if (!binding.Adapter.TryEncode(
-                             frame.Buffer,
+                             buffer,
                              slot.ByteOffset,
                              destination.Slice(cursor, binding.MaxValueSize),
                              out payloadLength) ||
@@ -1788,6 +1839,13 @@ namespace CoCoFlow.Runtime.Core
             byte[] destination,
             out CoCoDiagnosticCode diagnosticCode)
         {
+            if (destination == null || destination.Length != _layout.ByteSize)
+            {
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameLayout;
+                return false;
+            }
+
+            _layout.CopyDefaultsTo(destination);
             int cursor = HeaderSize;
             for (int index = 0; index < _bindings.Length; index++)
             {
@@ -2025,10 +2083,23 @@ namespace CoCoFlow.Runtime.Core
         T Read<T>(CoCoStateSlot<T> slot) where T : unmanaged;
     }
 
+    internal interface ICoCoContextMaterializedReadSource
+    {
+        bool TryGetMaterializedRead(
+            ulong token,
+            out CoCoContextFrameLayout layout,
+            out byte[] buffer,
+            out CoCoStateFlowFrameHeader header,
+            out CoCoContextRevision revision,
+            out CoCoContextFrameOrigin origin);
+    }
+
     internal readonly struct CoCoContextRestoreReadView
     {
         private readonly CoCoContextFrame _source;
         private readonly CoCoContextFrameLayout _layout;
+        private readonly ICoCoContextMaterializedReadSource _materializedSource;
+        private readonly ulong _materializedToken;
 
         internal CoCoContextRestoreReadView(
             CoCoContextFrame source,
@@ -2040,15 +2111,47 @@ namespace CoCoFlow.Runtime.Core
                       layout.IsSameInstance(source.Layout)
                 ? layout
                 : null;
+            _materializedSource = null;
+            _materializedToken = 0UL;
+        }
+
+        internal CoCoContextRestoreReadView(
+            ICoCoContextMaterializedReadSource materializedSource,
+            ulong token)
+        {
+            _source = default;
+            _layout = null;
+            _materializedSource = materializedSource;
+            _materializedToken = token;
         }
 
         internal bool IsValid =>
-            _layout != null &&
-            _source.IsAlive &&
-            _layout.IsSameInstance(_source.Layout);
+            TryResolve(
+                out _,
+                out _,
+                out _,
+                out _,
+                out _);
 
-        internal CoCoStateFlowFrameHeader Header => IsValid ? _source.Header : default;
-        internal CoCoContextFrameLayout Layout => IsValid ? _layout : null;
+        internal CoCoStateFlowFrameHeader Header =>
+            TryResolve(out _, out _, out CoCoStateFlowFrameHeader header, out _, out _)
+                ? header
+                : default;
+
+        internal CoCoContextRevision Revision =>
+            TryResolve(out _, out _, out _, out CoCoContextRevision revision, out _)
+                ? revision
+                : default;
+
+        internal CoCoContextFrameOrigin Origin =>
+            TryResolve(out _, out _, out _, out _, out CoCoContextFrameOrigin origin)
+                ? origin
+                : default;
+
+        internal CoCoContextFrameLayout Layout =>
+            TryResolve(out CoCoContextFrameLayout layout, out _, out _, out _, out _)
+                ? layout
+                : null;
 
         internal bool TryRead<TValue>(
             CoCoStateSlot<TValue> slot,
@@ -2056,16 +2159,21 @@ namespace CoCoFlow.Runtime.Core
             where TValue : unmanaged
         {
             value = default;
-            if (!IsValid ||
+            if (!TryResolve(
+                    out CoCoContextFrameLayout layout,
+                    out byte[] buffer,
+                    out _,
+                    out _,
+                    out _) ||
                 !slot.IsValid ||
-                !slot.IsFor(_layout) ||
+                !slot.IsFor(layout) ||
                 slot.DenseIndex < 0 ||
-                slot.DenseIndex >= _layout.Slots.Count)
+                slot.DenseIndex >= layout.Slots.Count)
             {
                 return false;
             }
 
-            CoCoStateSlotDescriptor descriptor = _layout.Slots[slot.DenseIndex];
+            CoCoStateSlotDescriptor descriptor = layout.Slots[slot.DenseIndex];
             if (descriptor.SlotId != slot.SlotId ||
                 descriptor.DenseIndex != slot.DenseIndex ||
                 descriptor.ValueType != typeof(TValue) ||
@@ -2076,6 +2184,12 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (_materializedSource != null)
+            {
+                value = CoCoStateFlowTypeRules.Read<TValue>(buffer, slot.ByteOffset);
+                return true;
+            }
+
             if (descriptor.RestorePolicy == CoCoContextRestorePolicy.Stored)
             {
                 value = _source.Read(slot);
@@ -2084,10 +2198,60 @@ namespace CoCoFlow.Runtime.Core
 
             if (descriptor.RestorePolicy == CoCoContextRestorePolicy.ResetToDefault)
             {
-                value = _layout.ReadDefault(slot);
+                value = layout.ReadDefault(slot);
                 return true;
             }
 
+            return false;
+        }
+
+        internal bool TryRead<TValue>(
+            CoCoStateSlotId slotId,
+            out TValue value)
+            where TValue : unmanaged
+        {
+            value = default;
+            CoCoContextFrameLayout layout = Layout;
+            return layout != null &&
+                   layout.TryResolveSlot(slotId, out CoCoStateSlot<TValue> slot) &&
+                   TryRead(slot, out value);
+        }
+
+        private bool TryResolve(
+            out CoCoContextFrameLayout layout,
+            out byte[] buffer,
+            out CoCoStateFlowFrameHeader header,
+            out CoCoContextRevision revision,
+            out CoCoContextFrameOrigin origin)
+        {
+            if (_materializedSource != null)
+            {
+                return _materializedSource.TryGetMaterializedRead(
+                    _materializedToken,
+                    out layout,
+                    out buffer,
+                    out header,
+                    out revision,
+                    out origin);
+            }
+
+            if (_layout != null &&
+                _source.IsAlive &&
+                _layout.IsSameInstance(_source.Layout))
+            {
+                layout = _layout;
+                buffer = _source.Buffer;
+                header = _source.Header;
+                revision = _source.Revision;
+                origin = _source.Origin;
+                return true;
+            }
+
+            layout = null;
+            buffer = null;
+            header = default;
+            revision = default;
+            origin = default;
             return false;
         }
     }
@@ -2465,6 +2629,59 @@ namespace CoCoFlow.Runtime.Core
         public bool IsValid => _arena != null && _arena.IsFinalized(_token);
         internal bool IsCommitReady => _arena != null && _arena.IsCommitReady(_token);
 
+        internal bool TryCreateRestoreReadView(out CoCoContextRestoreReadView view)
+        {
+            if (_arena == null || !_arena.IsFinalized(_token))
+            {
+                view = default;
+                return false;
+            }
+
+            view = new CoCoContextRestoreReadView(_arena, _token);
+            return view.IsValid;
+        }
+
+        internal bool TryGetMetadata(
+            out CoCoStateFlowFrameHeader header,
+            out CoCoContextRevision revision,
+            out CoCoContextFrameOrigin origin)
+        {
+            if (_arena != null)
+            {
+                return _arena.TryGetFinalizedMetadata(
+                    _token,
+                    out header,
+                    out revision,
+                    out origin);
+            }
+
+            header = default;
+            revision = default;
+            origin = default;
+            return false;
+        }
+
+        internal bool TryEncode(
+            CoCoContextProjectionCodec codec,
+            Span<byte> destination,
+            out int bytesWritten,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            if (_arena != null)
+            {
+                return _arena.TryEncodeFinalized(
+                    _token,
+                    codec,
+                    destination,
+                    out bytesWritten,
+                    out diagnosticCode);
+            }
+
+            bytesWritten = 0;
+            diagnosticCode = CoCoDiagnosticCode.InvalidFrameHandle;
+            return false;
+        }
+
         internal CoCoContextFrame CommitNoFailUnchecked() =>
             _arena.CommitNoFailUnchecked();
 
@@ -2483,7 +2700,7 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public sealed class CoCoContextFrameArena : IDisposable
+    public sealed class CoCoContextFrameArena : IDisposable, ICoCoContextMaterializedReadSource
     {
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly CoCoContextFrameStorage[] _frames;
@@ -2831,6 +3048,107 @@ namespace CoCoFlow.Runtime.Core
         internal bool IsFinalized(ulong token) =>
             !_isDisposed && !_isCallbackActive && _reserved != null && _isFinalized &&
             token != 0UL && token == _activeToken;
+
+        internal bool TryGetFinalizedMetadata(
+            ulong token,
+            out CoCoStateFlowFrameHeader header,
+            out CoCoContextRevision revision,
+            out CoCoContextFrameOrigin origin)
+        {
+            if (!IsFinalized(token))
+            {
+                header = default;
+                revision = default;
+                origin = default;
+                return false;
+            }
+
+            header = _reserved.Header;
+            revision = _reserved.Revision;
+            origin = _reserved.Origin;
+            return true;
+        }
+
+        internal bool TryEncodeFinalized(
+            ulong token,
+            CoCoContextProjectionCodec codec,
+            Span<byte> destination,
+            out int bytesWritten,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            bytesWritten = 0;
+            if (!IsFinalized(token) ||
+                codec == null ||
+                !Layout.IsSameInstance(codec.Layout))
+            {
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameHandle;
+                return false;
+            }
+
+            bool didEncode;
+            _isCallbackActive = true;
+            try
+            {
+                didEncode = codec.TryEncodeFinalized(
+                    _reserved.Header,
+                    _reserved.Revision,
+                    _reserved.Buffer,
+                    destination,
+                    out bytesWritten,
+                    out diagnosticCode);
+            }
+            catch
+            {
+                _isCallbackActive = false;
+                if (_disposeRequested)
+                {
+                    DisposeCore();
+                }
+                else
+                {
+                    CancelActive(token);
+                }
+
+                throw;
+            }
+
+            _isCallbackActive = false;
+            if (_disposeRequested)
+            {
+                DisposeCore();
+                bytesWritten = 0;
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameHandle;
+                return false;
+            }
+
+            return didEncode;
+        }
+
+        bool ICoCoContextMaterializedReadSource.TryGetMaterializedRead(
+            ulong token,
+            out CoCoContextFrameLayout layout,
+            out byte[] buffer,
+            out CoCoStateFlowFrameHeader header,
+            out CoCoContextRevision revision,
+            out CoCoContextFrameOrigin origin)
+        {
+            if (!IsFinalized(token))
+            {
+                layout = null;
+                buffer = null;
+                header = default;
+                revision = default;
+                origin = default;
+                return false;
+            }
+
+            layout = Layout;
+            buffer = _reserved.Buffer;
+            header = _reserved.Header;
+            revision = _reserved.Revision;
+            origin = _reserved.Origin;
+            return true;
+        }
 
         internal bool TryFinalize(
             ulong token,

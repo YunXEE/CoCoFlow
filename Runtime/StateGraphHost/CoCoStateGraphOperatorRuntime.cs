@@ -4,6 +4,13 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
 {
+    internal enum CoCoClaimRestoreOverlayPolicy
+    {
+        PreservePendingRelease = 0,
+        RebuildForSuspended = 1,
+        DiscardAbandonedFuture = 2
+    }
+
     internal sealed class CoCoStateGraphOperatorRuntime : ICoCoOperatorOutcomeSink, IDisposable
     {
         private readonly OperatorBinding[] _operators;
@@ -587,7 +594,7 @@ namespace CoCoFlow.Runtime.Core
             in CoCoContextRestoreReadView restore,
             CoCoStateGraphContextRuntime contextRuntime,
             ulong token,
-            bool isSuspended,
+            CoCoClaimRestoreOverlayPolicy overlayPolicy,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
@@ -617,9 +624,26 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
-            _preparedReleaseClaimsOnNextArbitration = isSuspended
-                ? HasPreparedReleaseClaimOwner()
-                : _releaseClaimsOnNextArbitration;
+            switch (overlayPolicy)
+            {
+                case CoCoClaimRestoreOverlayPolicy.PreservePendingRelease:
+                    _preparedReleaseClaimsOnNextArbitration =
+                        _releaseClaimsOnNextArbitration;
+                    break;
+                case CoCoClaimRestoreOverlayPolicy.RebuildForSuspended:
+                    _preparedReleaseClaimsOnNextArbitration =
+                        HasPreparedReleaseClaimOwner();
+                    break;
+                case CoCoClaimRestoreOverlayPolicy.DiscardAbandonedFuture:
+                    _preparedReleaseClaimsOnNextArbitration = false;
+                    break;
+                default:
+                    CancelPreparedRestore();
+                    diagnostic = RestoreError(
+                        "Claim restore preparation received an invalid overlay policy.");
+                    return false;
+            }
+
             _preparedRestoreToken = token;
             diagnostic = CoCoDiagnostic.None;
             return true;

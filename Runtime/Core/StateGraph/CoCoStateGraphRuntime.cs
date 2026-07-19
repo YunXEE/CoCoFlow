@@ -269,6 +269,37 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
+    /// Single-use Host proof that one faulted Runtime reached an idle Temporal
+    /// correction boundary. This is intentionally not a general Fault reset API.
+    /// </summary>
+    internal readonly struct CoCoPreparedTemporalRecovery
+    {
+        private readonly CoCoStateGraphRuntime _runtime;
+        private readonly ulong _token;
+
+        internal CoCoPreparedTemporalRecovery(
+            CoCoStateGraphRuntime runtime,
+            ulong token)
+        {
+            _runtime = runtime;
+            _token = token;
+        }
+
+        internal bool IsValid =>
+            _runtime != null &&
+            _runtime.IsTemporalRecoveryTokenCurrent(_token);
+
+        internal void CompleteNoFail()
+        {
+            _runtime?.CompleteTemporalRecoveryNoFail(_token);
+        }
+
+        internal bool Cancel() =>
+            _runtime != null &&
+            _runtime.CancelTemporalRecovery(_token);
+    }
+
+    /// <summary>
     /// Per-Host, allocation-stable StateGraph instance. Compiled Graph data is shared; all execution state is local.
     /// </summary>
     public sealed class CoCoStateGraphRuntime : IDisposable
@@ -296,6 +327,8 @@ namespace CoCoFlow.Runtime.Core
         private ulong _activePreparedCommitToken;
         private ulong _restoreGeneration;
         private ulong _activeRestoreToken;
+        private ulong _temporalRecoveryGeneration;
+        private ulong _activeTemporalRecoveryToken;
         private CoCoPreparedActorClockRestore _preparedClockRestore;
         private int _executingLayerIndex;
         private int _executingStateIndex;
@@ -1358,6 +1391,63 @@ namespace CoCoFlow.Runtime.Core
             }
 
             LatchFault(diagnostic);
+            return true;
+        }
+
+        internal bool TryPrepareTemporalRecovery(
+            out CoCoPreparedTemporalRecovery prepared,
+            out CoCoDiagnostic diagnostic)
+        {
+            prepared = default;
+            if (!_fault.IsFaulted ||
+                (_lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                HasStagedStep ||
+                HasPreparedRestore ||
+                _isExecutingStep ||
+                _disposeRequested ||
+                _isDisposed ||
+                _activeTemporalRecoveryToken != 0UL ||
+                _temporalRecoveryGeneration == ulong.MaxValue)
+            {
+                diagnostic = RestoreError(
+                    "Temporal Fault recovery requires one faulted, idle Runtime boundary.");
+                return false;
+            }
+
+            _activeTemporalRecoveryToken = ++_temporalRecoveryGeneration;
+            prepared = new CoCoPreparedTemporalRecovery(
+                this,
+                _activeTemporalRecoveryToken);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool IsTemporalRecoveryTokenCurrent(ulong token) =>
+            !_isDisposed &&
+            _fault.IsFaulted &&
+            token != 0UL &&
+            token == _activeTemporalRecoveryToken;
+
+        internal void CompleteTemporalRecoveryNoFail(ulong token)
+        {
+            if (!IsTemporalRecoveryTokenCurrent(token))
+            {
+                return;
+            }
+
+            _fault = default;
+            _activeTemporalRecoveryToken = 0UL;
+        }
+
+        internal bool CancelTemporalRecovery(ulong token)
+        {
+            if (!IsTemporalRecoveryTokenCurrent(token))
+            {
+                return false;
+            }
+
+            _activeTemporalRecoveryToken = 0UL;
             return true;
         }
 

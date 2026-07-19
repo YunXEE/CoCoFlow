@@ -14,6 +14,8 @@ namespace CoCoFlow.Editor.StateGraphHost
         private SerializedProperty _timeScale;
         private SerializedProperty _operators;
         private SerializedProperty _actorContextBinding;
+        private SerializedProperty _contextRestoreBinding;
+        private SerializedProperty _temporalHistoryCapacity;
         private SerializedProperty _contextFrameCapacity;
         private SerializedProperty _eventOutboxCapacity;
         private SerializedProperty _traceCapacity;
@@ -29,6 +31,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             _timeScale = serializedObject.FindProperty("timeScale");
             _operators = serializedObject.FindProperty("operators");
             _actorContextBinding = serializedObject.FindProperty("actorContextBinding");
+            _contextRestoreBinding = serializedObject.FindProperty("contextRestoreBinding");
+            _temporalHistoryCapacity = serializedObject.FindProperty("temporalHistoryCapacity");
             _contextFrameCapacity = serializedObject.FindProperty("contextFrameCapacity");
             _eventOutboxCapacity = serializedObject.FindProperty("eventOutboxCapacity");
             _traceCapacity = serializedObject.FindProperty("traceCapacity");
@@ -53,6 +57,15 @@ namespace CoCoFlow.Editor.StateGraphHost
             EditorGUILayout.PropertyField(_contextFrameCapacity);
             EditorGUILayout.PropertyField(_eventOutboxCapacity);
             EditorGUILayout.PropertyField(_traceCapacity);
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Temporal Rewind", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(
+                _temporalHistoryCapacity,
+                new GUIContent("History Entries"));
+            EditorGUILayout.PropertyField(
+                _contextRestoreBinding,
+                new GUIContent("Restore Binding"));
 
             using (new EditorGUILayout.FadeGroupScope(1f))
             {
@@ -80,12 +93,13 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             if (!Enum.IsDefined(typeof(CoCoStateGraphDriver), host.Driver) ||
                 !IsPositiveFinite(host.TimeScale) ||
+                host.TemporalHistoryCapacity < 0 ||
                 host.ContextFrameCapacity < 2 ||
                 host.EventOutboxCapacity < 0 ||
                 host.TraceCapacity < 0)
             {
                 EditorGUILayout.HelpBox(
-                    "Driver, TimeScale, Context capacity, Outbox capacity, and Trace capacity must be valid.",
+                    "Driver, TimeScale, Temporal capacity, Context capacity, Outbox capacity, and Trace capacity must be valid.",
                     MessageType.Error);
                 return;
             }
@@ -155,6 +169,14 @@ namespace CoCoFlow.Editor.StateGraphHost
             EditorGUILayout.HelpBox(
                 $"Compiled Graph and explicit Operator transaction are valid. Driver: {host.Driver}. {eventSummary}",
                 MessageType.Info);
+
+            if (Application.isPlaying)
+            {
+                CoCoTemporalState temporal = host.TemporalState;
+                EditorGUILayout.HelpBox(
+                    $"Temporal: {temporal.Mode}; History: {temporal.Count}/{temporal.Capacity}; Preview depth: {temporal.PreviewDepth}; Dropped input: {temporal.RewindRestoreDropped}.",
+                    MessageType.Info);
+            }
         }
 
         private static bool IsPositiveFinite(float value) =>

@@ -414,6 +414,8 @@ namespace CoCoFlow.Runtime.Core
         private CoCoTickFrame _lastSealedTickFrame;
         private bool _hasLastSealedTick;
         private bool _requiresNewTimelineEpoch;
+        private CoCoTimelineEpoch _requiredOwnerTimelineEpoch;
+        private bool _hasRequiredOwnerTimelineEpoch;
         private CoCoIntentFrameRuntime _intentRuntime;
         private CoCoActorEventInboxState _deferredLifecycleState;
         private ulong _accepted;
@@ -654,8 +656,7 @@ namespace CoCoFlow.Runtime.Core
 
         public bool BeginRewindOrRestore()
         {
-            if ((_state != CoCoActorEventInboxState.Running &&
-                 _state != CoCoActorEventInboxState.Suspended) ||
+            if (_state != CoCoActorEventInboxState.Running ||
                 !HasLiveIntentRuntime() ||
                 IsLifecycleTransitionBlocked() ||
                 !_intentRuntime.TryResetForTimelineChange())
@@ -668,20 +669,78 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool CanResumeAfterTimelineReset =>
+            _state == CoCoActorEventInboxState.RewindingOrRestoring &&
+            HasLiveIntentRuntime() &&
+            !_intentRuntime.IsCollecting &&
+            !IsLifecycleTransitionBlocked();
+
         public bool ResumeAfterTimelineReset()
         {
-            if (_state != CoCoActorEventInboxState.RewindingOrRestoring ||
-                !HasLiveIntentRuntime() ||
-                IsLifecycleTransitionBlocked() ||
+            if (!CanResumeAfterTimelineReset ||
                 !_intentRuntime.TryResetForTimelineChange())
             {
                 return false;
             }
 
+            ResumeAfterTimelineResetNoFail();
+            return true;
+        }
+
+        internal void ResumeAfterTimelineResetNoFail()
+        {
+            if (!CanResumeAfterTimelineReset)
+            {
+                return;
+            }
+
             ClearQueuedState();
             _requiresNewTimelineEpoch = true;
             _state = CoCoActorEventInboxState.Running;
+        }
+
+        internal void ResumeAfterTimelineResetNoFail(CoCoTimelineEpoch ownerTimelineEpoch)
+        {
+            if (!CanResumeAfterTimelineReset)
+            {
+                return;
+            }
+
+            ClearQueuedState();
+            ClearOwnerSourceEpoch();
+            _requiredOwnerTimelineEpoch = ownerTimelineEpoch;
+            _hasRequiredOwnerTimelineEpoch = true;
+            _requiresNewTimelineEpoch = true;
+            _state = CoCoActorEventInboxState.Running;
+        }
+
+        internal bool CanCancelRewindOrRestore =>
+            _state == CoCoActorEventInboxState.RewindingOrRestoring &&
+            HasLiveIntentRuntime() &&
+            !_intentRuntime.IsCollecting &&
+            !IsLifecycleTransitionBlocked();
+
+        public bool CancelRewindOrRestore()
+        {
+            if (!CanCancelRewindOrRestore ||
+                !_intentRuntime.TryResetForTimelineChange())
+            {
+                return false;
+            }
+
+            CancelRewindOrRestoreNoFail();
             return true;
+        }
+
+        internal void CancelRewindOrRestoreNoFail()
+        {
+            if (!CanCancelRewindOrRestore)
+            {
+                return;
+            }
+
+            ClearQueuedState();
+            _state = CoCoActorEventInboxState.Running;
         }
 
         public void Stop()
@@ -1136,6 +1195,22 @@ namespace CoCoFlow.Runtime.Core
             out bool sourceIsNew,
             out bool epochIsNew)
         {
+            if (_hasRequiredOwnerTimelineEpoch && source == Owner)
+            {
+                sourceIndex = -1;
+                sourceIsNew = false;
+                epochIsNew = false;
+                if (epoch.Value < _requiredOwnerTimelineEpoch.Value)
+                {
+                    return CoCoInboxEnqueueResult.StaleTimelineEpoch;
+                }
+
+                if (epoch.Value > _requiredOwnerTimelineEpoch.Value)
+                {
+                    return CoCoInboxEnqueueResult.InvalidPacket;
+                }
+            }
+
             for (int index = 0; index < _sourceCount; index++)
             {
                 if (_sourceEpochs[index].Source != source)
@@ -1211,6 +1286,26 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        private void ClearOwnerSourceEpoch()
+        {
+            for (int index = 0; index < _sourceCount; index++)
+            {
+                if (_sourceEpochs[index].Source != Owner)
+                {
+                    continue;
+                }
+
+                _sourceCount--;
+                for (int moveIndex = index; moveIndex < _sourceCount; moveIndex++)
+                {
+                    _sourceEpochs[moveIndex] = _sourceEpochs[moveIndex + 1];
+                }
+
+                _sourceEpochs[_sourceCount] = default;
+                return;
+            }
+        }
+
         private CoCoInboxEnqueueResult RejectOverflow(CoCoEventReliability reliability)
         {
             _rejected++;
@@ -1243,6 +1338,8 @@ namespace CoCoFlow.Runtime.Core
             _lastSealedTickFrame = default;
             _hasLastSealedTick = false;
             _requiresNewTimelineEpoch = false;
+            _requiredOwnerTimelineEpoch = default;
+            _hasRequiredOwnerTimelineEpoch = false;
         }
 
         private bool HasLiveIntentRuntime()

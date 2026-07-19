@@ -296,6 +296,78 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(resolved, Is.SameAs(provider.BoundCodec));
         }
 
+        [Test]
+        public void DestroyDuringTemporalCodecCaptureCancelsAuthorityOutboxSequenceAndHistory()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            var provider = new CodecBindingProvider(ids, CodecBindingMode.ExactCustom);
+            Require(CoCoStateGraphProjectBindings.TryInstall(
+                provider,
+                out CoCoDiagnostic install), install);
+            CoCoStateGraphHost host = CreateHost(
+                ids,
+                out GameObject gameObject,
+                eventOutboxCapacity: 4,
+                traceCapacity: 64);
+            var restoreBinding = gameObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(host, "temporalHistoryCapacity", 3);
+            SetField(host, "contextRestoreBinding", restoreBinding);
+            var runtimeOperator = gameObject.AddComponent<OutboxOperator>();
+            runtimeOperator.Configure(host, ids);
+            SetOperators(host, runtimeOperator);
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+
+            CoCoStateGraphRuntime runtime = GetRuntime(host);
+            CoCoStateGraphTransaction transaction = GetTransaction(host);
+            CoCoStateGraphTemporalController temporal = GetTemporal(host);
+            ICoCoStateFlowTrace trace = host.Trace;
+            Assert.That(temporal.State.Mode, Is.EqualTo(CoCoTemporalMode.Ready));
+            Assert.That(temporal.State.Count, Is.Zero);
+            int historyCountDuringDestroy = -1;
+            provider.BoundCodec.EncodeCallback = () =>
+            {
+                UnityEngine.Object.DestroyImmediate(gameObject);
+                historyCountDuringDestroy = temporal.State.Count;
+            };
+            var listener = new PublishLifecycleListener(host, requestLifecycle: false);
+            CoCoEventBus.Subscribe<CoCoEventPacket<OperatorCommitEventA>>(listener);
+            CoCoEventBus.Subscribe<CoCoEventPacket<OperatorCommitEventB>>(listener);
+
+            bool stepped = true;
+            CoCoDiagnostic failure = default;
+            try
+            {
+                Assert.DoesNotThrow(() => stepped = host.TryStep(0.02d, out failure));
+            }
+            finally
+            {
+                CoCoEventBus.Unsubscribe<CoCoEventPacket<OperatorCommitEventA>>(listener);
+                CoCoEventBus.Unsubscribe<CoCoEventPacket<OperatorCommitEventB>>(listener);
+                provider.BoundCodec.EncodeCallback = null;
+            }
+
+            Assert.That(stepped, Is.False);
+            Assert.That(failure.Domain, Is.EqualTo(CoCoDiagnosticDomain.Lifecycle));
+            Assert.That(
+                failure.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+            Assert.That(historyCountDuringDestroy, Is.Zero);
+            Assert.That(provider.BoundCodec.EncodeCount, Is.EqualTo(1));
+            Assert.That(runtimeOperator.ExecuteCount, Is.EqualTo(1));
+            Assert.That(listener.Order, Is.Empty);
+            Assert.That(listener.Sequences, Is.Empty);
+            Assert.That(ReadLastEventSequence(transaction), Is.Zero);
+            Assert.That(transaction.CandidateEventCount, Is.Zero);
+            Assert.That(transaction.CurrentContext.IsAlive, Is.False);
+            Assert.That(runtime.Clock.Tick.Value, Is.Zero);
+            Assert.That(runtime.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Disposed));
+            Assert.That(temporal.State.Mode, Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(temporal.State.Count, Is.Zero);
+            Assert.That(trace.Count, Is.Zero);
+            Assert.That(host == null, Is.True);
+            Assert.That(gameObject == null, Is.True);
+        }
+
         [TestCase(CodecBindingMode.MissingCustom)]
         [TestCase(CodecBindingMode.MismatchedCustom)]
         [TestCase(CodecBindingMode.ExtraOnRaw)]
@@ -767,6 +839,293 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
                 CoCoEventBus.Unsubscribe<CoCoEventPacket<OperatorCommitEventA>>(listener);
             }
+        }
+
+        [Test]
+        public void TemporalConfirmRestoresHistoricalGraphPathAndHeldClaims()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallClaimProvider(ids);
+            CoCoStateGraphHost host = CreateClaimHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 128);
+            var restoreBinding = gameObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(host, "temporalHistoryCapacity", 5);
+            SetField(host, "contextRestoreBinding", restoreBinding);
+            var low = gameObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Retain);
+            var high = gameObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(host, low, high);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic first), first);
+            CoCoContextFrame source = host.CurrentContext;
+            CoCoContextRevision sourceRevision = source.Revision;
+            CoCoGraphStateRecord<byte> sourceFirstState = ReadClaimGraphState(
+                source,
+                ids.FirstGraphStateSlotId);
+            CoCoGraphStateRecord<byte> sourceSecondState = ReadClaimGraphState(
+                source,
+                ids.SecondGraphStateSlotId);
+            CoCoOperatorClaimState sourcePrimary = ReadClaim(
+                source,
+                ids.PrimaryClaimStateSlotId);
+            CoCoOperatorClaimState sourceSecondary = ReadClaim(
+                source,
+                ids.SecondaryClaimStateSlotId);
+            Assert.That(sourcePrimary.IsHeld, Is.True);
+            Assert.That(sourcePrimary.OwnerOperatorId, Is.EqualTo(ids.FirstOperatorId));
+            Assert.That(sourcePrimary.ActivationId.IsValid, Is.True);
+            Assert.That(sourceSecondary.IsHeld, Is.False);
+
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            OperatorCommitClaimLogic.RequestTransition = true;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic transition), transition);
+            OperatorCommitClaimLogic.RequestTransition = false;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic changed), changed);
+            CoCoContextFrame changedAuthority = host.CurrentContext;
+            CoCoOperatorClaimState changedPrimary = ReadClaim(
+                changedAuthority,
+                ids.PrimaryClaimStateSlotId);
+            CoCoOperatorClaimState changedSecondary = ReadClaim(
+                changedAuthority,
+                ids.SecondaryClaimStateSlotId);
+            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+            Assert.That(changedPrimary.OwnerOperatorId, Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(changedSecondary.OwnerOperatorId, Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(changedPrimary.ActivationId, Is.Not.EqualTo(sourcePrimary.ActivationId));
+            int lowExecutions = low.ExecuteCount;
+            int highExecutions = high.ExecuteCount;
+            int logicUpdates = OperatorCommitClaimLogic.UpdateCount;
+
+            Require(host.TryBeginTemporalPreview(out CoCoDiagnostic begin), begin);
+            Require(host.TryPreviewTemporal(2, out CoCoDiagnostic preview), preview);
+            Assert.That(
+                host.TemporalState.Preview.Revision.Value,
+                Is.EqualTo(sourceRevision.Value));
+            Require(host.TryConfirmTemporalRestore(out CoCoDiagnostic confirm), confirm);
+
+            CoCoContextFrame restored = host.CurrentContext;
+            Assert.That(restored.Origin.IsRestore, Is.True);
+            Assert.That(restored.Origin.SourceRevision, Is.EqualTo(sourceRevision));
+            Assert.That(
+                ReadClaimGraphState(restored, ids.FirstGraphStateSlotId),
+                Is.EqualTo(sourceFirstState));
+            Assert.That(
+                ReadClaimGraphState(restored, ids.SecondGraphStateSlotId),
+                Is.EqualTo(sourceSecondState));
+            Assert.That(
+                ReadClaim(restored, ids.PrimaryClaimStateSlotId),
+                Is.EqualTo(sourcePrimary));
+            Assert.That(
+                ReadClaim(restored, ids.SecondaryClaimStateSlotId),
+                Is.EqualTo(sourceSecondary));
+            Assert.That(
+                ReadClaim(restored, ids.PrimaryClaimStateSlotId).ActivationId,
+                Is.EqualTo(sourcePrimary.ActivationId));
+            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.StateId));
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions));
+            Assert.That(OperatorCommitClaimLogic.UpdateCount, Is.EqualTo(logicUpdates));
+
+            Require(host.TryStep(0.02d, out CoCoDiagnostic following), following);
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions + 1));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+        }
+
+        [Test]
+        public void TemporalConfirmDiscardsAbandonedSuspendReleaseOverlay()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallClaimProvider(ids);
+            CoCoStateGraphHost host = CreateClaimHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 128);
+            var restoreBinding = gameObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(host, "temporalHistoryCapacity", 5);
+            SetField(host, "contextRestoreBinding", restoreBinding);
+            var low = gameObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = gameObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(host, low, high);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic second), second);
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            Require(host.TryResume(out CoCoDiagnostic resume), resume);
+            Require(host.TryBeginTemporalPreview(out CoCoDiagnostic begin), begin);
+            Require(host.TryPreviewTemporal(1, out CoCoDiagnostic preview), preview);
+            Require(host.TryConfirmTemporalRestore(out CoCoDiagnostic confirm), confirm);
+
+            int lowExecutions = low.ExecuteCount;
+            int highExecutions = high.ExecuteCount;
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic following), following);
+
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions + 1));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.SecondaryClaimStateSlotId).IsHeld,
+                Is.False);
+        }
+
+        [TestCase(TemporalRestoreFixtureFailure.Reject)]
+        [TestCase(TemporalRestoreFixtureFailure.Throw)]
+        public void TemporalConfirmBindingFailurePreservesPendingSuspendReleaseOverlay(
+            TemporalRestoreFixtureFailure failureMode)
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallClaimProvider(ids);
+            CoCoStateGraphHost host = CreateClaimHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 128);
+            var restoreBinding = gameObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(host, "temporalHistoryCapacity", 5);
+            SetField(host, "contextRestoreBinding", restoreBinding);
+            var low = gameObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = gameObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(host, low, high);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic second), second);
+            CoCoContextFrame authority = host.CurrentContext;
+            Assert.That(
+                ReadClaim(authority, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            Require(host.TryResume(out CoCoDiagnostic resume), resume);
+            Require(host.TryBeginTemporalPreview(out CoCoDiagnostic begin), begin);
+            Require(host.TryPreviewTemporal(1, out CoCoDiagnostic preview), preview);
+            restoreBinding.Failure = failureMode;
+            bool confirmed = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() =>
+                confirmed = host.TryConfirmTemporalRestore(out failure));
+
+            Assert.That(confirmed, Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(host.CurrentContext, Is.EqualTo(authority));
+            Assert.That(host.RequiresWorldCorrection, Is.True);
+            Assert.That(host.Fault.IsFaulted, Is.True);
+
+            int lowExecutions = low.ExecuteCount;
+            int highExecutions = high.ExecuteCount;
+            restoreBinding.Failure = TemporalRestoreFixtureFailure.None;
+            Require(host.TryCorrectWorld(out CoCoDiagnostic correction), correction);
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic following), following);
+
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions + 1));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.SecondaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+        }
+
+        [TestCase(TemporalRestoreFixtureFailure.Reject)]
+        [TestCase(TemporalRestoreFixtureFailure.Throw)]
+        public void TemporalConfirmBindingFailurePreservesCurrentClaimAuthority(
+            TemporalRestoreFixtureFailure failureMode)
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallClaimProvider(ids);
+            CoCoStateGraphHost host = CreateClaimHost(
+                ids,
+                out GameObject gameObject,
+                traceCapacity: 128);
+            var restoreBinding = gameObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(host, "temporalHistoryCapacity", 5);
+            SetField(host, "contextRestoreBinding", restoreBinding);
+            var low = gameObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Retain);
+            var high = gameObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(host, low, high);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic first), first);
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            OperatorCommitClaimLogic.RequestTransition = true;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic transition), transition);
+            OperatorCommitClaimLogic.RequestTransition = false;
+            Require(host.TryStep(0.02d, out CoCoDiagnostic changed), changed);
+
+            CoCoContextFrame authority = host.CurrentContext;
+            CoCoTickFrame authorityTick = authority.Header.TickFrame;
+            CoCoOperatorClaimState authorityPrimary = ReadClaim(
+                authority,
+                ids.PrimaryClaimStateSlotId);
+            CoCoOperatorClaimState authoritySecondary = ReadClaim(
+                authority,
+                ids.SecondaryClaimStateSlotId);
+            Assert.That(authorityPrimary.OwnerOperatorId, Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(authoritySecondary.OwnerOperatorId, Is.EqualTo(ids.SecondOperatorId));
+            int historyCount = host.TemporalState.Count;
+            int lowExecutions = low.ExecuteCount;
+            int highExecutions = high.ExecuteCount;
+            int logicUpdates = OperatorCommitClaimLogic.UpdateCount;
+
+            Require(host.TryBeginTemporalPreview(out CoCoDiagnostic begin), begin);
+            Require(host.TryPreviewTemporal(2, out CoCoDiagnostic preview), preview);
+            restoreBinding.Failure = failureMode;
+            bool confirmed = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() =>
+                confirmed = host.TryConfirmTemporalRestore(out failure));
+
+            Assert.That(confirmed, Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(host.CurrentContext, Is.EqualTo(authority));
+            Assert.That(host.CurrentContext.Header.TickFrame, Is.EqualTo(authorityTick));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId),
+                Is.EqualTo(authorityPrimary));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.SecondaryClaimStateSlotId),
+                Is.EqualTo(authoritySecondary));
+            Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+            Assert.That(host.TemporalState.Count, Is.EqualTo(historyCount));
+            Assert.That(host.TemporalState.PreviewDepth, Is.EqualTo(2));
+            Assert.That(host.RequiresWorldCorrection, Is.True);
+            Assert.That(host.Fault.IsFaulted, Is.True);
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions));
+            Assert.That(OperatorCommitClaimLogic.UpdateCount, Is.EqualTo(logicUpdates));
+
+            restoreBinding.Failure = TemporalRestoreFixtureFailure.None;
+            Require(host.TryCorrectWorld(out CoCoDiagnostic correction), correction);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic following), following);
+            Assert.That(low.ExecuteCount, Is.EqualTo(lowExecutions));
+            Assert.That(high.ExecuteCount, Is.EqualTo(highExecutions + 1));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(
+                ReadClaim(host.CurrentContext, ids.SecondaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
         }
 
         [TestCase(
@@ -1398,6 +1757,33 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return (CoCoStateGraphRuntime)field.GetValue(host);
         }
 
+        private static CoCoStateGraphTransaction GetTransaction(CoCoStateGraphHost host)
+        {
+            FieldInfo field = typeof(CoCoStateGraphHost).GetField(
+                "_transaction",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            return (CoCoStateGraphTransaction)field.GetValue(host);
+        }
+
+        private static CoCoStateGraphTemporalController GetTemporal(CoCoStateGraphHost host)
+        {
+            FieldInfo field = typeof(CoCoStateGraphHost).GetField(
+                "_temporal",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            return (CoCoStateGraphTemporalController)field.GetValue(host);
+        }
+
+        private static ulong ReadLastEventSequence(CoCoStateGraphTransaction transaction)
+        {
+            FieldInfo field = typeof(CoCoStateGraphTransaction).GetField(
+                "_lastEventSequence",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            return (ulong)field.GetValue(transaction);
+        }
+
         private static CoCoStateGraphHostRuntimeBindings GetBindings(CoCoStateGraphHost host)
         {
             FieldInfo field = typeof(CoCoStateGraphHost).GetField(
@@ -1865,6 +2251,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             public CoCoCodecDescriptor Descriptor { get; }
             public int MaxEncodedSize => 4;
+            public Action EncodeCallback { get; set; }
+            public int EncodeCount { get; private set; }
 
             public bool TryEncode(
                 in int value,
@@ -1882,6 +2270,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 destination[2] = (byte)(value >> 16);
                 destination[3] = (byte)(value >> 24);
                 bytesWritten = 4;
+                EncodeCount++;
+                EncodeCallback?.Invoke();
                 return true;
             }
 
@@ -1902,6 +2292,46 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         (source[2] << 16) |
                         (source[3] << 24);
                 bytesRead = 4;
+                return true;
+            }
+        }
+
+        private sealed class TemporalCodecRestoreBinding :
+            MonoBehaviour,
+            ICoCoContextRestoreBinding
+        {
+            public TemporalRestoreFixtureFailure Failure { get; set; }
+
+            public bool TryApply(
+                in CoCoContextRestoreBindingContext context,
+                out CoCoDiagnostic diagnostic)
+            {
+                if (!context.IsValid)
+                {
+                    diagnostic = CoCoDiagnostic.Error(
+                        CoCoDiagnosticDomain.Context,
+                        CoCoDiagnosticCode.InvalidRestoreMetadata,
+                        "Temporal Codec restore fixture received an invalid reader.");
+                    return false;
+                }
+
+                if (context.ApplyKind == CoCoContextRestoreApplyKind.Confirm)
+                {
+                    switch (Failure)
+                    {
+                        case TemporalRestoreFixtureFailure.Reject:
+                            diagnostic = CoCoDiagnostic.Error(
+                                CoCoDiagnosticDomain.Context,
+                                CoCoDiagnosticCode.InvalidRestoreMetadata,
+                                "Temporal Codec restore fixture rejected Confirm.");
+                            return false;
+                        case TemporalRestoreFixtureFailure.Throw:
+                            throw new InvalidOperationException(
+                                "Temporal Codec restore fixture threw during Confirm.");
+                    }
+                }
+
+                diagnostic = CoCoDiagnostic.None;
                 return true;
             }
         }

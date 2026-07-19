@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.5",
+  "version": "0.4.0-pre.6",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with per-Actor Operator execution, atomic Context commits, and committed event outbox publication.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with per-Actor temporal preview, atomic restore, Operator execution, and committed event publication.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",
@@ -24,6 +24,8 @@
     "actor-host",
     "operator-runtime",
     "atomic-context-commit",
+    "temporal-rewind",
+    "context-restore",
     "event-outbox",
     "core-contracts",
     "deterministic-tick",
