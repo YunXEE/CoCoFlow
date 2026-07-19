@@ -22,6 +22,7 @@ namespace CoCoFlow.Runtime.Core
         private ulong _nextReadToken;
         private ulong _activeReadToken;
         private int _previewDepth;
+        private bool _hasAppliedPreviewProjection;
         private bool _readsRestoreCandidate;
         private bool _isDisposed;
 
@@ -179,9 +180,12 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
-                MonoBehaviour activeBindingComponent = capacity > 0
-                    ? bindingComponent
-                    : null;
+                MonoBehaviour activeBindingComponent =
+                    bindingComponent != null &&
+                    bindingComponent is ICoCoContextRestoreBinding &&
+                    IsInsideHostBoundary(host, bindingComponent)
+                        ? bindingComponent
+                        : null;
                 controller = new CoCoStateGraphTemporalController(
                     host,
                     layout,
@@ -266,7 +270,6 @@ namespace CoCoFlow.Runtime.Core
 
             if (!TryRequireLiveBinding(out diagnostic))
             {
-                _host.LatchWorldCorrectionFault(diagnostic);
                 return false;
             }
 
@@ -278,6 +281,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
             _previewInfo = ToPublicInfo(_transaction.CurrentContext);
             _mode = CoCoTemporalMode.Previewing;
             diagnostic = CoCoDiagnostic.None;
@@ -306,11 +310,16 @@ namespace CoCoFlow.Runtime.Core
 
             if (!TryRequireLiveBinding(out diagnostic))
             {
-                _host.LatchWorldCorrectionFault(diagnostic);
+                if (_hasAppliedPreviewProjection)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
                 return false;
             }
 
             bool applied;
+            bool worldMayBeDirty;
             CoCoTemporalFrameInfo previewInfo;
             if (historyDepth == 0)
             {
@@ -321,6 +330,7 @@ namespace CoCoFlow.Runtime.Core
                     previewInfo,
                     previewInfo.TickFrame,
                     authority,
+                    out worldMayBeDirty,
                     out diagnostic);
             }
             else
@@ -353,16 +363,22 @@ namespace CoCoFlow.Runtime.Core
                     previewInfo,
                     previewInfo.TickFrame,
                     selection.RestoreView,
+                    out worldMayBeDirty,
                     out diagnostic);
             }
 
             if (!applied)
             {
-                _host.LatchWorldCorrectionFault(diagnostic);
+                if (_hasAppliedPreviewProjection || worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
                 return false;
             }
 
             _previewDepth = historyDepth;
+            _hasAppliedPreviewProjection = true;
             _previewInfo = previewInfo;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -446,6 +462,7 @@ namespace CoCoFlow.Runtime.Core
                     sourceInfo,
                     resumedTickFrame,
                     restoreSource,
+                    out _,
                     out diagnostic))
             {
                 preparedRestore.Cancel();
@@ -472,6 +489,7 @@ namespace CoCoFlow.Runtime.Core
             _inbox?.ResumeAfterTimelineResetNoFail(resumedTickFrame.TimelineEpoch);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
             _previewInfo = ToPublicInfo(_transaction.CurrentContext);
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -486,7 +504,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (!TryRequireLiveBinding(out diagnostic))
+            if (_hasAppliedPreviewProjection &&
+                !TryRequireLiveBinding(out diagnostic))
             {
                 _host.LatchWorldCorrectionFault(diagnostic);
                 return false;
@@ -499,22 +518,27 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            CoCoContextFrameReadView authority = _transaction.PreviousContext;
             CoCoTemporalFrameInfo current = ToPublicInfo(_transaction.CurrentContext);
-            if (!TryApplyAuthority(
-                    CoCoContextRestoreApplyKind.Cancel,
-                    current,
-                    current.TickFrame,
-                    authority,
-                    out diagnostic))
+            if (_hasAppliedPreviewProjection)
             {
-                _host.LatchWorldCorrectionFault(diagnostic);
-                return false;
+                CoCoContextFrameReadView authority = _transaction.PreviousContext;
+                if (!TryApplyAuthority(
+                        CoCoContextRestoreApplyKind.Cancel,
+                        current,
+                        current.TickFrame,
+                        authority,
+                        out _,
+                        out diagnostic))
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                    return false;
+                }
             }
 
             _inbox?.CancelRewindOrRestoreNoFail();
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
             _previewInfo = current;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -566,6 +590,7 @@ namespace CoCoFlow.Runtime.Core
                     current,
                     current.TickFrame,
                     authority,
+                    out _,
                     out diagnostic))
             {
                 recovery.Cancel();
@@ -595,6 +620,7 @@ namespace CoCoFlow.Runtime.Core
                 ? CoCoTemporalMode.Disabled
                 : CoCoTemporalMode.Ready;
             _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
             _previewInfo = current;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -612,6 +638,7 @@ namespace CoCoFlow.Runtime.Core
             _history?.Dispose();
             _previewInfo = default;
             _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
             _mode = CoCoTemporalMode.Disabled;
         }
 
@@ -658,8 +685,10 @@ namespace CoCoFlow.Runtime.Core
             in CoCoTemporalFrameInfo source,
             in CoCoTickFrame targetTickFrame,
             in CoCoContextFrameReadView authority,
+            out bool worldMayBeDirty,
             out CoCoDiagnostic diagnostic)
         {
+            worldMayBeDirty = false;
             if (!authority.IsValid)
             {
                 diagnostic = HistoryError(
@@ -670,7 +699,12 @@ namespace CoCoFlow.Runtime.Core
 
             _activeAuthorityView = authority;
             _readsRestoreCandidate = false;
-            return TryInvokeBinding(applyKind, source, targetTickFrame, out diagnostic);
+            return TryInvokeBinding(
+                applyKind,
+                source,
+                targetTickFrame,
+                out worldMayBeDirty,
+                out diagnostic);
         }
 
         private bool TryApplyRestore(
@@ -678,8 +712,10 @@ namespace CoCoFlow.Runtime.Core
             in CoCoTemporalFrameInfo source,
             in CoCoTickFrame targetTickFrame,
             in CoCoContextRestoreReadView restore,
+            out bool worldMayBeDirty,
             out CoCoDiagnostic diagnostic)
         {
+            worldMayBeDirty = false;
             if (!restore.IsValid)
             {
                 diagnostic = HistoryError(
@@ -690,15 +726,22 @@ namespace CoCoFlow.Runtime.Core
 
             _activeRestoreView = restore;
             _readsRestoreCandidate = true;
-            return TryInvokeBinding(applyKind, source, targetTickFrame, out diagnostic);
+            return TryInvokeBinding(
+                applyKind,
+                source,
+                targetTickFrame,
+                out worldMayBeDirty,
+                out diagnostic);
         }
 
         private bool TryInvokeBinding(
             CoCoContextRestoreApplyKind applyKind,
             in CoCoTemporalFrameInfo source,
             in CoCoTickFrame targetTickFrame,
+            out bool worldMayBeDirty,
             out CoCoDiagnostic diagnostic)
         {
+            worldMayBeDirty = false;
             if (!TryRequireLiveBinding(out diagnostic) ||
                 _nextReadToken == ulong.MaxValue)
             {
@@ -728,6 +771,7 @@ namespace CoCoFlow.Runtime.Core
                 targetTickFrame,
                 new CoCoContextRestoreReader(_readLease, token));
             bool applied;
+            worldMayBeDirty = true;
             try
             {
                 applied = _binding.TryApply(context, out diagnostic);

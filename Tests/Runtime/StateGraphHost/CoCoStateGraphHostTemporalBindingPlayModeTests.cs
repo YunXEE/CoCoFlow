@@ -104,6 +104,78 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void DisabledHistoryIgnoresDestroyedRestoreBindingAndDoesNotRetainIt()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            TemporalActorRestoreBinding restoreOnly = CreateRestoreOnlyBinding(scenario);
+            Object.DestroyImmediate(restoreOnly);
+
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            AssertDisabledControllerDoesNotRetainBinding(scenario.Host);
+        }
+
+        [Test]
+        public void DisabledHistoryRetainsValidRestoreBindingForWorldCorrection()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            AssertDisabledControllerRetainsBinding(scenario.Host, scenario.Binding);
+            Assert.That(scenario.Binding.ApplyCount, Is.Zero);
+            StepWithActorValue(scenario, 10);
+            Assert.That(scenario.Binding.ApplyCount, Is.Zero);
+
+            CoCoContextFrame authority = scenario.Host.CurrentContext;
+            scenario.Binding.Value = 20;
+            scenario.Binding.FailCaptureAfterWorldMutation = true;
+
+            Assert.That(
+                scenario.Host.TryStep(0.1d, out CoCoDiagnostic failure),
+                Is.False);
+            Assert.That(
+                failure.Code,
+                Is.EqualTo(CoCoDiagnosticCode.ContextCaptureFailed));
+            Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    authority,
+                    scenario.Ids.ActorStateSlotId),
+                Is.EqualTo(10));
+            Assert.That(
+                scenario.Binding.transform.localPosition,
+                Is.EqualTo(new Vector3(20f, 2f, 3f)));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
+            Assert.That(scenario.Binding.ApplyCount, Is.Zero);
+
+            scenario.Binding.FailCaptureAfterWorldMutation = false;
+            Require(
+                scenario.Host.TryCorrectWorld(out CoCoDiagnostic correction),
+                correction);
+
+            Assert.That(scenario.Binding.CorrectionCount, Is.EqualTo(1));
+            Assert.That(scenario.Binding.ApplyCount, Is.EqualTo(1));
+            Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(10));
+            Assert.That(
+                scenario.Binding.transform.localPosition,
+                Is.EqualTo(new Vector3(10f, 0f, 0f)));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
+
+            StepWithActorValue(scenario, 30);
+            Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
+        }
+
+        [Test]
         public void EnabledHistoryRejectsWrongTypeRestoreBinding()
         {
             TemporalHostTestScenario scenario = Track(
@@ -132,6 +204,236 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 scenario.Host.Lifecycle,
                 Is.EqualTo(CoCoRuntimeLifecycleState.Created));
             Assert.That(scenario.Host.CurrentContext.IsAlive, Is.False);
+        }
+
+        [Test]
+        public void DestroyedBindingBeforeBeginRejectsWithoutFault()
+        {
+            AssertBeginWithoutLiveRestoreBindingDoesNotFault(destroyBinding: true);
+        }
+
+        [Test]
+        public void BindingMovedOutsideHostBeforeBeginRejectsWithoutFault()
+        {
+            AssertBeginWithoutLiveRestoreBindingDoesNotFault(destroyBinding: false);
+        }
+
+        [Test]
+        public void PreviewPreflightFailureBeforeProjectionCanCancelWithoutBinding()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 4,
+                    withEvent: true));
+            TemporalActorRestoreBinding restoreOnly = CreateRestoreOnlyBinding(scenario);
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            restoreOnly.transform.SetParent(null);
+
+            Assert.That(
+                scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
+                Is.False);
+            Assert.That(preview.IsError, Is.True);
+            Assert.That(restoreOnly.ApplyCount, Is.Zero);
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Previewing));
+            Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
+
+            Require(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
+                cancel);
+            Assert.That(restoreOnly.ApplyCount, Is.Zero);
+            Assert.That(restoreOnly.CancelCount, Is.Zero);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
+            Assert.That(
+                TemporalHostTestHarness.GetBindings(scenario.Host).Inbox.State,
+                Is.EqualTo(CoCoActorEventInboxState.Running));
+
+            StepWithActorValue(scenario, 30);
+        }
+
+        [Test]
+        public void CancelBeforeAnyPreviewProjectionDoesNotInvokeBinding()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 4));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+
+            Require(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
+                cancel);
+
+            Assert.That(scenario.Binding.ApplyCount, Is.Zero);
+            Assert.That(scenario.Binding.CancelCount, Is.Zero);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
+        }
+
+        [Test]
+        public void PreviewDepthZeroStillRequiresCancelProjection()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 4));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            Require(
+                scenario.Host.TryPreviewTemporal(0, out CoCoDiagnostic preview),
+                preview);
+
+            Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
+            Assert.That(scenario.Binding.PreviewCount, Is.EqualTo(1));
+            Assert.That(scenario.Binding.CancelCount, Is.Zero);
+
+            Require(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
+                cancel);
+
+            Assert.That(scenario.Binding.ApplyCount, Is.EqualTo(2));
+            Assert.That(scenario.Binding.CancelCount, Is.EqualTo(1));
+            Assert.That(
+                scenario.Binding.LastApplyKind,
+                Is.EqualTo(CoCoContextRestoreApplyKind.Cancel));
+        }
+
+        [Test]
+        public void BindingLossAfterPreviewProjectionRequiresCorrection()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 4));
+            TemporalActorRestoreBinding restoreOnly = CreateRestoreOnlyBinding(scenario);
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            Require(
+                scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic firstPreview),
+                firstPreview);
+            restoreOnly.transform.SetParent(null);
+
+            Assert.That(
+                scenario.Host.TryPreviewTemporal(0, out CoCoDiagnostic rejected),
+                Is.False);
+            Assert.That(rejected.IsError, Is.True);
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+            Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.EqualTo(1));
+
+            restoreOnly.transform.SetParent(scenario.GameObject.transform);
+            Require(
+                scenario.Host.TryCorrectWorld(out CoCoDiagnostic correction),
+                correction);
+
+            Assert.That(restoreOnly.CorrectionCount, Is.EqualTo(1));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
+        }
+
+        [Test]
+        public void CancelAfterHistoricalPreviewWithUnavailableBindingRequiresCorrection()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 4));
+            TemporalActorRestoreBinding restoreOnly = CreateRestoreOnlyBinding(scenario);
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            Require(
+                scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
+                preview);
+            restoreOnly.transform.SetParent(null);
+
+            Assert.That(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic rejected),
+                Is.False);
+            Assert.That(rejected.IsError, Is.True);
+            Assert.That(restoreOnly.CancelCount, Is.Zero);
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Previewing));
+            Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.EqualTo(1));
+
+            restoreOnly.transform.SetParent(scenario.GameObject.transform);
+            Require(
+                scenario.Host.TryCorrectWorld(out CoCoDiagnostic correction),
+                correction);
+
+            Assert.That(restoreOnly.CorrectionCount, Is.EqualTo(1));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
+        }
+
+        [TestCase(TemporalRestoreFixtureFailure.Reject)]
+        [TestCase(TemporalRestoreFixtureFailure.Throw)]
+        public void FirstPreviewCallbackFailureRequiresCorrection(
+            TemporalRestoreFixtureFailure failureMode)
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 4));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            CoCoContextFrame authority = scenario.Host.CurrentContext;
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            scenario.Binding.Failure = failureMode;
+            scenario.Binding.MutateBeforeFailure = true;
+
+            Assert.That(
+                scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic failure),
+                Is.False);
+
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(scenario.Binding.PreviewCount, Is.EqualTo(1));
+            Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
+            Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+
+            scenario.Binding.Failure = TemporalRestoreFixtureFailure.None;
+            scenario.Binding.MutateBeforeFailure = false;
+            Require(
+                scenario.Host.TryCorrectWorld(out CoCoDiagnostic correction),
+                correction);
+            Assert.That(scenario.Binding.CorrectionCount, Is.EqualTo(1));
+            Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(20));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
         }
 
         [TestCase(TemporalRestoreFixtureFailure.Reject)]
@@ -397,6 +699,56 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return binding;
         }
 
+        private TemporalActorRestoreBinding CreateRestoreOnlyBinding(
+            TemporalHostTestScenario scenario)
+        {
+            var restoreObject = new GameObject("Pre6 Temporal Restore Only Binding");
+            _objects.Add(restoreObject);
+            restoreObject.transform.SetParent(scenario.GameObject.transform);
+            var binding = restoreObject.AddComponent<TemporalActorRestoreBinding>();
+            binding.Configure(scenario.Ids.ActorStateSlotId);
+            TemporalHostTestHarness.SetRestoreBinding(scenario.Host, binding);
+            return binding;
+        }
+
+        private void AssertBeginWithoutLiveRestoreBindingDoesNotFault(
+            bool destroyBinding)
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 4,
+                    withEvent: true));
+            TemporalActorRestoreBinding restoreOnly = CreateRestoreOnlyBinding(scenario);
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            CoCoContextFrame authority = scenario.Host.CurrentContext;
+            CoCoActorEventInboxCore inbox =
+                TemporalHostTestHarness.GetBindings(scenario.Host).Inbox;
+            if (destroyBinding)
+            {
+                Object.DestroyImmediate(restoreOnly);
+            }
+            else
+            {
+                restoreOnly.transform.SetParent(null);
+            }
+
+            Assert.That(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic rejected),
+                Is.False);
+            Assert.That(rejected.IsError, Is.True);
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
+            Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Ready));
+            Assert.That(inbox.State, Is.EqualTo(CoCoActorEventInboxState.Running));
+
+            StepWithActorValue(scenario, 30);
+        }
+
         private static void AssertDisabledControllerDoesNotRetainBinding(
             CoCoStateGraphHost host)
         {
@@ -420,6 +772,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(bindingField, Is.Not.Null);
             Assert.That(componentField.GetValue(controller), Is.Null);
             Assert.That(bindingField.GetValue(controller), Is.Null);
+        }
+
+        private static void AssertDisabledControllerRetainsBinding(
+            CoCoStateGraphHost host,
+            TemporalActorRestoreBinding expected)
+        {
+            Assert.That(
+                host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Disabled));
+            FieldInfo temporalField = typeof(CoCoStateGraphHost).GetField(
+                "_temporal",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(temporalField, Is.Not.Null);
+            object controller = temporalField.GetValue(host);
+            Assert.That(controller, Is.Not.Null);
+
+            FieldInfo componentField = controller.GetType().GetField(
+                "_bindingComponent",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo bindingField = controller.GetType().GetField(
+                "_binding",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(componentField, Is.Not.Null);
+            Assert.That(bindingField, Is.Not.Null);
+            Assert.That(componentField.GetValue(controller), Is.SameAs(expected));
+            Assert.That(bindingField.GetValue(controller), Is.SameAs(expected));
         }
 
         private static void StepWithActorValue(

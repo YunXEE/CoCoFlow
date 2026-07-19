@@ -135,6 +135,11 @@ The same aggregate binding handles `Preview`, `Confirm`, `Cancel`, and
 synchronously. A component may implement both the Actor-capture and restore
 contracts, but the Host fields remain explicit.
 
+Capacity zero disables the Temporal Ring and does not require a binding. An
+invalid, destroyed, or out-of-boundary component is ignored in that mode; one
+valid in-boundary binding may still be retained solely so `TryCorrectWorld` can
+repair Unity after a non-Temporal Tick failure that may have dirtied the world.
+
 The callback receives a read-only, token-scoped `CoCoContextRestoreReader`.
 It can read the fully materialized policy-effective candidate, including Layout
 defaults and rebuilt Derived values. The reader expires when the callback
@@ -156,15 +161,23 @@ Derived values, and invokes the binding with `Preview`. The logical Context,
 Graph, Clock, Claims, Revision, Epoch, Sequence, Trace, and Outbox remain
 unchanged. The cursor advances only after the binding succeeds.
 
+A missing or moved binding detected before Begin changes Inbox state rejects the
+request without faulting the Host. The same preflight failure before the first
+Preview callback leaves the session clean and can still be cancelled without the
+binding. If an earlier Preview projection succeeded, losing the binding requires
+world Correction because Unity may still present that selection.
+
 Preview does not run State Enter/Exit, State Update, Condition, Transition,
 Operator, Actor capture, Event, or Trace callbacks. It never feeds a negative
 Delta into StateGraph.
 
 ## Cancel
 
-Cancel invokes the same binding with `Cancel` and the complete current logical
-authority. On success it clears the preview cursor and returns Temporal Mode to
-`Ready`.
+If at least one Preview projection succeeded, Cancel invokes the same binding
+with `Cancel` and the complete current logical authority. A session cancelled
+directly after Begin, before any Preview projection, skips the binding. Both paths
+clear the preview cursor and return Temporal Mode to `Ready` only after the Inbox
+can leave rewind mode.
 
 Cancel performs no formal Restore, creates no Revision, and keeps the existing
 TimelineEpoch. The Inbox backlog cleared by Begin remains cleared; Cancel never
@@ -219,8 +232,12 @@ The framework does not secretly defer rewind-time input until after Restore.
 ## Failure and world Correction
 
 Validation failures before a binding callback leave Unity and logical authority
-unchanged. A binding refusal, exception, destroyed component, re-entry, or
-possible partial Unity mutation is treated more conservatively:
+unchanged. They do not fault a clean session. If a previous Preview projection is
+still active, a binding preflight failure instead requires Correction because
+Unity may still differ from authority.
+
+Once a binding callback starts, a refusal, exception, destroyed component,
+re-entry, or possible partial Unity mutation is treated more conservatively:
 
 - the preview cursor does not advance;
 - the old Context/Graph/Clock/Claim authority remains current;

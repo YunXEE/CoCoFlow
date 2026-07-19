@@ -301,6 +301,11 @@ sixth lifecycle state:
 - `Previewing`: normal Tick and gameplay ingress are blocked while the
   non-authoritative cursor selects history.
 
+Capacity zero does not require a Restore binding and invalid assignments are
+ignored. One valid in-boundary binding may still be retained while Temporal Mode
+is `Disabled`, solely for `TryCorrectWorld` after a dirty non-Temporal Tick
+failure.
+
 Capacity is fixed before Running and counts entries, including the current
 authority. The first successful Context commit makes Count 1. A full Ring
 overwrites the oldest entry, and Stop/Dispose/destruction releases the Ring,
@@ -325,21 +330,24 @@ and invokes the single Restore binding with `Preview`. The cursor changes only
 after that call succeeds. Preview never invokes State Enter/Exit, Update,
 Condition, Transition, Operator, Actor capture, Event, Trace, or sequence work.
 
-Cancel invokes the same binding with `Cancel` to reapply current authority. It
-does not perform a logical restore or switch Epoch. Confirm validates and
-prepares the complete Context, Graph Path/Memory, Clock, and Claim candidate,
-then invokes the binding once with `Confirm`. After that succeeds, a no-fail
-barrier swaps all logical authority, discards the abandoned future, and records
-the new-Epoch restore commit as the new history branch head. The next accepted
-positive-delta Tick resumes normal StateGraph execution.
+Cancel invokes the same binding with `Cancel` to reapply current authority only
+after at least one Preview projection succeeded. Cancelling directly after Begin
+skips the binding. Neither path performs a logical restore or switches Epoch.
+Confirm validates and prepares the complete Context, Graph Path/Memory, Clock,
+and Claim candidate, then invokes the binding once with `Confirm`. After that
+succeeds, a no-fail barrier swaps all logical authority, discards the abandoned
+future, and records the new-Epoch restore commit as the new history branch head.
+The next accepted positive-delta Tick resumes normal StateGraph execution.
 
 The callback receives only a token-scoped `CoCoContextRestoreReader`; retaining
-it beyond the synchronous call yields an invalid reader. A binding refusal,
-exception, destroyed component, re-entry, or possible partial Unity mutation
-does not move the cursor or logical authority. The Host latches Fault and
-`RequiresWorldCorrection`. `TryCorrectWorld` invokes the same binding with
-`Correction` against the last logical authority and clears only the matching
-recoverable fault after successful projection.
+it beyond the synchronous call yields an invalid reader. A preflight failure
+before any callback leaves a clean session healthy; if a previous Preview
+projection remains active, the same failure requires Correction. Once a binding
+callback starts, a refusal, exception, destroyed component, re-entry, or possible
+partial Unity mutation does not move the cursor or logical authority. The Host
+latches Fault and `RequiresWorldCorrection`. `TryCorrectWorld` invokes the same
+binding with `Correction` against the last logical authority and clears only the
+matching recoverable fault after successful projection.
 
 ## Actor event boundary
 

@@ -282,24 +282,30 @@ Each successful Context commit captures its finalized candidate before the
 authority swap. Capture failure cancels the whole Tick and keeps the old
 authority; publishing the prepared history entry after the composite barrier is
 no-fail. Capacity counts committed entries including the current authority,
-capacity zero disables history, and a full ring overwrites the oldest entry.
+capacity zero disables history, and a full ring overwrites the oldest entry. A
+disabled Host ignores an invalid Restore Binding, but may retain one valid
+in-boundary Binding solely for explicit world Correction after a dirty Tick
+failure.
 
 Temporal Preview is orthogonal to the Runtime lifecycle. It moves only a
 non-authoritative history cursor and calls one explicit synchronous
 `ICoCoContextRestoreBinding`; it never applies negative Delta or invokes State,
 Condition, Transition, Operator, Event, or Trace work. Cancel reapplies the
-unchanged current authority. Confirm invokes the same binding once, then swaps
-Context, Graph, Clock, and Claim together, discards the abandoned future, and
-records a new branch head in a TimelineEpoch newer than both the source and the
-current Epoch. The next accepted Tick is positive and forward-moving.
+unchanged current authority only after a Preview projection; a session cancelled
+directly after Begin closes without invoking the Binding. Confirm invokes the
+same binding once, then swaps Context, Graph, Clock, and Claim together, discards
+the abandoned future, and records a new branch head in a TimelineEpoch newer than
+both the source and the current Epoch. The next accepted Tick is positive and
+forward-moving.
 
-If a binding rejects, throws, is destroyed, or may have partially changed Unity,
-the old logical authority remains current and the Host latches Fault with
-`RequiresWorldCorrection`. `TryCorrectWorld` uses that same binding to project
-the last authority before narrowly clearing the recoverable fault. See
-[Temporal Rewind](Docs/TemporalRewind.md) for the complete Host API and failure
-semantics. Pre13 owns durable save documents, migration, world facts, and
-spawned-entity reconstruction.
+A failed validation before any Binding callback leaves the Host healthy when no
+earlier Preview projection is active. Once a callback starts, a rejection,
+exception, destroyed component, or possible partial Unity mutation keeps the old
+logical authority current and latches Fault with `RequiresWorldCorrection`.
+`TryCorrectWorld` uses that same binding to project the last authority before
+narrowly clearing the recoverable fault. See [Temporal Rewind](Docs/TemporalRewind.md)
+for the complete Host API and failure semantics. Pre13 owns durable save
+documents, migration, world facts, and spawned-entity reconstruction.
 
 ## Actor Mailbox Rules
 

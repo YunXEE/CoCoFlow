@@ -36,6 +36,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public CoCoTickFrame LastTargetTickFrame { get; private set; }
         public CoCoContextRestoreReader EscapedReader { get; private set; }
         public TemporalRestoreFixtureFailure Failure { get; set; }
+        public bool FailCaptureAfterWorldMutation { get; set; }
         public bool MutateBeforeFailure { get; set; }
         public Action<CoCoContextRestoreApplyKind> ApplyCallback { get; set; }
 
@@ -62,6 +63,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             out CoCoDiagnostic diagnostic)
         {
             CaptureCount++;
+            if (FailCaptureAfterWorldMutation)
+            {
+                transform.localPosition = new Vector3(Value, 2f, 3f);
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Context,
+                    CoCoDiagnosticCode.ContextCaptureFailed,
+                    "Temporal Actor fixture failed after mutating the Unity world.");
+                return false;
+            }
+
             if (!context.Writer.TryWrite(_slotId, Value))
             {
                 diagnostic = CoCoDiagnostic.Error(
