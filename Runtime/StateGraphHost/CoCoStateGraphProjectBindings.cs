@@ -138,18 +138,25 @@ namespace CoCoFlow.Runtime.Core
 
                 CoCoStateGraphTransaction transaction = null;
                 if (host != null &&
-                    !CoCoStateGraphTransaction.TryCreate(
-                        host,
-                        graph,
-                        graphInstanceId,
-                        bindings.ContextLayout,
-                        bindings.Operations,
-                        bindings.ContextProducers,
-                        contextFrameCapacity,
-                        eventOutboxCapacity,
-                        traceCapacity,
-                        out transaction,
-                        out diagnostic))
+                    (!CoCoStateGraphTemporalController.TryValidateConfiguration(
+                         host,
+                         bindings.ContextLayout,
+                         bindings.ContextCodecs,
+                         host.ContextRestoreBinding,
+                         host.TemporalHistoryCapacity,
+                         out diagnostic) ||
+                     !CoCoStateGraphTransaction.TryCreate(
+                         host,
+                         graph,
+                         graphInstanceId,
+                         bindings.ContextLayout,
+                         bindings.Operations,
+                         bindings.ContextProducers,
+                         contextFrameCapacity,
+                         eventOutboxCapacity,
+                         traceCapacity,
+                         out transaction,
+                         out diagnostic)))
                 {
                     bindings.Dispose();
                     return false;

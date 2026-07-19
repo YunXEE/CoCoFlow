@@ -341,6 +341,7 @@ namespace CoCoFlow.Runtime.Core
         internal bool TryFinalizeAndCommit(
             CoCoStateGraphRuntime runtime,
             CoCoStateGraphHostRuntimeBindings bindings,
+            CoCoStateGraphTemporalController temporal,
             in CoCoStagedGraphStep stagedStep,
             ICoCoStateGraphCommitGuard commitGuard,
             out bool authorityCommitted,
@@ -352,6 +353,7 @@ namespace CoCoFlow.Runtime.Core
             if (_isDisposed ||
                 runtime == null ||
                 bindings == null ||
+                temporal == null ||
                 _activeToken == 0UL ||
                 !_preparedContext.IsValid ||
                 !stagedStep.IsValid ||
@@ -525,6 +527,25 @@ namespace CoCoFlow.Runtime.Core
                 ? _lastEventSequence
                 : lastEventSequence.Value;
 
+            if (!temporal.TryPrepareCapture(
+                    finalizedContext,
+                    out diagnostic))
+            {
+                finalizedContext.Cancel();
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
+            if (commitGuard != null && commitGuard.IsCommitCancellationRequested)
+            {
+                temporal.CancelPreparedCapture();
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled the transaction after Temporal projection capture.");
+                finalizedContext.Cancel();
+                CancelCandidate(diagnostic);
+                return false;
+            }
+
             // D11 authority barrier. Every participant was validated above. These calls
             // contain no project callbacks, allocations, capacity checks, or failure branches.
             CoCoContextFrame committedContext = finalizedContext.CommitNoFailUnchecked();
@@ -532,6 +553,7 @@ namespace CoCoFlow.Runtime.Core
             _operators.CommitClaimsNoFail();
             _lastEventSequence = committedEventSequenceValue;
             bindings.ResolveIntentTickNoFail();
+            temporal.PublishCaptureNoFail();
             authorityCommitted = true;
             _trace?.Append(CoCoStateFlowTraceEntry.Commit(
                 _graphInstanceId,
@@ -725,6 +747,149 @@ namespace CoCoFlow.Runtime.Core
                 graphRestore.Cancel();
                 finalizedContext.Cancel();
                 status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            _preparedRestoreContext = finalizedContext;
+            _preparedGraphRestore = graphRestore;
+            _activeRestoreToken = token;
+            preparedRestore = new CoCoPreparedActorRestore(this, token);
+            status = CoCoContextCommitStatus.None;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryPrepareTemporalRestore(
+            CoCoStateGraphRuntime runtime,
+            CoCoTemporalHistory history,
+            in CoCoTemporalSelection selection,
+            in CoCoTickFrame resumedTickFrame,
+            out CoCoPreparedActorRestore preparedRestore,
+            out CoCoContextRestoreReadView restoreSource,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnostic diagnostic)
+        {
+            preparedRestore = default;
+            restoreSource = default;
+            diagnostic = CoCoDiagnostic.None;
+            if (_isDisposed ||
+                runtime == null ||
+                history == null ||
+                _activeToken != 0UL ||
+                _activeRestoreToken != 0UL ||
+                !selection.IsValid ||
+                !resumedTickFrame.IsValid)
+            {
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                diagnostic = RestoreError(
+                    "Temporal restore requires one live idle transaction and one current history selection.");
+                return false;
+            }
+
+            if (_nextRestoreToken == ulong.MaxValue)
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError("Actor restore transaction tokens are exhausted.");
+                return false;
+            }
+
+            CoCoFinalizedContextCommit finalizedContext;
+            try
+            {
+                if (!history.TryPrepareRestore(
+                        selection,
+                        _contextArena,
+                        resumedTickFrame,
+                        out finalizedContext,
+                        out status,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    diagnostic = RestoreError(
+                        diagnosticCode,
+                        status == CoCoContextCommitStatus.DerivedRebuildFailed
+                            ? "Derived Context rebuild rejected the Temporal restore candidate."
+                            : "Temporal history could not materialize a complete restore candidate.");
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                status = CoCoContextCommitStatus.DerivedRebuildFailed;
+                diagnostic = RestoreError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal history materialization threw during restore preparation.");
+                return false;
+            }
+
+            if (!finalizedContext.TryCreateRestoreReadView(out restoreSource) ||
+                !restoreSource.IsValid)
+            {
+                finalizedContext.Cancel();
+                restoreSource = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError(
+                    "Temporal restore candidate did not expose one valid policy-effective read view.");
+                return false;
+            }
+
+            if (!runtime.TryPrepareRestore(
+                    _contextRuntime,
+                    restoreSource,
+                    resumedTickFrame,
+                    out CoCoPreparedGraphRestore graphRestore,
+                    out diagnostic))
+            {
+                finalizedContext.Cancel();
+                restoreSource = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            ulong token = ++_nextRestoreToken;
+            if (!_operators.TryPrepareRestore(
+                    restoreSource,
+                    _contextRuntime,
+                    token,
+                    false,
+                    out diagnostic))
+            {
+                graphRestore.Cancel();
+                finalizedContext.Cancel();
+                restoreSource = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            try
+            {
+                if (!history.TryPrepareBranchCapture(
+                        finalizedContext,
+                        selection,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    history.CancelPreparedCapture();
+                    _operators.CancelPreparedRestore();
+                    graphRestore.Cancel();
+                    finalizedContext.Cancel();
+                    restoreSource = default;
+                    status = CoCoContextCommitStatus.RestoreFailed;
+                    diagnostic = RestoreError(
+                        diagnosticCode,
+                        "Temporal history could not preflight the restored branch head.");
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                history.CancelPreparedCapture();
+                _operators.CancelPreparedRestore();
+                graphRestore.Cancel();
+                finalizedContext.Cancel();
+                restoreSource = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal branch capture threw before the restore authority barrier.");
                 return false;
             }
 
@@ -1062,6 +1227,16 @@ namespace CoCoFlow.Runtime.Core
             CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Restore,
                 CoCoDiagnosticCode.InvalidGraphRestore,
+                message);
+
+        private static CoCoDiagnostic RestoreError(
+            CoCoDiagnosticCode code,
+            string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                code == CoCoDiagnosticCode.None
+                    ? CoCoDiagnosticCode.InvalidGraphRestore
+                    : code,
                 message);
 
         private readonly struct OutboxLedgerEntry

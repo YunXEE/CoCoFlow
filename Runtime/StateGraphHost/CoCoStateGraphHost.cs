@@ -20,6 +20,8 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField, Min(0.0001f)] private float timeScale = 1f;
         [SerializeField] private MonoBehaviour[] operators = Array.Empty<MonoBehaviour>();
         [SerializeField] private MonoBehaviour actorContextBinding;
+        [SerializeField] private MonoBehaviour contextRestoreBinding;
+        [SerializeField, Min(0)] private int temporalHistoryCapacity;
         [SerializeField, Min(2)] private int contextFrameCapacity = 3;
         [SerializeField, Min(0)] private int eventOutboxCapacity = 32;
         [SerializeField, Min(0)] private int traceCapacity;
@@ -30,6 +32,7 @@ namespace CoCoFlow.Runtime.Core
         private CoCoStateGraphHostRuntimeBindings _bindings;
         private CoCoStateGraphRuntime _runtime;
         private CoCoStateGraphTransaction _transaction;
+        private CoCoStateGraphTemporalController _temporal;
         private bool _hasStoppedInstance;
         private bool _isDisposed;
         private CoCoDiagnostic _lastDiagnostic;
@@ -38,6 +41,7 @@ namespace CoCoFlow.Runtime.Core
         private bool _acceptsEventInput;
         private bool _isStarting;
         private bool _isAdvancing;
+        private bool _isTemporalOperation;
         private bool _isPublishingCommittedEvents;
         private bool _destroyRequested;
         private bool _stopAfterPublish;
@@ -51,12 +55,14 @@ namespace CoCoFlow.Runtime.Core
         internal float TimeScale => timeScale;
         internal IReadOnlyList<MonoBehaviour> Operators => operators ?? Array.Empty<MonoBehaviour>();
         internal MonoBehaviour ActorContextBinding => actorContextBinding;
+        internal MonoBehaviour ContextRestoreBinding => contextRestoreBinding;
         internal int ContextFrameCapacity => contextFrameCapacity;
         internal int EventOutboxCapacity => eventOutboxCapacity;
         internal int TraceCapacity => traceCapacity;
         internal int EventLaneCapacity => eventLaneCapacity;
         internal int EventSourceCapacity => eventSourceCapacity;
         internal int EventDedupCapacity => eventDedupCapacity;
+        public int TemporalHistoryCapacity => temporalHistoryCapacity;
         public CoCoRuntimeLifecycleState Lifecycle => _runtime?.Lifecycle ??
             (_isDisposed
                 ? CoCoRuntimeLifecycleState.Disposed
@@ -70,13 +76,24 @@ namespace CoCoFlow.Runtime.Core
         public ICoCoStateFlowTrace Trace => _transaction?.Trace;
         public bool RequiresWorldCorrection => _requiresWorldCorrection;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
+        public CoCoTemporalState TemporalState => _temporal?.State ??
+            new CoCoTemporalState(
+                CoCoTemporalMode.Disabled,
+                temporalHistoryCapacity < 0 ? 0 : temporalHistoryCapacity,
+                0,
+                0,
+                default,
+                default,
+                0UL,
+                false);
 
         internal bool CanAcceptEventInput =>
             _acceptsEventInput &&
             _runtime != null &&
             (_runtime.Lifecycle == CoCoRuntimeLifecycleState.Running ||
              _runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended) &&
-            !_runtime.IsFaulted &&
+            (!_runtime.IsFaulted ||
+             (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing)) &&
             !_reliableOverflowPending;
 
         private void Start()
@@ -106,7 +123,7 @@ namespace CoCoFlow.Runtime.Core
         private void OnDestroy()
         {
             _acceptsEventInput = false;
-            if (_isStarting || _isAdvancing)
+            if (_isStarting || _isAdvancing || _isTemporalOperation)
             {
                 _destroyRequested = true;
                 return;
@@ -178,6 +195,7 @@ namespace CoCoFlow.Runtime.Core
 
             if (!IsPositiveFinite(timeScale) ||
                 !Enum.IsDefined(typeof(CoCoStateGraphDriver), driver) ||
+                temporalHistoryCapacity < 0 ||
                 contextFrameCapacity < 2 ||
                 eventOutboxCapacity < 0 ||
                 traceCapacity < 0)
@@ -185,7 +203,7 @@ namespace CoCoFlow.Runtime.Core
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Time,
                     CoCoDiagnosticCode.NonPositiveDeltaTime,
-                    "Host Driver, TimeScale, Context, Outbox, and Trace capacities are invalid.");
+                    "Host Driver, TimeScale, Temporal, Context, Outbox, and Trace capacities are invalid.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -228,6 +246,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateGraphHostRuntimeBindings bindings = null;
             CoCoStateGraphRuntime runtime = null;
             CoCoStateGraphTransaction transaction = null;
+            CoCoStateGraphTemporalController temporal = null;
             try
             {
                 if (!provider.TryConfigure(builder, out diagnostic) || diagnostic.IsError)
@@ -273,6 +292,19 @@ namespace CoCoFlow.Runtime.Core
                     bindings.Dispose();
                     diagnostic = LifecycleError(
                         "Unity destruction cancelled StateGraph Host startup before Runtime creation.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!CoCoStateGraphTemporalController.TryValidateConfiguration(
+                        this,
+                        bindings.ContextLayout,
+                        bindings.ContextCodecs,
+                        contextRestoreBinding,
+                        temporalHistoryCapacity,
+                        out diagnostic))
+                {
+                    bindings.Dispose();
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
@@ -387,8 +419,27 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                if (!CoCoStateGraphTemporalController.TryCreate(
+                        this,
+                        bindings.ContextLayout,
+                        bindings.ContextCodecs,
+                        transaction,
+                        bindings.Inbox,
+                        contextRestoreBinding,
+                        temporalHistoryCapacity,
+                        out temporal,
+                        out diagnostic))
+                {
+                    transaction.Dispose();
+                    runtime.Dispose();
+                    bindings.Dispose();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
                 if (_destroyRequested)
                 {
+                    temporal.Dispose();
                     transaction.Dispose();
                     runtime.Dispose();
                     bindings.Dispose();
@@ -401,6 +452,7 @@ namespace CoCoFlow.Runtime.Core
                 _bindings = bindings;
                 _runtime = runtime;
                 _transaction = transaction;
+                _temporal = temporal;
                 _commitGuard = commitGuard;
 
                 _requiresWorldCorrection = false;
@@ -429,6 +481,11 @@ namespace CoCoFlow.Runtime.Core
                 if (runtime != null && !ReferenceEquals(_runtime, runtime))
                 {
                     runtime.Dispose();
+                }
+
+                if (temporal != null && !ReferenceEquals(_temporal, temporal))
+                {
+                    temporal.Dispose();
                 }
 
                 if (transaction != null && !ReferenceEquals(_transaction, transaction))
@@ -462,7 +519,9 @@ namespace CoCoFlow.Runtime.Core
             }
 
             diagnostic = CoCoDiagnostic.None;
-            if (_runtime == null || _runtime.IsFaulted)
+            if (_runtime == null ||
+                _runtime.IsFaulted ||
+                (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing))
             {
                 diagnostic = LifecycleError("Only a healthy Running Host can suspend.");
                 _lastDiagnostic = diagnostic;
@@ -653,6 +712,23 @@ namespace CoCoFlow.Runtime.Core
             return TryAdvance(deltaTime, out diagnostic);
         }
 
+        public bool TryBeginTemporalPreview(out CoCoDiagnostic diagnostic) =>
+            TryRunTemporalOperation(TemporalOperation.Begin, 0, out diagnostic);
+
+        public bool TryPreviewTemporal(
+            int historyDepth,
+            out CoCoDiagnostic diagnostic) =>
+            TryRunTemporalOperation(TemporalOperation.Preview, historyDepth, out diagnostic);
+
+        public bool TryConfirmTemporalRestore(out CoCoDiagnostic diagnostic) =>
+            TryRunTemporalOperation(TemporalOperation.Confirm, 0, out diagnostic);
+
+        public bool TryCancelTemporalPreview(out CoCoDiagnostic diagnostic) =>
+            TryRunTemporalOperation(TemporalOperation.Cancel, 0, out diagnostic);
+
+        public bool TryCorrectWorld(out CoCoDiagnostic diagnostic) =>
+            TryRunTemporalOperation(TemporalOperation.Correct, 0, out diagnostic);
+
         public bool TryValidateRestore(
             CoCoContextFrame source,
             CoCoTickFrame resumedTickFrame,
@@ -730,11 +806,31 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        internal bool IsTemporalOperationCancellationRequested => _destroyRequested;
+
+        internal void LatchWorldCorrectionFault(CoCoDiagnostic diagnostic)
+        {
+            _requiresWorldCorrection = true;
+            CoCoDiagnostic reason = diagnostic.IsError
+                ? diagnostic
+                : CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.WorldCorrectionRequired,
+                    "Temporal Unity projection failed and requires correction from current authority.");
+            _runtime?.TryLatchExternalFault(reason);
+        }
+
+        internal void ClearWorldCorrectionRequirementNoFail()
+        {
+            _requiresWorldCorrection = false;
+        }
+
         private void TryAutomaticStep(float deltaTime)
         {
             if (_runtime == null ||
                 _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
                 _runtime.IsFaulted ||
+                (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing) ||
                 _lastAutomaticFrame == Time.frameCount ||
                 !IsPositiveFinite(deltaTime))
             {
@@ -747,10 +843,10 @@ namespace CoCoFlow.Runtime.Core
 
         private bool TryAdvance(double deltaTime, out CoCoDiagnostic diagnostic)
         {
-            if (_isStarting || _isAdvancing)
+            if (_isStarting || _isAdvancing || _isTemporalOperation)
             {
                 diagnostic = LifecycleError(
-                    "StateGraph Host cannot Step during startup or reenter its active Tick.");
+                    "StateGraph Host cannot Step during startup, Temporal projection, or its active Tick.");
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -792,7 +888,8 @@ namespace CoCoFlow.Runtime.Core
             if (_runtime == null ||
                 _transaction == null ||
                 _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
-                _runtime.IsFaulted)
+                _runtime.IsFaulted ||
+                (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing))
             {
                 diagnostic = LifecycleError("Only a healthy Running Host can Step.");
                 _lastDiagnostic = diagnostic;
@@ -932,6 +1029,7 @@ namespace CoCoFlow.Runtime.Core
             bool finalized = _transaction.TryFinalizeAndCommit(
                 _runtime,
                 _bindings,
+                _temporal,
                 stagedStep,
                 _commitGuard,
                 out bool authorityCommitted,
@@ -1050,7 +1148,7 @@ namespace CoCoFlow.Runtime.Core
 
         private bool RejectLifecycleReentry(out CoCoDiagnostic diagnostic)
         {
-            if (!_isStarting && !_isAdvancing)
+            if (!_isStarting && !_isAdvancing && !_isTemporalOperation)
             {
                 diagnostic = CoCoDiagnostic.None;
                 return false;
@@ -1060,6 +1158,89 @@ namespace CoCoFlow.Runtime.Core
                 "StateGraph Host lifecycle cannot change while startup or a Tick is advancing.");
             _lastDiagnostic = diagnostic;
             return true;
+        }
+
+        private bool TryRunTemporalOperation(
+            TemporalOperation operation,
+            int historyDepth,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isStarting || _isAdvancing || _isTemporalOperation ||
+                _isPublishingCommittedEvents)
+            {
+                diagnostic = LifecycleError(
+                    "Temporal control requires one idle Host boundary and cannot reenter project callbacks.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_temporal == null || _runtime == null || _transaction == null)
+            {
+                diagnostic = LifecycleError(
+                    "Temporal control requires one live StateGraph Host instance.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (operation != TemporalOperation.Correct &&
+                LatchPendingOverflow(out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            bool succeeded;
+            _isTemporalOperation = true;
+            try
+            {
+                switch (operation)
+                {
+                    case TemporalOperation.Begin:
+                        succeeded = _temporal.TryBegin(_runtime, out diagnostic);
+                        break;
+                    case TemporalOperation.Preview:
+                        succeeded = _temporal.TryPreview(
+                            _runtime,
+                            historyDepth,
+                            out diagnostic);
+                        break;
+                    case TemporalOperation.Confirm:
+                        succeeded = _temporal.TryConfirm(_runtime, out diagnostic);
+                        break;
+                    case TemporalOperation.Cancel:
+                        succeeded = _temporal.TryCancel(_runtime, out diagnostic);
+                        break;
+                    case TemporalOperation.Correct:
+                        succeeded = _temporal.TryCorrectWorld(
+                            _runtime,
+                            _requiresWorldCorrection,
+                            out diagnostic);
+                        break;
+                    default:
+                        succeeded = false;
+                        diagnostic = LifecycleError("Temporal operation is not defined.");
+                        break;
+                }
+            }
+            finally
+            {
+                _isTemporalOperation = false;
+            }
+
+            bool destroyRequested = _destroyRequested;
+            if (destroyRequested)
+            {
+                _destroyRequested = false;
+                _stopAfterPublish = false;
+                _disposeAfterPublish = false;
+                ForceDisposeHost();
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled the Temporal operation before publication.");
+                succeeded = false;
+            }
+
+            _lastDiagnostic = diagnostic;
+            return succeeded;
         }
 
         private void CompleteDeferredPublishLifecycle()
@@ -1083,6 +1264,8 @@ namespace CoCoFlow.Runtime.Core
         {
             _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
+            _temporal?.Dispose();
+            _temporal = null;
             _transaction?.Dispose();
             _transaction = null;
             _bindings?.Dispose();
@@ -1093,6 +1276,7 @@ namespace CoCoFlow.Runtime.Core
             _stopAfterPublish = false;
             _disposeAfterPublish = false;
             _reliableOverflowPending = false;
+            _requiresWorldCorrection = false;
             _lastAutomaticFrame = -1;
         }
 
@@ -1188,6 +1372,15 @@ namespace CoCoFlow.Runtime.Core
                 CoCoDiagnosticDomain.Lifecycle,
                 CoCoDiagnosticCode.InvalidLifecycleTransition,
                 message);
+
+        private enum TemporalOperation
+        {
+            Begin = 0,
+            Preview = 1,
+            Confirm = 2,
+            Cancel = 3,
+            Correct = 4
+        }
 
         private sealed class CommitGuard : ICoCoStateGraphCommitGuard
         {
