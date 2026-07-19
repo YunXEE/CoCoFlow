@@ -1736,6 +1736,151 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void TimelineResetOwnerEpochBarrierRejectsSeenAndUnseenOldOwnerPackets()
+        {
+            CoCoGraphInstanceId owner = GraphId(540UL);
+            CoCoEventDomainId domain = DomainId(54UL);
+            CoCoEventTypeId eventType = EventTypeId(54UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+            CoCoEventPacket<TestEvent> seen = Packet(
+                eventType,
+                domain,
+                owner,
+                owner,
+                1UL,
+                1UL,
+                10);
+            CoCoEventPacket<TestEvent> unseen = Packet(
+                eventType,
+                domain,
+                owner,
+                owner,
+                1UL,
+                2UL,
+                20);
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(handle, seen));
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            inbox.ResumeAfterTimelineResetNoFail(new CoCoTimelineEpoch(2UL));
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(handle, seen));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(handle, unseen));
+            Assert.AreEqual(CoCoInboxEnqueueResult.InvalidPacket, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 3UL, 3UL, 30)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 2UL, 3UL, 40)));
+        }
+
+        [Test]
+        public void TimelineResetOwnerEpochBarrierLeavesRemoteSourceWatermarksUnchanged()
+        {
+            CoCoGraphInstanceId owner = GraphId(550UL);
+            CoCoGraphInstanceId remote = GraphId(551UL);
+            CoCoEventDomainId domain = DomainId(55UL);
+            CoCoEventTypeId eventType = EventTypeId(55UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, remote, owner, 7UL, 1UL, 10)));
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            inbox.ResumeAfterTimelineResetNoFail(new CoCoTimelineEpoch(2UL));
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, remote, owner, 6UL, 2UL, 15)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.EventSequenceConflict, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, remote, owner, 7UL, 1UL, 15)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, remote, owner, 7UL, 2UL, 20)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 1UL, 1UL, 30)));
+        }
+
+        [Test]
+        public void TimelineResetRebasesOwnerWatermarkWithoutChangingRemoteWatermarks()
+        {
+            CoCoGraphInstanceId owner = GraphId(570UL);
+            CoCoGraphInstanceId firstRemote = GraphId(571UL);
+            CoCoGraphInstanceId secondRemote = GraphId(572UL);
+            CoCoEventDomainId domain = DomainId(57UL);
+            CoCoEventTypeId eventType = EventTypeId(57UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, firstRemote, owner, 7UL, 1UL, 10)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 9UL, 1UL, 20)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, secondRemote, owner, 5UL, 1UL, 30)));
+
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            inbox.ResumeAfterTimelineResetNoFail(new CoCoTimelineEpoch(2UL));
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 2UL, 2UL, 40)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 1UL, 3UL, 50)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.InvalidPacket, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 3UL, 3UL, 60)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, firstRemote, owner, 6UL, 2UL, 65)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, firstRemote, owner, 7UL, 2UL, 70)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, secondRemote, owner, 4UL, 2UL, 75)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, secondRemote, owner, 5UL, 2UL, 80)));
+        }
+
+        [Test]
+        public void OwnerEpochBarrierOnlyChangesOnConfirmedTimelineReset()
+        {
+            CoCoGraphInstanceId owner = GraphId(560UL);
+            CoCoEventDomainId domain = DomainId(56UL);
+            CoCoEventTypeId eventType = EventTypeId(56UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            inbox.ResumeAfterTimelineResetNoFail(new CoCoTimelineEpoch(2UL));
+            Assert.IsTrue(inbox.Suspend());
+            Assert.IsTrue(inbox.Resume());
+            Assert.AreEqual(CoCoInboxEnqueueResult.InvalidPacket, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 3UL, 1UL, 10)));
+
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            Assert.IsTrue(inbox.CancelRewindOrRestore());
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 1UL, 1UL, 20)));
+
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            inbox.ResumeAfterTimelineResetNoFail(new CoCoTimelineEpoch(3UL));
+            Assert.AreEqual(CoCoInboxEnqueueResult.StaleTimelineEpoch, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 2UL, 1UL, 30)));
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, owner, owner, 3UL, 1UL, 40)));
+        }
+
+        [Test]
         public void ReliableAndUnreliableOverflowHaveDifferentOutcomes()
         {
             CoCoGraphInstanceId owner = GraphId(600UL);

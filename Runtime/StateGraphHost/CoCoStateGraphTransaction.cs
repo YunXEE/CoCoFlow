@@ -737,11 +737,15 @@ namespace CoCoFlow.Runtime.Core
             }
 
             ulong token = ++_nextRestoreToken;
+            CoCoClaimRestoreOverlayPolicy overlayPolicy =
+                runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended
+                    ? CoCoClaimRestoreOverlayPolicy.RebuildForSuspended
+                    : CoCoClaimRestoreOverlayPolicy.PreservePendingRelease;
             if (!_operators.TryPrepareRestore(
                     restoreSource,
                     _contextRuntime,
                     token,
-                    runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended,
+                    overlayPolicy,
                     out diagnostic))
             {
                 graphRestore.Cancel();
@@ -850,7 +854,7 @@ namespace CoCoFlow.Runtime.Core
                     restoreSource,
                     _contextRuntime,
                     token,
-                    false,
+                    CoCoClaimRestoreOverlayPolicy.DiscardAbandonedFuture,
                     out diagnostic))
             {
                 graphRestore.Cancel();

@@ -318,6 +318,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(
                 scenario.Host.TryEnqueueLocal(queued),
                 Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
+            CoCoEventPacket<TemporalHostEvent> preConfirmFutureEpoch = TemporalHostTestHarness.Packet(
+                scenario,
+                2UL,
+                43,
+                new CoCoTimelineEpoch(oldEpoch.Value + 8UL));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(preConfirmFutureEpoch),
+                Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
 
             Require(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
@@ -346,6 +354,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StepWithActorValue(scenario, 30);
             Assert.That(TemporalHostEventAdapter.ProjectionCount, Is.Zero);
 
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(queued),
+                Is.EqualTo(CoCoInboxEnqueueResult.StaleTimelineEpoch));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(duringPreview),
+                Is.EqualTo(CoCoInboxEnqueueResult.StaleTimelineEpoch));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(preConfirmFutureEpoch),
+                Is.EqualTo(CoCoInboxEnqueueResult.InvalidPacket));
+            CoCoEventPacket<TemporalHostEvent> futureEpochPacket = TemporalHostTestHarness.Packet(
+                scenario,
+                3UL,
+                77,
+                new CoCoTimelineEpoch(newEpoch.Value + 1UL));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(futureEpochPacket),
+                Is.EqualTo(CoCoInboxEnqueueResult.InvalidPacket));
+            CoCoEventPacket<TemporalHostEvent> routedOldEpochPacket = TemporalHostTestHarness.Packet(
+                scenario,
+                4UL,
+                79,
+                oldEpoch);
+            CoCoEventBus.Publish(ref routedOldEpochPacket);
+            StepWithActorValue(scenario, 35);
+            Assert.That(TemporalHostEventAdapter.ProjectionCount, Is.Zero);
+
             CoCoEventPacket<TemporalHostEvent> newEpochPacket = TemporalHostTestHarness.Packet(
                 scenario,
                 3UL,
@@ -357,6 +391,60 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StepWithActorValue(scenario, 40);
             Assert.That(TemporalHostEventAdapter.ProjectionCount, Is.EqualTo(1));
             Assert.That(TemporalHostLogic.LastIntentValue, Is.EqualTo(88));
+        }
+
+        [Test]
+        public void ConsecutiveConfirmsAdvanceTheExactOwnerEpochBarrier()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 4,
+                    withEvent: true));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            CoCoTimelineEpoch firstEpoch =
+                scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch;
+
+            Require(scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic firstBegin), firstBegin);
+            Require(scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic firstPreview), firstPreview);
+            Require(scenario.Host.TryConfirmTemporalRestore(out CoCoDiagnostic firstConfirm), firstConfirm);
+            CoCoTimelineEpoch secondEpoch =
+                scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch;
+            Assert.That(secondEpoch.Value, Is.GreaterThan(firstEpoch.Value));
+
+            StepWithActorValue(scenario, 30);
+            Require(scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic secondBegin), secondBegin);
+            Require(scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic secondPreview), secondPreview);
+            Require(scenario.Host.TryConfirmTemporalRestore(out CoCoDiagnostic secondConfirm), secondConfirm);
+            CoCoTimelineEpoch thirdEpoch =
+                scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch;
+            Assert.That(thirdEpoch.Value, Is.GreaterThan(secondEpoch.Value));
+
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(
+                    scenario,
+                    1UL,
+                    81,
+                    secondEpoch)),
+                Is.EqualTo(CoCoInboxEnqueueResult.StaleTimelineEpoch));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(
+                    scenario,
+                    2UL,
+                    82,
+                    new CoCoTimelineEpoch(thirdEpoch.Value + 1UL))),
+                Is.EqualTo(CoCoInboxEnqueueResult.InvalidPacket));
+            Assert.That(
+                scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(
+                    scenario,
+                    3UL,
+                    83,
+                    thirdEpoch)),
+                Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
+            StepWithActorValue(scenario, 40);
+            Assert.That(TemporalHostEventAdapter.ProjectionCount, Is.EqualTo(1));
+            Assert.That(TemporalHostLogic.LastIntentValue, Is.EqualTo(83));
         }
 
         [Test]

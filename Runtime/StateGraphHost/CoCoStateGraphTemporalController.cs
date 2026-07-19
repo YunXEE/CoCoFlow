@@ -93,10 +93,10 @@ namespace CoCoFlow.Runtime.Core
             }
 
             bool hasBinding = bindingComponent != null;
-            if ((capacity > 0 && !hasBinding) ||
-                (hasBinding &&
-                 (!(bindingComponent is ICoCoContextRestoreBinding) ||
-                  !IsInsideHostBoundary(host, bindingComponent))))
+            if (capacity > 0 &&
+                (!hasBinding ||
+                 !(bindingComponent is ICoCoContextRestoreBinding) ||
+                 !IsInsideHostBoundary(host, bindingComponent)))
             {
                 diagnostic = ConfigurationError(
                     "Enabled Temporal history requires one live Restore Binding inside the Host boundary.");
@@ -179,13 +179,16 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                MonoBehaviour activeBindingComponent = capacity > 0
+                    ? bindingComponent
+                    : null;
                 controller = new CoCoStateGraphTemporalController(
                     host,
                     layout,
                     transaction,
                     inbox,
-                    bindingComponent == null ? null : bindingComponent,
-                    bindingComponent as ICoCoContextRestoreBinding,
+                    activeBindingComponent,
+                    activeBindingComponent as ICoCoContextRestoreBinding,
                     history);
                 diagnostic = CoCoDiagnostic.None;
                 return true;
@@ -466,7 +469,7 @@ namespace CoCoFlow.Runtime.Core
 
             preparedRestore.CommitNoFail();
             _history.PublishBranchCaptureNoFail();
-            _inbox?.ResumeAfterTimelineResetNoFail();
+            _inbox?.ResumeAfterTimelineResetNoFail(resumedTickFrame.TimelineEpoch);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
             _previewInfo = ToPublicInfo(_transaction.CurrentContext);

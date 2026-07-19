@@ -72,6 +72,68 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(destroyed.Host.CurrentContext.IsAlive, Is.False);
         }
 
+        [Test]
+        public void DisabledHistoryIgnoresWrongTypeRestoreBindingAndDoesNotRetainIt()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            TemporalHostTestHarness.SetRestoreBinding(scenario.Host, scenario.Host);
+
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            AssertDisabledControllerDoesNotRetainBinding(scenario.Host);
+        }
+
+        [Test]
+        public void DisabledHistoryIgnoresRestoreBindingOutsideHostBoundary()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            TemporalActorRestoreBinding outsideBinding = CreateOutsideBinding(scenario);
+            TemporalHostTestHarness.SetRestoreBinding(scenario.Host, outsideBinding);
+
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            AssertDisabledControllerDoesNotRetainBinding(scenario.Host);
+        }
+
+        [Test]
+        public void EnabledHistoryRejectsWrongTypeRestoreBinding()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 3));
+            TemporalHostTestHarness.SetRestoreBinding(scenario.Host, scenario.Host);
+
+            Assert.That(scenario.Host.TryStart(out CoCoDiagnostic failure), Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+            Assert.That(scenario.Host.CurrentContext.IsAlive, Is.False);
+        }
+
+        [Test]
+        public void EnabledHistoryRejectsRestoreBindingOutsideHostBoundary()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 3));
+            TemporalActorRestoreBinding outsideBinding = CreateOutsideBinding(scenario);
+            TemporalHostTestHarness.SetRestoreBinding(scenario.Host, outsideBinding);
+
+            Assert.That(scenario.Host.TryStart(out CoCoDiagnostic failure), Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+            Assert.That(scenario.Host.CurrentContext.IsAlive, Is.False);
+        }
+
         [TestCase(TemporalRestoreFixtureFailure.Reject)]
         [TestCase(TemporalRestoreFixtureFailure.Throw)]
         public void ConfirmBindingFailurePreservesAuthorityAndRequiresCorrection(
@@ -323,6 +385,41 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             _objects.Add(scenario.Asset);
             _objects.Add(scenario.GameObject);
             return scenario;
+        }
+
+        private TemporalActorRestoreBinding CreateOutsideBinding(
+            TemporalHostTestScenario scenario)
+        {
+            var outside = new GameObject("Pre6 Temporal Outside Restore Binding");
+            _objects.Add(outside);
+            var binding = outside.AddComponent<TemporalActorRestoreBinding>();
+            binding.Configure(scenario.Ids.ActorStateSlotId);
+            return binding;
+        }
+
+        private static void AssertDisabledControllerDoesNotRetainBinding(
+            CoCoStateGraphHost host)
+        {
+            Assert.That(
+                host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Disabled));
+            FieldInfo temporalField = typeof(CoCoStateGraphHost).GetField(
+                "_temporal",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(temporalField, Is.Not.Null);
+            object controller = temporalField.GetValue(host);
+            Assert.That(controller, Is.Not.Null);
+
+            FieldInfo componentField = controller.GetType().GetField(
+                "_bindingComponent",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo bindingField = controller.GetType().GetField(
+                "_binding",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(componentField, Is.Not.Null);
+            Assert.That(bindingField, Is.Not.Null);
+            Assert.That(componentField.GetValue(controller), Is.Null);
+            Assert.That(bindingField.GetValue(controller), Is.Null);
         }
 
         private static void StepWithActorValue(
