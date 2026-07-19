@@ -654,8 +654,7 @@ namespace CoCoFlow.Runtime.Core
 
         public bool BeginRewindOrRestore()
         {
-            if ((_state != CoCoActorEventInboxState.Running &&
-                 _state != CoCoActorEventInboxState.Suspended) ||
+            if (_state != CoCoActorEventInboxState.Running ||
                 !HasLiveIntentRuntime() ||
                 IsLifecycleTransitionBlocked() ||
                 !_intentRuntime.TryResetForTimelineChange())
@@ -668,20 +667,63 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool CanResumeAfterTimelineReset =>
+            _state == CoCoActorEventInboxState.RewindingOrRestoring &&
+            HasLiveIntentRuntime() &&
+            !_intentRuntime.IsCollecting &&
+            !IsLifecycleTransitionBlocked();
+
         public bool ResumeAfterTimelineReset()
         {
-            if (_state != CoCoActorEventInboxState.RewindingOrRestoring ||
-                !HasLiveIntentRuntime() ||
-                IsLifecycleTransitionBlocked() ||
+            if (!CanResumeAfterTimelineReset ||
                 !_intentRuntime.TryResetForTimelineChange())
             {
                 return false;
             }
 
+            ResumeAfterTimelineResetNoFail();
+            return true;
+        }
+
+        internal void ResumeAfterTimelineResetNoFail()
+        {
+            if (!CanResumeAfterTimelineReset)
+            {
+                return;
+            }
+
             ClearQueuedState();
             _requiresNewTimelineEpoch = true;
             _state = CoCoActorEventInboxState.Running;
+        }
+
+        internal bool CanCancelRewindOrRestore =>
+            _state == CoCoActorEventInboxState.RewindingOrRestoring &&
+            HasLiveIntentRuntime() &&
+            !_intentRuntime.IsCollecting &&
+            !IsLifecycleTransitionBlocked();
+
+        public bool CancelRewindOrRestore()
+        {
+            if (!CanCancelRewindOrRestore ||
+                !_intentRuntime.TryResetForTimelineChange())
+            {
+                return false;
+            }
+
+            CancelRewindOrRestoreNoFail();
             return true;
+        }
+
+        internal void CancelRewindOrRestoreNoFail()
+        {
+            if (!CanCancelRewindOrRestore)
+            {
+                return;
+            }
+
+            ClearQueuedState();
+            _state = CoCoActorEventInboxState.Running;
         }
 
         public void Stop()
