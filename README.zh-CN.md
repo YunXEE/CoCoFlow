@@ -239,17 +239,23 @@ Layout default。
 捕获失败会取消整个 Tick 并保留旧权威；复合屏障后发布已准备历史条目不再
 失败。Capacity 统计包含 current 的 committed entry，0 表示关闭；启用时至少需要
 2 个 entry，以同时容纳 current authority 与一个更旧 commit。满 Ring 覆盖 oldest。
+Capacity 0 不要求 Restore Binding：错误类型、已销毁或 Host 边界外的 assignment
+会被忽略；合法且位于本 Host 内的 Binding 可仅为非 Temporal 脏失败后的世界
+Correction 保留。
 
 Temporal Preview 与 Runtime lifecycle 正交，只移动非权威历史游标并调用唯一
 显式同步 `ICoCoContextRestoreBinding`；它不使用负 Delta，也不运行 State、
-Condition、Transition、Operator、Event 或 Trace。Cancel 重新投射未变的 current
-authority。Confirm 只调用一次同一 Binding，然后原子交换 Context、Graph、Clock
-与 Claim，丢弃被放弃的 future，并在同时新于 Source 与 Current 的 TimelineEpoch
-记录新 branch head。下一次被接受的 Tick 才继续正 Delta 正向运行。
+Condition、Transition、Operator、Event 或 Trace。Cancel 仅在本次会话至少成功完成
+一次 Preview 投射后重新投射未变的 current authority；Begin 后直接 Cancel 不调用
+Binding。Confirm 只调用一次同一 Binding，然后原子交换 Context、Graph、Clock 与
+Claim，丢弃被放弃的 future，并在同时新于 Source 与 Current 的 TimelineEpoch 记录
+新 branch head。下一次被接受的 Tick 才继续正 Delta 正向运行。
 
-Binding 拒绝、抛异常、被销毁或可能部分改动 Unity 时，旧逻辑权威保持不变，
-Host 锁存 Fault 并设置 `RequiresWorldCorrection`。`TryCorrectWorld` 通过同一 Binding
-重新投射最后权威，然后只清除对应的可恢复 Fault。完整 Host API 与失败语义见
+没有早先 Preview 投射且 callback 尚未开始时，Binding preflight 失败只拒绝请求，
+Host 保持健康。一旦 callback 已开始，或会话仍有成功 Preview 投射，Binding 拒绝、
+抛异常、被销毁或可能部分改动 Unity 时，旧逻辑权威保持不变，Host 锁存 Fault 并
+设置 `RequiresWorldCorrection`。`TryCorrectWorld` 通过同一 Binding 重新投射最后权威，
+然后只清除对应的可恢复 Fault。完整 Host API 与失败语义见
 [Temporal Rewind](Docs/TemporalRewind.md)。Pre13 负责 Durable Save、Migration、世界事实与
 生成实体重建。
 

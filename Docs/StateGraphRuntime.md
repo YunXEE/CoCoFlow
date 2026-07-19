@@ -46,9 +46,10 @@ absent when the Layout contains no Actor-owned Slot.
 
 The Context Restore binding is one separate explicit Host reference and must
 implement `ICoCoContextRestoreBinding`. It is required when Temporal history
-capacity is greater than zero, must remain inside the same Host boundary, and is
-never discovered through scene scanning. One component may implement both Actor
-capture and Context restore contracts and be assigned to both fields.
+is enabled with capacity of at least two, must remain inside the same Host
+boundary, and is never discovered through scene scanning. One component may
+implement both Actor capture and Context restore contracts and be assigned to
+both fields.
 
 ## Shared graph, isolated Actor state
 
@@ -307,10 +308,12 @@ is `Disabled`, solely for `TryCorrectWorld` after a dirty non-Temporal Tick
 failure.
 
 Capacity is fixed before Running and counts entries, including the current
-authority. The first successful Context commit makes Count 1. A full Ring
-overwrites the oldest entry, and Stop/Dispose/destruction releases the Ring,
-cursor, scratch storage, and callback tokens. No mutable Frame, payload, arena
-handle, or long-lived selection token is exposed.
+authority. Zero disables history; enabled history requires at least two entries,
+and capacity one is rejected during startup. The first successful Context commit
+makes Count 1. A full Ring overwrites the oldest entry, and
+Stop/Dispose/destruction releases the Ring, cursor, scratch storage, and callback
+tokens. No mutable Frame, payload, arena handle, or long-lived selection token is
+exposed.
 
 The Host API is synchronous:
 

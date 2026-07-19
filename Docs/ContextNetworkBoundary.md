@@ -355,8 +355,12 @@ Temporal Ring 不保存或 Retain 完整 ContextFrame。每个 Host 独占一个
 - `Temporal + Derived` 不存结果，Restore 时从闭包完整依赖重建；
 - 未标记 Temporal 的 Stored Slot 也取 Layout default，不与 Rewind 前 current 值混合；
 - Entry 另存不可变 GraphInstance、TickFrame、Revision 和 Origin 元数据；
-- Capacity 包含 current，首次成功 Commit 后 Count 为 1，0 关闭 History，满后覆盖
-  oldest；Running 期间不扩容或热换。
+- Capacity 包含 current，首次成功 Commit 后 Count 为 1；0 关闭 History，启用时至少为
+  2，容量 1 在启动时拒绝；满后覆盖 oldest，Running 期间不扩容或热换。
+
+Capacity 0 不要求 Restore Binding：错误类型、已销毁或 Host 边界外的 assignment
+会被忽略；合法且位于本 Host 内的 Binding 可仅为非 Temporal 脏失败后的通用
+World Correction 保留。
 
 捕获源是已 Finalize Context candidate，但捕获在 authority swap 之前完成。
 Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/History 不变，
@@ -365,8 +369,9 @@ Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/His
 
 Preview 只移动非权威游标并调用 Host 的唯一同步
 `ICoCoContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
-Condition、Transition、Operator、Actor capture、Event 或 Trace。Cancel 通过同一
-Binding 重新投射 current authority，不交换逻辑权威也不切换 Epoch。
+Condition、Transition、Operator、Actor capture、Event 或 Trace。Cancel 仅在本次
+会话至少成功完成一次 Preview 投射后通过同一 Binding 重新投射 current authority；
+Begin 后直接 Cancel 不调用 Binding。两条路径都不交换逻辑权威或切换 Epoch。
 
 Confirm 先在屏障外完整验证与准备 Context、Graph Path/Memory、Clock 和 Claim，
 再只调用一次 Binding。Unity 投射成功后，no-fail barrier 原子交换逻辑权威，
@@ -374,9 +379,11 @@ Confirm 先在屏障外完整验证与准备 Context、Graph Path/Memory、Clock
 Source TimelineId 与 ClockDomainId，ExecutionSequence 严格推进，TimelineEpoch 严格大于
 Source 与 Current Epoch。下一次被接受的正 Delta Tick 才恢复正常计算。
 
-Binding 拒绝、抛异常、被销毁或可能局部修改 Unity 时，旧逻辑权威继续有效，
-Host Fault 且 `RequiresWorldCorrection=true`。Correction 从最后逻辑权威经同一 Binding
-重新投射 Unity，只在成功后清除对应的可恢复 Fault。Temporal payload 只是
+没有早先 Preview 投射且 callback 尚未开始时，Binding preflight 失败只拒绝请求，
+Host 保持健康。一旦 callback 已开始，或会话仍有成功 Preview 投射，Binding 拒绝、
+抛异常、被销毁或可能局部修改 Unity 时，旧逻辑权威继续有效，Host Fault 且
+`RequiresWorldCorrection=true`。Correction 从最后逻辑权威经同一 Binding 重新投射
+Unity，只在成功后清除对应的可恢复 Fault。Temporal payload 只是
 same-session、exact-layout 内部表示，不是稳定 Wire Identity 或跨会话存档格式。
 Pre13 负责 Durable Save Document、StableEntityId 解析、Migration、Container 和世界事实。
 
@@ -394,8 +401,8 @@ Pre13 负责 Durable Save Document、StableEntityId 解析、Migration、Contain
   路径，或经 Event/Intent 边界供后续 Tick 消化。
 
 Host 启动先完成 Compile、Provider Configure/Freeze 与 Transaction Preflight；只有 Graph
-producer、Actor/Restore Binding、Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，
-才创建 Clock、
+producer、必需的 Actor Binding、启用 Temporal History 时的 Restore Binding、
+Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，才创建 Clock、
 Runtime、执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
 因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
 Operator 或 Actor callback，Host 保持 `Created`。

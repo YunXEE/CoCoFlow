@@ -11,15 +11,19 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 - One fixed-capacity Temporal Ring per `CoCoStateGraphHost`, storing
   preallocated exact-layout Temporal projection payloads instead of retaining
-  complete `ContextFrame` handles. Capacity zero disables history, and every
-  successful commit records one entry including the current authority.
+  complete `ContextFrame` handles. Capacity zero disables history, enabled
+  history requires at least two entries, and every successful commit records one
+  entry including the current authority.
 - An authority-neutral Preview workflow with explicit Begin, depth selection,
   Confirm, and Cancel operations. Preview never runs StateGraph or Operators
-  backwards; Confirm performs one Restore into a new TimelineEpoch and Cancel
-  reapplies the unchanged current authority.
-- One synchronous `ICoCoContextRestoreBinding` per temporal Host for Preview,
-  Confirm, Cancel, and world Correction, plus read-only `CoCoTemporalState`
-  inspection without exposing mutable Frames, payloads, or generation handles.
+  backwards; Confirm performs one Restore into a new TimelineEpoch. Cancel
+  reapplies unchanged current authority only after a successful Preview
+  projection; Begin-to-Cancel invokes no binding.
+- One synchronous `ICoCoContextRestoreBinding` for enabled Temporal history and
+  its Preview, Confirm, Cancel, and world Correction operations, plus read-only
+  `CoCoTemporalState` inspection without exposing mutable Frames, payloads, or
+  generation handles. Capacity zero ignores invalid binding assignments but may
+  retain one valid Host-local binding solely for general world Correction.
 
 ### Changed
 
@@ -35,8 +39,10 @@ projects and does not include a migration runtime for 0.3.9 projects.
   deduplication state. Messages arriving during Preview are dropped and counted;
   Cancel keeps the original Epoch but does not resurrect the cleared backlog.
 - Kept the Runtime lifecycle unchanged and added an orthogonal Host
-  `CoCoTemporalMode`. Binding failures leave Context authority unchanged and
-  require explicit world Correction before normal progress can resume.
+  `CoCoTemporalMode`. A clean binding preflight failure before any projection
+  rejects the request without Fault. Once a callback starts or a successful
+  Preview projection remains active, binding failure leaves Context authority
+  unchanged and requires explicit world Correction before progress can resume.
 - Updated the package version and the two existing Unity Package Validation
   Suite exception scopes to `0.4.0-pre.6`; dependencies remain unchanged.
 
