@@ -281,8 +281,9 @@ dependency set, and non-Temporal Stored values also reset to Layout default.
 Each successful Context commit captures its finalized candidate before the
 authority swap. Capture failure cancels the whole Tick and keeps the old
 authority; publishing the prepared history entry after the composite barrier is
-no-fail. Capacity counts committed entries including the current authority,
-capacity zero disables history, and a full ring overwrites the oldest entry. A
+no-fail. Capacity counts committed entries including the current authority;
+zero disables history, enabled history requires at least two entries, and a
+full ring overwrites the oldest entry. A
 disabled Host ignores an invalid Restore Binding, but may retain one valid
 in-boundary Binding solely for explicit world Correction after a dirty Tick
 failure.

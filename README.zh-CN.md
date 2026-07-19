@@ -237,8 +237,8 @@ Layout default。
 
 每次成功 Context commit 都在权威交换前从 finalized candidate 捕获。
 捕获失败会取消整个 Tick 并保留旧权威；复合屏障后发布已准备历史条目不再
-失败。Capacity 统计包含 current 的 committed entry，0 表示关闭，满 Ring 覆盖
-oldest。
+失败。Capacity 统计包含 current 的 committed entry，0 表示关闭；启用时至少需要
+2 个 entry，以同时容纳 current authority 与一个更旧 commit。满 Ring 覆盖 oldest。
 
 Temporal Preview 与 Runtime lifecycle 正交，只移动非权威历史游标并调用唯一
 显式同步 `ICoCoContextRestoreBinding`；它不使用负 Delta，也不运行 State、

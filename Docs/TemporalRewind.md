@@ -66,7 +66,8 @@ stable wire format or a Pre13 durable-save document.
 
 History capacity is configured before Running:
 
-- capacity `0` disables Temporal history;
+- capacity `0` disables Temporal history; enabled history requires at least `2`
+  entries so the Ring can hold current authority and one older commit;
 - capacity counts commits, including the current authority;
 - the first successful Context commit makes Count `1`;
 - a full Ring overwrites the oldest entry;

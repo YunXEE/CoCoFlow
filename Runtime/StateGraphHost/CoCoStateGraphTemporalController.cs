@@ -86,10 +86,13 @@ namespace CoCoFlow.Runtime.Core
             int capacity,
             out CoCoDiagnostic diagnostic)
         {
-            if (host == null || layout == null || codecs == null || capacity < 0)
+            if (host == null ||
+                layout == null ||
+                codecs == null ||
+                (capacity != 0 && capacity < 2))
             {
                 diagnostic = ConfigurationError(
-                    "Temporal configuration requires one Host, frozen Context layout and codec registry, and a non-negative capacity.");
+                    "Temporal configuration requires one Host, frozen Context layout and codec registry, and a capacity of zero or at least two committed entries.");
                 return false;
             }
 

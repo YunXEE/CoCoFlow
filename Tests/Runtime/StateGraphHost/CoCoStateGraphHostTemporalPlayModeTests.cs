@@ -68,6 +68,52 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void CapacityOneIsRejectedBeforeRunning()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 1));
+
+            Assert.That(
+                scenario.Host.TryStart(out CoCoDiagnostic failure),
+                Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+            Assert.That(scenario.Host.CurrentContext.IsAlive, Is.False);
+            Assert.That(scenario.Binding.CaptureCount, Is.Zero);
+        }
+
+        [Test]
+        public void CapacityTwoCanPreviewAfterCurrentAndOlderEntriesExist()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 2));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+
+            StepWithActorValue(scenario, 10);
+            Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(1));
+            Assert.That(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic tooEarly),
+                Is.False);
+            Assert.That(tooEarly.IsError, Is.True);
+
+            StepWithActorValue(scenario, 20);
+            Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(2));
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            Require(
+                scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
+                preview);
+            Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(10));
+            Require(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
+                cancel);
+            Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(20));
+        }
+
+        [Test]
         public void SuccessfulCommitsRecordAutomaticallyAndOverwriteOldestEntry()
         {
             TemporalHostTestScenario scenario = Track(
