@@ -1660,6 +1660,82 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void SuspendedInboxRejectsRewindBeginAndPreservesLegalBacklog()
+        {
+            CoCoGraphInstanceId owner = GraphId(510UL);
+            CoCoGraphInstanceId source = GraphId(511UL);
+            CoCoEventDomainId domain = DomainId(51UL);
+            CoCoEventTypeId eventType = EventTypeId(51UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.IsTrue(inbox.Suspend());
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, source, owner, 1UL, 1UL, 11)));
+            Assert.IsFalse(inbox.BeginRewindOrRestore());
+            Assert.AreEqual(CoCoActorEventInboxState.Suspended, inbox.State);
+
+            Assert.IsTrue(inbox.Resume());
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryReadSealed(handle, 0, out CoCoEventPacket<TestEvent> packet));
+            Assert.AreEqual(11, packet.Payload.Value);
+        }
+
+        [Test]
+        public void RewindCancelKeepsEpochAndNeverRevivesClearedBacklog()
+        {
+            CoCoGraphInstanceId owner = GraphId(520UL);
+            CoCoGraphInstanceId source = GraphId(521UL);
+            CoCoEventDomainId domain = DomainId(52UL);
+            CoCoEventTypeId eventType = EventTypeId(52UL);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, source, owner, 1UL, 1UL, 10)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out CoCoActorEventSealedBatch<TestEvent> oldBatch));
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            Assert.IsFalse(oldBatch.IsValid);
+            Assert.IsTrue(inbox.CanCancelRewindOrRestore);
+            Assert.AreEqual(CoCoInboxEnqueueResult.RewindOrRestoreDropped, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, source, owner, 1UL, 2UL, 20)));
+
+            inbox.CancelRewindOrRestoreNoFail();
+            Assert.AreEqual(CoCoActorEventInboxState.Running, inbox.State);
+            Assert.AreEqual(0, inbox.GetSealedCount(handle));
+            Assert.AreEqual(1UL, inbox.Counters.RewindRestoreDropped);
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, source, owner, 1UL, 2UL, 30)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(2UL, 1UL, 2UL)));
+            Assert.IsTrue(inbox.TryReadSealed(handle, 0, out CoCoEventPacket<TestEvent> resumed));
+            Assert.AreEqual(30, resumed.Payload.Value);
+        }
+
+        [Test]
+        public void TimelineResetPreflightAndNoFailCompletionRequireNewEpoch()
+        {
+            CoCoGraphInstanceId owner = GraphId(530UL);
+            CoCoGraphInstanceId source = GraphId(531UL);
+            CoCoEventDomainId domain = DomainId(53UL);
+            CoCoEventTypeId eventType = EventTypeId(53UL);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out CoCoActorEventLaneHandle<TestEvent> handle);
+
+            Assert.AreEqual(CoCoInboxEnqueueResult.Accepted, inbox.TryEnqueue(
+                handle,
+                Packet(eventType, domain, source, owner, 1UL, 1UL, 10)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
+            Assert.IsTrue(inbox.BeginRewindOrRestore());
+            Assert.IsTrue(inbox.CanResumeAfterTimelineReset);
+            inbox.ResumeAfterTimelineResetNoFail();
+            Assert.AreEqual(CoCoActorEventInboxState.Running, inbox.State);
+            Assert.IsFalse(inbox.SealForTick(MailboxTick(2UL)));
+            Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL, 2UL, 2UL)));
+        }
+
+        [Test]
         public void ReliableAndUnreliableOverflowHaveDifferentOutcomes()
         {
             CoCoGraphInstanceId owner = GraphId(600UL);
