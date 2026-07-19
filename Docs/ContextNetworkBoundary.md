@@ -1,12 +1,14 @@
 # CoCoFlow State Flow / Event Boundary
 
 > State Flow contract: `0.4.0-pre.2` · StateGraph runtime integration:
-> `0.4.0-pre.5` · Updated 2026-07-18
+> `0.4.0-pre.6` · Updated 2026-07-19
 >
 > This is the authoritative Pre2 data-flow and cross-Object communication
 > boundary. Pre3 implements Asset/Compiler and Pre4 implements the staged
 > StateGraph Runtime, Unity Host, ingress Router, Inbox, and Clock. Pre5 completes
 > Operator execution and the composite Context commit that publishes output.
+> Pre6 adds Host-owned Temporal projection history and public same-session
+> Preview/Restore orchestration without changing this one-way Tick boundary.
 
 ## 目标
 
@@ -164,8 +166,8 @@ Commit 顺序固定：
 Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
   -> Graph-owned State/Value Capture -> Claim Arbitration/Claim Capture
   -> Operators/Outcomes/Outbox -> Actor-owned Capture -> Derived Finalize
-  -> Composite Preflight
-  -> no-fail Commit -> complete EventOutbox Publish
+  -> Composite Preflight -> Temporal Projection Capture
+  -> no-fail Commit + Temporal Publish -> complete EventOutbox Publish
 ```
 
 ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边界：
@@ -188,9 +190,11 @@ ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边�
   不能读取本 Tick candidate；
 - Derived Rebuilder 返回失败或抛异常时先放弃 Candidate，旧 ContextFrame 继续权威；
   Host 在完成取消后将抛出路径收敛为结构化 Fault Diagnostic；
+- 启用 Temporal 时，从 finalized candidate 编码 projection staging 仍属于可失败段。
+  Codec 失败会取消整个 Tick；权威屏障后发布已准备 Ring entry 不再失败；
 - StateGraph 不能在当前 Tick 读取执行中的 Outcome；
 - Outbox Candidate 在 Commit 前不可见；
-- Commit 失败、Cancel、Restore 或 Rewind 时，旧 ContextFrame 继续权威；
+- Commit 失败、Cancel、Preview 或 Restore 时，旧 ContextFrame 继续权威；
 - 失败路径同时取消 Pre4 staged Tick，不发布 Event、不消耗最终 EventSequence 或
   OperationSequence，也不产生跨 Actor 副作用；
 - no-fail barrier 内禁止 Callback、分配、容量申请与可失败 Mutation；它一次性交换
@@ -306,9 +310,12 @@ Router Callback 只能校验、路由、去重和入队；不能调用 StateGrap
   Collecting 期间到达的消息不能通过再次 Seal 进入当前 IntentFrame；Start 失败时 Inbox
   保持 Created；
 - 普通 Suspend 保留 Router 注册并在固定容量内继续积压，Resume 后下一次 Tick 交付；
-- Rewind/Restore 停止接收 gameplay Event，拒绝新消息并记录诊断；
-- 普通 Suspend/Resume 保持当前 TimelineEpoch 与容量内积压；未来 Pre6 Restore 在新
-  TimelineEpoch 建立新实例时，旧 Inbox Batch、旧 Packet 和旧去重窗口失效；
+- Begin Temporal Preview 立即清除 queue、sealed batch 与 dedup window；后续
+  gameplay Event 被 drop 并计数，不留到 Resume；
+- Preview Cancel 保持原 TimelineEpoch，但不复活 Begin 时已清除的 backlog；
+- Confirm 成功切换新 TimelineEpoch 后，旧 Inbox Batch、旧 Packet 和旧去重窗口全部
+  失效，只接受属于新 Epoch 的新输入；
+- 普通 Suspend/Resume 不是 Rewind，保持当前 TimelineEpoch 与容量内合法积压；
 - Reliable 溢出在安全边界锁存 Host Fault；Fault 门禁拒绝新的 gameplay 输入与普通
   Resume；
 - Unreliable 溢出拒绝最新消息并递增诊断计数；
@@ -340,27 +347,38 @@ ContextFrame 是完整内存状态。Descriptor 使用两组正交元数据，�
   创建时再次防御性验证；
 - Derived 缺少依赖或出现不兼容 Layout/Codec 时，Restore 必须确定失败并诊断。
 
-Ring Buffer 只保存 ContextFrame，不保存 IntentFrame、Inbox 或未发布 Outbox。需要跨
-存档存在的“事件”必须先转化成 Actor Pending State 或世界事实。
+Temporal Ring 不保存或 Retain 完整 ContextFrame。每个 Host 独占一个预分配、
+固定条目容量的 Ring：
 
-Pre5 提供完整 Actor 的纯读 Restore validation：Context identity/layout/revision/origin、
-Clock timeline/domain/epoch/tick/sequence、Graph path/activation/time/progress/memory 与
-Claim ownership 都必须一致；Actor-owned Slot 只验证 Layout/type/policy，不调用 Actor
-Binding。内部单次 tokenized `TryPrepareRestore` 在屏障外完成 copy/default/Derived 与
-Memory prepare，`CommitNoFail` 一次性交换 Context、Graph、Clock 与 Claim cache，不触发
-State、Condition、Operator、Actor Binding、Event、Trace 或 Sequence。Pre5 不增加 public
-Host Apply、History/Rewind/Resume/New Epoch 或 `ICoCoContextRestoreBinding`。
-该低层 validation/prepare seam 在 Runtime 已 Fault、但不存在 staged Tick 的边界仍可用，
-以便 Pre6 在 D12 世界校正后重建镜像；低层 Apply 本身不会清除锁存 Fault 或
-`RequiresWorldCorrection`。
-Restore 必须保持 Source 的 TimelineId 与 ClockDomainId、严格推进 ExecutionSequence；
-建立的 TimelineEpoch 必须严格大于 Source Epoch，也严格大于 Actor 当前权威 Epoch。
-Pre2 只验证 internal、same-session、exact-layout Codec Spike；它继续绑定当前
-GraphInstanceId，不是跨会话存档格式或稳定 Wire Identity。Pre6 实现 Temporal Ring
-Buffer、历史选择、输入阻断、Unity/D12 世界校正、Rewind/Resume 与 TimelineEpoch
-切换；Pre13 定义 Durable Save Document、
-StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container 和世界事实
-恢复。
+- 只编码 `Temporal + Stored` Slot 的 exact-layout payload；
+- `Temporal + ResetToDefault` 不存值，Restore 时取 Layout default；
+- `Temporal + Derived` 不存结果，Restore 时从闭包完整依赖重建；
+- 未标记 Temporal 的 Stored Slot 也取 Layout default，不与 Rewind 前 current 值混合；
+- Entry 另存不可变 GraphInstance、TickFrame、Revision 和 Origin 元数据；
+- Capacity 包含 current，首次成功 Commit 后 Count 为 1，0 关闭 History，满后覆盖
+  oldest；Running 期间不扩容或热换。
+
+捕获源是已 Finalize Context candidate，但捕获在 authority swap 之前完成。
+Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/History 不变，
+零 Outbox 与零最终 Sequence。权威成功交换后，Ring publish/overwrite 必须 no-fail。
+普通 ContextFrame `Retain`/`Release` 契约继续有效，只是 Temporal Ring 不使用它。
+
+Preview 只移动非权威游标并调用 Host 的唯一同步
+`ICoCoContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
+Condition、Transition、Operator、Actor capture、Event 或 Trace。Cancel 通过同一
+Binding 重新投射 current authority，不交换逻辑权威也不切换 Epoch。
+
+Confirm 先在屏障外完整验证与准备 Context、Graph Path/Memory、Clock 和 Claim，
+再只调用一次 Binding。Unity 投射成功后，no-fail barrier 原子交换逻辑权威，
+丢弃所选点之后的 future，并把新 Epoch restore commit 记为新 branch head。Restore 保持
+Source TimelineId 与 ClockDomainId，ExecutionSequence 严格推进，TimelineEpoch 严格大于
+Source 与 Current Epoch。下一次被接受的正 Delta Tick 才恢复正常计算。
+
+Binding 拒绝、抛异常、被销毁或可能局部修改 Unity 时，旧逻辑权威继续有效，
+Host Fault 且 `RequiresWorldCorrection=true`。Correction 从最后逻辑权威经同一 Binding
+重新投射 Unity，只在成功后清除对应的可恢复 Fault。Temporal payload 只是
+same-session、exact-layout 内部表示，不是稳定 Wire Identity 或跨会话存档格式。
+Pre13 负责 Durable Save Document、StableEntityId 解析、Migration、Container 和世界事实。
 
 ## 7. Tick、Unity 与外部 Driver
 
@@ -370,20 +388,22 @@ StableEntityId 到当前 GraphInstanceId 的可信解析、Migration、Container
 - `CoCoTickFrame` 只接受有限正 Delta；
 - Actor TimeScale 同样必须有限且大于零；Pause/Suspend 等价于零 Tick，不创建 Delta
   为零的 Frame；
-- 倒放不使用负 Delta，而是 Restore 旧 ContextFrame 后切换 Epoch；
+- 倒放不使用负 Delta；Preview 只投射历史，Confirm 在新 Epoch 执行一次正式 Restore；
 - Unity Callback、Fusion Tick 或 Manual Driver 都只能作为 Host/Driver 输入；
 - Animator/SMB Callback 不能立即调用 StateGraph 或修改当前 Frame；它只能进入表现
   路径，或经 Event/Intent 边界供后续 Tick 消化。
 
 Host 启动先完成 Compile、Provider Configure/Freeze 与 Transaction Preflight；只有 Graph
-producer、Actor Binding、Operator/Outcome/Claim 与 Outbox 容量全部合法，才创建 Clock、
+producer、Actor/Restore Binding、Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，
+才创建 Clock、
 Runtime、执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
 因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
 Operator 或 Actor callback，Host 保持 `Created`。
 
-Pre5 的 `CoCoStateGraphHost` 是唯一 public MonoBehaviour；Asset 是唯一必填项，其他
-Driver、AutoStart、TimeScale 与诊断容量是同一 Host 的设置，不增加组件。Runtime、
-Clock、Inbox、Router、Logic、Condition 与 Memory 都是内部普通对象。Playable
+`CoCoStateGraphHost` 仍是框架唯一 public MonoBehaviour；Asset 是唯一必填项，其他
+Driver、AutoStart、TimeScale、Temporal history 与诊断容量都是同一 Host 的设置。
+Restore Binding 是一个显式项目组件引用，不通过扫描发现。Runtime、Clock、Inbox、
+Router、Logic、Condition、Memory 与 Temporal Ring 都是内部普通对象。Playable
 Animation、可控播放进度与 Root Motion 归 Pre11。
 
 ## 8. Network Adapter Boundary
@@ -435,8 +455,8 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 - **Pre5**：已交付 Host 显式 Operator 列表、Graph/Claim/Operator/Actor/Derived producer
   ownership、ContextFrame 复合 Commit、committed EventOutbox Publish、immutable Trace、
   完整 Actor 纯 Restore validation 与内部无 callback apply seam。
-- **Pre6**：Temporal Ring Buffer、public Restore 编排、世界校正、Rewind/Resume 与新
-  TimelineEpoch。
+- **Pre6**：已交付 Host-owned Temporal projection Ring、public Preview/Restore/Cancel/Correction
+  编排、Mailbox 阻断与新 TimelineEpoch branch head。
 - **Pre11**：Animator/Playable/SMB 替代与视觉倒放映射。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
 - **Pre16**：跨模块架构、性能、Mailbox、Suspend、Rewind 与幽灵订阅完整门禁。

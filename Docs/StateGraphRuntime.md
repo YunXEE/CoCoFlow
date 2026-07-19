@@ -1,11 +1,11 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Contract status: `0.4.0-pre.5` · Updated 2026-07-18
+> Contract status: `0.4.0-pre.6` · Updated 2026-07-19
 
-Pre5 completes the production path from a Pre4 staged StateGraph Tick through
-explicit Operators, Claims, Outcomes, Context finalization, one composite Actor
-commit barrier, and committed EventOutbox publication. Pre4's graph staging
-remains non-authoritative until that barrier succeeds.
+Pre6 extends the Pre5 composite Actor commit with Host-owned Temporal projection
+history. It adds authority-neutral Preview, a single formal Restore into a new
+TimelineEpoch, and one explicit Unity binding for Preview, Confirm, Cancel, and
+world Correction. StateGraph still executes only forward positive-delta Ticks.
 
 ## Unity assembly model
 
@@ -16,7 +16,8 @@ Actor GameObject
 ├─ CoCoStateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
 ├─ Operator scripts          optional; referenced by the Host in explicit order
-└─ Actor Context binding     required only when Actor-owned Slots exist
+├─ Actor Context binding     required only when Actor-owned Slots exist
+└─ Context Restore binding   required when Temporal history is enabled
 ```
 
 `CoCoStateGraphHost` is the only public `MonoBehaviour` introduced by this
@@ -24,12 +25,12 @@ runtime and disallows duplicate instances on the same GameObject. Runtime,
 Clock, Inbox, Router, StateLogic, Condition, ActivationMemory, and Factory
 objects are ordinary C# objects, not components or extra Inspector assets.
 
-The Host exposes lifecycle control, Manual Step, and read-only Lifecycle,
-Fault, GraphInstanceId, and committed ActivePath inspection. Driver mode,
-AutoStart, Actor TimeScale, and diagnostic capacity are settings on that same
-Host, not reasons to add another component. The custom Inspector validates the
-Asset, project runtime binding, EventDomain, and Driver configuration without
-auto-adding anything.
+The Host exposes lifecycle control, Manual Step, read-only authority inspection,
+and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,
+AutoStart, Actor TimeScale, history capacity, and diagnostic capacity are
+settings on that same Host, not reasons to add another component. The custom
+Inspector validates the Asset, project runtime bindings, EventDomain, Driver,
+and Temporal configuration without auto-adding anything.
 
 The Host never scans old `CoCoStateController` instances, Context providers,
 children, or the scene. Its serialized Operator list is explicit and ordered;
@@ -43,12 +44,18 @@ the binding contract, stay inside the Host's transform scope without crossing a
 nested Host, and cover every Actor-owned writable Slot exactly once. It must be
 absent when the Layout contains no Actor-owned Slot.
 
+The Context Restore binding is one separate explicit Host reference and must
+implement `ICoCoContextRestoreBinding`. It is required when Temporal history
+capacity is greater than zero, must remain inside the same Host boundary, and is
+never discovered through scene scanning. One component may implement both Actor
+capture and Context restore contracts and be assigned to both fields.
+
 ## Shared graph, isolated Actor state
 
 Hosts may share one immutable compiled result from the same Asset. Everything
 that can change at runtime remains instance-owned: StateLogic and Condition
 instances, double-buffered State memory, the active leaf of every Layer, Clock,
-Inbox, pending staged Tick, and the latched Fault.
+Inbox, pending staged Tick, Temporal Ring/cursor, and the latched Fault.
 
 Project executable bindings are installed once before Host startup through an
 immutable, AOT-safe registration entry point. The Host obtains that registration
@@ -197,8 +204,8 @@ Pre5 resolves that staged Tick in one fixed transaction:
 Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
   -> Graph-owned State/Value Capture -> Claim Arbitration/Claim Capture
   -> Operators/Outcomes/Outbox -> Actor-owned Capture -> Derived Finalize
-  -> Composite Preflight
-  -> no-fail Commit -> complete Outbox Publish
+  -> Composite Preflight -> Temporal Projection Capture
+  -> no-fail Commit + Temporal Publish -> complete Outbox Publish
 ```
 
 The first Tick receives a `CoCoContextFrameReadView` backed by the layout's
@@ -224,19 +231,27 @@ binding captures Actor-owned Slots after Operators, but like every Operator it
 reads only Previous Context and cannot see this Tick's candidate. Derived
 rebuilding begins only after all direct producers finish.
 
+When history is enabled, Temporal projection encoding reads the finalized
+Context candidate after Derived rebuild but before authority changes. A Codec
+failure cancels the complete Tick, retains the old Ring and logical authority,
+and consumes no final sequence. If an Operator already changed Unity, the normal
+D12 correction rule still applies.
+
 Only the composite no-fail barrier publishes Context authority, operation
 sequence, path, memory, activation, Clock, committed claims, a contiguous final
-EventSequence range, and the resolved Intent Tick. That barrier contains no
-callback, allocation, capacity request, or fallible mutation. Any earlier
-failure cancels all candidates and retains the previous authority without final
-sequence consumption. Rollback cannot make `ActionProgress` move backwards
-within an Activation.
+EventSequence range, the resolved Intent Tick, and the prepared Ring entry. That
+barrier contains no callback, allocation, capacity request, or fallible mutation.
+Any earlier failure cancels all candidates and retains the previous authority
+without final sequence consumption. Rollback cannot make `ActionProgress` move
+backwards within an Activation.
 
-The committed `ContextFrame` is the sole retainable and restorable Actor commit
-record. Live Graph banks/path/activation, Clock, and Claim state are commit-time
-mirrors or can be rebuilt uniquely from that Frame; they are never independent
-authority. The no-fail barrier swaps Context first and then commits those mirrors
-without callbacks, allocation, capacity requests, or fallible mutation.
+The committed `ContextFrame` remains the sole retainable complete Actor commit
+record. Normal callers may still `Retain` and `Release` its generation-scoped
+handle. Temporal history does not: each Ring entry stores only exact-layout
+`Temporal + Stored` bytes and immutable source metadata. Reset and non-Temporal
+Stored values use Layout defaults during restore, while Derived values rebuild
+from their closed dependency graph. Live Graph banks/path/activation, Clock, and
+Claim state remain commit-time mirrors, never independent authority.
 
 ## Clock, lifecycle, and Fault
 
@@ -273,7 +288,58 @@ the stopped one.
 Callback or Condition exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
 faulted Host rejects normal Resume and new gameplay input. Recovery requires
-Stop followed by a fresh instance, or a future Pre6 Restore into a new Epoch.
+Stop followed by a fresh instance, except for the narrow Pre6 world-correction
+path described below. CoCoFlow does not expose a general `ClearFault()` API.
+
+## Temporal mode and public orchestration
+
+`CoCoTemporalMode` is orthogonal to the Runtime lifecycle; it does not add a
+sixth lifecycle state:
+
+- `Disabled`: configured history capacity is zero;
+- `Ready`: history is enabled and normal forward Ticks may commit entries;
+- `Previewing`: normal Tick and gameplay ingress are blocked while the
+  non-authoritative cursor selects history.
+
+Capacity is fixed before Running and counts entries, including the current
+authority. The first successful Context commit makes Count 1. A full Ring
+overwrites the oldest entry, and Stop/Dispose/destruction releases the Ring,
+cursor, scratch storage, and callback tokens. No mutable Frame, payload, arena
+handle, or long-lived selection token is exposed.
+
+The Host API is synchronous:
+
+```text
+TemporalState
+TryBeginTemporalPreview
+TryPreviewTemporal(historyDepth)
+TryConfirmTemporalRestore
+TryCancelTemporalPreview
+TryCorrectWorld
+```
+
+Depth zero means the current authority; depth one means the preceding recorded
+commit. Begin requires a healthy Running Host and at least one older entry.
+Moving the cursor decodes Stored bytes over Layout defaults, rebuilds Derived,
+and invokes the single Restore binding with `Preview`. The cursor changes only
+after that call succeeds. Preview never invokes State Enter/Exit, Update,
+Condition, Transition, Operator, Actor capture, Event, Trace, or sequence work.
+
+Cancel invokes the same binding with `Cancel` to reapply current authority. It
+does not perform a logical restore or switch Epoch. Confirm validates and
+prepares the complete Context, Graph Path/Memory, Clock, and Claim candidate,
+then invokes the binding once with `Confirm`. After that succeeds, a no-fail
+barrier swaps all logical authority, discards the abandoned future, and records
+the new-Epoch restore commit as the new history branch head. The next accepted
+positive-delta Tick resumes normal StateGraph execution.
+
+The callback receives only a token-scoped `CoCoContextRestoreReader`; retaining
+it beyond the synchronous call yields an invalid reader. A binding refusal,
+exception, destroyed component, re-entry, or possible partial Unity mutation
+does not move the cursor or logical authority. The Host latches Fault and
+`RequiresWorldCorrection`. `TryCorrectWorld` invokes the same binding with
+`Correction` against the last logical authority and clears only the matching
+recoverable fault after successful projection.
 
 ## Actor event boundary
 
@@ -300,8 +366,13 @@ releases the internal EventAgent subscription. Router callbacks only validate
 and enqueue. Packets received after a Step seals its Inbox are visible no
 earlier than the next accepted Tick.
 
-Suspend keeps Router registration and bounded accumulation. Fault rejects new
-gameplay input, and reliable overflow latches Fault at the next safe boundary.
+Suspend keeps Router registration and bounded accumulation. Beginning Temporal
+Preview instead clears queued messages, any sealed batch, and deduplication
+state immediately. New gameplay packets during Preview are dropped and counted.
+Cancel keeps the existing Epoch but never resurrects the cleared backlog;
+Confirm invalidates all old-Epoch packet and dedup state before accepting new
+input for the new Epoch. Fault rejects new gameplay input, and reliable overflow
+latches Fault at the next safe boundary.
 Outbox finalization validates capacity and metadata without consuming sequence.
 After commit, all event types of one GraphInstance/Epoch share one contiguous
 EventSequence range, published in Host Operator order and then append order.
@@ -327,42 +398,42 @@ does not retain Context; a caller that needs long-lived Context access must
 explicitly retain and release it. Filters may constrain entries by State ID or
 Transition ID without changing the stored evidence.
 
-## Restore seam
+## Restore authority barrier
 
-Pre5 validates a proposed Actor restore without callbacks: Context generation,
-Graph instance, exact Layout, Revision and origin; Clock domain/timeline, Epoch,
-Tick and execution sequence; Graph path, activation, timing/progress and Memory
-records; and canonical Claim ownership against Operator descriptors. Actor-owned
-Slots receive only Layout/type/policy validation, so the Actor binding is not
-invoked.
-
-The internal restore path is single-use and tokenized:
+Formal Confirm retains the Pre5 single-use validation/prepare discipline:
 
 ```text
-TryValidateRestore -> TryPrepareRestore -> CommitNoFail
+validate source and selection generation
+  -> materialize Stored + Default + Derived Context candidate
+  -> prepare Graph Path/Memory + Clock + Claim + branch-head entry
+  -> ICoCoContextRestoreBinding.TryApply(Confirm)
+  -> no-fail authority swap + future discard + mailbox Epoch switch
 ```
 
-Prepare performs candidate copy/default/Derived work and Memory restore binding
-outside the barrier. Failure leaves every old authority unchanged. Commit swaps
-Context, Graph, Clock, and Claim mirrors together without State Enter/Exit,
-Condition, Operator, Actor binding, Event, Trace, or Sequence work. Pre5 exposes
-no public Host Apply, History, Rewind, Seek, Resume, or New-Epoch API; Pre6 owns
-input blocking, historical selection, Unity/D12 correction, recovery, and Epoch
-orchestration around this low-level seam.
+The source TimelineId and ClockDomainId remain unchanged. The target
+TimelineEpoch is strictly newer than both source and current Epoch, and
+ExecutionSequence strictly advances. The target Tick and TimelinePosition come
+from the historical source; Revision advances from the current authority and
+Origin records the selected source identity.
 
-The compatibility and prepare seam remains available at an idle faulted Runtime
-boundary so Pre6 can repair Graph/Clock/Claim mirrors after D12 world correction.
-Applying the low-level proof does not clear the latched Fault or
-`RequiresWorldCorrection`; that recovery decision remains Pre6 orchestration.
+All compatibility, overflow, graph-path, Memory, Clock, Claim, history capacity,
+mailbox, and token validation completes before the Unity binding. Once that
+binding succeeds, the remaining authority exchange and branch-head publication
+cannot fail. Restore itself invokes no State, Condition, Transition, Operator,
+Actor capture, Event, Trace, Outbox, OperationSequence, or EventSequence work.
+
+This is same-session, same-GraphInstance, exact-layout restoration. Temporal
+payloads are not durable documents or stable wire identities. They do not restore
+Inbox contents, IntentFrame, EventAgent subscription, unpublished Outbox,
+half-executed Operator work, another Actor, or already delivered cross-Actor
+consequences.
 
 ## Explicitly deferred
 
-- **Pre6**: Temporal history, public Restore orchestration, rewind/resume, world
-  correction, and new TimelineEpoch creation.
 - **Pre11**: Animator/Playable/SMB replacement and presentation reverse mapping.
 - **Pre13**: durable persistence and migration.
 
-Pre5 does not add cross-Layer calls, queries, signals, or Transitions; an
+Pre6 does not add cross-Layer calls, queries, signals, or Transitions; an
 arbitrary state-change API; a network Driver; persistence; a production Sample;
 or a migration runtime for the retained 0.3.9 implementation.
 

@@ -1,12 +1,15 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.5` · Updated 2026-07-18
+> Contract status: `0.4.0-pre.6` · Updated 2026-07-19
 
 Pre3 introduced the Unity authoring schema and engine-independent compiler for
 the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
 schema and adds the staged Runtime and Host. Pre5 consumes its Operation and
-Context manifests without changing the Compiler or authoring schema, as described in
-[StateGraph Runtime and Host](StateGraphRuntime.md).
+Context manifests without changing the Compiler or authoring schema. Pre6 adds
+Host-owned Temporal projection history and Restore orchestration while likewise
+leaving the Compiler and serialized graph schema unchanged, as described in
+[StateGraph Runtime and Host](StateGraphRuntime.md) and
+[Temporal Rewind](TemporalRewind.md).
 
 The serialized Schema remains version 1. Because no StateGraph asset had been
 formally delivered before Pre4, this prerelease v1 is redefined in place and no
@@ -302,15 +305,13 @@ parallel scheduling, or a background compilation service.
 Multiple Hosts using one Asset share only the immutable compiled graph. Each
 owns a separate GraphInstance, StateLogic/Condition instances, double Memory
 banks, ActiveLeaf values, Clock, Intent Runtime, ContextFrame storage, Inbox,
-pending staged Tick, and Fault state. Its ContextFrame is the sole retainable and
-restorable Actor commit record; the Graph, Clock, and Claim caches are mirrors or
-can be rebuilt uniquely from that record.
+Temporal Ring/cursor, pending staged Tick, and Fault state. Its ContextFrame is
+the sole retainable complete Actor commit record; the Temporal Ring stores only
+preallocated projection payloads and does not retain that Frame. Graph, Clock,
+and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
 
 ## Deferred boundaries
 
-- **Pre6** owns Temporal history, public Restore orchestration, world correction,
-  rewind/resume, and new Epoch creation. Pre5 provides only pure validation and
-  an internal no-callback composite prepare/apply seam.
 - **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
 - **Pre15/Pre16** own production authoring UX, replacement Samples, and complete
@@ -318,4 +319,4 @@ can be rebuilt uniquely from that record.
 
 There is no generated mega-`.cs` file, build-time baked compiled Asset,
 cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
-migration path in Pre5.
+migration path in Pre6.

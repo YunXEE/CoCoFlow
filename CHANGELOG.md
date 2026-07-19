@@ -5,6 +5,48 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.6] - 2026-07-19
+
+### Added
+
+- One fixed-capacity Temporal Ring per `CoCoStateGraphHost`, storing
+  preallocated exact-layout Temporal projection payloads instead of retaining
+  complete `ContextFrame` handles. Capacity zero disables history, and every
+  successful commit records one entry including the current authority.
+- An authority-neutral Preview workflow with explicit Begin, depth selection,
+  Confirm, and Cancel operations. Preview never runs StateGraph or Operators
+  backwards; Confirm performs one Restore into a new TimelineEpoch and Cancel
+  reapplies the unchanged current authority.
+- One synchronous `ICoCoContextRestoreBinding` per temporal Host for Preview,
+  Confirm, Cancel, and world Correction, plus read-only `CoCoTemporalState`
+  inspection without exposing mutable Frames, payloads, or generation handles.
+
+### Changed
+
+- Temporal capture now encodes the finalized Context candidate before the
+  composite authority barrier. A capture failure cancels the Tick with the old
+  authority, zero committed Outbox publication, and zero final sequence
+  consumption; history publication after the barrier is no-fail.
+- Restore rebuilds a complete Context from Stored Temporal payload bytes,
+  Layout defaults, and the Derived dependency closure. A successful Confirm
+  keeps Timeline and ClockDomain identity, advances Epoch and execution
+  sequence, discards the old future, and records the new branch head.
+- Beginning Preview immediately clears Inbox queues, sealed batches, and
+  deduplication state. Messages arriving during Preview are dropped and counted;
+  Cancel keeps the original Epoch but does not resurrect the cleared backlog.
+- Kept the Runtime lifecycle unchanged and added an orthogonal Host
+  `CoCoTemporalMode`. Binding failures leave Context authority unchanged and
+  require explicit world Correction before normal progress can resume.
+- Updated the package version and the two existing Unity Package Validation
+  Suite exception scopes to `0.4.0-pre.6`; dependencies remain unchanged.
+
+### Deferred
+
+- Pre11 owns concrete Animator/Playable temporal presentation, and Pre13 owns
+  durable persistence formats, migration, and world facts.
+- Pre15 owns replacement production Samples; Pre16 owns full cross-module
+  performance and lifecycle certification.
+
 ## [0.4.0-pre.5] - 2026-07-18
 
 ### Added

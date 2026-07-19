@@ -2,12 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.5 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.6 · **Unity**: 6000+
 >
-> Pre5 adds explicit per-Host Operators, deterministic Claim and Outcome
-> processing, default-backed first-Tick Context reads, one composite Actor commit
-> barrier, complete Context producer ownership, committed EventOutbox
-> publication, and immutable Runtime Trace.
+> Pre6 adds per-Host Temporal projection history, authority-neutral continuous
+> Preview, single-shot atomic Restore into a new TimelineEpoch, and one explicit
+> Unity binding for Preview, Confirm, Cancel, and world Correction.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -56,7 +55,8 @@ StateGraph never reads a raw callback, envelope, Router, or mailbox.
 |---|---|
 | `IntentFrame` | The immutable input for one CoCoTick. It is sampled and arbitrated once, is not persisted, and is not part of rewind history. |
 | `OperationFrame` | The complete execution guide produced by StateGraph. It is the only Frame that exposes public Section contracts. |
-| `ContextFrame` | A generation-scoped, read-only handle to the complete committed logical state of one Actor at a Tick boundary. It is the authority for restore and for later Temporal/Durable projections while the captured storage generation remains alive. |
+| `ContextFrame` | A generation-scoped, read-only handle to the complete committed logical state of one Actor at a Tick boundary. It is the authority for direct retain/restore and the semantic source model for Temporal/Durable projection; the Temporal Ring does not retain this handle. |
+| `Temporal projection` | A Host-owned, fixed-capacity history payload captured from a finalized successful Context candidate. It contains only projected Stored bytes plus immutable source metadata; it is not a retained ContextFrame. |
 | `EventInbox` | Pending cross-Object gameplay input for one GraphRuntimeInstance. It is not fact storage. |
 | `EventOutbox` | Cross-Object output candidates produced during Operator execution. They are published only after ContextFrame commit succeeds. |
 | `EventAgent` | A helper for EventBus subscription lifetime only. It does not route, queue, own, or persist messages. |
@@ -124,7 +124,8 @@ Actor GameObject
 ├─ CoCoStateGraphHost        required
 │  └─ StateGraphAsset       required
 ├─ Operator scripts          optional; referenced by the Host in explicit order
-└─ Actor Context binding     required only when Actor-owned Slots exist
+├─ Actor Context binding     required only when Actor-owned Slots exist
+└─ Context Restore binding   required when Temporal history is enabled
 ```
 
 Runtime, Clock, Inbox, Router, Logic, Condition, and Memory are not components.
@@ -270,19 +271,35 @@ Restore always lands on a completed commit boundary. It does not restore an
 Inbox, IntentFrame, EventAgent subscription, unpublished Event, half-executed
 Operator, other Actor, or an already delivered cross-Actor consequence.
 
-Restore must remain in the source Timeline and ClockDomain, advance the
-ExecutionSequence, and start a TimelineEpoch newer than both the restored source
-and the Actor's current authoritative Epoch. Pre5 performs pure complete-Actor
-validation and supplies an internal, tokenized prepare plus no-callback apply
-seam that exchanges Context, Graph, Clock, and Claim authority together. It
-does not expose Host Restore or invoke Actor bindings. Pre6 owns history,
-selection, world correction, rewind/resume, and new-Epoch orchestration. Pre13
-owns durable save documents, StableEntityId-to-runtime resolution, migration,
-containers, world facts, and spawned-entity reconstruction.
+Normal `ContextFrame.Retain()` and `Release()` remain valid for callers that need
+generation-scoped access. Temporal history deliberately does not retain those
+handles: each enabled Host owns a preallocated ring of exact-layout projection
+payloads. Only `Temporal + Stored` values are encoded; Reset-to-default values
+come from the Layout default, Derived values are rebuilt from their closed
+dependency set, and non-Temporal Stored values also reset to Layout default.
 
-The internal validation/prepare seam remains usable at an idle faulted boundary
-for Pre6 D12 correction. Its no-callback apply does not clear the latched Fault
-or `RequiresWorldCorrection`; Pre6 owns that recovery decision.
+Each successful Context commit captures its finalized candidate before the
+authority swap. Capture failure cancels the whole Tick and keeps the old
+authority; publishing the prepared history entry after the composite barrier is
+no-fail. Capacity counts committed entries including the current authority,
+capacity zero disables history, and a full ring overwrites the oldest entry.
+
+Temporal Preview is orthogonal to the Runtime lifecycle. It moves only a
+non-authoritative history cursor and calls one explicit synchronous
+`ICoCoContextRestoreBinding`; it never applies negative Delta or invokes State,
+Condition, Transition, Operator, Event, or Trace work. Cancel reapplies the
+unchanged current authority. Confirm invokes the same binding once, then swaps
+Context, Graph, Clock, and Claim together, discards the abandoned future, and
+records a new branch head in a TimelineEpoch newer than both the source and the
+current Epoch. The next accepted Tick is positive and forward-moving.
+
+If a binding rejects, throws, is destroyed, or may have partially changed Unity,
+the old logical authority remains current and the Host latches Fault with
+`RequiresWorldCorrection`. `TryCorrectWorld` uses that same binding to project
+the last authority before narrowly clearing the recoverable fault. See
+[Temporal Rewind](Docs/TemporalRewind.md) for the complete Host API and failure
+semantics. Pre13 owns durable save documents, migration, world facts, and
+spawned-entity reconstruction.
 
 ## Actor Mailbox Rules
 
@@ -327,7 +344,12 @@ must persist is committed as ContextFrame state.
 
 - Suspend keeps Router registration and may accumulate messages only within the
   fixed capacity.
-- Rewind and Restore reject new gameplay messages and record diagnostics.
+- Beginning Temporal Preview immediately clears queued messages, a sealed batch,
+  and deduplication state. Gameplay messages arriving during Preview are dropped
+  and counted rather than queued for later.
+- Cancel keeps the existing Epoch but never resurrects that cleared backlog;
+  Confirm accepts only messages created for its new Epoch.
+- Ordinary Suspend/Resume is not rewind and preserves legal bounded backlog.
 - Reliable overflow latches Host Fault at a safe boundary; Fault rejects new
   gameplay input and normal Resume. Unreliable overflow rejects the newest
   message and increments diagnostics.
@@ -368,18 +390,21 @@ authority changes.
   Tick, no Intent sampling, and no new Frame.
 - Unity Update/FixedUpdate accepts at most one CoCoTick per frame; each Manual
   call is one independent Tick, without accumulator or catch-up.
-- Rewind does not use a negative delta. Pre6 restores an earlier ContextFrame,
-  establishes a new TimelineEpoch, and then resumes positive forward Steps.
+- Rewind does not use a negative delta. Preview only selects and projects a
+  historical candidate; Confirm restores it once in a new TimelineEpoch and
+  then resumes positive forward Steps.
 - StateGraph reads only the current IntentFrame and Previous ContextFrame. It
   cannot observe an Outcome produced during the current Tick.
 - The first Tick reads layout defaults through `CoCoContextFrameReadView`; no
   synthetic Tick 0 or Revision 0 Frame is exposed. The first success is Revision 1.
 - ContextFrame commit is the single committed logical-authority boundary.
-- Commit failure, cancellation, Restore, or Rewind publishes no Outbox Event,
+- Commit failure, cancellation, Preview, or Restore publishes no Outbox Event,
   consumes no final EventSequence, and creates no cross-Actor side effect.
 - A failure after a real Operator callback cannot roll Unity objects back. The
   old Context remains authoritative, the Host faults, and
-  `RequiresWorldCorrection` remains set until a fresh Host instance starts.
+  `RequiresWorldCorrection` remains set until the current authority is
+  successfully projected through the explicit Correction path or a fresh Host
+  instance starts.
 
 Outcome Slot writes are limited to declared, non-Derived, Operator-owned Pre3
 Context Slots with one owner each. Trace records accepted Transition Candidates
@@ -425,7 +450,6 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
-- **Pre6**: Temporal Ring Buffer, Restore, rewind, and new TimelineEpoch creation.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
 - **Pre13**: Persistence V2, durable projection, migration, containers, and
@@ -435,7 +459,7 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre5 because transitional 0.3.9 modules
+The dependency set remains unchanged in Pre6 because transitional 0.3.9 modules
 still compile against it.
 
 | Package | Version | Current owner |
@@ -468,6 +492,7 @@ dependency/support-define tool; it does not install project content.
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset and Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](Docs/StateGraphRuntime.md)
+- [Temporal Rewind](Docs/TemporalRewind.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

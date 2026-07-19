@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.5 · **Unity**：6000+
+> **版本**：0.4.0-pre.6 · **Unity**：6000+
 >
-> Pre5 加入 Host 显式 Operator、确定性 Claim/Outcome、首 Tick 默认值
-> Context 读取、单一 Actor 复合提交屏障、完整 Context producer 所有权、
-> committed EventOutbox 发布与不可变 Runtime Trace。
+> Pre6 加入每 Host 独占的 Temporal 投影历史、不改变权威状态的连续
+> Preview、进入新 TimelineEpoch 的单次原子 Restore，以及统一处理
+> Preview、Confirm、Cancel 与世界 Correction 的显式 Unity Binding。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -53,7 +53,8 @@ Envelope、Router 或 Mailbox。
 |---|---|
 | `IntentFrame` | 一个 CoCoTick 的不可变输入；只采样、仲裁并冻结一次，不持久化，也不进入倒放历史。 |
 | `OperationFrame` | StateGraph 产生的完整执行指南；只有它公开 Section 契约。 |
-| `ContextFrame` | 指向单个 Actor 在 Tick 边界完整已提交逻辑状态的 generation-scoped 只读 Handle；捕获的 Storage Generation 存活期间，它是 Restore 以及后续 Temporal/Durable 投影的权威输入。 |
+| `ContextFrame` | 指向单个 Actor 在 Tick 边界完整已提交逻辑状态的 generation-scoped 只读 Handle；它是直接 Retain/Restore 的权威输入与 Temporal/Durable 投影的语义源，Temporal Ring 不 Retain 该 Handle。 |
+| `Temporal projection` | 从已 Finalize 且成功的 Context candidate 捕获、由 Host 独占的固定容量历史 payload；只含投影的 Stored 字节与不可变源元数据，不是被 Retain 的 ContextFrame。 |
 | `EventInbox` | 一个 GraphRuntimeInstance 的待处理跨 Object gameplay 输入，不是事实存储。 |
 | `EventOutbox` | Operator 执行期间产生的跨 Object 输出候选，只有 ContextFrame Commit 成功后才发布。 |
 | `EventAgent` | 只负责 EventBus 订阅生命周期；不路由、不排队、不拥有也不持久化消息。 |
@@ -111,7 +112,8 @@ Actor GameObject
 ├─ CoCoStateGraphHost        必需
 │  └─ StateGraphAsset       必需
 ├─ Operator scripts          可选；由 Host 以显式顺序引用
-└─ Actor Context binding     仅有 Actor-owned Slot 时必需
+├─ Actor Context binding     仅有 Actor-owned Slot 时必需
+└─ Context Restore binding   启用 Temporal history 时必需
 ```
 
 Runtime、Clock、Inbox、Router、Logic、Condition 与 Memory 都不是组件。Host 不扫描
@@ -227,17 +229,29 @@ Restore 永远落在一个完成的 Commit Boundary。它不会恢复 Inbox、In
 EventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，或已经交付给
 其他 Actor 的后果。
 
-Restore 必须保持 Source 的 Timeline 与 ClockDomain、推进 ExecutionSequence，并建立
-同时新于 Source Epoch 与 Actor 当前权威 Epoch 的 TimelineEpoch。Pre5 提供完整 Actor
-纯读验证，以及 internal tokenized prepare + no-callback apply seam，一次性交换 Context、
-Graph、Clock 与 Claim 权威；它不公开 Host Restore，也不调用 Actor Binding。Pre6 负责
-History、选择、世界校正、Rewind/Resume 与 New Epoch 编排。Pre13 负责 Durable Save
-Document、StableEntityId 到 Runtime 的解析、Migration、Container、世界事实和生成实体
-重建。
+普通 `ContextFrame.Retain()`/`Release()` 仍可用于 generation-scoped 长期读取。
+Temporal history 刻意不 Retain 这些 Handle：每个启用的 Host 独占一个预分配的
+exact-layout projection ring。只编码 `Temporal + Stored`；ResetToDefault 从 Layout
+default 获得，Derived 从闭包完整的依赖重建，未标记 Temporal 的 Stored 也回到
+Layout default。
 
-internal validation/prepare seam 在 Runtime 已 Fault、但不存在 staged Tick 的边界仍可供
-Pre6 D12 校正使用；其无回调 Apply 不会清除锁存 Fault 或
-`RequiresWorldCorrection`，该恢复决定仍由 Pre6 负责。
+每次成功 Context commit 都在权威交换前从 finalized candidate 捕获。
+捕获失败会取消整个 Tick 并保留旧权威；复合屏障后发布已准备历史条目不再
+失败。Capacity 统计包含 current 的 committed entry，0 表示关闭，满 Ring 覆盖
+oldest。
+
+Temporal Preview 与 Runtime lifecycle 正交，只移动非权威历史游标并调用唯一
+显式同步 `ICoCoContextRestoreBinding`；它不使用负 Delta，也不运行 State、
+Condition、Transition、Operator、Event 或 Trace。Cancel 重新投射未变的 current
+authority。Confirm 只调用一次同一 Binding，然后原子交换 Context、Graph、Clock
+与 Claim，丢弃被放弃的 future，并在同时新于 Source 与 Current 的 TimelineEpoch
+记录新 branch head。下一次被接受的 Tick 才继续正 Delta 正向运行。
+
+Binding 拒绝、抛异常、被销毁或可能部分改动 Unity 时，旧逻辑权威保持不变，
+Host 锁存 Fault 并设置 `RequiresWorldCorrection`。`TryCorrectWorld` 通过同一 Binding
+重新投射最后权威，然后只清除对应的可恢复 Fault。完整 Host API 与失败语义见
+[Temporal Rewind](Docs/TemporalRewind.md)。Pre13 负责 Durable Save、Migration、世界事实与
+生成实体重建。
 
 ## Actor Mailbox 规则
 
@@ -274,7 +288,11 @@ Step 开始时封存本 Tick 可见批次；Step 期间到达的消息最早在�
 ContextFrame State。
 
 - Suspend 保留 Router 注册，并只允许在固定容量内继续积压。
-- Rewind/Restore 拒绝新的 gameplay 消息并记录诊断。
+- Begin Temporal Preview 立即清除 queue、sealed batch 与 dedup 状态；Preview
+  期间到达的 gameplay message 直接 drop 并累计，不排队到恢复后。
+- Cancel 保持旧 Epoch，但不复活已清除 backlog；Confirm 后只接受属于新 Epoch
+  的新消息。
+- 普通 Suspend/Resume 不是 Rewind，仍保留合法固定容量 backlog。
 - Reliable 溢出在安全边界锁存 Host Fault；Fault 拒绝新 gameplay input 与普通 Resume。
   Unreliable 溢出拒绝最新消息并增加诊断计数。
 - Stop/Dispose 清空队列和去重状态。
@@ -307,18 +325,18 @@ Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose
   也不产生新 Frame。
 - Unity Update/FixedUpdate 每帧最多接受一个 CoCoTick；Manual 每次调用都是独立 Tick，
   不使用 accumulator 或 catch-up。
-- Rewind 不使用负 Delta。Pre6 从旧 ContextFrame Restore，建立新 TimelineEpoch，
-  然后继续正向 Tick。
+- Rewind 不使用负 Delta。Preview 只选择并投射历史 candidate；Confirm 在新
+  TimelineEpoch 只 Restore 一次，然后继续正 Delta 正向 Tick。
 - StateGraph 只读取当前 IntentFrame 和 Previous ContextFrame，不能观察本 Tick
   执行中产生的 Outcome。
 - 首 Tick 通过 `CoCoContextFrameReadView` 读取 Layout 默认值，不伪造 Tick 0 或
   Revision 0 Frame；首次成功提交为 Revision 1。
 - ContextFrame Commit 是唯一已提交的 gameplay 逻辑权威边界。
-- Commit 失败、Cancel、Restore 或 Rewind 时，零 Outbox Event、零最终 EventSequence
+- Commit 失败、Cancel、Preview 或 Restore 时，零 Outbox Event、零最终 EventSequence
   消耗、零跨 Actor 副作用。
 - 真实 Operator Callback 修改 Unity 对象后再失败时，框架不伪造世界回滚；旧
   Context 继续是权威，Host Fault，`RequiresWorldCorrection` 保持为真，
-  直到新 Host 实例启动。
+  直到显式 Correction 成功重新投射 current authority，或新 Host 实例启动。
 
 Outcome 只能写入 Pre3 Manifest 中已声明、非 Derived、Operator-owned 且唯一 owner
 的 Context Slot。Trace 按 compiled order 记录通过条件的 Transition Candidate，并把
@@ -359,7 +377,6 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 后续 0.4 工作
 
-- **Pre6**：Temporal Ring Buffer、Restore、Rewind 与新 TimelineEpoch。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
@@ -368,7 +385,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre5 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre6 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
@@ -398,6 +415,7 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
+- [Temporal Rewind](Docs/TemporalRewind.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)
