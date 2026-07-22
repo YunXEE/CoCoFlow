@@ -7,7 +7,24 @@ namespace CoCoFlow.Editor.StateGraph
 {
     public static class CoCoStateGraphEditorCatalogProvider
     {
-        public static Func<CoCoGraphDescriptorCatalog> Provider { get; set; }
+        private static Func<CoCoGraphDescriptorCatalog> provider;
+
+        public static Func<CoCoGraphDescriptorCatalog> Provider
+        {
+            get => provider;
+            set
+            {
+                if (ReferenceEquals(provider, value))
+                {
+                    return;
+                }
+
+                provider = value;
+                CatalogChanged?.Invoke();
+            }
+        }
+
+        internal static event Action CatalogChanged;
     }
 
     [CustomEditor(typeof(CoCoStateGraphAsset))]
@@ -31,6 +48,8 @@ namespace CoCoFlow.Editor.StateGraph
 
             SerializedProperty eventAdapterDeclarations =
                 serializedObject.FindProperty("eventAdapterDeclarations");
+            bool authoringReadOnly = EditorApplication.isPlayingOrWillChangePlaymode;
+            EditorGUI.BeginDisabledGroup(authoringReadOnly);
             EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(
                 eventAdapterDeclarations,
@@ -42,19 +61,29 @@ namespace CoCoFlow.Editor.StateGraph
                 analysisResult = null;
                 authoringFailure = string.Empty;
             }
+            EditorGUI.EndDisabledGroup();
 
             EditorGUILayout.Space();
-            SerializedProperty layers = serializedObject.FindProperty("layers");
-            EditorGUI.BeginChangeCheck();
-            EditorGUILayout.PropertyField(layers, true);
-            if (EditorGUI.EndChangeCheck())
+            EditorGUILayout.LabelField("Layers", asset.Layers.Count.ToString());
+            int stateCount = 0;
+            int transitionCount = 0;
+            foreach (CoCoStateGraphLayerRecord layer in asset.Layers)
             {
-                serializedObject.ApplyModifiedProperties();
-                analysisResult = null;
-                authoringFailure = string.Empty;
+                if (layer != null)
+                {
+                    stateCount += layer.States.Count;
+                    transitionCount += layer.Transitions.Count;
+                }
             }
 
-            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("States", stateCount.ToString());
+            EditorGUILayout.LabelField("Transitions", transitionCount.ToString());
+            if (GUILayout.Button("Open State Graph Editor"))
+            {
+                CoCoStateGraphEditorWindow.Open(asset);
+            }
+
+            EditorGUI.BeginDisabledGroup(authoringReadOnly);
             if (GUILayout.Button("Add Layer"))
             {
                 CoCoStateGraphAuthoringOperations.AddLayer(asset);
@@ -62,14 +91,21 @@ namespace CoCoFlow.Editor.StateGraph
                 analysisResult = null;
                 authoringFailure = string.Empty;
             }
+            EditorGUI.EndDisabledGroup();
 
-            DrawSelectedLayerOperations(asset, layers);
+            if (authoringReadOnly)
+            {
+                EditorGUILayout.HelpBox(
+                    "StateGraph authoring is read-only while entering or running Play Mode.",
+                    MessageType.Info);
+            }
+
             DrawAnalysis(asset);
 
             EditorGUILayout.Space();
             EditorGUILayout.HelpBox(
-                "State and Condition descriptor IDs come from an explicitly supplied descriptor catalog. " +
-                "Draft Assets may be saved with unresolved descriptors; compilation reports them as Errors.",
+                "Topology is edited through the State Graph Editor so stable IDs, EditorLayout, and Undo remain atomic. " +
+                "Event Adapter declarations remain non-topology authoring data in this Inspector.",
                 MessageType.Info);
         }
 

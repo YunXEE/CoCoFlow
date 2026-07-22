@@ -100,7 +100,7 @@ namespace CoCoFlow.Runtime.Core
             if (capacity > 0 &&
                 (!hasBinding ||
                  !(bindingComponent is ICoCoContextRestoreBinding) ||
-                 !IsInsideHostBoundary(host, bindingComponent)))
+                 !CoCoStateGraphHostBoundary.Contains(host, bindingComponent)))
             {
                 diagnostic = ConfigurationError(
                     "Enabled Temporal history requires one live Restore Binding inside the Host boundary.");
@@ -186,7 +186,7 @@ namespace CoCoFlow.Runtime.Core
                 MonoBehaviour activeBindingComponent =
                     bindingComponent != null &&
                     bindingComponent is ICoCoContextRestoreBinding &&
-                    IsInsideHostBoundary(host, bindingComponent)
+                    CoCoStateGraphHostBoundary.Contains(host, bindingComponent)
                         ? bindingComponent
                         : null;
                 controller = new CoCoStateGraphTemporalController(
@@ -844,7 +844,7 @@ namespace CoCoFlow.Runtime.Core
         private bool IsBindingLive =>
             _binding != null &&
             _bindingComponent != null &&
-            IsInsideHostBoundary(_host, _bindingComponent);
+            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent);
 
         private void ClearActiveRead()
         {
@@ -923,30 +923,6 @@ namespace CoCoFlow.Runtime.Core
                     frame.Revision,
                     frame.Origin)
                 : default;
-
-        private static bool IsInsideHostBoundary(
-            CoCoStateGraphHost host,
-            MonoBehaviour component)
-        {
-            if (host == null || component == null)
-            {
-                return false;
-            }
-
-            Transform current = component.transform;
-            while (current != null)
-            {
-                CoCoStateGraphHost boundary = current.GetComponent<CoCoStateGraphHost>();
-                if (boundary != null)
-                {
-                    return ReferenceEquals(boundary, host);
-                }
-
-                current = current.parent;
-            }
-
-            return false;
-        }
 
         private static CoCoDiagnostic ConfigurationError(string message) =>
             CoCoDiagnostic.Error(

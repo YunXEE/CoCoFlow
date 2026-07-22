@@ -1,0 +1,23 @@
+#state-graph-toolbar-host {
+    flex-shrink: 0;
+}
+
+#state-graph-details {
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-bottom: 12px;
+}
+
+.state-graph-heading {
+    margin-top: 12px;
+    margin-bottom: 5px;
+    padding-bottom: 3px;
+    font-size: 13px;
+    -unity-font-style: bold;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(75, 79, 85);
+}
+
+#state-graph-empty {
+    padding: 24px;
+}

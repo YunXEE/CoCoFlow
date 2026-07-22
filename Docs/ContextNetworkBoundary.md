@@ -1,14 +1,16 @@
 # CoCoFlow State Flow / Event Boundary
 
 > State Flow contract: `0.4.0-pre.2` · StateGraph runtime integration:
-> `0.4.0-pre.6` · Updated 2026-07-19
+> `0.4.0-pre.7` · Updated 2026-07-22
 >
 > This is the authoritative Pre2 data-flow and cross-Object communication
 > boundary. Pre3 implements Asset/Compiler and Pre4 implements the staged
 > StateGraph Runtime, Unity Host, ingress Router, Inbox, and Clock. Pre5 completes
 > Operator execution and the composite Context commit that publishes output.
 > Pre6 adds Host-owned Temporal projection history and public same-session
-> Preview/Restore orchestration without changing this one-way Tick boundary.
+> Preview/Restore orchestration. Pre7 adds explicit Host scene-instance
+> assembly, committed-only debugger inspection, and one suspended forward debug
+> Tick without changing this one-way Tick boundary.
 
 ## 目标
 
@@ -215,6 +217,13 @@ metadata、Revision 与 `HasCommittedFrame`，不 Retain Context Handle；首 Ti
 引用精确 Layout Default 且 `HasCommittedFrame=false`，不伪造 Revision 0。失败事务以
 Cancelled 结束，不得出现 Commit、Sequence 或 Published。
 
+Pre7 Runtime Debugger 的 Snapshot 与 Trace 不是同一数据面。Snapshot 是最近一次已提交
+权威边界的内部不可变点状副本，用于读取 Host/Lifecycle/Fault、Context Revision、
+Tick/Clock/Epoch、各 Layer Active Path 与已提交 Transition；它不暴露 candidate、payload、
+Inbox、Envelope、Context Handle 或反射私有字段。Trace 是可选的 identity-only 事件历史，
+capacity 默认为 0，Running 时不可改变。失败或取消的 Tick 不能成为 committed Snapshot，
+也不能伪造 Trace Commit、Sequence 或 Published 记录。
+
 ## 4. EventPacket 与路由身份
 
 0.4 gameplay 消息使用一个原子值：
@@ -396,22 +405,30 @@ Pre13 负责 Durable Save Document、StableEntityId 解析、Migration、Contain
 - Actor TimeScale 同样必须有限且大于零；Pause/Suspend 等价于零 Tick，不创建 Delta
   为零的 Frame；
 - 倒放不使用负 Delta；Preview 只投射历史，Confirm 在新 Epoch 执行一次正式 Restore；
+- 健康 Suspended Host 的内部 Debug Step 接受一个显式有限正 Delta，并在 Update、
+  FixedUpdate 或 Manual Driver 下执行恰好一个普通正向 Tick；它可以 Commit、写入已启用
+  的 Trace/Temporal history 并发布 committed Event，成功后回到 Suspended，因此既不是
+  Rewind，也不是 authority-neutral Preview；
 - Unity Callback、Fusion Tick 或 Manual Driver 都只能作为 Host/Driver 输入；
 - Animator/SMB Callback 不能立即调用 StateGraph 或修改当前 Frame；它只能进入表现
   路径，或经 Event/Intent 边界供后续 Tick 消化。
 
 Host 启动先完成 Compile、Provider Configure/Freeze 与 Transaction Preflight；只有 Graph
-producer、必需的 Actor Binding、启用 Temporal History 时的 Restore Binding、
-Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，才创建 Clock、
-Runtime、执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
+producer、按序显式引用的 Intent Sources、Event-to-Intent Adapters 与 Operators、必需的
+Actor Context Binding、启用 Temporal History 时的 Restore Binding，以及
+Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，才创建 Clock、Runtime、
+执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
 因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
 Operator 或 Actor callback，Host 保持 `Created`。
 
 `CoCoStateGraphHost` 仍是框架唯一 public MonoBehaviour；Asset 是唯一必填项，其他
 Driver、AutoStart、TimeScale、Temporal history 与诊断容量都是同一 Host 的设置。
-Restore Binding 是一个显式项目组件引用，不通过扫描发现。Runtime、Clock、Inbox、
-Router、Logic、Condition、Memory 与 Temporal Ring 都是内部普通对象。Playable
-Animation、可控播放进度与 Root Motion 归 Pre11。
+这些 Host 引用只决定当前 Actor 使用哪些具体场景实例及其顺序；Project Provider 继续
+拥有冻结 Catalog、State/Condition Factory、通用 Intent/Adapter binding、Operation/
+Context 类型、Codec、Default 与 AOT-safe construction 的类型权威。Editor 可以提出建议，
+但必须由用户确认后才保存；Running 配置只读。Host 不通过场景扫描发现这些引用。
+Runtime、Clock、Inbox、Router、Logic、Condition、Memory 与 Temporal Ring 都是内部普通
+对象。Playable Animation、可控播放进度与 Root Motion 归 Pre11。
 
 ## 8. Network Adapter Boundary
 
@@ -464,6 +481,9 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
   完整 Actor 纯 Restore validation 与内部无 callback apply seam。
 - **Pre6**：已交付 Host-owned Temporal projection Ring、public Preview/Restore/Cancel/Correction
   编排、Mailbox 阻断与新 TimelineEpoch branch head。
+- **Pre7**：交付受限 StateGraph Editor、显式 Host 场景引用、committed-only Debugger
+  Snapshot、默认关闭且 Running 时固定容量的 Trace，以及健康 Suspended Host 的单步正向
+  Debug Tick；不改变本文的 Commit、Event 或 Restore 权威边界。
 - **Pre11**：Animator/Playable/SMB 替代与视觉倒放映射。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
 - **Pre16**：跨模块架构、性能、Mailbox、Suspend、Rewind 与幽灵订阅完整门禁。

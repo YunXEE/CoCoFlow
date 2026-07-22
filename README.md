@@ -2,11 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.6 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.7 · **Unity**: 6000+
 >
-> Pre6 adds per-Host Temporal projection history, authority-neutral continuous
-> Preview, single-shot atomic Restore into a new TimelineEpoch, and one explicit
-> Unity binding for Preview, Confirm, Cancel, and world Correction.
+> Pre7 adds a constrained StateGraph Editor and committed Runtime Debugger,
+> presentation-only graph layout, deterministic Catalog overlays and presets,
+> explicit Host scene references, and one normal forward debug Tick from a
+> healthy Suspended Host.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -114,6 +115,29 @@ there is no migration promise for experimental Pre3 assets. Completion and
 InterruptPolicy are removed, and normalized timing is expressed as
 Activation-scoped ActionProgress.
 
+Pre7's Editor opens one Asset, selected Layer, and recursive State scope at a
+time. It connects only leaf States in the same Layer and exposes Conditions,
+one Window, and a source-unique Priority; Completion and Interrupt are not
+authoring fields. Every topology change uses an Undo-aware authoring operation.
+Deleting a subtree also deletes incident Transitions. Deleting an initial State
+requires the user to choose a valid surviving sibling when one exists; when no
+sibling survives, the user may explicitly confirm an empty, compiler-invalid
+draft.
+Same-Asset copy/paste creates new IDs and keeps only internal Transitions;
+cross-Asset and cross-session clipboard transfer are deferred.
+
+State positions are separately versioned presentation data keyed by stable
+State ID. They are excluded from runtime schema v1, the compiler snapshot,
+content fingerprint, and compilation-cache key. Selection, breadcrumb,
+foldouts, pan/zoom, search, and diagnostic location are session state that
+survives Domain Reload only. The internal Catalog is enumerated
+deterministically and the Editor overlays only the existing Intent, Graph
+Operation, and ContextFrame State manifests. The Simple preset creates one Layer
+with two generic leaf States and one same-Layer Transition. Combo creates the
+generic `Step1 -> Step2 -> Step3 -> Step4 -> Exit` topology. Neither creates
+gameplay logic, animation timing, Samples, or a fourth Manifest. See
+[StateGraph Editor and Runtime Debugger](Docs/StateGraphEditor.md).
+
 ## StateGraph Runtime and Host
 
 At minimum, one Actor needs one framework component and one asset. Actor-owned
@@ -123,6 +147,8 @@ Slots add one explicit project binding:
 Actor GameObject
 ├─ CoCoStateGraphHost        required
 │  └─ StateGraphAsset       required
+├─ Intent Source scripts     optional; referenced by the Host in explicit order
+├─ Event Adapter scripts     required as declared; referenced in explicit order
 ├─ Operator scripts          optional; referenced by the Host in explicit order
 ├─ Actor Context binding     required only when Actor-owned Slots exist
 └─ Context Restore binding   required when Temporal history is enabled
@@ -133,6 +159,13 @@ The Host does not scan old Controllers, Context providers, children, or the
 scene. Multiple Hosts may share the immutable compiled graph, while each owns
 its StateLogic/Condition instances, double Memory banks, active leaves, Clock,
 Inbox, staged Tick, and latched Fault.
+
+The Host owns the user-confirmed concrete scene references and their order. The
+Project Provider remains authoritative for the frozen Catalog, State and
+Condition factories, generic Intent and Adapter bindings, Operation and Context
+types, Codecs, defaults, and AOT-safe construction. Editor suggestions are
+advisory and are not saved until confirmed; configuration is read-only while
+Running. The Host does not discover these references by scene scanning.
 
 Before any Clock or Runtime factory runs, transaction preflight requires exact
 coverage for Graph-state, Graph-value, Claim, Operator, Actor, and Derived
@@ -400,6 +433,10 @@ authority changes.
 - Rewind does not use a negative delta. Preview only selects and projects a
   historical candidate; Confirm restores it once in a new TimelineEpoch and
   then resumes positive forward Steps.
+- An internal debug step on a healthy Suspended Host accepts one finite positive
+  delta and executes exactly one normal Tick under Update, FixedUpdate, or
+  Manual driving. It can commit Context, history, Trace, and Outbox events and
+  returns to Suspended only on success; it is not Rewind or a neutral Preview.
 - StateGraph reads only the current IntentFrame and Previous ContextFrame. It
   cannot observe an Outcome produced during the current Tick.
 - The first Tick reads layout defaults through `CoCoContextFrameReadView`; no
@@ -418,7 +455,15 @@ Context Slots with one owner each. Trace records accepted Transition Candidates
 in compiled order and the Winner as a separate entry. Its immutable Frame
 references contain identity, exact Layout metadata, Revision, and whether a
 committed Frame exists; they never retain a Frame handle. Trace stores no
-payload, Unity object, mutable Frame, or diagnostic string.
+payload, Unity object, mutable Frame, or diagnostic string. Trace is opt-in:
+capacity defaults to zero and cannot change while Running.
+
+The Runtime Debugger's internal immutable snapshot is separate from Trace. It
+answers what is committed now for Host/lifecycle/fault, Context revision,
+Tick/Clock/Epoch, and per-Layer active paths and committed Transitions. It never
+exposes a candidate Tick, payload, Inbox, Envelope, retained Context handle, or
+private reflected field; a failed or cancelled Tick cannot replace committed
+snapshot authority.
 
 ## Repository and Package Boundary
 
@@ -436,7 +481,8 @@ Runtime/StateGraphHost   Unity Host plus internal Gateway/Router integration
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
 Runtime/Modules          transitional presentation and service modules
-Editor/StateGraph        Editor-only identity operations and diagnostic navigation
+Editor/StateGraph        constrained graph authoring and diagnostics
+Editor/StateGraphHost    Host Inspector and committed runtime debugger
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -461,12 +507,14 @@ with this document, the Pre2 State Flow model is authoritative.
   timing, and root-motion ownership.
 - **Pre13**: Persistence V2, durable projection, migration, containers, and
   world facts.
-- **Pre15/Pre16**: replacement Samples, golden-path content, documentation, and
-  full cross-module performance/lifecycle certification.
+- **Pre15**: production gameplay States and replacement Samples.
+- **Pre16**: full cross-module performance and lifecycle certification.
+- **Pre17**: final visual and XML-documentation polish without changing the
+  feature boundary.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre6 because transitional 0.3.9 modules
+The dependency set remains unchanged in Pre7 because transitional 0.3.9 modules
 still compile against it.
 
 | Package | Version | Current owner |
@@ -499,6 +547,7 @@ dependency/support-define tool; it does not install project content.
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset and Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](Docs/StateGraphRuntime.md)
+- [StateGraph Editor and Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)

@@ -20,7 +20,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             HostTestLogic.Reset();
             HostTestEventAdapter.Reset();
-            DualEventAdapter.Reset();
+            DualHostTestEventAdapterComponent.Reset();
         }
 
         [TearDown]
@@ -38,7 +38,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             HostTestLogic.Reset();
             HostTestEventAdapter.Reset();
-            DualEventAdapter.Reset();
+            DualHostTestEventAdapterComponent.Reset();
         }
 
         [Test]
@@ -454,6 +454,29 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void BindingValidationWithoutHostUsesEmptyExplicitReferenceContract()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: true);
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
+            CoCoStateGraphAssetCompileResult result =
+                new CoCoStateGraphAssetCompiler().Compile(asset, provider.Catalog);
+            Assert.That(result.Succeeded, Is.True);
+
+            Assert.That(
+                CoCoStateGraphHostBindingValidation.TryValidate(
+                    result.Graph,
+                    provider,
+                    4,
+                    4,
+                    4,
+                    out CoCoDiagnostic diagnostic),
+                Is.False);
+            Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.ManifestConflict));
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+        }
+
+        [Test]
         public void SameEventTypeUsesOneInboxLaneAndProjectsInAssetOrder()
         {
             HostTestIds ids = HostTestIds.Create();
@@ -462,6 +485,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             CoCoStateGraphAsset asset = CreateDualEventAsset(ids, secondIntentId);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var firstAdapter = host.gameObject.AddComponent<DualHostTestEventAdapterComponent>();
+            firstAdapter.IsFirst = true;
+            var secondAdapter = host.gameObject.AddComponent<DualHostTestEventAdapterComponent>();
+            SetField(host, "eventAdapters", new MonoBehaviour[] { firstAdapter, secondAdapter });
             Require(host.TryStart(out CoCoDiagnostic start));
 
             CoCoStateGraphHostRuntimeBindings bindings = GetBindings(host);
@@ -478,14 +505,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoEventReliability.Reliable);
             Assert.That(host.TryEnqueueLocal(packet), Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
             Require(host.TryStep(0.02d, out CoCoDiagnostic step));
-            Assert.That(DualEventAdapter.FirstProjectionCount, Is.EqualTo(1));
-            Assert.That(DualEventAdapter.SecondProjectionCount, Is.EqualTo(1));
-            Assert.That(DualEventAdapter.FirstProjectionOrder, Is.EqualTo(1));
-            Assert.That(DualEventAdapter.SecondProjectionOrder, Is.EqualTo(2));
+            Assert.That(DualHostTestEventAdapterComponent.FirstProjectionCount, Is.EqualTo(1));
+            Assert.That(DualHostTestEventAdapterComponent.SecondProjectionCount, Is.EqualTo(1));
+            Assert.That(DualHostTestEventAdapterComponent.FirstProjectionOrder, Is.EqualTo(1));
+            Assert.That(DualHostTestEventAdapterComponent.SecondProjectionOrder, Is.EqualTo(2));
         }
 
         [Test]
-        public void EqualPriorityEventAdaptersReduceSameIntentInAssetOrder()
+        public void HostSourcesRunBeforeAssetOrderedEventAdaptersRegardlessOfProviderCalls()
         {
             HostTestIds ids = HostTestIds.Create();
             Require(CoCoEventTypeId.TryCreate(
@@ -496,6 +523,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             CoCoStateGraphAsset asset = CreateOrderedEventAsset(ids, secondEventTypeId);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var firstSource = host.gameObject.AddComponent<OrderedHostTestIntentSourceComponent>();
+            firstSource.Value = 9;
+            var secondSource = host.gameObject.AddComponent<OrderedHostTestIntentSourceComponent>();
+            secondSource.Value = 8;
+            var firstAdapter =
+                host.gameObject.AddComponent<FirstOrderedHostTestEventAdapterComponent>();
+            var secondAdapter =
+                host.gameObject.AddComponent<SecondOrderedHostTestEventAdapterComponent>();
+            SetField(host, "intentSources", new MonoBehaviour[] { firstSource, secondSource });
+            SetField(host, "eventAdapters", new MonoBehaviour[] { firstAdapter, secondAdapter });
             Require(host.TryStart(out CoCoDiagnostic start), start);
 
             CoCoEventPacket<HostTestEvent> first = Packet(
@@ -516,7 +553,268 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Require(host.TryStep(0.02d, out CoCoDiagnostic step), step);
 
-            Assert.That(HostTestLogic.LastIntentValue, Is.EqualTo(192));
+            Assert.That(HostTestLogic.LastIntentValue, Is.EqualTo(9812));
+        }
+
+        [Test]
+        public void ExplicitEventAdapterReferencesAreRequiredAndStayInsideNearestHost()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: true);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
+
+            CoCoStateGraphHost missing = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            SetField(missing, "eventAdapters", Array.Empty<MonoBehaviour>());
+            Assert.That(missing.TryStart(out CoCoDiagnostic missingDiagnostic), Is.False);
+            Assert.That(missingDiagnostic.IsError, Is.True);
+            Assert.That(missing.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+
+            CoCoStateGraphHost nullReference =
+                CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            SetField(nullReference, "eventAdapters", new MonoBehaviour[] { null });
+            Assert.That(
+                nullReference.TryStart(out CoCoDiagnostic nullDiagnostic),
+                Is.False);
+            Assert.That(
+                nullDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.DescriptorTypeMismatch));
+            Assert.That(
+                nullReference.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+
+            CoCoStateGraphHost wrongType =
+                CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var wrongAdapter =
+                wrongType.gameObject.AddComponent<SecondOrderedHostTestEventAdapterComponent>();
+            SetField(wrongType, "eventAdapters", new MonoBehaviour[] { wrongAdapter });
+            Assert.That(
+                wrongType.TryStart(out CoCoDiagnostic wrongTypeDiagnostic),
+                Is.False);
+            Assert.That(
+                wrongTypeDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.DescriptorTypeMismatch));
+            Assert.That(
+                wrongType.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+
+            CoCoStateGraphHost outside =
+                CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var outsideObject = new GameObject("Outside StateGraph Host");
+            _objects.Add(outsideObject);
+            var outsideAdapter = outsideObject.AddComponent<HostTestEventAdapterComponent>();
+            SetField(outside, "eventAdapters", new MonoBehaviour[] { outsideAdapter });
+            Assert.That(
+                outside.TryStart(out CoCoDiagnostic outsideDiagnostic),
+                Is.False);
+            Assert.That(
+                outsideDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.DescriptorTypeMismatch));
+            Assert.That(
+                outside.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+
+            CoCoStateGraphHost outer = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var nestedObject = new GameObject("Nested StateGraph Host");
+            nestedObject.transform.SetParent(outer.transform, false);
+            nestedObject.AddComponent<CoCoStateGraphHost>();
+            var nestedAdapter = nestedObject.AddComponent<HostTestEventAdapterComponent>();
+            SetField(outer, "eventAdapters", new MonoBehaviour[] { nestedAdapter });
+            Assert.That(outer.TryStart(out CoCoDiagnostic nestedDiagnostic), Is.False);
+            Assert.That(nestedDiagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.DescriptorTypeMismatch));
+            Assert.That(outer.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+        }
+
+        [Test]
+        public void DuplicateHostAdapterReferenceCannotCoverTwoManifestSlots()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            Require(CoCoIntentId.TryCreate(106UL, 2UL, out CoCoIntentId secondIntentId));
+            var provider = new DualEventBindingProvider(ids, secondIntentId);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateDualEventAsset(ids, secondIntentId);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var duplicate = host.gameObject.AddComponent<DualHostTestEventAdapterComponent>();
+            duplicate.IsFirst = true;
+            SetField(host, "eventAdapters", new MonoBehaviour[] { duplicate, duplicate });
+
+            Assert.That(host.TryStart(out CoCoDiagnostic diagnostic), Is.False);
+            Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.DescriptorTypeMismatch));
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+        }
+
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void SuspendedDebugStepRunsOneScaledTickForEveryDriver(
+            int driverValue)
+        {
+            var selectedDriver = (CoCoStateGraphDriver)driverValue;
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: false);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
+            CoCoStateGraphHost host = CreateHost(asset, selectedDriver, 4);
+            SetField(host, "timeScale", 2f);
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            Require(host.TryCaptureDebugSnapshot(
+                out CoCoStateGraphHostDebugSnapshot before,
+                out CoCoDiagnostic beforeCapture), beforeCapture);
+            CoCoStateGraphHostDebugActiveState beforeState =
+                before.GetLayer(0).GetActiveState(0);
+
+            Require(host.TryDebugStepWhileSuspended(0.125d, out CoCoDiagnostic step), step);
+            Require(host.TryCaptureDebugSnapshot(
+                out CoCoStateGraphHostDebugSnapshot after,
+                out CoCoDiagnostic afterCapture), afterCapture);
+
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(before.GraphId, Is.EqualTo(asset.GraphId));
+            Assert.That(before.GraphInstanceId, Is.EqualTo(host.GraphInstanceId));
+            Assert.That(before.ContentFingerprint, Is.Not.Zero);
+            Assert.That(before.CatalogFingerprint, Is.EqualTo(provider.Catalog.Fingerprint));
+            Assert.That(before.TimelineId, Is.EqualTo(after.TimelineId));
+            Assert.That(before.ClockDomainId, Is.EqualTo(after.ClockDomainId));
+            Assert.That(before.TimelineEpoch, Is.EqualTo(after.TimelineEpoch));
+            Assert.That(before.Tick.Value, Is.Zero);
+            Assert.That(before.Seconds, Is.Zero);
+            Assert.That(after.Tick.Value, Is.EqualTo(1UL));
+            Assert.That(after.Seconds, Is.EqualTo(0.25d));
+            Assert.That(before.Tick.Value, Is.Zero, "The previous snapshot must stay immutable.");
+            Assert.That(beforeState.LocalSeconds, Is.Zero);
+            Assert.That(
+                before.GetLayer(0).GetActiveState(0).LocalSeconds,
+                Is.Zero,
+                "The previous active-state copy must stay immutable.");
+            Assert.That(
+                after.GetLayer(0).GetActiveState(0).LocalSeconds,
+                Is.EqualTo(0.25d));
+            Assert.That(after.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(after.LayerCount, Is.EqualTo(1));
+            Assert.That(after.GetLayer(0).ActiveStateCount, Is.EqualTo(1));
+            Assert.That(after.ContextHeader.IsValid, Is.True);
+            Assert.That(
+                after.ContextHeader.Identity.GraphInstanceId,
+                Is.EqualTo(host.GraphInstanceId));
+            Assert.That(after.ContextHeader.Identity.Kind, Is.EqualTo(CoCoStateFlowFrameKind.Context));
+            Assert.That(after.ContextHeader.TickFrame.TimelineId, Is.EqualTo(after.TimelineId));
+            Assert.That(after.ContextHeader.TickFrame.ClockDomainId, Is.EqualTo(after.ClockDomainId));
+            Assert.That(after.ContextHeader.TickFrame.TimelineEpoch, Is.EqualTo(after.TimelineEpoch));
+            Assert.That(after.ContextHeader.TickFrame.Tick, Is.EqualTo(after.Tick));
+            Assert.That(
+                after.ContextHeader.TickFrame.ExecutionSequence,
+                Is.EqualTo(after.ExecutionSequence));
+        }
+
+        [Test]
+        public void SuspendedDebugStepConsumesQueuedEventOnceAndWorksWithoutTrace()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: true);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Update, 4);
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            CoCoEventPacket<HostTestEvent> packet = Packet(
+                ids,
+                host.GraphInstanceId,
+                host.GraphInstanceId,
+                1UL,
+                7,
+                CoCoEventReliability.Reliable);
+            Assert.That(host.TryEnqueueLocal(packet), Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
+
+            Require(host.TryDebugStepWhileSuspended(0.02d, out CoCoDiagnostic first), first);
+            Assert.That(HostTestEventAdapter.ProjectionCount, Is.EqualTo(1));
+            Require(host.TryDebugStepWhileSuspended(0.02d, out CoCoDiagnostic second), second);
+            Assert.That(HostTestEventAdapter.ProjectionCount, Is.EqualTo(1));
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(host.Trace, Is.Null);
+            Require(host.TryCaptureDebugSnapshot(
+                out CoCoStateGraphHostDebugSnapshot snapshot,
+                out CoCoDiagnostic capture), capture);
+            Assert.That(snapshot.Tick.Value, Is.EqualTo(2UL));
+            Assert.That(snapshot.ContextRevision.Value, Is.EqualTo(2UL));
+        }
+
+        [Test]
+        public void InvalidSuspendedDebugDeltaDoesNotResumeOrAdvance()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: false);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+
+            Assert.That(host.TryDebugStepWhileSuspended(0d, out CoCoDiagnostic diagnostic), Is.False);
+            Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(GetRuntime(host).Clock.Tick.Value, Is.Zero);
+        }
+
+        [Test]
+        public void RetryableSuspendedDebugStepFailureReturnsToSuspendedWithoutAdvancing()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(ids, withEvent: false);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: false);
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            SetField(host, "contextFrameCapacity", 2);
+            CoCoContextFrame first = default;
+            CoCoContextFrame second = default;
+            bool firstRetained = false;
+            bool secondRetained = false;
+            try
+            {
+                Require(host.TryStart(out CoCoDiagnostic start), start);
+                Require(host.TryStep(0.02d, out CoCoDiagnostic firstStep), firstStep);
+                first = host.CurrentContext;
+                firstRetained = first.Retain();
+                Require(firstRetained);
+                Require(host.TryStep(0.02d, out CoCoDiagnostic secondStep), secondStep);
+                second = host.CurrentContext;
+                secondRetained = second.Retain();
+                Require(secondRetained);
+                Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+
+                Assert.That(
+                    host.TryDebugStepWhileSuspended(0.02d, out CoCoDiagnostic failure),
+                    Is.False);
+                Assert.That(failure.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
+                Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+                Assert.That(host.Fault.IsFaulted, Is.False);
+                Assert.That(host.RequiresWorldCorrection, Is.False);
+                Assert.That(GetRuntime(host).Clock.Tick.Value, Is.EqualTo(2UL));
+                Assert.That(host.CurrentContext, Is.EqualTo(second));
+
+                Assert.That(first.Release(), Is.True);
+                firstRetained = false;
+                Assert.That(second.Release(), Is.True);
+                secondRetained = false;
+                Require(
+                    host.TryDebugStepWhileSuspended(0.02d, out CoCoDiagnostic retry),
+                    retry);
+                Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+                Assert.That(GetRuntime(host).Clock.Tick.Value, Is.EqualTo(3UL));
+            }
+            finally
+            {
+                if (secondRetained)
+                {
+                    Assert.That(second.Release(), Is.True);
+                }
+
+                if (firstRetained)
+                {
+                    Assert.That(first.Release(), Is.True);
+                }
+            }
         }
 
         [UnityTest]
@@ -639,6 +937,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             CoCoStateGraphAsset asset = CreateAsset(ids, withEvent: true);
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            var throwing =
+                host.gameObject.AddComponent<ThrowingHostTestEventAdapterComponent>();
+            SetField(host, "eventAdapters", new MonoBehaviour[] { throwing });
             Require(host.TryStart(out CoCoDiagnostic start));
 
             CoCoStateGraphRuntime runtime = GetRuntime(host);
@@ -663,6 +964,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(committedLeaf));
             Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
             Assert.That(GetCommittedContext(host), Is.EqualTo(default(CoCoContextFrame)));
+            Require(host.TryCaptureDebugSnapshot(
+                out CoCoStateGraphHostDebugSnapshot snapshot,
+                out CoCoDiagnostic capture), capture);
+            Assert.That(snapshot.Fault.IsFaulted, Is.True);
+            Assert.That(snapshot.Tick.Value, Is.Zero);
+            Assert.That(snapshot.ContextRevision.Value, Is.Zero);
 
             Assert.That(host.TryStep(0.02d, out _), Is.False);
             Assert.That(host.TryResume(out _), Is.False);
@@ -837,6 +1144,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "driver", selectedDriver);
             SetField(host, "autoStart", false);
             SetField(host, "eventLaneCapacity", laneCapacity);
+            if (asset != null && asset.EventAdapterDeclarations.Count > 0)
+            {
+                var adapters = new MonoBehaviour[asset.EventAdapterDeclarations.Count];
+                for (int index = 0; index < adapters.Length; index++)
+                {
+                    adapters[index] = gameObject.AddComponent<HostTestEventAdapterComponent>();
+                }
+
+                SetField(host, "eventAdapters", adapters);
+            }
+
             return host;
         }
 
@@ -1331,7 +1649,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         ReducerFingerprint,
                         out CoCoIntentHandle<HostTestIntent> secondIntent,
                         out diagnostic) ||
-                    !builder.TryBeginIntentBindings(2, out diagnostic) ||
+                    !builder.TryBeginIntentBindings(out diagnostic) ||
                     !CoCoIntentSourceRequirement<HostTestIntent>.TryCreate(
                         firstIntent,
                         1,
@@ -1341,20 +1659,20 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         1,
                         out CoCoIntentSourceRequirement<HostTestIntent> secondRequirement) ||
                     !builder.TryBindEventAdapter<HostTestEvent, HostTestIntent>(
+                        1,
                         _ids.EventDomainId,
                         _ids.EventTypeId,
                         secondRequirement,
                         4,
                         false,
-                        new DualEventAdapter(false),
                         out diagnostic) ||
                     !builder.TryBindEventAdapter<HostTestEvent, HostTestIntent>(
+                        0,
                         _ids.EventDomainId,
                         _ids.EventTypeId,
                         firstRequirement,
                         4,
                         false,
-                        new DualEventAdapter(true),
                         out diagnostic))
                 {
                     if (diagnostic.IsNone)
@@ -1464,30 +1782,34 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         ReducerFingerprint,
                         out CoCoIntentHandle<HostTestIntent> intent,
                         out diagnostic) ||
-                    !builder.TryBeginIntentBindings(3, out diagnostic) ||
+                    !builder.TryBeginIntentBindings(out diagnostic) ||
                     !CoCoIntentSourceRequirement<HostTestIntent>.TryCreate(
                         intent,
                         1,
                         out CoCoIntentSourceRequirement<HostTestIntent> requirement) ||
                     !builder.TryBindEventAdapter<SecondHostTestEvent, HostTestIntent>(
+                        1,
                         _ids.EventDomainId,
                         _secondEventTypeId,
                         requirement,
                         1,
                         false,
-                        new SecondOrderedEventAdapter(),
                         out diagnostic) ||
                     !builder.TryBindIntentSource(
+                        1,
                         requirement,
-                        new OrderedHostTestIntentSource(),
+                        out diagnostic) ||
+                    !builder.TryBindIntentSource(
+                        0,
+                        requirement,
                         out diagnostic) ||
                     !builder.TryBindEventAdapter<HostTestEvent, HostTestIntent>(
+                        0,
                         _ids.EventDomainId,
                         _ids.EventTypeId,
                         requirement,
                         1,
                         false,
-                        new FirstOrderedEventAdapter(),
                         out diagnostic))
                 {
                     if (diagnostic.IsNone)
@@ -1617,20 +1939,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                             ReducerFingerprint,
                             out intent,
                             out diagnostic) ||
-                        !builder.TryBeginIntentBindings(1, out diagnostic) ||
+                        !builder.TryBeginIntentBindings(out diagnostic) ||
                         !CoCoIntentSourceRequirement<HostTestIntent>.TryCreate(
                             intent,
                             1,
                             out CoCoIntentSourceRequirement<HostTestIntent> requirement) ||
                         !builder.TryBindEventAdapter<HostTestEvent, HostTestIntent>(
+                            0,
                             _ids.EventDomainId,
                             _ids.EventTypeId,
                             requirement,
                             4,
                             false,
-                            _throwingEventAdapter
-                                ? new ThrowingEventAdapter()
-                                : new HostTestEventAdapter(),
                             out diagnostic))
                     {
                         if (diagnostic.IsNone)

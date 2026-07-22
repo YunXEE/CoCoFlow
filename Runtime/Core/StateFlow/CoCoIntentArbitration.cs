@@ -263,7 +263,7 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoGraphInstanceId GraphInstanceId => _runtime.GraphInstanceId;
         public CoCoIntentSourceRequirement<TIntent> Requirement { get; }
-        public int RegistrationOrder { get; }
+        public int RegistrationOrder { get; private set; }
         public bool IsValid => _runtime != null &&
                                !_runtime.IsDisposed &&
                                Requirement.IsValid &&
@@ -274,6 +274,18 @@ namespace CoCoFlow.Runtime.Core
         internal int BindingToken { get; }
 
         internal bool IsOwnedBy(CoCoIntentFrameRuntime runtime) => ReferenceEquals(_runtime, runtime);
+
+        internal bool TryAssignRegistrationOrder(int registrationOrder)
+        {
+            if (registrationOrder < 0 || _runtime == null || _runtime.IsDisposed ||
+                _runtime.AreBindingsFrozen)
+            {
+                return false;
+            }
+
+            RegistrationOrder = registrationOrder;
+            return true;
+        }
 
         internal bool TrySample(
             ulong frameGeneration,

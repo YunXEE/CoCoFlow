@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.6",
+  "version": "0.4.0-pre.7",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with per-Actor temporal preview, atomic restore, Operator execution, and committed event publication.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with constrained graph authoring, explicit Actor bindings, committed runtime debugging, temporal restore, and atomic event publication.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.addressables": "2.9.1",

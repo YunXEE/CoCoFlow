@@ -111,7 +111,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            var builder = new CoCoStateGraphHostBindingBuilder(graph, graphInstanceId);
+            var builder = new CoCoStateGraphHostBindingBuilder(graph, graphInstanceId, host);
             CoCoStateGraphHostRuntimeBindings bindings = null;
             try
             {
@@ -196,6 +196,9 @@ namespace CoCoFlow.Runtime.Core
     {
         private readonly CoCoCompiledStateGraph _graph;
         private readonly CoCoGraphInstanceId _graphInstanceId;
+        private readonly CoCoStateGraphHost _host;
+        private readonly IReadOnlyList<MonoBehaviour> _intentSourceComponents;
+        private readonly IReadOnlyList<MonoBehaviour> _eventAdapterComponents;
         private readonly CoCoStateGraphLogicBindingsBuilder _logic;
         private readonly CoCoOperationSectionRegistryBuilder _operations;
         private readonly CoCoContextFrameLayoutBuilder _contextLayout;
@@ -204,7 +207,10 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoIntentFrameLayout _intentLayout;
         private readonly bool[] _registeredIntents;
         private readonly int[] _intentProducerCounts;
+        private readonly bool[] _boundIntentSourceSlots;
+        private readonly bool[] _boundEventAdapterSlots;
         private readonly bool[] _boundEventDeclarations;
+        private readonly HashSet<int> _boundIntentComponentIds;
         private readonly List<CoCoOperationSectionRequirement> _operationRequirements;
         private readonly List<ICoCoGraphContextProducerBinding> _graphContextProducers;
         private readonly List<ICoCoHostIntentContribution> _intentContributions;
@@ -217,10 +223,14 @@ namespace CoCoFlow.Runtime.Core
 
         internal CoCoStateGraphHostBindingBuilder(
             CoCoCompiledStateGraph graph,
-            CoCoGraphInstanceId graphInstanceId)
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoStateGraphHost host)
         {
             _graph = graph ?? throw new ArgumentNullException(nameof(graph));
             _graphInstanceId = graphInstanceId;
+            _host = host;
+            _intentSourceComponents = host?.IntentSources ?? Array.Empty<MonoBehaviour>();
+            _eventAdapterComponents = host?.EventAdapters ?? Array.Empty<MonoBehaviour>();
             _logic = new CoCoStateGraphLogicBindingsBuilder(graph);
             _operations = new CoCoOperationSectionRegistryBuilder();
             _contextLayout = new CoCoContextFrameLayoutBuilder();
@@ -248,12 +258,21 @@ namespace CoCoFlow.Runtime.Core
                 graph.IntentRequirements.Count);
             _registeredIntents = new bool[graph.IntentRequirements.Count];
             _intentProducerCounts = new int[graph.IntentRequirements.Count];
+            _boundIntentSourceSlots = new bool[_intentSourceComponents.Count];
+            _boundEventAdapterSlots = new bool[_eventAdapterComponents.Count];
             _boundEventDeclarations = new bool[graph.IntentRequirements.AdapterCount];
+            _boundIntentComponentIds = new HashSet<int>();
             _operationRequirements = new List<CoCoOperationSectionRequirement>(
                 graph.OperationProvides.Count);
             _graphContextProducers = new List<ICoCoGraphContextProducerBinding>();
             _intentContributions = new List<ICoCoHostIntentContribution>();
             _eventLanes = new List<ICoCoHostEventLane>();
+            if (_eventAdapterComponents.Count != graph.IntentRequirements.AdapterCount)
+            {
+                _setupFailure = RegistryError(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "Host Event Adapter references must match the compiled declaration manifest slot-for-slot.");
+            }
         }
 
         public CoCoCompiledStateGraph Graph => _graph;
@@ -328,10 +347,9 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryBeginIntentBindings(int bindingCapacity, out CoCoDiagnostic diagnostic)
+        public bool TryBeginIntentBindings(out CoCoDiagnostic diagnostic)
         {
-            if (_isFrozen || _intentBindingsBegun || bindingCapacity < 0 ||
-                _graph.IntentRequirements.Count == 0)
+            if (_isFrozen || _intentBindingsBegun || _graph.IntentRequirements.Count == 0)
             {
                 diagnostic = RegistryFrozen("Intent runtime bindings may begin exactly once.");
                 return LatchFailure(diagnostic);
@@ -351,7 +369,7 @@ namespace CoCoFlow.Runtime.Core
             if (!_intentLayout.Freeze(out diagnostic) ||
                 !_intentLayout.TryCreateRuntime(
                     _graphInstanceId,
-                    bindingCapacity,
+                    _intentSourceComponents.Count + _eventAdapterComponents.Count,
                     out _intentRuntime,
                     out diagnostic))
             {
@@ -363,12 +381,20 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool TryBindIntentSource<TIntent>(
+            int hostSourceIndex,
             CoCoIntentSourceRequirement<TIntent> requirement,
-            ICoCoIntentFrameSource<TIntent> source,
             out CoCoDiagnostic diagnostic)
             where TIntent : unmanaged
         {
             if (!CanBindIntent(requirement.Handle.IntentId, typeof(TIntent), out int denseIndex, out diagnostic))
+            {
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryResolveIntentSource(
+                    hostSourceIndex,
+                    out ICoCoIntentFrameSource<TIntent> source,
+                    out diagnostic))
             {
                 return LatchFailure(diagnostic);
             }
@@ -382,18 +408,20 @@ namespace CoCoFlow.Runtime.Core
                 return LatchFailure(diagnostic);
             }
 
-            _intentContributions.Add(new CoCoHostIntentSourceContribution<TIntent>(binding));
+            _intentContributions.Add(
+                new CoCoHostIntentSourceContribution<TIntent>(binding, hostSourceIndex));
+            _boundIntentSourceSlots[hostSourceIndex] = true;
             _intentProducerCounts[denseIndex]++;
             return true;
         }
 
         public bool TryBindEventAdapter<TEvent, TIntent>(
+            int hostAdapterIndex,
             CoCoEventDomainId eventDomainId,
             CoCoEventTypeId eventTypeId,
             CoCoIntentSourceRequirement<TIntent> requirement,
             int projectionCapacity,
             bool allowSourceEcho,
-            ICoCoEventToIntentAdapter<TEvent, TIntent> adapter,
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
             where TIntent : unmanaged
@@ -406,11 +434,20 @@ namespace CoCoFlow.Runtime.Core
                     typeof(TEvent),
                     typeof(TIntent),
                     out int declarationIndex) ||
+                hostAdapterIndex != declarationIndex ||
                 _boundEventDeclarations[declarationIndex])
             {
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.DescriptorTypeMismatch,
                     "Event Adapter binding must exactly match one unbound compiled declaration.");
+                return LatchFailure(diagnostic);
+            }
+
+            if (!TryResolveEventAdapter(
+                    hostAdapterIndex,
+                    out ICoCoEventToIntentAdapter<TEvent, TIntent> adapter,
+                    out diagnostic))
+            {
                 return LatchFailure(diagnostic);
             }
 
@@ -443,6 +480,7 @@ namespace CoCoFlow.Runtime.Core
                     binding,
                     declarationIndex));
             _boundEventDeclarations[declarationIndex] = true;
+            _boundEventAdapterSlots[hostAdapterIndex] = true;
             _intentProducerCounts[intentIndex]++;
             return true;
         }
@@ -865,6 +903,34 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            for (int index = 0; index < _boundIntentSourceSlots.Length; index++)
+            {
+                if (_boundIntentSourceSlots[index])
+                {
+                    continue;
+                }
+
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "Every Host Intent Source reference must be bound exactly once by its Host index.");
+                DisposeIntentRuntime();
+                return false;
+            }
+
+            for (int index = 0; index < _boundEventAdapterSlots.Length; index++)
+            {
+                if (_boundEventAdapterSlots[index])
+                {
+                    continue;
+                }
+
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "Every Host Event Adapter reference must be bound exactly once by its manifest slot.");
+                DisposeIntentRuntime();
+                return false;
+            }
+
             if (_graph.IntentRequirements.Count > 0)
             {
                 if (!_intentBindingsBegun || _intentRuntime == null)
@@ -1035,6 +1101,91 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        private bool TryResolveIntentSource<TIntent>(
+            int hostSourceIndex,
+            out ICoCoIntentFrameSource<TIntent> source,
+            out CoCoDiagnostic diagnostic)
+            where TIntent : unmanaged
+        {
+            source = null;
+            if (_host == null)
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "Binding validation without a Host has an empty explicit Intent Source contract.");
+                return false;
+            }
+
+            if (hostSourceIndex < 0 ||
+                hostSourceIndex >= _intentSourceComponents.Count ||
+                _boundIntentSourceSlots[hostSourceIndex])
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Intent Source binding must target one unbound Host source slot.");
+                return false;
+            }
+
+            MonoBehaviour component = _intentSourceComponents[hostSourceIndex];
+            if (component == null ||
+                !CoCoStateGraphHostBoundary.Contains(_host, component) ||
+                component is not ICoCoIntentFrameSource<TIntent> typedSource ||
+                !_boundIntentComponentIds.Add(component.GetInstanceID()))
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Intent Source must be one unique live component inside this Host boundary with the exact generic contract.");
+                return false;
+            }
+
+            source = typedSource;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryResolveEventAdapter<TEvent, TIntent>(
+            int hostAdapterIndex,
+            out ICoCoEventToIntentAdapter<TEvent, TIntent> adapter,
+            out CoCoDiagnostic diagnostic)
+            where TEvent : unmanaged
+            where TIntent : unmanaged
+        {
+            adapter = null;
+            if (_host == null)
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "Binding validation without a Host has an empty explicit Event Adapter contract.");
+                return false;
+            }
+
+            if (hostAdapterIndex < 0 ||
+                hostAdapterIndex >= _eventAdapterComponents.Count ||
+                _boundEventAdapterSlots[hostAdapterIndex])
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Event Adapter binding must target one unbound Host manifest slot.");
+                return false;
+            }
+
+            MonoBehaviour component = _eventAdapterComponents[hostAdapterIndex];
+            if (component == null ||
+                !CoCoStateGraphHostBoundary.Contains(_host, component) ||
+                component is not ICoCoEventToIntentAdapter<TEvent, TIntent> typedAdapter ||
+                !_boundIntentComponentIds.Add(component.GetInstanceID()))
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Event Adapter must be one unique live component inside this Host boundary with the exact manifest contract.");
+                return false;
+            }
+
+            adapter = typedAdapter;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         private CoCoHostEventLane<TEvent> GetOrCreateEventLane<TEvent>(
             CoCoEventDomainId domainId,
             CoCoEventTypeId eventTypeId,
@@ -1104,42 +1255,35 @@ namespace CoCoFlow.Runtime.Core
             out ICoCoHostIntentContribution[] contributions,
             out CoCoDiagnostic diagnostic)
         {
-            contributions = _intentContributions.ToArray();
-            for (int slotIndex = 0; slotIndex < contributions.Length; slotIndex++)
+            contributions = new ICoCoHostIntentContribution[
+                _intentSourceComponents.Count + _eventAdapterComponents.Count];
+            for (int index = 0; index < _intentContributions.Count; index++)
             {
-                int authoringIndex = contributions[slotIndex].EventAdapterAuthoringIndex;
-                if (authoringIndex < 0)
+                ICoCoHostIntentContribution contribution = _intentContributions[index];
+                int targetIndex = contribution.IntentSourceHostIndex;
+                if (targetIndex < 0)
                 {
-                    continue;
+                    targetIndex = _intentSourceComponents.Count +
+                                  contribution.EventAdapterAuthoringIndex;
                 }
 
-                int selectedSlot = slotIndex;
-                int selectedAuthoringIndex = authoringIndex;
-                for (int candidateSlot = slotIndex + 1;
-                     candidateSlot < contributions.Length;
-                     candidateSlot++)
+                if (targetIndex < 0 ||
+                    targetIndex >= contributions.Length ||
+                    contributions[targetIndex] != null)
                 {
-                    int candidateAuthoringIndex =
-                        contributions[candidateSlot].EventAdapterAuthoringIndex;
-                    if (candidateAuthoringIndex >= 0 &&
-                        candidateAuthoringIndex < selectedAuthoringIndex)
-                    {
-                        selectedSlot = candidateSlot;
-                        selectedAuthoringIndex = candidateAuthoringIndex;
-                    }
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.InvalidIntentContribution,
+                        "Intent contributions could not map uniquely to Host and manifest order.");
+                    return false;
                 }
 
-                if (selectedSlot != slotIndex)
-                {
-                    ICoCoHostIntentContribution selected = contributions[selectedSlot];
-                    contributions[selectedSlot] = contributions[slotIndex];
-                    contributions[slotIndex] = selected;
-                }
+                contributions[targetIndex] = contribution;
             }
 
             for (int index = 0; index < contributions.Length; index++)
             {
-                if (!contributions[index].TryAssignRegistrationOrder(index))
+                if (contributions[index] == null ||
+                    !contributions[index].TryAssignRegistrationOrder(index))
                 {
                     diagnostic = RegistryError(
                         CoCoDiagnosticCode.InvalidIntentContribution,
@@ -1637,6 +1781,7 @@ namespace CoCoFlow.Runtime.Core
 
     internal interface ICoCoHostIntentContribution
     {
+        int IntentSourceHostIndex { get; }
         int EventAdapterAuthoringIndex { get; }
 
         bool TryAssignRegistrationOrder(int registrationOrder);
@@ -1648,16 +1793,21 @@ namespace CoCoFlow.Runtime.Core
         where TIntent : unmanaged
     {
         private readonly CoCoIntentSourceBinding<TIntent> _binding;
+        private readonly int _hostIndex;
 
-        public CoCoHostIntentSourceContribution(CoCoIntentSourceBinding<TIntent> binding)
+        public CoCoHostIntentSourceContribution(
+            CoCoIntentSourceBinding<TIntent> binding,
+            int hostIndex)
         {
             _binding = binding;
+            _hostIndex = hostIndex;
         }
 
+        public int IntentSourceHostIndex => _hostIndex;
         public int EventAdapterAuthoringIndex => -1;
 
         public bool TryAssignRegistrationOrder(int registrationOrder) =>
-            _binding.RegistrationOrder == registrationOrder;
+            _binding.TryAssignRegistrationOrder(registrationOrder);
 
         public bool TryCollect(CoCoIntentFrameRuntime runtime, in CoCoTickFrame tickFrame)
         {
@@ -1685,6 +1835,7 @@ namespace CoCoFlow.Runtime.Core
             _authoringIndex = authoringIndex;
         }
 
+        public int IntentSourceHostIndex => -1;
         public int EventAdapterAuthoringIndex => _authoringIndex;
 
         public bool TryAssignRegistrationOrder(int registrationOrder) =>

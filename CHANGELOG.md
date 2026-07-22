@@ -5,6 +5,61 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.7] - 2026-07-22
+
+### Added
+
+- A constrained StateGraph Editor for Layer, recursive State, and same-Layer
+  leaf-to-leaf Transition authoring. Every topology mutation uses one
+  Undo-aware authoring operation; subtree deletion removes incident
+  Transitions. Deleting an initial State requires an explicit valid surviving
+  sibling when one exists; with no survivor, the user may explicitly confirm
+  an empty compiler-invalid draft.
+- A separately versioned, presentation-only Editor layout stored in the Graph
+  Asset by stable State ID. State positions survive save, reload, Asset copy,
+  Layer duplication, and subtree copy/remap without changing runtime schema v1,
+  content fingerprints, or compilation-cache identity. Layer selection,
+  breadcrumb, foldout, pan/zoom, search, and selection remain session state.
+- Deterministic internal Catalog enumeration, overlays for the existing Intent,
+  Graph Operation, and ContextFrame State manifests, plus Catalog-parameterized
+  presets. Simple creates two generic States and one same-Layer Transition;
+  Combo creates the generic
+  `Step1 -> Step2 -> Step3 -> Step4 -> Exit` topology without gameplay logic,
+  animation timing, Samples, public category metadata, or a fourth Manifest.
+- Explicit ordered Host references for Intent Sources, Event-to-Intent Adapters,
+  and Operators, plus the existing Actor Context and Restore references. The
+  Inspector suggests compatible scene components but persists nothing until
+  the user confirms, and all configuration is read-only while Running.
+- An internal immutable committed debugger snapshot for point-in-time Host,
+  Context, Clock, and per-Layer path inspection. It is distinct from the
+  optional fixed-capacity identity-only Trace history, whose capacity defaults
+  to zero and cannot change while Running, and exposes no payload, mutable
+  Frame, retained Context handle, Inbox, Envelope, or private field.
+- An internal Editor debug step for a healthy Suspended Host under Update,
+  FixedUpdate, or Manual driving. One explicit positive delta executes exactly
+  one normal forward Tick; success returns the Host to Suspended, while Fault
+  and world-correction failures remain visible instead of being disguised as a
+  successful suspension.
+
+### Changed
+
+- Kept the Project Provider authoritative for the frozen descriptor Catalog,
+  generic/AOT factories, binding types, Codecs, and Context defaults while the
+  Host owns the user-confirmed scene component references and their order.
+- Restricted new 0.4 Editor and public documentation terminology to Graph,
+  Layer, State, and Transition. Retained 0.3.9 controller implementation names
+  remain transitional code and are not migrated or deleted by Pre7.
+- Updated the package version and the two existing Unity Package Validation
+  Suite exception scopes to `0.4.0-pre.7`; dependencies remain unchanged.
+
+### Deferred
+
+- Cross-Asset and cross-Editor-session clipboard transfer remain deferred.
+- Pre11 owns Animator/Playable behavior and concrete combo timing; Pre13 owns
+  durable persistence and migration; Pre15 owns production gameplay States and
+  replacement Samples; Pre16 owns complete cross-module certification; Pre17
+  owns final visual and XML-documentation polish.
+
 ## [0.4.0-pre.6] - 2026-07-19
 
 ### Added

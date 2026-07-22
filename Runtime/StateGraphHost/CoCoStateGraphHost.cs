@@ -18,6 +18,8 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private CoCoStateGraphDriver driver = CoCoStateGraphDriver.Update;
         [SerializeField] private bool autoStart = true;
         [SerializeField, Min(0.0001f)] private float timeScale = 1f;
+        [SerializeField] private MonoBehaviour[] intentSources = Array.Empty<MonoBehaviour>();
+        [SerializeField] private MonoBehaviour[] eventAdapters = Array.Empty<MonoBehaviour>();
         [SerializeField] private MonoBehaviour[] operators = Array.Empty<MonoBehaviour>();
         [SerializeField] private MonoBehaviour actorContextBinding;
         [SerializeField] private MonoBehaviour contextRestoreBinding;
@@ -53,6 +55,10 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoStateGraphDriver Driver => driver;
         internal bool AutoStart => autoStart;
         internal float TimeScale => timeScale;
+        internal IReadOnlyList<MonoBehaviour> IntentSources =>
+            intentSources ?? Array.Empty<MonoBehaviour>();
+        internal IReadOnlyList<MonoBehaviour> EventAdapters =>
+            eventAdapters ?? Array.Empty<MonoBehaviour>();
         internal IReadOnlyList<MonoBehaviour> Operators => operators ?? Array.Empty<MonoBehaviour>();
         internal MonoBehaviour ActorContextBinding => actorContextBinding;
         internal MonoBehaviour ContextRestoreBinding => contextRestoreBinding;
@@ -62,6 +68,7 @@ namespace CoCoFlow.Runtime.Core
         internal int EventLaneCapacity => eventLaneCapacity;
         internal int EventSourceCapacity => eventSourceCapacity;
         internal int EventDedupCapacity => eventDedupCapacity;
+        internal bool HasLiveRuntime => _runtime != null;
         public int TemporalHistoryCapacity => temporalHistoryCapacity;
         public CoCoRuntimeLifecycleState Lifecycle => _runtime?.Lifecycle ??
             (_isDisposed
@@ -242,7 +249,8 @@ namespace CoCoFlow.Runtime.Core
             CoCoGraphInstanceId graphInstanceId = CoCoStateGraphHostIdentity.Next();
             var builder = new CoCoStateGraphHostBindingBuilder(
                 compileResult.Graph,
-                graphInstanceId);
+                graphInstanceId,
+                this);
             CoCoStateGraphHostRuntimeBindings bindings = null;
             CoCoStateGraphRuntime runtime = null;
             CoCoStateGraphTransaction transaction = null;
@@ -518,25 +526,31 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            bool succeeded = TrySuspendCore(true, out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return succeeded;
+        }
+
+        private bool TrySuspendCore(
+            bool checkPendingOverflow,
+            out CoCoDiagnostic diagnostic)
+        {
             diagnostic = CoCoDiagnostic.None;
             if (_runtime == null ||
                 _runtime.IsFaulted ||
                 (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing))
             {
                 diagnostic = LifecycleError("Only a healthy Running Host can suspend.");
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
-            if (LatchPendingOverflow(out diagnostic))
+            if (checkPendingOverflow && LatchPendingOverflow(out diagnostic))
             {
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
             if (!_runtime.TrySuspend(out diagnostic))
             {
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
@@ -547,14 +561,12 @@ namespace CoCoFlow.Runtime.Core
                     CoCoDiagnosticDomain.Mailbox,
                     CoCoDiagnosticCode.MailboxUnavailable,
                     "Inbox could not enter Suspended with the Runtime.");
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
             _transaction?.Suspend();
 
             diagnostic = CoCoDiagnostic.None;
-            _lastDiagnostic = diagnostic;
             return true;
         }
 
@@ -565,15 +577,25 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            bool succeeded = TryResumeCore(true, out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return succeeded;
+        }
+
+        private bool TryResumeCore(
+            bool checkPendingOverflow,
+            out CoCoDiagnostic diagnostic)
+        {
             diagnostic = CoCoDiagnostic.None;
-            if (_runtime == null || _runtime.IsFaulted || LatchPendingOverflow(out diagnostic))
+            if (_runtime == null ||
+                _runtime.IsFaulted ||
+                (checkPendingOverflow && LatchPendingOverflow(out diagnostic)))
             {
                 if (diagnostic.IsNone)
                 {
                     diagnostic = LifecycleError("A Faulted or missing Host cannot resume.");
                 }
 
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
@@ -583,19 +605,16 @@ namespace CoCoFlow.Runtime.Core
                     CoCoDiagnosticDomain.Mailbox,
                     CoCoDiagnosticCode.MailboxUnavailable,
                     "Inbox could not resume with the Runtime.");
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
             if (!_runtime.TryResume(out diagnostic))
             {
                 _bindings.Inbox?.Suspend();
-                _lastDiagnostic = diagnostic;
                 return false;
             }
 
             diagnostic = CoCoDiagnostic.None;
-            _lastDiagnostic = diagnostic;
             return true;
         }
 
@@ -698,6 +717,172 @@ namespace CoCoFlow.Runtime.Core
             diagnostic = CoCoDiagnostic.None;
             _lastDiagnostic = diagnostic;
             return true;
+        }
+
+        internal bool TryCaptureDebugSnapshot(
+            out CoCoStateGraphHostDebugSnapshot snapshot,
+            out CoCoDiagnostic diagnostic)
+        {
+            snapshot = null;
+            if (_runtime == null ||
+                _transaction == null ||
+                _isStarting ||
+                _isAdvancing ||
+                _isTemporalOperation ||
+                _isPublishingCommittedEvents ||
+                _requiresWorldCorrection ||
+                (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing))
+            {
+                diagnostic = LifecycleError(
+                    "Debugger snapshot capture requires one live idle committed Host boundary.");
+                return false;
+            }
+
+            if (!_runtime.TryCaptureCommittedDebugState(
+                    out CoCoStateGraphCommittedDebugState graphState,
+                    out diagnostic) ||
+                !_transaction.TryCaptureCommittedDebugState(
+                    out CoCoContextFrame context,
+                    out CoCoOperatorClaimState[] claims,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            if (context.IsAlive)
+            {
+                CoCoStateFlowFrameHeader header = context.Header;
+                CoCoTickFrame tickFrame = header.TickFrame;
+                if (!header.IsValid ||
+                    header.Identity.GraphInstanceId != graphState.GraphInstanceId ||
+                    tickFrame.TimelineId != graphState.TimelineId ||
+                    tickFrame.ClockDomainId != graphState.ClockDomainId ||
+                    tickFrame.TimelineEpoch != graphState.TimelineEpoch ||
+                    tickFrame.Tick != graphState.Tick ||
+                    tickFrame.ExecutionSequence != graphState.ExecutionSequence ||
+                    !tickFrame.TimelinePosition.Seconds.Equals(graphState.Seconds))
+                {
+                    diagnostic = LifecycleError(
+                        "Committed Graph, Clock, and Context identities were not one atomic debugger boundary.");
+                    return false;
+                }
+            }
+
+            snapshot = CoCoStateGraphHostDebugSnapshot.CopyFrom(
+                graphState,
+                _runtime.Lifecycle,
+                _runtime.Fault,
+                _requiresWorldCorrection,
+                _lastDiagnostic,
+                context,
+                claims);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryDebugStepWhileSuspended(
+            double deltaTime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_runtime == null ||
+                _transaction == null ||
+                _runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended ||
+                _runtime.IsFaulted ||
+                !IsPositiveFinite(deltaTime) ||
+                _isStarting ||
+                _isAdvancing ||
+                _isTemporalOperation ||
+                _isPublishingCommittedEvents ||
+                (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing) ||
+                _requiresWorldCorrection)
+            {
+                diagnostic = LifecycleError(
+                    "Debug Step requires one healthy idle Suspended Host and a positive finite DeltaTime.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (LatchPendingOverflow(out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            _isAdvancing = true;
+            try
+            {
+                if (!TryResumeCore(false, out diagnostic))
+                {
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                bool advanced = TryAdvanceCore(deltaTime, out diagnostic);
+                CoCoDiagnostic advanceDiagnostic = diagnostic;
+                bool canReturnToSuspended =
+                    _runtime != null &&
+                    _runtime.Lifecycle == CoCoRuntimeLifecycleState.Running &&
+                    !_runtime.IsFaulted &&
+                    !_destroyRequested &&
+                    !_stopAfterPublish &&
+                    !_disposeAfterPublish &&
+                    !_requiresWorldCorrection;
+                if (!canReturnToSuspended)
+                {
+                    if (advanced)
+                    {
+                        diagnostic = LifecycleError(
+                            "Debug Step committed, but deferred lifecycle or fault handling prevented a healthy Suspended return.");
+                        _lastDiagnostic = diagnostic;
+                    }
+
+                    return false;
+                }
+
+                if (!TrySuspendCore(true, out CoCoDiagnostic suspendDiagnostic))
+                {
+                    if (!_runtime.IsFaulted)
+                    {
+                        CoCoDiagnostic synchronizationFailure = suspendDiagnostic.IsError
+                            ? suspendDiagnostic
+                            : LifecycleError(
+                                "Debug Step could not synchronize Runtime and Inbox back to Suspended.");
+                        _runtime.TryLatchExternalFault(synchronizationFailure);
+                    }
+
+                    diagnostic = _runtime.IsFaulted
+                        ? _runtime.Fault.Diagnostic
+                        : suspendDiagnostic;
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!advanced)
+                {
+                    diagnostic = advanceDiagnostic;
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+            finally
+            {
+                _isAdvancing = false;
+                if (_destroyRequested)
+                {
+                    _destroyRequested = false;
+                    _stopAfterPublish = false;
+                    _disposeAfterPublish = false;
+                    ForceDisposeHost();
+                }
+                else
+                {
+                    CompleteDeferredPublishLifecycle();
+                }
+            }
         }
 
         public bool TryStep(double deltaTime, out CoCoDiagnostic diagnostic)

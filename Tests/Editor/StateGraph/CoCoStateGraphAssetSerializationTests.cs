@@ -155,7 +155,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphAuthoringOperations.AddTransition(
                 asset,
                 layerId,
-                rootStateId,
+                childStateId,
                 childStateId,
                 priority: 0);
             Undo.FlushUndoRecordObjects();
@@ -226,7 +226,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphAuthoringOperations.AddTransition(
                 asset,
                 layerId,
-                rootStateId,
+                childStateId,
                 childStateId,
                 priority: 0);
             Undo.FlushUndoRecordObjects();

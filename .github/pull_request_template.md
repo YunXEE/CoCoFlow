@@ -22,8 +22,9 @@ intact even when their proposed model is superseded.
       editor work forward.
 - [ ] Core dependency direction remains one-way; Core does not reference
       Gameplay, presentation modules, Editor, or project code.
-- [ ] Public API, serialized schemas, and user documentation contain no
-      Machine/Node vocabulary.
+- [ ] New 0.4 public API, serialized schemas, Editor, and user documentation use
+      Graph/Layer/State/Transition concepts rather than Machine/Node; retained
+      0.3.9 Controller names remain transitional and are not migrated by this PR.
 - [ ] There is no cross-Layer reference, transition, signal, call, message, or
       state-query entry point.
 - [ ] StateLogic remains pure C# and does not expose Unity objects, Animator,
@@ -133,9 +134,53 @@ intact even when their proposed model is superseded.
       at most one CoCoTick per frame, while each Manual call is one independent
       Tick without accumulator or catch-up.
 
+### Pre7 StateGraph Editor and debugger
+
+- [ ] New 0.4 Editor and public documentation use only Graph, Layer, State, and
+      Transition vocabulary. Transitions are same-Layer leaf-to-leaf and expose
+      Conditions, one Window, and a source-unique Priority; Interrupt is not an
+      authoring field.
+- [ ] Every topology write uses the Editor authoring-operation boundary and one
+      Unity Undo group per accepted gesture. Rejected operations do not dirty
+      serialized data or create Undo history.
+- [ ] State-subtree deletion removes every incident Transition. Deleting an
+      initial State requires an explicit valid surviving sibling when one
+      exists; with no survivor, the user must explicitly confirm clearing the
+      reference and leaving a compiler-invalid draft.
+- [ ] Copy/paste is limited to the same Asset, assigns new State/Transition IDs,
+      remaps only copied internal references, and drops external Transitions.
+      Cross-Asset and cross-session clipboard transfer remain deferred.
+- [ ] State positions use stable State IDs in a separately versioned Editor
+      layout. Layout and session state are excluded from runtime schema v1,
+      compiler snapshots, content fingerprints, and compilation-cache keys;
+      opening/importing an Asset does not synthesize layout or dirty it.
+- [ ] Layer/breadcrumb/foldout/pan/zoom/search/selection state survives Domain
+      Reload through session storage only. Diagnostics are recomputed, and only
+      a still-valid selected diagnostic location is restored.
+- [ ] The deterministic internal Catalog overlay exposes exactly the existing
+      Intent, Graph Operation, and ContextFrame State manifests. Simple creates
+      two generic leaf States and one same-Layer Transition; Combo creates
+      `Step1 -> Step2 -> Step3 -> Step4 -> Exit`; neither adds gameplay logic,
+      Samples, public category metadata, or a fourth Manifest.
+- [ ] Host stores user-confirmed ordered scene references for Intent Sources,
+      Event Adapters, Operators, Actor Context, and Restore, while the Project
+      Provider remains authoritative for Catalog/types/factories/Codecs/defaults
+      and AOT construction. Suggestions are unsaved until confirmed and Running
+      configuration is read-only.
+- [ ] The debugger snapshot is an internal immutable point-in-time copy of the
+      latest committed authority and is distinct from identity-only Trace.
+      Trace capacity defaults to zero and cannot change while Running; neither
+      surface exposes payload, mutable Frame, retained Context handles, Inbox,
+      Envelope, or reflected private fields.
+- [ ] A healthy Suspended Host can execute exactly one ordinary forward Tick
+      with an explicit finite positive delta under every Driver. Success returns
+      to Suspended; faults and world-correction requirements remain real. This
+      operation is not Rewind or authority-neutral Preview.
+
 ## Serialization and rollback
 
 - ContextFrame Descriptor/Slot changes (including stable ID impact):
+- StateGraph Editor layout/version/session-state impact:
 - Temporal/Durable/Derived projection impact:
 - Existing asset/prefab impact:
 - Rollback or revert path:
@@ -195,9 +240,18 @@ intact even when their proposed model is superseded.
 - [ ] StateGraph compiler, validator, manifest, stable-ID serialization, copy,
       Layer/subtree duplication, cache, and diagnostic navigation EditMode tests
       passed.
+- [ ] Pre7 Editor add/delete/rename/reorder/transition/Undo/Redo, initial-State
+      replacement-or-confirmed-empty, same-Asset copy/paste, preset, and
+      diagnostic-navigation smoke tests passed without raw Inspector mutation.
+- [ ] State positions survived save/reload and identity remap; Domain Reload
+      restored only session view state, recomputed diagnostics, and did not dirty
+      the Asset or change content/cache fingerprints.
 - [ ] Relevant existing EditMode and PlayMode tests passed.
 - [ ] StateGraph Runtime EditMode and Host lifecycle/event PlayMode suites passed
       for this Pre's focused and full-package runs.
+- [ ] Committed debugger snapshot, default-disabled/fixed-while-Running Trace,
+      and Suspended one-step behavior passed for Update, FixedUpdate, and Manual
+      Drivers, including rejection/fault/world-correction paths.
 - [ ] After 100 warm-up and 10,000 measured iterations, normal Step, layered
       composition, Transition, Router-to-Inbox-to-Step, and Suspend/Resume meet
       the zero steady-state managed-allocation gate.
@@ -222,6 +276,7 @@ links that allow a reviewer to verify the checks above.
 - Clean UPM Host import/result:
 - Focused EditMode/PlayMode totals:
 - Full-package EditMode/PlayMode totals:
+- Pre7 Editor/Domain Reload/debugger smoke result:
 - Allocation summary (100 warm-up / 10,000 measured):
 - macOS Universal IL2CPP + High Stripping artifact/log:
 - Unity Package Validation Suite result/log:
@@ -236,4 +291,5 @@ evidence.
 List intentionally deferred behavior and its owning Pre. Do not use this section
 to silently waive a required acceptance criterion. For State Flow work, call out
 at least the relevant Pre3 Compiler, Pre4 Host/Router, Pre5 Operator/Commit,
-Pre6 Temporal, Pre13 Persistence, or Pre16 certification boundary.
+Pre6 Temporal, Pre7 Editor/Debugger, Pre13 Persistence, or Pre16 certification
+boundary.

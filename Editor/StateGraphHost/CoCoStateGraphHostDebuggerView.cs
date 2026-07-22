@@ -1,0 +1,303 @@
+using System;
+using CoCoFlow.Runtime.Core;
+using UnityEditor;
+using UnityEngine;
+
+namespace CoCoFlow.Editor.StateGraphHost
+{
+    internal sealed class CoCoStateGraphHostDebuggerView
+    {
+        private const int MaximumVisibleTraceEntries = 128;
+
+        private CoCoStateGraphHostDebugSnapshot _snapshot;
+        private CoCoDiagnostic _diagnostic;
+        private CoCoStateFlowTraceEntry[] _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
+        private int _observedHostId;
+        private CoCoGraphInstanceId _observedGraphInstanceId;
+        private double _deltaTime = 1d / 60d;
+        private Vector2 _snapshotScroll;
+        private Vector2 _traceScroll;
+
+        internal void Draw(CoCoStateGraphHost host)
+        {
+            ObserveIdentity(host);
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Runtime Debugger", EditorStyles.boldLabel);
+            if (!Application.isPlaying || host == null || !host.HasLiveRuntime)
+            {
+                EditorGUILayout.HelpBox(
+                    "Runtime debugging becomes available for a live Play Mode Host.",
+                    MessageType.Info);
+                return;
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Refresh Committed Snapshot"))
+                {
+                    Refresh(host);
+                }
+
+                EditorGUILayout.LabelField(host.Lifecycle.ToString(), GUILayout.Width(90f));
+            }
+
+            if (_diagnostic.IsError)
+            {
+                EditorGUILayout.HelpBox(_diagnostic.Message, MessageType.Error);
+            }
+
+            DrawLifecycleControls(host);
+            DrawSnapshot();
+            DrawSuspendedStep(host);
+            DrawTrace(host);
+        }
+
+        private void ObserveIdentity(CoCoStateGraphHost host)
+        {
+            int hostId = host == null ? 0 : host.GetInstanceID();
+            CoCoGraphInstanceId graphInstanceId = host == null
+                ? default
+                : host.GraphInstanceId;
+            if (_observedHostId == hostId &&
+                _observedGraphInstanceId == graphInstanceId)
+            {
+                return;
+            }
+
+            _observedHostId = hostId;
+            _observedGraphInstanceId = graphInstanceId;
+            _snapshot = null;
+            _diagnostic = CoCoDiagnostic.None;
+            _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
+            _snapshotScroll = Vector2.zero;
+            _traceScroll = Vector2.zero;
+        }
+
+        private void DrawLifecycleControls(CoCoStateGraphHost host)
+        {
+            if (host.Lifecycle != CoCoRuntimeLifecycleState.Running)
+            {
+                return;
+            }
+
+            using (new EditorGUI.DisabledScope(host.Fault.IsFaulted))
+            {
+                if (GUILayout.Button("Suspend Runtime"))
+                {
+                    host.TrySuspend(out _diagnostic);
+                    Refresh(host);
+                }
+            }
+        }
+
+        private void Refresh(CoCoStateGraphHost host)
+        {
+            if (host.TryCaptureDebugSnapshot(
+                    out CoCoStateGraphHostDebugSnapshot snapshot,
+                    out _diagnostic))
+            {
+                _snapshot = snapshot;
+            }
+        }
+
+        private void DrawSnapshot()
+        {
+            if (_snapshot == null)
+            {
+                return;
+            }
+
+            _snapshotScroll = EditorGUILayout.BeginScrollView(
+                _snapshotScroll,
+                GUILayout.MaxHeight(260f));
+            EditorGUILayout.LabelField(
+                $"Graph {_snapshot.GraphId}; Instance {_snapshot.GraphInstanceId}; Schema {_snapshot.SchemaVersion}");
+            EditorGUILayout.LabelField(
+                $"Content Fingerprint {_snapshot.ContentFingerprint}; Catalog Fingerprint {_snapshot.CatalogFingerprint}");
+            EditorGUILayout.LabelField(
+                $"Timeline {_snapshot.TimelineId}; Clock Domain {_snapshot.ClockDomainId}; Epoch {_snapshot.TimelineEpoch}");
+            EditorGUILayout.LabelField(
+                $"Tick {_snapshot.Tick}; Sequence {_snapshot.ExecutionSequence}; Seconds {_snapshot.Seconds:0.######}");
+            EditorGUILayout.LabelField(
+                $"Context Revision {_snapshot.ContextRevision}; Origin {_snapshot.ContextOrigin.Kind}; Claims {_snapshot.ClaimCount}");
+            CoCoStateFlowFrameHeader contextHeader = _snapshot.ContextHeader;
+            EditorGUILayout.LabelField(
+                contextHeader.IsValid
+                    ? $"Context Header {contextHeader.Identity.GraphInstanceId}; Kind {contextHeader.Identity.Kind}; Tick {contextHeader.Identity.Tick}; Sequence {contextHeader.Identity.ExecutionSequence}; Layout {contextHeader.LayoutId}"
+                    : "Context Header <none>");
+            EditorGUILayout.LabelField(
+                $"Fault {_snapshot.Fault.IsFaulted}; World Correction {_snapshot.RequiresWorldCorrection}");
+            EditorGUILayout.LabelField(
+                $"Last Diagnostic {_snapshot.LastDiagnostic.Domain}/{_snapshot.LastDiagnostic.Code}: {_snapshot.LastDiagnostic.Message}");
+            for (int layerIndex = 0; layerIndex < _snapshot.LayerCount; layerIndex++)
+            {
+                CoCoStateGraphHostDebugLayer layer = _snapshot.GetLayer(layerIndex);
+                EditorGUILayout.LabelField(
+                    $"Layer {layer.LayerId}; Winner {layer.WinningTransitionId}",
+                    EditorStyles.miniBoldLabel);
+                for (int stateIndex = 0; stateIndex < layer.ActiveStateCount; stateIndex++)
+                {
+                    CoCoStateGraphHostDebugActiveState state = layer.GetActiveState(stateIndex);
+                    EditorGUILayout.LabelField(
+                        $"  {state.StateId}; Activation {state.ActivationId}; Local {state.LocalSeconds:0.######}; Progress {state.ActionProgress:0.######}");
+                }
+            }
+
+            for (int claimIndex = 0; claimIndex < _snapshot.ClaimCount; claimIndex++)
+            {
+                CoCoOperatorClaimState claim = _snapshot.GetClaim(claimIndex);
+                EditorGUILayout.LabelField(
+                    $"Claim {claim.ClaimId}; Section {claim.SectionId}; Held {claim.IsHeld}; Owner {claim.OwnerOperatorId}");
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawSuspendedStep(CoCoStateGraphHost host)
+        {
+            if (host.Lifecycle != CoCoRuntimeLifecycleState.Suspended)
+            {
+                return;
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Suspended One-Tick Step", EditorStyles.miniBoldLabel);
+            _deltaTime = EditorGUILayout.DoubleField("Delta Time", _deltaTime);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("Resume Runtime"))
+                {
+                    host.TryResume(out _diagnostic);
+                    Refresh(host);
+                }
+
+                using (new EditorGUI.DisabledScope(
+                           _deltaTime <= 0d ||
+                           double.IsNaN(_deltaTime) ||
+                           double.IsInfinity(_deltaTime)))
+                {
+                    if (GUILayout.Button("Run One Normal Tick"))
+                    {
+                        host.TryDebugStepWhileSuspended(_deltaTime, out _diagnostic);
+                        Refresh(host);
+                    }
+                }
+            }
+        }
+
+        private void DrawTrace(CoCoStateGraphHost host)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Trace", EditorStyles.miniBoldLabel);
+            ICoCoStateFlowTrace trace = host.Trace;
+            if (trace == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "Trace Capacity is 0. Stop the Host, set a positive capacity, and restart to record history.",
+                    MessageType.Info);
+                return;
+            }
+
+            int capacity = Math.Min(trace.Count, MaximumVisibleTraceEntries);
+            if (_traceEntries.Length != capacity)
+            {
+                _traceEntries = capacity == 0
+                    ? Array.Empty<CoCoStateFlowTraceEntry>()
+                    : new CoCoStateFlowTraceEntry[capacity];
+            }
+
+            int count = trace.CopyLatestTo(_traceEntries);
+            EditorGUILayout.LabelField(
+                $"Entries {trace.Count}/{trace.Capacity}; Total Written {trace.TotalWritten}");
+            _traceScroll = EditorGUILayout.BeginScrollView(
+                _traceScroll,
+                GUILayout.MaxHeight(220f));
+            DrawTraceGroup(
+                "Transition",
+                count,
+                CoCoStateFlowTraceKind.Transition | CoCoStateFlowTraceKind.ActivePath);
+            DrawTraceGroup(
+                "Operation",
+                count,
+                CoCoStateFlowTraceKind.OperationSection | CoCoStateFlowTraceKind.OperatorOutcome);
+            DrawTraceGroup(
+                "Context Commit",
+                count,
+                CoCoStateFlowTraceKind.Tick |
+                CoCoStateFlowTraceKind.ContextCommit |
+                CoCoStateFlowTraceKind.Diagnostic |
+                CoCoStateFlowTraceKind.Cancelled);
+            DrawTraceGroup(
+                "Event",
+                count,
+                CoCoStateFlowTraceKind.EventSequence | CoCoStateFlowTraceKind.EventPublished);
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawTraceGroup(
+            string label,
+            int count,
+            CoCoStateFlowTraceKind kinds)
+        {
+            bool drewHeader = false;
+            for (int index = 0; index < count; index++)
+            {
+                CoCoStateFlowTraceEntry entry = _traceEntries[index];
+                if ((entry.Kind & kinds) == 0)
+                {
+                    continue;
+                }
+
+                if (!drewHeader)
+                {
+                    EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+                    drewHeader = true;
+                }
+
+                DrawTraceEntry(entry);
+            }
+        }
+
+        private static void DrawTraceEntry(CoCoStateFlowTraceEntry entry)
+        {
+            string prefix = $"  {entry.Kind} | Tick {entry.TickFrame.Tick}";
+            switch (entry.Kind)
+            {
+                case CoCoStateFlowTraceKind.Transition:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Layer {entry.LayerId} | Transition {entry.TransitionId} | Role {entry.TransitionRole}");
+                    break;
+                case CoCoStateFlowTraceKind.ActivePath:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Layer {entry.LayerId} | State {entry.StateId}");
+                    break;
+                case CoCoStateFlowTraceKind.OperationSection:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Section {entry.SectionId}");
+                    break;
+                case CoCoStateFlowTraceKind.OperatorOutcome:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Operator {entry.OperatorId} | Outcome {entry.OperatorOutcome}");
+                    break;
+                case CoCoStateFlowTraceKind.ContextCommit:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Revision {entry.PreviousRevision} -> {entry.NewRevision}");
+                    break;
+                case CoCoStateFlowTraceKind.EventSequence:
+                case CoCoStateFlowTraceKind.EventPublished:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Event Sequence {entry.FirstEventSequence} -> {entry.LastEventSequence}");
+                    break;
+                case CoCoStateFlowTraceKind.Diagnostic:
+                case CoCoStateFlowTraceKind.Cancelled:
+                    EditorGUILayout.LabelField(
+                        $"{prefix} | Diagnostic {entry.DiagnosticDomain}/{entry.DiagnosticCode}");
+                    break;
+                default:
+                    EditorGUILayout.LabelField(prefix);
+                    break;
+            }
+        }
+    }
+}

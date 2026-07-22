@@ -1879,7 +1879,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(CoCoGraphInstanceId.TryCreate(9001UL, out CoCoGraphInstanceId graphInstanceId));
             var builder = new CoCoStateGraphHostBindingBuilder(
                 compileResult.Graph,
-                graphInstanceId);
+                graphInstanceId,
+                host);
             Require(provider.TryConfigure(builder, out CoCoDiagnostic configure), configure);
             Require(builder.TryFreeze(
                 host.EventLaneCapacity,

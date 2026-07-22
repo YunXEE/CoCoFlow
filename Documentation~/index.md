@@ -4,6 +4,7 @@ This page is the Unity Package Manager documentation entry point for CoCoFlow.
 
 - [Package overview](../README.md)
 - [简体中文概览](../README.zh-CN.md)
+- [StateGraph Editor and Runtime Debugger](../Docs/StateGraphEditor.md)
 - [StateGraph Asset and Compiler](../Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md)
 - [Temporal Rewind](../Docs/TemporalRewind.md)

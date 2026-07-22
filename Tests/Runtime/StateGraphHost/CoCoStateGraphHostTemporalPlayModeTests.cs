@@ -68,6 +68,40 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void SuspendedDebugStepPreservesRealWorldCorrectionFailureSemantics()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            Require(scenario.Host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            scenario.Binding.Value = 23;
+            scenario.Binding.FailCaptureAfterWorldMutation = true;
+
+            Assert.That(
+                scenario.Host.TryDebugStepWhileSuspended(
+                    0.1d,
+                    out CoCoDiagnostic failure),
+                Is.False);
+
+            Assert.That(failure.Code, Is.EqualTo(CoCoDiagnosticCode.ContextCaptureFailed));
+            Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running),
+                "A dirty-world failure must not be presented as a healthy Suspended Host.");
+            Assert.That(scenario.GameObject.transform.localPosition.x, Is.EqualTo(23f));
+            Assert.That(
+                scenario.Host.TryCaptureDebugSnapshot(
+                    out _,
+                    out CoCoDiagnostic snapshotDiagnostic),
+                Is.False);
+            Assert.That(
+                snapshotDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+        }
+
+        [Test]
         public void CapacityOneIsRejectedBeforeRunning()
         {
             TemporalHostTestScenario scenario = Track(

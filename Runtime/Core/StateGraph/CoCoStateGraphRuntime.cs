@@ -1451,6 +1451,75 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryCaptureCommittedDebugState(
+            out CoCoStateGraphCommittedDebugState state,
+            out CoCoDiagnostic diagnostic)
+        {
+            state = null;
+            if (_isDisposed ||
+                (_lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                _isExecutingStep ||
+                _activeStageToken != 0UL ||
+                _activePreparedCommitToken != 0UL ||
+                _activeRestoreToken != 0UL ||
+                _activeTemporalRecoveryToken != 0UL ||
+                _clock.HasStagedTick)
+            {
+                diagnostic = LifecycleError(
+                    "Committed debugger state requires one live idle Runtime with no candidate authority.");
+                return false;
+            }
+
+            var layers = new CoCoStateGraphCommittedDebugLayer[_layers.Length];
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                LayerRuntime layer = _layers[layerIndex];
+                if (layer.CommittedLeafIndex < 0 ||
+                    layer.CommittedLeafIndex >= layer.States.Length)
+                {
+                    diagnostic = StateError(
+                        "Committed debugger state found a Layer without a valid active leaf.");
+                    return false;
+                }
+
+                IReadOnlyList<int> path =
+                    layer.Compiled.States[layer.CommittedLeafIndex].RootPathStateIndices;
+                var activeStates = new CoCoStateGraphCommittedDebugActiveState[path.Count];
+                for (int pathIndex = 0; pathIndex < path.Count; pathIndex++)
+                {
+                    int stateIndex = path[pathIndex];
+                    StateRuntime active = layer.States[stateIndex];
+                    activeStates[pathIndex] = new CoCoStateGraphCommittedDebugActiveState(
+                        active.Compiled.StateId,
+                        active.CommittedActivationId,
+                        active.CommittedLocalSeconds,
+                        active.CommittedActionProgress);
+                }
+
+                layers[layerIndex] = new CoCoStateGraphCommittedDebugLayer(
+                    layer.Compiled.LayerId,
+                    layer.CommittedWinnerTransitionId,
+                    activeStates);
+            }
+
+            state = new CoCoStateGraphCommittedDebugState(
+                _graph.SchemaVersion,
+                _graph.ContentFingerprint,
+                _graph.GraphId,
+                _graph.CatalogFingerprint,
+                _graphInstanceId,
+                _clock.TimelineId,
+                _clock.ClockDomainId,
+                _clock.TimelineEpoch,
+                _clock.Tick,
+                _clock.ExecutionSequence,
+                _clock.Seconds,
+                layers);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal int GetCommittedPathCount(int layerIndex)
         {
             if (layerIndex < 0 || layerIndex >= _layers.Length)

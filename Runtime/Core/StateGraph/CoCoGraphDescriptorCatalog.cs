@@ -957,6 +957,8 @@ namespace CoCoFlow.Runtime.Core
         private readonly Dictionary<CoCoOperationSectionId, ICoCoGraphOperationRegistration> _operations;
         private readonly Dictionary<CoCoStateBlockId, CoCoGraphStateBlockRegistration> _blocks;
         private readonly Dictionary<CoCoStateSlotId, ICoCoGraphStateSlotRegistration> _slots;
+        private readonly IReadOnlyList<CoCoStateDescriptor> _stateDescriptors;
+        private readonly IReadOnlyList<CoCoConditionDescriptor> _conditionDescriptors;
         private readonly IReadOnlyList<string> _authorAssemblyRootNames;
 
         internal CoCoGraphDescriptorCatalog(
@@ -980,11 +982,14 @@ namespace CoCoFlow.Runtime.Core
             _blocks = Copy(blocks);
             _slots = Copy(slots);
             _authorAssemblyRootNames = Array.AsReadOnly((string[])authorAssemblyRootNames.Clone());
+            var stateDescriptors = new CoCoStateDescriptor[states.Length];
+            var conditionDescriptors = new CoCoConditionDescriptor[conditions.Length];
 
             ulong hash = CoCoGraphCatalogHash.OffsetBasis;
             for (int index = 0; index < states.Length; index++)
             {
                 var descriptor = new CoCoStateDescriptor(states[index].Value);
+                stateDescriptors[index] = descriptor;
                 _states.Add(states[index].Key, descriptor);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.DescriptorId.High);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.DescriptorId.Low);
@@ -1004,6 +1009,7 @@ namespace CoCoFlow.Runtime.Core
             for (int index = 0; index < conditions.Length; index++)
             {
                 var descriptor = new CoCoConditionDescriptor(conditions[index].Value);
+                conditionDescriptors[index] = descriptor;
                 _conditions.Add(conditions[index].Key, descriptor);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.DescriptorId.High);
                 CoCoGraphCatalogHash.Add(ref hash, descriptor.DescriptorId.Low);
@@ -1081,6 +1087,8 @@ namespace CoCoFlow.Runtime.Core
                 AddIds(ref hash, slot.DerivedDependencies);
             }
 
+            _stateDescriptors = Array.AsReadOnly(stateDescriptors);
+            _conditionDescriptors = Array.AsReadOnly(conditionDescriptors);
             Fingerprint = hash == 0UL ? CoCoGraphCatalogHash.OffsetBasis : hash;
         }
 
@@ -1088,6 +1096,8 @@ namespace CoCoFlow.Runtime.Core
         public int StateDescriptorCount => _states.Count;
         public int ConditionDescriptorCount => _conditions.Count;
         public bool IsFrozen => true;
+        internal IReadOnlyList<CoCoStateDescriptor> StateDescriptors => _stateDescriptors;
+        internal IReadOnlyList<CoCoConditionDescriptor> ConditionDescriptors => _conditionDescriptors;
         internal IReadOnlyList<string> AuthorAssemblyRootNames => _authorAssemblyRootNames;
 
         public bool TryGetStateDescriptor(
