@@ -730,7 +730,6 @@ namespace CoCoFlow.Runtime.Core
                 _isAdvancing ||
                 _isTemporalOperation ||
                 _isPublishingCommittedEvents ||
-                _requiresWorldCorrection ||
                 (_temporal != null && _temporal.Mode == CoCoTemporalMode.Previewing))
             {
                 diagnostic = LifecycleError(

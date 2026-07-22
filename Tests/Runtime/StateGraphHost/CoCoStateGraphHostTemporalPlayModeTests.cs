@@ -91,14 +91,79 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.EqualTo(CoCoRuntimeLifecycleState.Running),
                 "A dirty-world failure must not be presented as a healthy Suspended Host.");
             Assert.That(scenario.GameObject.transform.localPosition.x, Is.EqualTo(23f));
-            Assert.That(
+
+            CoCoStateGraphRuntime runtime = TemporalHostTestHarness.GetRuntime(
+                scenario.Host);
+            CoCoContextFrame committedContext = scenario.Host.CurrentContext;
+            CoCoTimelineTick committedTick = runtime.Clock.Tick;
+            CoCoExecutionSequence committedSequence = runtime.Clock.ExecutionSequence;
+            double committedSeconds = runtime.Clock.Seconds;
+            int actorCaptureCount = scenario.Binding.CaptureCount;
+            int graphCaptureCount = TemporalHostMemoryStateBinding.CaptureCount;
+            int applyCount = scenario.Binding.ApplyCount;
+            int correctionCount = scenario.Binding.CorrectionCount;
+            ulong traceWritten = scenario.Host.Trace.TotalWritten;
+            Vector3 dirtyWorldPosition = scenario.GameObject.transform.localPosition;
+            CoCoRuntimeFault fault = scenario.Host.Fault;
+
+            Require(
                 scenario.Host.TryCaptureDebugSnapshot(
-                    out _,
+                    out CoCoStateGraphHostDebugSnapshot snapshot,
                     out CoCoDiagnostic snapshotDiagnostic),
-                Is.False);
+                snapshotDiagnostic);
+
+            Assert.That(snapshot.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            Assert.That(snapshot.Fault, Is.EqualTo(fault));
+            Assert.That(snapshot.RequiresWorldCorrection, Is.True);
             Assert.That(
-                snapshotDiagnostic.Code,
-                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+                snapshot.LastDiagnostic.Code,
+                Is.EqualTo(CoCoDiagnosticCode.ContextCaptureFailed));
+            Assert.That(snapshot.ContextHeader.IsValid, Is.False);
+            Assert.That(snapshot.Tick, Is.EqualTo(committedTick));
+            Assert.That(snapshot.ExecutionSequence, Is.EqualTo(committedSequence));
+            Assert.That(snapshot.Seconds, Is.EqualTo(committedSeconds));
+            Assert.That(scenario.Host.CurrentContext, Is.EqualTo(committedContext));
+            Assert.That(runtime.Clock.Tick, Is.EqualTo(committedTick));
+            Assert.That(runtime.Clock.ExecutionSequence, Is.EqualTo(committedSequence));
+            Assert.That(runtime.Clock.Seconds, Is.EqualTo(committedSeconds));
+            Assert.That(scenario.Binding.CaptureCount, Is.EqualTo(actorCaptureCount));
+            Assert.That(
+                TemporalHostMemoryStateBinding.CaptureCount,
+                Is.EqualTo(graphCaptureCount));
+            Assert.That(scenario.Binding.ApplyCount, Is.EqualTo(applyCount));
+            Assert.That(scenario.Binding.CorrectionCount, Is.EqualTo(correctionCount));
+            Assert.That(scenario.Host.Trace.TotalWritten, Is.EqualTo(traceWritten));
+            Assert.That(
+                scenario.GameObject.transform.localPosition,
+                Is.EqualTo(dirtyWorldPosition));
+            Assert.That(scenario.Host.Fault, Is.EqualTo(fault));
+            Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
+        }
+
+        [Test]
+        public void DebugSnapshotLifecycleRemainsFrozenWhenLiveHostSuspends()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 0));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            Require(
+                scenario.Host.TryCaptureDebugSnapshot(
+                    out CoCoStateGraphHostDebugSnapshot snapshot,
+                    out CoCoDiagnostic captured),
+                captured);
+            Assert.That(
+                snapshot.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+
+            Require(scenario.Host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+
+            Assert.That(
+                scenario.Host.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(
+                snapshot.Lifecycle,
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            Assert.That(snapshot.Lifecycle, Is.Not.EqualTo(scenario.Host.Lifecycle));
         }
 
         [Test]
@@ -145,6 +210,36 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
                 cancel);
             Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void ActiveTemporalPreviewStillRejectsDebuggerSnapshotCapture()
+        {
+            TemporalHostTestScenario scenario = Track(
+                TemporalHostTestHarness.Create(historyCapacity: 3));
+            Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
+            StepWithActorValue(scenario, 10);
+            StepWithActorValue(scenario, 20);
+            Require(
+                scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
+                begin);
+            Assert.That(
+                scenario.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Previewing));
+
+            Assert.That(
+                scenario.Host.TryCaptureDebugSnapshot(
+                    out CoCoStateGraphHostDebugSnapshot snapshot,
+                    out CoCoDiagnostic rejected),
+                Is.False);
+            Assert.That(snapshot, Is.Null);
+            Assert.That(
+                rejected.Code,
+                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+
+            Require(
+                scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
+                cancel);
         }
 
         [Test]

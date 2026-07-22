@@ -396,10 +396,30 @@ Snapshot and Trace are deliberately separate:
 - Trace answers what identity-only events happened recently and retains a
   bounded ordered history when its configured capacity is greater than zero.
 
+The Editor presents the current Host value as `Live Lifecycle` and the copied
+snapshot value as `Snapshot Lifecycle`. A failed refresh preserves the previous
+snapshot. Trace display may select exactly one of `All`, `State ID`, or
+`Transition ID`; the identity modes trim surrounding whitespace and accept only
+a non-zero 32-digit hexadecimal identity. Blank or invalid input produces zero
+visible entries rather than silently falling back to `All`. Filtering scans the
+complete ring and returns the latest matching entries in chronological order.
+Raw `Count`, `Capacity`, and `TotalWritten` remain unchanged, with `Visible`
+reported separately. Observing another Host or Graph instance resets the filter
+to `All`.
+
 Trace capacity defaults to zero, creates no buffer in that mode, and is fixed
 before Running. The Editor cannot resize it on a live Host. A failed transaction
 does not change committed snapshot authority and its Trace cannot contain
 Context commit, final sequence, or publication entries.
+
+World-correction state does not itself reject debugger capture. At an otherwise
+idle committed boundary, the Host may copy its last committed Graph, Context,
+and Claims together with the current Fault, correction latch, and diagnostic.
+Capture does not invoke Actor/Graph bindings, advance Clock or Tick, append
+Trace, apply correction, clear Fault, or expose the failed candidate. Starting,
+advancing, Temporal operations, committed-event publication, active Preview,
+and lower-level candidate/transaction/restore activity continue to reject
+capture.
 
 The suspended debug step is not an authority-neutral debugger preview. Because
 it is one normal positive-delta Tick, it may advance Context/Clock, append

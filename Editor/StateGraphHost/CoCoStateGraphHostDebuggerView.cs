@@ -5,13 +5,29 @@ using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
+    internal enum CoCoStateGraphHostTraceFilterMode
+    {
+        All = 0,
+        StateId = 1,
+        TransitionId = 2
+    }
+
     internal sealed class CoCoStateGraphHostDebuggerView
     {
         private const int MaximumVisibleTraceEntries = 128;
 
+        private static readonly string[] TraceFilterLabels =
+        {
+            "All",
+            "State ID",
+            "Transition ID"
+        };
+
         private CoCoStateGraphHostDebugSnapshot _snapshot;
         private CoCoDiagnostic _diagnostic;
         private CoCoStateFlowTraceEntry[] _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
+        private CoCoStateGraphHostTraceFilterMode _traceFilterMode;
+        private string _traceFilterText = string.Empty;
         private int _observedHostId;
         private CoCoGraphInstanceId _observedGraphInstanceId;
         private double _deltaTime = 1d / 60d;
@@ -38,7 +54,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                     Refresh(host);
                 }
 
-                EditorGUILayout.LabelField(host.Lifecycle.ToString(), GUILayout.Width(90f));
+                EditorGUILayout.LabelField(
+                    $"Live Lifecycle: {host.Lifecycle}",
+                    GUILayout.Width(180f));
             }
 
             if (_diagnostic.IsError)
@@ -69,6 +87,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             _snapshot = null;
             _diagnostic = CoCoDiagnostic.None;
             _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
+            _traceFilterMode = CoCoStateGraphHostTraceFilterMode.All;
+            _traceFilterText = string.Empty;
             _snapshotScroll = Vector2.zero;
             _traceScroll = Vector2.zero;
         }
@@ -118,6 +138,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 $"Timeline {_snapshot.TimelineId}; Clock Domain {_snapshot.ClockDomainId}; Epoch {_snapshot.TimelineEpoch}");
             EditorGUILayout.LabelField(
                 $"Tick {_snapshot.Tick}; Sequence {_snapshot.ExecutionSequence}; Seconds {_snapshot.Seconds:0.######}");
+            EditorGUILayout.LabelField($"Snapshot Lifecycle {_snapshot.Lifecycle}");
             EditorGUILayout.LabelField(
                 $"Context Revision {_snapshot.ContextRevision}; Origin {_snapshot.ContextOrigin.Kind}; Claims {_snapshot.ClaimCount}");
             CoCoStateFlowFrameHeader contextHeader = _snapshot.ContextHeader;
@@ -198,6 +219,14 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return;
             }
 
+            _traceFilterMode = (CoCoStateGraphHostTraceFilterMode)GUILayout.Toolbar(
+                (int)_traceFilterMode,
+                TraceFilterLabels);
+            if (_traceFilterMode != CoCoStateGraphHostTraceFilterMode.All)
+            {
+                _traceFilterText = EditorGUILayout.TextField("ID", _traceFilterText);
+            }
+
             int capacity = Math.Min(trace.Count, MaximumVisibleTraceEntries);
             if (_traceEntries.Length != capacity)
             {
@@ -206,9 +235,22 @@ namespace CoCoFlow.Editor.StateGraphHost
                     : new CoCoStateFlowTraceEntry[capacity];
             }
 
-            int count = trace.CopyLatestTo(_traceEntries);
+            int count = 0;
+            if (TryBuildTraceFilter(
+                    _traceFilterMode,
+                    _traceFilterText,
+                    out CoCoStateFlowTraceFilter filter,
+                    out string validationMessage))
+            {
+                count = trace.CopyLatestTo(_traceEntries, filter);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(validationMessage, MessageType.Warning);
+            }
+
             EditorGUILayout.LabelField(
-                $"Entries {trace.Count}/{trace.Capacity}; Total Written {trace.TotalWritten}");
+                $"Count {trace.Count}; Capacity {trace.Capacity}; Total Written {trace.TotalWritten}; Visible {count}");
             _traceScroll = EditorGUILayout.BeginScrollView(
                 _traceScroll,
                 GUILayout.MaxHeight(220f));
@@ -233,6 +275,55 @@ namespace CoCoFlow.Editor.StateGraphHost
                 CoCoStateFlowTraceKind.EventSequence | CoCoStateFlowTraceKind.EventPublished);
 
             EditorGUILayout.EndScrollView();
+        }
+
+        internal static bool TryBuildTraceFilter(
+            CoCoStateGraphHostTraceFilterMode mode,
+            string text,
+            out CoCoStateFlowTraceFilter filter,
+            out string validationMessage)
+        {
+            switch (mode)
+            {
+                case CoCoStateGraphHostTraceFilterMode.All:
+                    filter = CoCoStateFlowTraceFilter.All;
+                    validationMessage = string.Empty;
+                    return true;
+                case CoCoStateGraphHostTraceFilterMode.StateId:
+                    if (CoCoStateId.TryParse(
+                            string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim(),
+                            out CoCoStateId stateId))
+                    {
+                        filter = new CoCoStateFlowTraceFilter(
+                            CoCoStateFlowTraceKind.All,
+                            stateId: stateId);
+                        validationMessage = string.Empty;
+                        return true;
+                    }
+
+                    filter = default;
+                    validationMessage = "State ID must be one non-zero 32-digit hexadecimal identity.";
+                    return false;
+                case CoCoStateGraphHostTraceFilterMode.TransitionId:
+                    if (CoCoTransitionId.TryParse(
+                            string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim(),
+                            out CoCoTransitionId transitionId))
+                    {
+                        filter = new CoCoStateFlowTraceFilter(
+                            CoCoStateFlowTraceKind.All,
+                            transitionId: transitionId);
+                        validationMessage = string.Empty;
+                        return true;
+                    }
+
+                    filter = default;
+                    validationMessage = "Transition ID must be one non-zero 32-digit hexadecimal identity.";
+                    return false;
+                default:
+                    filter = default;
+                    validationMessage = "Trace filter mode is invalid.";
+                    return false;
+            }
         }
 
         private void DrawTraceGroup(

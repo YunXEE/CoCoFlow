@@ -195,6 +195,109 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
         }
 
+        [Test]
+        public void TraceFilterBuilderKeepsStateAndTransitionIdentityModesExclusive()
+        {
+            Assert.That(
+                CoCoStateId.TryCreate(0x11UL, 0x12UL, out CoCoStateId stateId),
+                Is.True);
+            Assert.That(
+                CoCoTransitionId.TryCreate(
+                    0x21UL,
+                    0x22UL,
+                    out CoCoTransitionId transitionId),
+                Is.True);
+
+            Assert.That(
+                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                    CoCoStateGraphHostTraceFilterMode.All,
+                    "ignored",
+                    out CoCoStateFlowTraceFilter all,
+                    out string allValidation),
+                Is.True);
+            Assert.That(all.Kinds, Is.EqualTo(CoCoStateFlowTraceKind.All));
+            Assert.That(all.StateId.IsValid, Is.False);
+            Assert.That(all.TransitionId.IsValid, Is.False);
+            Assert.That(allValidation, Is.Empty);
+
+            Assert.That(
+                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                    CoCoStateGraphHostTraceFilterMode.StateId,
+                    $"  {stateId.ToString().ToUpperInvariant()}  ",
+                    out CoCoStateFlowTraceFilter state,
+                    out string stateValidation),
+                Is.True);
+            Assert.That(state.StateId, Is.EqualTo(stateId));
+            Assert.That(state.TransitionId.IsValid, Is.False);
+            Assert.That(stateValidation, Is.Empty);
+
+            Assert.That(
+                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                    CoCoStateGraphHostTraceFilterMode.TransitionId,
+                    $"  {transitionId}  ",
+                    out CoCoStateFlowTraceFilter transition,
+                    out string transitionValidation),
+                Is.True);
+            Assert.That(transition.StateId.IsValid, Is.False);
+            Assert.That(transition.TransitionId, Is.EqualTo(transitionId));
+            Assert.That(transitionValidation, Is.Empty);
+
+            Assert.That(
+                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                    CoCoStateGraphHostTraceFilterMode.StateId,
+                    "   ",
+                    out _,
+                    out string blankValidation),
+                Is.False);
+            Assert.That(blankValidation, Is.Not.Empty);
+            Assert.That(
+                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                    CoCoStateGraphHostTraceFilterMode.TransitionId,
+                    "not-an-id",
+                    out _,
+                    out string invalidValidation),
+                Is.False);
+            Assert.That(invalidValidation, Is.Not.Empty);
+        }
+
+        [Test]
+        public void DebuggerHostIdentityChangeResetsTraceFilter()
+        {
+            CoCoStateGraphHost first = CreateHost("First Debugger Host");
+            CoCoStateGraphHost second = CreateHost("Second Debugger Host");
+            var view = new CoCoStateGraphHostDebuggerView();
+            const BindingFlags instancePrivate =
+                BindingFlags.Instance | BindingFlags.NonPublic;
+            MethodInfo observeIdentity = typeof(CoCoStateGraphHostDebuggerView).GetMethod(
+                "ObserveIdentity",
+                instancePrivate);
+            FieldInfo modeField = typeof(CoCoStateGraphHostDebuggerView).GetField(
+                "_traceFilterMode",
+                instancePrivate);
+            FieldInfo textField = typeof(CoCoStateGraphHostDebuggerView).GetField(
+                "_traceFilterText",
+                instancePrivate);
+            Require(observeIdentity != null);
+            Require(modeField != null);
+            Require(textField != null);
+
+            observeIdentity.Invoke(view, new object[] { first });
+            modeField.SetValue(view, CoCoStateGraphHostTraceFilterMode.TransitionId);
+            textField.SetValue(view, "00000000000000000000000000000001");
+
+            observeIdentity.Invoke(view, new object[] { first });
+            Assert.That(
+                modeField.GetValue(view),
+                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.TransitionId));
+            Assert.That(textField.GetValue(view), Is.Not.Empty);
+
+            observeIdentity.Invoke(view, new object[] { second });
+            Assert.That(
+                modeField.GetValue(view),
+                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.All));
+            Assert.That(textField.GetValue(view), Is.EqualTo(string.Empty));
+        }
+
         private CoCoStateGraphHost CreateHost(string name)
         {
             GameObject gameObject = CreateObject(name);

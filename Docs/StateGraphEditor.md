@@ -150,9 +150,31 @@ Snapshot and Trace have different jobs:
   Operator Outcome, Context commit, Active Path, Event sequence/publication,
   cancellation, and diagnostic identities.
 
+The debugger header labels the current Host value as `Live Lifecycle`. A
+successful refresh copies that value into the immutable snapshot and displays
+it separately as `Snapshot Lifecycle`, so a later live change does not rewrite
+the captured evidence. A failed refresh keeps the previous snapshot visible.
+
+Trace display has three mutually exclusive modes: `All`, `State ID`, and
+`Transition ID`. Identity modes require one non-zero 32-digit hexadecimal ID
+after trimming surrounding whitespace. Blank or invalid input displays a
+warning and zero visible rows; it never falls back to `All`. Filtering reads
+from the complete ring and shows the latest 128 matching entries in
+chronological order. `Count`, `Capacity`, and `Total Written` remain raw ring
+counters, while `Visible` reports only the current display result. Changing the
+observed Host or Graph instance resets the display filter to `All`; refreshing
+the same Host preserves it.
+
 Trace capacity defaults to zero and cannot be resized while Running. A failed or
 cancelled Tick cannot appear as committed snapshot authority and cannot contain
 Trace commit, sequence, or publication entries.
+
+A Faulted Host whose Unity world requires correction remains eligible for a
+snapshot when it is otherwise at an idle committed boundary. That snapshot
+copies the last committed Graph/Context/Claims together with the current Fault,
+correction latch, and diagnostic; capture performs no correction, binding,
+Tick, Trace, or publication work. Temporal Preview and every unresolved
+candidate/transaction boundary remain ineligible.
 
 ## Suspended debug step
 
