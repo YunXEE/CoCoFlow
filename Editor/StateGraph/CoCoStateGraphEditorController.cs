@@ -6,6 +6,18 @@ using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraph
 {
+    [Flags]
+    internal enum CoCoStateGraphEditorInvalidation
+    {
+        None = 0,
+        Toolbar = 1 << 0,
+        Tree = 1 << 1,
+        Details = 1 << 2,
+        Canvas = 1 << 3,
+        Feedback = 1 << 4,
+        All = Toolbar | Tree | Details | Canvas | Feedback
+    }
+
     internal sealed class CoCoStateGraphEditorController : IDisposable
     {
         private static CoCoStateGraphSubtreeClipboard clipboard;
@@ -34,7 +46,7 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateGraphEditorCatalogProvider.CatalogChanged += OnCatalogChanged;
         }
 
-        internal event Action Changed;
+        internal event Action<CoCoStateGraphEditorInvalidation> Changed;
 
         internal CoCoStateGraphAsset Asset { get; }
         internal CoCoStateGraphEditorSessionState Session { get; }
@@ -249,7 +261,7 @@ namespace CoCoFlow.Editor.StateGraph
         internal void SetSearch(string value)
         {
             Session.SearchText = value ?? string.Empty;
-            SaveAndNotify();
+            SaveAndNotify(CoCoStateGraphEditorInvalidation.Tree);
         }
 
         internal Vector2 GetPosition(CoCoStateGraphStateRecord state, int visibleIndex)
@@ -628,7 +640,9 @@ namespace CoCoFlow.Editor.StateGraph
             SaveAndNotify();
         }
 
-        internal void Analyze()
+        internal void Analyze() => Analyze(CoCoStateGraphEditorInvalidation.Feedback);
+
+        private void Analyze(CoCoStateGraphEditorInvalidation invalidation)
         {
             Session.AnalysisRequested = true;
             analysisResult = null;
@@ -636,7 +650,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 SetFailure(string.IsNullOrEmpty(CatalogStatus)
                     ? "A frozen descriptor catalog is required for analysis."
-                    : CatalogStatus);
+                    : CatalogStatus,
+                    invalidation);
                 return;
             }
 
@@ -650,7 +665,7 @@ namespace CoCoFlow.Editor.StateGraph
                 CommandFailure = $"StateGraph analysis failed before compilation: {exception.Message}";
             }
 
-            SaveAndNotify();
+            SaveAndNotify(invalidation);
         }
 
         internal void NotifyConfigChanged()
@@ -660,11 +675,11 @@ namespace CoCoFlow.Editor.StateGraph
             EditorUtility.SetDirty(Asset);
             if (Session.AnalysisRequested && catalog != null)
             {
-                Analyze();
+                Analyze(CoCoStateGraphEditorInvalidation.Feedback);
                 return;
             }
 
-            Changed?.Invoke();
+            Changed?.Invoke(CoCoStateGraphEditorInvalidation.Feedback);
         }
 
         internal string StateDescriptorLabel(CoCoStateGraphStateRecord state)
@@ -829,11 +844,11 @@ namespace CoCoFlow.Editor.StateGraph
             ReloadCatalog();
             if (Session.AnalysisRequested && catalog != null)
             {
-                Analyze();
+                Analyze(CoCoStateGraphEditorInvalidation.All);
                 return;
             }
 
-            Changed?.Invoke();
+            Changed?.Invoke(CoCoStateGraphEditorInvalidation.All);
         }
 
         private void OnUndoRedo()
@@ -866,17 +881,20 @@ namespace CoCoFlow.Editor.StateGraph
             return true;
         }
 
-        private bool SetFailure(string failure)
+        private bool SetFailure(
+            string failure,
+            CoCoStateGraphEditorInvalidation invalidation = CoCoStateGraphEditorInvalidation.All)
         {
             CommandFailure = failure ?? "The StateGraph command failed.";
-            Changed?.Invoke();
+            Changed?.Invoke(invalidation);
             return false;
         }
 
-        private void SaveAndNotify()
+        private void SaveAndNotify(
+            CoCoStateGraphEditorInvalidation invalidation = CoCoStateGraphEditorInvalidation.All)
         {
             Session.Save();
-            Changed?.Invoke();
+            Changed?.Invoke(invalidation);
         }
 
         private static bool TryCreateConfig<TConfig>(

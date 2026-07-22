@@ -23,7 +23,7 @@ namespace CoCoFlow.Editor.StateGraph
         private bool panning;
         private int panPointerId;
         private Vector2 panPointerStart;
-        private Vector2 panStart;
+        private CoCoStateGraphCanvasView panStartView;
         private bool transitionDragging;
         private int transitionPointerId;
         private CoCoSerializedId128 transitionSourceStateId;
@@ -60,8 +60,10 @@ namespace CoCoFlow.Editor.StateGraph
             RegisterCallback<PointerDownEvent>(OnPointerDown);
             RegisterCallback<PointerMoveEvent>(OnPointerMove);
             RegisterCallback<PointerUpEvent>(OnPointerUp);
+            RegisterCallback<PointerCancelEvent>(OnPointerCancel);
+            RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
             RegisterCallback<WheelEvent>(OnWheel);
-            controller.Changed += Refresh;
+            controller.Changed += OnControllerChanged;
             Refresh();
         }
 
@@ -69,12 +71,24 @@ namespace CoCoFlow.Editor.StateGraph
 
         public void Dispose()
         {
-            controller.Changed -= Refresh;
+            controller.Changed -= OnControllerChanged;
+            CancelTransitionDrag(releasePointer: true);
+            CancelPan(releasePointer: true);
             edgeLayer.generateVisualContent -= DrawEdges;
+        }
+
+        private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
+        {
+            if ((invalidation & CoCoStateGraphEditorInvalidation.Canvas) != 0)
+            {
+                Refresh();
+            }
         }
 
         internal void Refresh()
         {
+            CancelTransitionDrag(releasePointer: true);
+            CancelPan(releasePointer: true);
             content.Clear();
             content.Add(edgeLayer);
             stateRects.Clear();
@@ -173,10 +187,16 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            if (transitionDragging || panning)
+            {
+                return;
+            }
+
             transitionDragging = true;
             transitionPointerId = pointerId;
             transitionSourceStateId = sourceStateId;
             transitionPointerPosition = ToGraphPosition(PanelToLocal(panelPosition));
+            this.CapturePointer(pointerId);
             edgeLayer.MarkDirtyRepaint();
         }
 
@@ -189,10 +209,16 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (evt.button == 2)
             {
+                if (panning || transitionDragging)
+                {
+                    return;
+                }
+
                 panning = true;
                 panPointerId = evt.pointerId;
                 panPointerStart = evt.position;
-                panStart = CurrentView.Pan;
+                panStartView = CurrentView;
+                this.CapturePointer(evt.pointerId);
                 evt.StopPropagation();
                 return;
             }
@@ -230,7 +256,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            Vector2 pan = panStart + (Vector2)evt.position - panPointerStart;
+            Vector2 pan = panStartView.Pan + (Vector2)evt.position - panPointerStart;
             SetView(new CoCoStateGraphCanvasView(pan, CurrentView.Zoom), save: false);
             evt.StopPropagation();
         }
@@ -241,7 +267,9 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 transitionPointerPosition = ToGraphPosition(PanelToLocal(evt.position));
                 transitionDragging = false;
+                ReleaseCapturedPointer(transitionPointerId);
                 TryCompleteTransitionDrag();
+                ResetTransitionDrag();
                 edgeLayer.MarkDirtyRepaint();
                 evt.StopPropagation();
                 return;
@@ -253,12 +281,48 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             panning = false;
+            ReleaseCapturedPointer(panPointerId);
             controller.Session.SetCanvasView(
                 controller.Session.SelectedLayerId,
                 controller.Session.DrillRootStateId,
                 CurrentView);
             controller.Session.Save();
+            panPointerId = 0;
+            panPointerStart = default;
+            panStartView = default;
             evt.StopPropagation();
+        }
+
+        private void OnPointerCancel(PointerCancelEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                CancelTransitionDrag(releasePointer: true);
+                evt.StopPropagation();
+                return;
+            }
+
+            if (panning && evt.pointerId == panPointerId)
+            {
+                CancelPan(releasePointer: true);
+                evt.StopPropagation();
+            }
+        }
+
+        private void OnPointerCaptureOut(PointerCaptureOutEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                CancelTransitionDrag(releasePointer: false);
+                evt.StopPropagation();
+                return;
+            }
+
+            if (panning && evt.pointerId == panPointerId)
+            {
+                CancelPan(releasePointer: false);
+                evt.StopPropagation();
+            }
         }
 
         private void OnWheel(WheelEvent evt)
@@ -338,6 +402,67 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller.AddTransition(sourceId, targetId, priority, CoCoTransitionWindow.Always);
+        }
+
+        private void CancelTransitionDrag(bool releasePointer)
+        {
+            if (!transitionDragging)
+            {
+                return;
+            }
+
+            int pointerId = transitionPointerId;
+            transitionDragging = false;
+            if (releasePointer)
+            {
+                ReleaseCapturedPointer(pointerId);
+            }
+            else if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
+
+            ResetTransitionDrag();
+            edgeLayer.MarkDirtyRepaint();
+        }
+
+        private void ResetTransitionDrag()
+        {
+            transitionPointerId = 0;
+            transitionSourceStateId = default;
+            transitionPointerPosition = default;
+        }
+
+        private void CancelPan(bool releasePointer)
+        {
+            if (!panning)
+            {
+                return;
+            }
+
+            int pointerId = panPointerId;
+            panning = false;
+            SetView(panStartView, save: true);
+            if (releasePointer)
+            {
+                ReleaseCapturedPointer(pointerId);
+            }
+            else if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
+
+            panPointerId = 0;
+            panPointerStart = default;
+            panStartView = default;
+        }
+
+        private void ReleaseCapturedPointer(int pointerId)
+        {
+            if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
         }
 
         private static bool Matches(CoCoSerializedId128 id, CoCoTransitionId value) =>
@@ -442,11 +567,13 @@ namespace CoCoFlow.Editor.StateGraph
                 RegisterCallback<PointerDownEvent>(OnPointerDown);
                 RegisterCallback<PointerMoveEvent>(OnPointerMove);
                 RegisterCallback<PointerUpEvent>(OnPointerUp);
+                RegisterCallback<PointerCancelEvent>(OnPointerCancel);
+                RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
             }
 
             private void OnPointerDown(PointerDownEvent evt)
             {
-                if (evt.button != 0)
+                if (evt.button != 0 || dragging)
                 {
                     return;
                 }
@@ -463,6 +590,7 @@ namespace CoCoFlow.Editor.StateGraph
                 pointerId = evt.pointerId;
                 pointerStart = evt.position;
                 positionStart = position;
+                this.CapturePointer(evt.pointerId);
                 evt.StopPropagation();
             }
 
@@ -498,6 +626,7 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 dragging = false;
+                ReleaseCapturedPointer();
                 if (hasMoved)
                 {
                     moved(state.StateId, position, true);
@@ -505,6 +634,63 @@ namespace CoCoFlow.Editor.StateGraph
 
                 controller.SelectState(ToStateId());
                 evt.StopPropagation();
+            }
+
+            private void OnPointerCancel(PointerCancelEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                CancelDrag(releasePointer: true);
+                evt.StopPropagation();
+            }
+
+            private void OnPointerCaptureOut(PointerCaptureOutEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                CancelDrag(releasePointer: false);
+                evt.StopPropagation();
+            }
+
+            private void CancelDrag(bool releasePointer)
+            {
+                int capturedPointerId = pointerId;
+                dragging = false;
+                if (releasePointer)
+                {
+                    ReleaseCapturedPointer();
+                }
+
+                if (hasMoved)
+                {
+                    position = positionStart;
+                    style.left = position.x;
+                    style.top = position.y;
+                    moved(state.StateId, position, false);
+                }
+
+                hasMoved = false;
+                pointerId = 0;
+                pointerStart = default;
+                positionStart = default;
+                if (!releasePointer && this.HasPointerCapture(capturedPointerId))
+                {
+                    this.ReleasePointer(capturedPointerId);
+                }
+            }
+
+            private void ReleaseCapturedPointer()
+            {
+                if (this.HasPointerCapture(pointerId))
+                {
+                    this.ReleasePointer(pointerId);
+                }
             }
 
             private bool IsSelected()

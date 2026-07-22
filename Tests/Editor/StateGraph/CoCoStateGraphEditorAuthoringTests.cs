@@ -284,7 +284,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 out string comboFailure), comboFailure);
             Assert.AreEqual(1, combo.Layers.Count);
             Assert.AreEqual(
-                new[] { "Step 1", "Step 2", "Step 3", "Step 4", "Exit" },
+                new[] { "Step1", "Step2", "Step3", "Step4", "Exit" },
                 combo.Layers[0].States.Select(state => state.DisplayName));
             Assert.AreEqual(4, combo.Layers[0].Transitions.Count);
             for (int index = 0; index < 4; index++)

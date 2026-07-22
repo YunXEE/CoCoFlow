@@ -147,7 +147,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             AddStateDescriptorPopup(
-                "Step 1–4 descriptor",
+                "Step1–4 descriptor",
                 progressDescriptors,
                 comboStepDescriptorId,
                 value => comboStepDescriptorId = value);
@@ -163,7 +163,7 @@ namespace CoCoFlow.Editor.StateGraph
             end.RegisterValueChangedCallback(evt => comboWindowEnd = evt.newValue);
             form.Add(end);
             form.Add(new HelpBox(
-                "Creates Step 1 → Step 2 → Step 3 → Step 4 → Exit using four ActionProgress Transitions.",
+                "Creates Step1 → Step2 → Step3 → Step4 → Exit using four ActionProgress Transitions.",
                 HelpBoxMessageType.Info));
         }
 
@@ -558,7 +558,7 @@ namespace CoCoFlow.Editor.StateGraph
                         default,
                         descriptor.DescriptorId,
                         config,
-                        isExit ? "Exit" : $"Step {index + 1}",
+                        isExit ? "Exit" : $"Step{index + 1}",
                         new Vector2(60f + index * 230f, 120f),
                         out stateIds[index],
                         out failure))

@@ -20,6 +20,7 @@ namespace CoCoFlow.Editor.StateGraph
         private VisualElement toolbarHost;
         private ScrollView tree;
         private ScrollView details;
+        private VisualElement feedbackHost;
         private SerializedObject serializedAsset;
         private CoCoStateDescriptorId addStateDescriptorId;
         private CoCoConditionDescriptorId addConditionDescriptorId;
@@ -225,6 +226,7 @@ namespace CoCoFlow.Editor.StateGraph
             toolbar.Add(breadcrumb);
 
             var search = new ToolbarSearchField();
+            search.name = "state-graph-search";
             search.SetValueWithoutNotify(controller.Session.SearchText);
             search.RegisterValueChangedCallback(evt => controller.SetSearch(evt.newValue));
             toolbar.Add(search);
@@ -248,13 +250,17 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             details.Clear();
+            feedbackHost = null;
             serializedAsset?.UpdateIfRequiredOrScript();
             AddHeading("Layer");
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
             if (layer == null)
             {
                 details.Add(new HelpBox("Add or select a valid Layer.", HelpBoxMessageType.Info));
-                AddCatalogStatus();
+                feedbackHost = new VisualElement { name = "state-graph-feedback" };
+                details.Add(feedbackHost);
+                RefreshFeedback();
+                ApplyPlayModeReadOnly();
                 return;
             }
 
@@ -272,13 +278,17 @@ namespace CoCoFlow.Editor.StateGraph
             AddHeading("Add State");
             IReadOnlyList<CoCoStateDescriptor> stateDescriptors =
                 controller.Catalog?.StateDescriptors ?? Array.Empty<CoCoStateDescriptor>();
-            CoCoStateDescriptor addDescriptor = AddStateDescriptorPopup(stateDescriptors);
+            StateDescriptorChoice addDescriptor = AddStateDescriptorPopup(
+                stateDescriptors,
+                addStateDescriptorId,
+                persistAsAddDefault: true,
+                "add-state-descriptor");
             var stateName = new TextField("Name") { value = "State" };
             details.Add(stateName);
             details.Add(new Button(() =>
             {
                 CoCoStateId parent = controller.Session.DrillRootStateId;
-                controller.AddState(parent, ResolveStateDescriptor(addDescriptor), stateName.value, NextPosition());
+                controller.AddState(parent, addDescriptor.Value, stateName.value, NextPosition());
             }) { text = "Add State Here" });
             details.Add(new Button(() => controller.PasteState(
                 controller.Session.DrillRootStateId,
@@ -293,13 +303,9 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             DrawTransitions(layer);
-            DrawRequirements();
-            DrawDiagnostics();
-            AddCatalogStatus();
-            if (!string.IsNullOrEmpty(controller.CommandFailure))
-            {
-                details.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
-            }
+            feedbackHost = new VisualElement { name = "state-graph-feedback" };
+            details.Add(feedbackHost);
+            RefreshFeedback();
 
             ApplyPlayModeReadOnly();
         }
@@ -411,11 +417,13 @@ namespace CoCoFlow.Editor.StateGraph
             stateOrder.Add(new Button(() => controller.MoveSelectedState(1)) { text = "Move Down" });
             details.Add(stateOrder);
 
-            CoCoStateDescriptor selectedDescriptor = AddStateDescriptorPopup(
+            StateDescriptorChoice selectedDescriptor = AddStateDescriptorPopup(
                 descriptors,
-                ToStateDescriptorId(state.StateDescriptorId));
+                ToStateDescriptorId(state.StateDescriptorId),
+                persistAsAddDefault: false,
+                "selected-state-descriptor");
             details.Add(new Button(() => controller.SetSelectedStateDescriptor(
-                ResolveStateDescriptor(selectedDescriptor))) { text = "Set Descriptor" });
+                selectedDescriptor.Value)) { text = "Set Descriptor" });
             DrawConfigProperty(
                 FindStateConfigProperty(
                     controller.Session.SelectedLayerId,
@@ -431,7 +439,7 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateId selectedId = ToStateId(state.StateId);
             details.Add(new Button(() => controller.AddState(
                 selectedId,
-                ResolveStateDescriptor(selectedDescriptor),
+                selectedDescriptor.Value,
                 "Child State",
                 new Vector2(80f, 80f))) { text = "Add Child State" });
 
@@ -594,27 +602,44 @@ namespace CoCoFlow.Editor.StateGraph
                 ResolveConditionDescriptor(conditionDescriptor))) { text = "Add Condition" });
         }
 
-        private void DrawRequirements()
+        private void RefreshFeedback()
         {
-            AddHeading("Requirements / Host Suggestions");
+            if (feedbackHost == null || controller == null)
+            {
+                return;
+            }
+
+            feedbackHost.Clear();
+            DrawRequirements(feedbackHost);
+            DrawDiagnostics(feedbackHost);
+            AddCatalogStatus(feedbackHost);
+            if (!string.IsNullOrEmpty(controller.CommandFailure))
+            {
+                feedbackHost.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
+            }
+        }
+
+        private void DrawRequirements(VisualElement parent)
+        {
+            AddHeading(parent, "Requirements / Host Suggestions");
             foreach (string line in controller.BuildRequirementOverlay())
             {
                 var label = new Label(line);
                 label.style.whiteSpace = WhiteSpace.Normal;
-                details.Add(label);
+                parent.Add(label);
             }
         }
 
-        private void DrawDiagnostics()
+        private void DrawDiagnostics(VisualElement parent)
         {
-            AddHeading("Diagnostics");
+            AddHeading(parent, "Diagnostics");
             if (controller.AnalysisResult == null)
             {
-                details.Add(new Label("Run Analyze to recompute diagnostics."));
+                parent.Add(new Label("Run Analyze to recompute diagnostics."));
                 return;
             }
 
-            details.Add(new Label(controller.AnalysisResult.Succeeded
+            parent.Add(new Label(controller.AnalysisResult.Succeeded
                 ? "Compilation succeeded."
                 : "Compilation blocked."));
             foreach (CoCoGraphDiagnostic diagnostic in controller.AnalysisResult.Diagnostics)
@@ -624,7 +649,7 @@ namespace CoCoFlow.Editor.StateGraph
                 var locate = new Button(() => controller.Locate(diagnostic.Location)) { text = "Locate" };
                 locate.AddToClassList("state-graph-navigation");
                 box.Add(locate);
-                details.Add(box);
+                parent.Add(box);
             }
         }
 
@@ -651,11 +676,11 @@ namespace CoCoFlow.Editor.StateGraph
             details.Query<PropertyField>().ForEach(field => field.SetEnabled(false));
         }
 
-        private void AddCatalogStatus()
+        private void AddCatalogStatus(VisualElement parent = null)
         {
             if (!string.IsNullOrEmpty(controller?.CatalogStatus))
             {
-                details.Add(new HelpBox(controller.CatalogStatus, HelpBoxMessageType.Warning));
+                (parent ?? details).Add(new HelpBox(controller.CatalogStatus, HelpBoxMessageType.Warning));
             }
         }
 
@@ -668,6 +693,9 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             var field = new PropertyField(property.Copy(), label);
+            field.name = label == "State Config"
+                ? "state-graph-state-config"
+                : "state-graph-condition-config";
             field.RegisterCallback<SerializedPropertyChangeEvent>(_ => controller.NotifyConfigChanged());
             field.Bind(serializedAsset);
             details.Add(field);
@@ -747,14 +775,17 @@ namespace CoCoFlow.Editor.StateGraph
                    low.ulongValue == expectedLow;
         }
 
-        private CoCoStateDescriptor AddStateDescriptorPopup(
+        private StateDescriptorChoice AddStateDescriptorPopup(
             IReadOnlyList<CoCoStateDescriptor> descriptors,
-            CoCoStateDescriptorId preferred = default)
+            CoCoStateDescriptorId preferred,
+            bool persistAsAddDefault,
+            string popupName)
         {
+            var choice = new StateDescriptorChoice();
             if (descriptors.Count == 0)
             {
                 details.Add(new HelpBox("No State descriptors are available.", HelpBoxMessageType.Warning));
-                return null;
+                return choice;
             }
 
             int selectedIndex = 0;
@@ -770,18 +801,30 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
-            addStateDescriptorId = descriptors[selectedIndex].DescriptorId;
-            var popup = new PopupField<string>("Descriptor", labels, selectedIndex);
+            choice.Value = descriptors[selectedIndex];
+            if (persistAsAddDefault)
+            {
+                addStateDescriptorId = choice.Value.DescriptorId;
+            }
+
+            var popup = new PopupField<string>("Descriptor", labels, selectedIndex)
+            {
+                name = popupName
+            };
             popup.RegisterValueChangedCallback(evt =>
             {
                 int index = labels.IndexOf(evt.newValue);
                 if (index >= 0)
                 {
-                    addStateDescriptorId = descriptors[index].DescriptorId;
+                    choice.Value = descriptors[index];
+                    if (persistAsAddDefault)
+                    {
+                        addStateDescriptorId = choice.Value.DescriptorId;
+                    }
                 }
             });
             details.Add(popup);
-            return descriptors[selectedIndex];
+            return choice;
         }
 
         private CoCoConditionDescriptor AddConditionDescriptorPopup(
@@ -882,11 +925,27 @@ namespace CoCoFlow.Editor.StateGraph
             return choice;
         }
 
-        private void OnControllerChanged()
+        private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
-            RefreshToolbar();
-            RefreshTree();
-            RefreshDetails();
+            if ((invalidation & CoCoStateGraphEditorInvalidation.Toolbar) != 0)
+            {
+                RefreshToolbar();
+            }
+
+            if ((invalidation & CoCoStateGraphEditorInvalidation.Tree) != 0)
+            {
+                RefreshTree();
+            }
+
+            if ((invalidation & CoCoStateGraphEditorInvalidation.Details) != 0)
+            {
+                RefreshDetails();
+            }
+            else if ((invalidation & CoCoStateGraphEditorInvalidation.Feedback) != 0)
+            {
+                RefreshFeedback();
+            }
+
             Repaint();
         }
 
@@ -908,21 +967,28 @@ namespace CoCoFlow.Editor.StateGraph
             var menu = new GenericMenu();
             menu.AddItem(new GUIContent("Add State Here"), false, () =>
             {
-                TryExecuteCanvasAuthoringAction(() =>
-                {
-                    CoCoStateDescriptor descriptor = ResolveStateDescriptor(null);
-                    controller.AddState(
-                        controller.Session.DrillRootStateId,
-                        descriptor,
-                        "State",
-                        contextPosition);
-                });
+                TryExecuteCanvasAuthoringAction(() => TryAddStateAtCanvasPosition(contextPosition));
             });
             menu.AddItem(new GUIContent("Paste Subtree Here"), false, () =>
                 TryExecuteCanvasAuthoringAction(() => controller.PasteState(
                     controller.Session.DrillRootStateId,
                     contextPosition)));
             menu.ShowAsContext();
+        }
+
+        internal bool TryAddStateAtCanvasPosition(Vector2 position)
+        {
+            if (controller == null || !CoCoStateGraphAuthoringOperations.CanEdit(out _))
+            {
+                return false;
+            }
+
+            CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
+            return controller.AddState(
+                controller.Session.DrillRootStateId,
+                descriptor,
+                "State",
+                position);
         }
 
         private void TryExecuteCanvasAuthoringAction(Action action)
@@ -1026,20 +1092,20 @@ namespace CoCoFlow.Editor.StateGraph
                 : layer.InitialStateId == selected.StateId;
         }
 
-        private CoCoStateDescriptor ResolveStateDescriptor(CoCoStateDescriptor fallback)
+        private CoCoStateDescriptor ResolveStateDescriptor(CoCoStateDescriptorId descriptorId)
         {
             if (controller?.Catalog != null)
             {
                 foreach (CoCoStateDescriptor descriptor in controller.Catalog.StateDescriptors)
                 {
-                    if (descriptor.DescriptorId == addStateDescriptorId)
+                    if (descriptor.DescriptorId == descriptorId)
                     {
                         return descriptor;
                     }
                 }
             }
 
-            return fallback;
+            return null;
         }
 
         private CoCoConditionDescriptor ResolveConditionDescriptor(CoCoConditionDescriptor fallback)
@@ -1162,9 +1228,14 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void AddHeading(string text)
         {
+            AddHeading(details, text);
+        }
+
+        private static void AddHeading(VisualElement parent, string text)
+        {
             var label = new Label(text);
             label.AddToClassList("state-graph-heading");
-            details.Add(label);
+            parent.Add(label);
         }
 
         private void DisposeController()
@@ -1214,6 +1285,11 @@ namespace CoCoFlow.Editor.StateGraph
         {
             internal CoCoStateId Value;
             internal bool HasExplicitSelection;
+        }
+
+        private sealed class StateDescriptorChoice
+        {
+            internal CoCoStateDescriptor Value;
         }
     }
 
