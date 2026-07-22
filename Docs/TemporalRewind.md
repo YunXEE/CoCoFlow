@@ -1,6 +1,6 @@
 # CoCoFlow Temporal Rewind
 
-> Contract status: `0.4.0-pre.6` · Updated 2026-07-19
+> Contract status: `0.4.0-pre.7` · Updated 2026-07-22
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
 `CoCoStateGraphHost`. It records bounded projections of successful Context
@@ -9,6 +9,11 @@ formal Restore into a new TimelineEpoch when the caller confirms.
 
 It is not reverse StateGraph execution, a world snapshot, durable persistence,
 or a cross-Actor side-effect rollback system.
+
+Pre7's internal Editor debug step is also not Temporal Rewind. It executes one
+ordinary positive-delta forward Tick from a healthy Suspended Host and can
+therefore commit state, record history/Trace, run Operators, and publish
+committed events.
 
 ## Authority model
 
@@ -117,6 +122,25 @@ prepared candidates, arena handles, or long-lived history tokens.
 Depth is absolute from the branch head: `0` means current authority, `1` means
 the preceding recorded commit, and so on. Confirm requires a historical depth;
 selecting current authority does not manufacture a new Epoch.
+
+## Suspended debug stepping is not rewind
+
+The Editor-only debug seam accepts one explicit finite positive delta from a
+healthy Suspended Host under Update, FixedUpdate, or Manual driving. It does not
+change the configured Driver. Internally it advances exactly one complete normal
+Tick through Intent collection, StateGraph, Operators, Context commit, Temporal
+capture, Trace, and EventOutbox publication, then returns a healthy result to
+Suspended.
+
+Unlike Preview, this operation is authoritative and may create a new committed
+Context Revision and Temporal entry. It does not select a historical payload,
+apply a Restore binding, create a branch Epoch, or use negative Delta.
+
+The request is rejected while Temporal Mode is `Previewing`, while another Tick
+or callback is unresolved, or when Fault or `RequiresWorldCorrection` makes
+forward progress illegal. If the Tick itself fails, the Host preserves the real
+Fault and world-correction result instead of reporting a fabricated successful
+Suspended state.
 
 ## One synchronous Restore binding
 
@@ -259,8 +283,12 @@ general recovery path.
 - undoing already delivered cross-Actor consequences;
 - Animator, Playable, AnimationClip, or root-motion reverse mapping (Pre11);
 - durable saves, migration, containers, or world facts (Pre13);
-- production Samples and golden-path content (Pre15/Pre16);
+- production gameplay States and replacement Samples (Pre15);
+- complete cross-module certification (Pre16) and final visual/XML polish
+  (Pre17);
 - a global Temporal manager, runtime capacity resizing, or shared history.
+- treating suspended debug stepping as authority-neutral Preview or reverse
+  execution.
 
 See [State Flow / Event Boundary](ContextNetworkBoundary.md) for the complete
 Context and mailbox authority model, and

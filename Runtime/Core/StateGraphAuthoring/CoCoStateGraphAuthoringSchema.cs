@@ -65,7 +65,11 @@ namespace CoCoFlow.Runtime.Core
             set => layerId = value;
         }
 
-        internal string DisplayName => displayName ?? string.Empty;
+        internal string DisplayName
+        {
+            get => displayName ?? string.Empty;
+            set => displayName = value ?? string.Empty;
+        }
 
         internal CoCoSerializedId128 InitialStateId
         {
@@ -116,9 +120,23 @@ namespace CoCoFlow.Runtime.Core
             set => parentStateId = value;
         }
 
-        internal string DisplayName => displayName ?? string.Empty;
-        internal CoCoSerializedId128 StateDescriptorId => stateDescriptorId;
-        internal CoCoStateConfig Config => config;
+        internal string DisplayName
+        {
+            get => displayName ?? string.Empty;
+            set => displayName = value ?? string.Empty;
+        }
+
+        internal CoCoSerializedId128 StateDescriptorId
+        {
+            get => stateDescriptorId;
+            set => stateDescriptorId = value;
+        }
+
+        internal CoCoStateConfig Config
+        {
+            get => config;
+            set => config = value;
+        }
 
         internal CoCoSerializedId128 InitialChildStateId
         {
@@ -170,12 +188,30 @@ namespace CoCoFlow.Runtime.Core
             set => targetStateId = value;
         }
 
-        internal int Priority => priority;
+        internal int Priority
+        {
+            get => priority;
+            set => priority = value;
+        }
         internal List<CoCoStateGraphConditionRecord> Conditions =>
             conditions ?? (conditions = new List<CoCoStateGraphConditionRecord>());
-        internal CoCoTransitionWindowMode WindowMode => windowMode;
-        internal double WindowStartInclusive => windowStartInclusive;
-        internal double WindowEndExclusive => windowEndExclusive;
+        internal CoCoTransitionWindowMode WindowMode
+        {
+            get => windowMode;
+            set => windowMode = value;
+        }
+
+        internal double WindowStartInclusive
+        {
+            get => windowStartInclusive;
+            set => windowStartInclusive = value;
+        }
+
+        internal double WindowEndExclusive
+        {
+            get => windowEndExclusive;
+            set => windowEndExclusive = value;
+        }
     }
 
     [Serializable]
@@ -192,8 +228,17 @@ namespace CoCoFlow.Runtime.Core
             this.config = config;
         }
 
-        internal CoCoSerializedId128 ConditionDescriptorId => conditionDescriptorId;
-        internal CoCoConditionConfig Config => config;
+        internal CoCoSerializedId128 ConditionDescriptorId
+        {
+            get => conditionDescriptorId;
+            set => conditionDescriptorId = value;
+        }
+
+        internal CoCoConditionConfig Config
+        {
+            get => config;
+            set => config = value;
+        }
     }
 
     [Serializable]

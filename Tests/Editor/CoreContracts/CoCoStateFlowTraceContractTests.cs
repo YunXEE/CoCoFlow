@@ -24,6 +24,35 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void FilteredWrappedRingCopiesLatestMatchesWithoutChangingRawCounters()
+        {
+            CoCoGraphInstanceId graph = CreateGraphInstanceId(11UL);
+            CoCoLayerId layer = CreateLayerId(12UL);
+            CoCoStateId target = CreateStateId(13UL);
+            CoCoStateId other = CreateStateId(14UL);
+            var buffer = new CoCoStateFlowTraceBuffer(5);
+
+            AppendPath(buffer, graph, layer, target, 1UL);
+            AppendPath(buffer, graph, layer, target, 2UL);
+            AppendPath(buffer, graph, layer, other, 3UL);
+            AppendPath(buffer, graph, layer, target, 4UL);
+            AppendPath(buffer, graph, layer, other, 5UL);
+            AppendPath(buffer, graph, layer, target, 6UL);
+            AppendPath(buffer, graph, layer, target, 7UL);
+
+            var copied = new CoCoStateFlowTraceEntry[2];
+            var filter = new CoCoStateFlowTraceFilter(
+                CoCoStateFlowTraceKind.All,
+                stateId: target);
+            Assert.AreEqual(2, buffer.CopyLatestTo(copied, filter));
+            Assert.AreEqual(6UL, copied[0].TickFrame.Tick.Value);
+            Assert.AreEqual(7UL, copied[1].TickFrame.Tick.Value);
+            Assert.AreEqual(5, buffer.Count);
+            Assert.AreEqual(5, buffer.Capacity);
+            Assert.AreEqual(7UL, buffer.TotalWritten);
+        }
+
+        [Test]
         public void FilterSelectsOperatorIdentityWithoutAllocatingPayloadState()
         {
             CoCoGraphInstanceId graph = CreateGraphInstanceId(2UL);
@@ -291,6 +320,20 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             Assert.IsTrue(CoCoGraphInstanceId.TryCreate(value, out CoCoGraphInstanceId id));
             return id;
+        }
+
+        private static void AppendPath(
+            CoCoStateFlowTraceBuffer buffer,
+            CoCoGraphInstanceId graph,
+            CoCoLayerId layer,
+            CoCoStateId state,
+            ulong tick)
+        {
+            Assert.IsTrue(buffer.Append(CoCoStateFlowTraceEntry.Path(
+                graph,
+                CreateTickFrame(tick),
+                layer,
+                state)));
         }
 
         private static CoCoOperatorId CreateOperatorId(ulong low)

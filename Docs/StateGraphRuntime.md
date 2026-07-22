@@ -1,11 +1,14 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Contract status: `0.4.0-pre.6` · Updated 2026-07-19
+> Contract status: `0.4.0-pre.7` · Updated 2026-07-22
 
 Pre6 extends the Pre5 composite Actor commit with Host-owned Temporal projection
 history. It adds authority-neutral Preview, a single formal Restore into a new
 TimelineEpoch, and one explicit Unity binding for Preview, Confirm, Cancel, and
 world Correction. StateGraph still executes only forward positive-delta Ticks.
+Pre7 makes the Host's scene-instance references explicit, adds a committed-only
+Editor debugger snapshot, and permits one internal positive-delta debug Tick
+from a healthy Suspended Host without turning that operation into rewind.
 
 ## Unity assembly model
 
@@ -15,6 +18,8 @@ The required scene surface is intentionally small:
 Actor GameObject
 ├─ CoCoStateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
+├─ Intent Source scripts     explicit ordered Host references as required
+├─ Event-to-Intent Adapters  explicit Host references in declaration order
 ├─ Operator scripts          optional; referenced by the Host in explicit order
 ├─ Actor Context binding     required only when Actor-owned Slots exist
 └─ Context Restore binding   required when Temporal history is enabled
@@ -29,15 +34,19 @@ The Host exposes lifecycle control, Manual Step, read-only authority inspection,
 and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,
 AutoStart, Actor TimeScale, history capacity, and diagnostic capacity are
 settings on that same Host, not reasons to add another component. The custom
-Inspector validates the Asset, project runtime bindings, EventDomain, Driver,
-and Temporal configuration without auto-adding anything.
+Inspector validates the Asset, explicit component references, project runtime
+bindings, EventDomain, Driver, and Temporal configuration. It may suggest
+compatible components inside the Host boundary, but never assigns or saves a
+suggestion until the user confirms it. All configuration is read-only while the
+Host is Running.
 
-The Host never scans old `CoCoStateController` instances, Context providers,
-children, or the scene. Its serialized Operator list is explicit and ordered;
-the Host rejects null or destroyed entries, non-Operators, duplicate references,
-duplicate Operator IDs, entries outside its transform scope, and entries hidden
-behind a nested Host. Optional capability is represented by an explicit no-op
-Operator, not by an absent binding or runtime discovery.
+The Runtime never scans old `CoCoStateController` instances, Context providers,
+children, or the scene. Intent Sources, Event-to-Intent Adapters, and Operators
+are serialized as explicit ordered Host references. Runtime validation rejects
+null or destroyed entries, incompatible types, duplicate references, duplicate
+stable IDs, entries outside the Host transform scope, and entries hidden behind
+a nested Host. Optional capability is represented by an explicit no-op binding
+where its contract requires one, not by runtime discovery.
 
 The Actor Context binding is also one explicit Host reference. It must implement
 the binding contract, stay inside the Host's transform scope without crossing a
@@ -66,6 +75,14 @@ Context Slot requirements exactly. The deduplicated Operator requirements must
 also exactly cover the compiled Graph Operation-provides manifest. Missing,
 extra, duplicate, or type-incompatible bindings leave the Host in `Created`; no
 callback, Tick, or Router registration occurs.
+
+The Project Provider and the Host own different halves of that setup. The
+Provider remains authoritative for the frozen descriptor Catalog, State and
+Condition factories, generic Intent and Adapter bindings, Operation/Context
+types, Codecs, Layout defaults, and AOT-safe construction. The Host owns the
+user-confirmed scene component instances and their order. A Host reference
+cannot replace Provider type authority, and a Provider cannot discover,
+substitute, persist, or reorder scene instances on the user's behalf.
 
 Transaction preflight runs before Clock creation and before
 `CoCoStateGraphRuntime.TryCreate`. It classifies every non-Derived Context Slot
@@ -286,6 +303,16 @@ the stopped one.
   the Host faults with `RequiresWorldCorrection`; CoCoFlow does not fabricate a
   Unity-world rollback.
 
+Pre7 also exposes one internal Editor-only debug seam for a healthy Suspended
+Host. It accepts one explicit finite positive delta under Update, FixedUpdate,
+or Manual driving, executes exactly one ordinary forward Tick through the same
+Intent, Graph, Operator, Context, Temporal, Trace, and Outbox boundaries, and
+returns a healthy success to Suspended. It does not change the configured Driver
+or run an accumulator/catch-up loop. Temporal Preview, an unresolved Tick,
+Fault, or required world Correction rejects the request. If the Tick fails, the
+real lifecycle, Fault, and correction state remain visible; the Host does not
+fabricate a successful suspension.
+
 Callback or Condition exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
 faulted Host rejects normal Resume and new gameplay input. Recovery requires
@@ -352,6 +379,53 @@ latches Fault and `RequiresWorldCorrection`. `TryCorrectWorld` invokes the same
 binding with `Correction` against the last logical authority and clears only the
 matching recoverable fault after successful projection.
 
+## Committed debugger snapshot and Trace
+
+The Pre7 Runtime Debugger reads an internal immutable Host snapshot copied from
+the latest committed authority boundary. It is a current point-in-time view of
+explicitly copied identity and diagnostic state, including Host/Graph identity,
+lifecycle and Fault, committed Context/Tick/Clock/Epoch information, and each
+Layer's committed active path and Transition result. It never exposes a staged
+candidate, mutable Runtime collection, retained Context handle, Context payload,
+Inbox, Envelope, Unity object graph, or private reflected field.
+
+Snapshot and Trace are deliberately separate:
+
+- the snapshot answers what is committed now and is replaced only by another
+  successfully captured committed point;
+- Trace answers what identity-only events happened recently and retains a
+  bounded ordered history when its configured capacity is greater than zero.
+
+The Editor presents the current Host value as `Live Lifecycle` and the copied
+snapshot value as `Snapshot Lifecycle`. A failed refresh preserves the previous
+snapshot. Trace display may select exactly one of `All`, `State ID`, or
+`Transition ID`; the identity modes trim surrounding whitespace and accept only
+a non-zero 32-digit hexadecimal identity. Blank or invalid input produces zero
+visible entries rather than silently falling back to `All`. Filtering scans the
+complete ring and returns the latest matching entries in chronological order.
+Raw `Count`, `Capacity`, and `TotalWritten` remain unchanged, with `Visible`
+reported separately. Observing another Host or Graph instance resets the filter
+to `All`.
+
+Trace capacity defaults to zero, creates no buffer in that mode, and is fixed
+before Running. The Editor cannot resize it on a live Host. A failed transaction
+does not change committed snapshot authority and its Trace cannot contain
+Context commit, final sequence, or publication entries.
+
+World-correction state does not itself reject debugger capture. At an otherwise
+idle committed boundary, the Host may copy its last committed Graph, Context,
+and Claims together with the current Fault, correction latch, and diagnostic.
+Capture does not invoke Actor/Graph bindings, advance Clock or Tick, append
+Trace, apply correction, clear Fault, or expose the failed candidate. Starting,
+advancing, Temporal operations, committed-event publication, active Preview,
+and lower-level candidate/transaction/restore activity continue to reject
+capture.
+
+The suspended debug step is not an authority-neutral debugger preview. Because
+it is one normal positive-delta Tick, it may advance Context/Clock, append
+Temporal and Trace entries, execute Operators, and publish a successfully
+committed EventOutbox before returning to Suspended.
+
 ## Actor event boundary
 
 The Host is the Actor's single gameplay-event boundary. StateLogic cannot
@@ -393,7 +467,7 @@ are neither reclaimed nor automatically retried. Destroy, Stop, or Dispose
 requested during publication is deferred until the committed list completes.
 
 Runtime Trace is an optional fixed-capacity immutable ring. Capacity zero creates
-no buffer. Accepted Transition Candidates are emitted in compiled order after
+no buffer, and Running never resizes it. Accepted Transition Candidates are emitted in compiled order after
 their source/window/conditions pass, and the Winner is emitted again with an
 explicit Winner role. A value-only Frame reference records Frame identity, exact
 Layout identity/version/schema hash, Revision, and whether a committed Frame
@@ -444,7 +518,7 @@ consequences.
 - **Pre11**: Animator/Playable/SMB replacement and presentation reverse mapping.
 - **Pre13**: durable persistence and migration.
 
-Pre6 does not add cross-Layer calls, queries, signals, or Transitions; an
+Pre7 does not add cross-Layer calls, queries, signals, or Transitions; an
 arbitrary state-change API; a network Driver; persistence; a production Sample;
 or a migration runtime for the retained 0.3.9 implementation.
 

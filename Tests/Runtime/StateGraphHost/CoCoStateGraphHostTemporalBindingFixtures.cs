@@ -185,18 +185,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         TemporalHostDefaults.IntentReducerFingerprint,
                         out intent,
                         out diagnostic) ||
-                    !builder.TryBeginIntentBindings(1, out diagnostic) ||
+                    !builder.TryBeginIntentBindings(out diagnostic) ||
                     !CoCoIntentSourceRequirement<TemporalHostIntent>.TryCreate(
                         intent,
                         1,
                         out CoCoIntentSourceRequirement<TemporalHostIntent> requirement) ||
                     !builder.TryBindEventAdapter<TemporalHostEvent, TemporalHostIntent>(
+                        0,
                         _ids.EventDomainId,
                         _ids.EventTypeId,
                         requirement,
                         4,
                         false,
-                        new TemporalHostEventAdapter(),
                         out diagnostic))
                 {
                     return false;
@@ -379,6 +379,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "traceCapacity", 64);
             SetField(host, "temporalHistoryCapacity", historyCapacity);
             SetField(host, "actorContextBinding", binding);
+            if (withEvent)
+            {
+                var adapter = gameObject.AddComponent<TemporalHostEventAdapterComponent>();
+                SetField(host, "eventAdapters", new MonoBehaviour[] { adapter });
+            }
+
             SetField(
                 host,
                 "contextRestoreBinding",
@@ -416,6 +422,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "traceCapacity", 64);
             SetField(host, "temporalHistoryCapacity", historyCapacity);
             SetField(host, "actorContextBinding", binding);
+            if (source.Asset.EventAdapterDeclarations.Count > 0)
+            {
+                var adapter = gameObject.AddComponent<TemporalHostEventAdapterComponent>();
+                SetField(host, "eventAdapters", new MonoBehaviour[] { adapter });
+            }
+
             SetField(host, "contextRestoreBinding", binding);
             return new TemporalHostTestScenario
             {

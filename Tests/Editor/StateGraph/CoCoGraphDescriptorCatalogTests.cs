@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures;
@@ -107,6 +108,60 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(0, CoCoStateGraphFixtureCounters.MemoryConstructed);
             Assert.AreEqual(0, CoCoStateGraphFixtureCounters.ConditionConstructed);
             Assert.AreEqual(0, CoCoStateGraphFixtureCounters.ReducerCreated);
+        }
+
+        [Test]
+        public void DescriptorEnumerationIsImmutableAndSortedByStableId()
+        {
+            CoCoStateDescriptorId laterStateId = StateDescriptorId(90UL);
+            CoCoStateDescriptorId earlierStateId = StateDescriptorId(10UL);
+            CoCoConditionDescriptorId laterConditionId = ConditionDescriptorId(80UL);
+            CoCoConditionDescriptorId earlierConditionId = ConditionDescriptorId(20UL);
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+
+            foreach (CoCoStateDescriptorId descriptorId in new[] { laterStateId, earlierStateId })
+            {
+                Assert.IsTrue(builder.TryRegisterState(
+                    descriptorId,
+                    1U,
+                    new TestStateConfigFreezer(),
+                    new CoCoStateRuntimeRegistration<
+                        TestStateLogic,
+                        TestStateConfigSchema,
+                        TestActivationMemory>(TestFrozenConfigSchemas.StateSchema),
+                    null,
+                    null,
+                    null,
+                    out CoCoDiagnostic diagnostic), diagnostic.Message);
+            }
+
+            foreach (CoCoConditionDescriptorId descriptorId in
+                     new[] { laterConditionId, earlierConditionId })
+            {
+                Assert.IsTrue(builder.TryRegisterCondition(
+                    descriptorId,
+                    1U,
+                    new TestConditionConfigFreezer(),
+                    new CoCoConditionRuntimeRegistration<
+                        TestStateCondition,
+                        TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
+                    null,
+                    null,
+                    out CoCoDiagnostic diagnostic), diagnostic.Message);
+            }
+
+            Assert.IsTrue(builder.TryFreeze(
+                out CoCoGraphDescriptorCatalog catalog,
+                out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
+
+            CollectionAssert.AreEqual(
+                new[] { earlierStateId, laterStateId },
+                catalog.StateDescriptors.Select(descriptor => descriptor.DescriptorId));
+            CollectionAssert.AreEqual(
+                new[] { earlierConditionId, laterConditionId },
+                catalog.ConditionDescriptors.Select(descriptor => descriptor.DescriptorId));
+            Assert.IsFalse(catalog.StateDescriptors is CoCoStateDescriptor[]);
+            Assert.IsFalse(catalog.ConditionDescriptors is CoCoConditionDescriptor[]);
         }
 
         [Test]

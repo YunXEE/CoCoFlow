@@ -85,6 +85,32 @@ namespace CoCoFlow.Runtime.Core
         internal int CandidateEventCount => _outboxLedgerCount;
         internal bool HasOutboxFailure => _outboxWriteFault;
 
+        internal bool TryCaptureCommittedDebugState(
+            out CoCoContextFrame context,
+            out CoCoOperatorClaimState[] claims,
+            out CoCoDiagnostic diagnostic)
+        {
+            context = default;
+            claims = null;
+            if (_isDisposed || _activeToken != 0UL || _activeRestoreToken != 0UL)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Lifecycle,
+                    CoCoDiagnosticCode.InvalidLifecycleTransition,
+                    "Committed debugger state requires one idle Context transaction.");
+                return false;
+            }
+
+            if (!_operators.TryCaptureCommittedClaims(out claims, out diagnostic))
+            {
+                return false;
+            }
+
+            context = _contextArena.Current;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal static bool TryCreate(
             CoCoStateGraphHost host,
             CoCoCompiledStateGraph graph,

@@ -1331,7 +1331,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (component == null || !(component is ICoCoActorContextBinding typed) ||
-                !IsInsideHostBoundary(host, component))
+                !CoCoStateGraphHostBoundary.Contains(host, component))
             {
                 diagnostic = Error(
                     CoCoDiagnosticCode.InvalidActorBinding,
@@ -1402,25 +1402,6 @@ namespace CoCoFlow.Runtime.Core
             actorBinding = typed;
             diagnostic = CoCoDiagnostic.None;
             return true;
-        }
-
-        private static bool IsInsideHostBoundary(
-            CoCoStateGraphHost host,
-            MonoBehaviour component)
-        {
-            Transform current = component.transform;
-            while (current != null)
-            {
-                CoCoStateGraphHost boundary = current.GetComponent<CoCoStateGraphHost>();
-                if (boundary != null)
-                {
-                    return ReferenceEquals(boundary, host);
-                }
-
-                current = current.parent;
-            }
-
-            return false;
         }
 
         private static CoCoDiagnostic Error(CoCoDiagnosticCode code, string message) =>

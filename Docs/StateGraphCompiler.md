@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.6` · Updated 2026-07-19
+> Contract status: `0.4.0-pre.7` · Updated 2026-07-22
 
 Pre3 introduced the Unity authoring schema and engine-independent compiler for
 the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
@@ -9,7 +9,9 @@ Context manifests without changing the Compiler or authoring schema. Pre6 adds
 Host-owned Temporal projection history and Restore orchestration while likewise
 leaving the Compiler and serialized graph schema unchanged, as described in
 [StateGraph Runtime and Host](StateGraphRuntime.md) and
-[Temporal Rewind](TemporalRewind.md).
+[Temporal Rewind](TemporalRewind.md). Pre7 adds the constrained authoring Editor,
+separately versioned presentation layout, deterministic Catalog-driven presets,
+and manifest overlays without changing runtime schema v1 or compiler identity.
 
 The serialized Schema remains version 1. Because no StateGraph asset had been
 formally delivered before Pre4, this prerelease v1 is redefined in place and no
@@ -45,6 +47,44 @@ runtime composition and the content fingerprint. The compiler preserves that
 list order, and a Layer's `DenseIndex` is its composition index rather than an
 ID-derived sort position.
 
+## Constrained Editor and presentation state
+
+Pre7 edits one Layer and one recursive State scope at a time. It supports Layer,
+State, and Transition creation, deletion, reordering, Condition/Window/Priority
+editing, breadcrumb navigation, validation, search, and layout. It is not an
+unrestricted visual-scripting surface: Transition endpoints must be leaves in
+the selected Layer, and there is no Machine, Node, Completion, Interrupt, or
+cross-Layer communication entry point.
+
+Every topology mutation passes through one Undo-aware authoring operation. A
+State-subtree deletion removes every incident Transition. When deleting a Layer
+initial State or composite initial child, the user must explicitly choose a
+valid surviving sibling when one exists; the Editor never selects one
+implicitly. With no surviving sibling, the user may explicitly confirm clearing
+the reference and leaving a compiler-invalid draft. Invalid operations are
+rejected before mutation, create no Undo entry, and do not dirty the Asset.
+
+The Graph Asset also contains an internal, separately versioned Editor layout.
+It maps each stable State ID to a local coordinate in its recursive editing
+scope. Layout entries participate in Asset copy, Layer duplication, subtree
+copy, ID remapping, Undo, and Redo, but are presentation-only: the authoring
+snapshot does not read them, runtime schema remains version 1, and layout changes
+do not contribute to the content fingerprint or compilation-cache key.
+
+Selected Layer, State breadcrumb/foldout, pan/zoom, search, and selection are
+session state keyed by Asset GUID and stable identities. They survive Domain
+Reload only, do not enter the Asset, and do not affect any fingerprint.
+Diagnostics are recomputed after reload; only a still-valid selected location
+is restored. Opening or importing an Asset must not synthesize persistent layout
+or mark the Asset dirty.
+
+Copy/Paste in Pre7 is limited to one Asset. A pasted subtree receives new State
+and Transition IDs, retains only subtree-internal Transitions, and may target the
+same or a different Layer. Cross-Asset and cross-Editor-session clipboard
+transfer are deferred. See
+[StateGraph Editor and Runtime Debugger](StateGraphEditor.md) for the complete
+workflow.
+
 ## Stable identity
 
 Graph, Layer, State, and Transition identities are serialized as two unsigned
@@ -60,7 +100,7 @@ a runtime instance.
   Config data is deep-copied and does not remain shared with the source Layer.
 - Duplicating a State subtree remaps only the copied States and their internal
   Transitions. References that would escape the copied subtree are not silently
-  retargeted.
+  retargeted. Its Editor-layout entries are remapped with the same new State IDs.
 - An invalid, missing, or duplicate identity is a compile Error. Runtime code
   never repairs serialized identity.
 
@@ -89,6 +129,10 @@ user properties or callbacks. After that preflight, it calls the descriptor's
 explicit Freezer exactly once for each present, valid Config. A Freezer can
 write only to a framework-owned, schema-bound writer; it cannot return an
 arbitrary frozen object or provide its own fingerprint.
+
+Editor layout and session state stop before this boundary. Neither becomes part
+of the immutable authoring snapshot, schema version, compile diagnostics,
+content fingerprint, or cache key.
 
 Each frozen Schema declares stable 128-bit Field IDs and exact scalar or
 one-dimensional-array value types. The framework canonicalizes fields by ID,
@@ -229,6 +273,18 @@ All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
 or Operation Section entry.
 
+Pre7's overlay presents exactly these three existing manifests. Event-to-Intent
+declarations remain entries within the Intent manifest and do not create a
+fourth Manifest or a ContextGraph. The Editor obtains State and Condition choices
+through deterministic internal Catalog enumeration by stable identity; it adds
+no public label/category metadata or runtime discovery API.
+
+The Catalog-parameterized Simple preset creates one Layer with two generic leaf
+States and one same-Layer Transition. The Combo preset creates the generic
+`Step1 -> Step2 -> Step3 -> Step4 -> Exit` topology. Presets are ordinary
+Undoable authoring operations and do not generate gameplay StateLogic, animation
+timing, Samples, Machine/Node concepts, or cross-Layer references.
+
 ## Transition contract
 
 - Source and target must both be leaves in the same Layer. Composite States can
@@ -314,9 +370,10 @@ and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
 
 - **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
-- **Pre15/Pre16** own production authoring UX, replacement Samples, and complete
-  cross-module performance and lifecycle certification.
+- **Pre15** owns production gameplay States and replacement Samples.
+- **Pre16** owns complete cross-module performance and lifecycle certification;
+  Pre17 may polish visuals and XML without redefining Pre7's authoring boundary.
 
 There is no generated mega-`.cs` file, build-time baked compiled Asset,
 cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
-migration path in Pre6.
+migration path in Pre7.

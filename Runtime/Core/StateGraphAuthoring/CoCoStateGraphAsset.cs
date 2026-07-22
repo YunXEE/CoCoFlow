@@ -16,6 +16,8 @@ namespace CoCoFlow.Runtime.Core
             new List<CoCoStateGraphLayerRecord>();
         [SerializeField] private List<CoCoStateGraphEventAdapterDeclarationRecord> eventAdapterDeclarations =
             new List<CoCoStateGraphEventAdapterDeclarationRecord>();
+        [SerializeField, HideInInspector] private CoCoStateGraphEditorLayout editorLayout =
+            new CoCoStateGraphEditorLayout();
 
         public uint SchemaVersion => schemaVersion;
 
@@ -35,6 +37,8 @@ namespace CoCoFlow.Runtime.Core
         internal List<CoCoStateGraphEventAdapterDeclarationRecord> EventAdapterDeclarations =>
             eventAdapterDeclarations ??
             (eventAdapterDeclarations = new List<CoCoStateGraphEventAdapterDeclarationRecord>());
+        internal CoCoStateGraphEditorLayout EditorLayout =>
+            editorLayout ?? (editorLayout = new CoCoStateGraphEditorLayout());
 
         internal bool EnsureAssetIdentity(string currentAssetGuid)
         {
@@ -141,6 +145,8 @@ namespace CoCoFlow.Runtime.Core
                     transition.TargetStateId = Remap(transition.TargetStateId, stateIds);
                 }
             }
+
+            EditorLayout.RemapStateIds(stateIds);
 
             assetGuidStamp = currentAssetGuid;
         }

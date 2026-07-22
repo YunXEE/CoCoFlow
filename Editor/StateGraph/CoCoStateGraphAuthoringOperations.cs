@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraph
 {
-    public static class CoCoStateGraphAuthoringOperations
+    public static partial class CoCoStateGraphAuthoringOperations
     {
         public static CoCoLayerId AddLayer(CoCoStateGraphAsset asset, string displayName = null)
         {
@@ -36,40 +36,20 @@ namespace CoCoFlow.Editor.StateGraph
         {
             RequireAsset(asset);
             CoCoStateGraphLayerRecord layer = RequireLayer(asset, layerId);
-            CoCoSerializedId128 serializedParentId = Serialize(parentStateId);
-            if (parentStateId.IsValid && FindState(layer, parentStateId) == null)
+            if (!TryAddState(
+                    asset,
+                    layerId,
+                    parentStateId,
+                    descriptorId,
+                    config,
+                    displayName,
+                    DefaultPosition(layer.States.Count),
+                    out CoCoStateId stateId,
+                    out string failure))
             {
-                throw new ArgumentException("The parent State does not belong to the target Layer.", nameof(parentStateId));
+                throw new ArgumentException(failure, nameof(parentStateId));
             }
 
-            Undo.RecordObject(asset, "Add State Graph State");
-            CoCoSerializedId128 serializedId = CoCoSerializedId128.NewId();
-            var state = new CoCoStateGraphStateRecord(
-                serializedId,
-                serializedParentId,
-                string.IsNullOrWhiteSpace(displayName)
-                    ? $"State {layer.States.Count + 1}"
-                    : displayName,
-                Serialize(descriptorId),
-                config);
-            layer.States.Add(state);
-
-            if (!parentStateId.IsValid && !layer.InitialStateId.IsValid)
-            {
-                layer.InitialStateId = serializedId;
-            }
-            else if (parentStateId.IsValid)
-            {
-                CoCoStateGraphStateRecord parent = FindState(layer, parentStateId);
-                if (parent != null && !parent.InitialChildStateId.IsValid)
-                {
-                    parent.InitialChildStateId = serializedId;
-                }
-            }
-
-            EditorUtility.SetDirty(asset);
-
-            CoCoStateId.TryCreate(serializedId.High, serializedId.Low, out CoCoStateId stateId);
             return stateId;
         }
 
@@ -81,30 +61,21 @@ namespace CoCoFlow.Editor.StateGraph
             int priority)
         {
             RequireAsset(asset);
-            CoCoStateGraphLayerRecord layer = RequireLayer(asset, layerId);
-            if (FindState(layer, sourceStateId) == null)
+            RequireLayer(asset, layerId);
+            if (!TryAddTransition(
+                    asset,
+                    layerId,
+                    sourceStateId,
+                    targetStateId,
+                    priority,
+                    CoCoTransitionWindow.Always,
+                    catalog: null,
+                    out CoCoTransitionId transitionId,
+                    out string failure))
             {
-                throw new ArgumentException("The source State does not belong to the target Layer.", nameof(sourceStateId));
+                throw new ArgumentException(failure, nameof(sourceStateId));
             }
 
-            if (FindState(layer, targetStateId) == null)
-            {
-                throw new ArgumentException("The target State does not belong to the target Layer.", nameof(targetStateId));
-            }
-
-            Undo.RecordObject(asset, "Add State Graph Transition");
-            CoCoSerializedId128 serializedId = CoCoSerializedId128.NewId();
-            layer.Transitions.Add(new CoCoStateGraphTransitionRecord(
-                serializedId,
-                Serialize(sourceStateId),
-                Serialize(targetStateId),
-                priority));
-            EditorUtility.SetDirty(asset);
-
-            CoCoTransitionId.TryCreate(
-                serializedId.High,
-                serializedId.Low,
-                out CoCoTransitionId transitionId);
             return transitionId;
         }
 
@@ -115,6 +86,12 @@ namespace CoCoFlow.Editor.StateGraph
             out CoCoStateId duplicatedRootStateId)
         {
             RequireAsset(asset);
+            if (!asset.EditorLayout.IsSupported)
+            {
+                duplicatedRootStateId = default;
+                return false;
+            }
+
             CoCoStateGraphLayerRecord targetLayer = RequireLayer(asset, layerId);
             CoCoStateGraphStateRecord sourceRoot = FindState(targetLayer, sourceRootStateId);
             if (sourceRoot == null)
@@ -182,6 +159,19 @@ namespace CoCoFlow.Editor.StateGraph
                     targetLayer.Transitions.Add(clonedTransition);
                 }
 
+                foreach (CoCoSerializedId128 sourceId in subtreeIds)
+                {
+                    if (clone.EditorLayout.TryGetPosition(sourceId, out Vector2 sourcePosition))
+                    {
+                        targetLayer = RequireLayer(asset, layerId);
+                        asset.EditorLayout.SetPosition(
+                            stateIdRemaps[sourceId],
+                            sourceId == sourceRoot.StateId
+                                ? sourcePosition + new Vector2(32f, 32f)
+                                : sourcePosition);
+                    }
+                }
+
                 EditorUtility.SetDirty(asset);
 
                 CoCoSerializedId128 duplicatedRoot = stateIdRemaps[sourceRoot.StateId];
@@ -204,6 +194,11 @@ namespace CoCoFlow.Editor.StateGraph
         {
             RequireAsset(asset);
             duplicatedLayerId = default;
+            if (!asset.EditorLayout.IsSupported)
+            {
+                return false;
+            }
+
             if (!TryGetUniqueLayer(asset, sourceLayerId, out CoCoStateGraphLayerRecord sourceLayer) ||
                 !TryValidateLayerForDuplication(
                     asset,
@@ -275,6 +270,14 @@ namespace CoCoFlow.Editor.StateGraph
                 Undo.SetCurrentGroupName("Duplicate State Graph Layer");
                 Undo.RecordObject(asset, "Duplicate State Graph Layer");
                 asset.Layers.Insert(sourceLayerIndex + 1, duplicatedLayer);
+                foreach (KeyValuePair<CoCoSerializedId128, CoCoSerializedId128> remap in stateIdRemaps)
+                {
+                    if (clone.EditorLayout.TryGetPosition(remap.Key, out Vector2 sourcePosition))
+                    {
+                        asset.EditorLayout.SetPosition(remap.Value, sourcePosition);
+                    }
+                }
+
                 EditorUtility.SetDirty(asset);
                 Undo.CollapseUndoOperations(undoGroup);
 
@@ -558,6 +561,12 @@ namespace CoCoFlow.Editor.StateGraph
             if (asset == null)
             {
                 throw new ArgumentNullException(nameof(asset));
+            }
+
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                throw new InvalidOperationException(
+                    "StateGraph authoring is read-only while entering or running Play Mode.");
             }
         }
     }

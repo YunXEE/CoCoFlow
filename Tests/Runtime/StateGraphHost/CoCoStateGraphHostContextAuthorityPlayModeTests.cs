@@ -453,8 +453,61 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoStateGraphRuntime runtime = GetRuntime(host);
                 CoCoTickFrame resumed = CreateResumedTick(source.Header.TickFrame);
                 int actorCaptures = actorBinding.CaptureCount;
+                int graphCaptures = ContextAuthorityMemoryStateBinding.CaptureCount;
                 int logicUpdates = ContextAuthorityLogic.UpdateCount;
                 ulong traceCount = host.Trace.TotalWritten;
+                Vector3 dirtyWorldPosition = gameObject.transform.localPosition;
+                CoCoRuntimeFault fault = host.Fault;
+
+                Require(host.TryCaptureDebugSnapshot(
+                    out CoCoStateGraphHostDebugSnapshot snapshot,
+                    out CoCoDiagnostic snapshotDiagnostic), snapshotDiagnostic);
+                Assert.That(snapshot.Lifecycle, Is.EqualTo(host.Lifecycle));
+                Assert.That(snapshot.Fault, Is.EqualTo(fault));
+                Assert.That(snapshot.RequiresWorldCorrection, Is.True);
+                Assert.That(
+                    snapshot.LastDiagnostic.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.ContextCaptureFailed));
+                Assert.That(snapshot.ContextHeader, Is.EqualTo(source.Header));
+                Assert.That(snapshot.ContextRevision, Is.EqualTo(source.Revision));
+                Assert.That(snapshot.Tick, Is.EqualTo(source.Header.TickFrame.Tick));
+                Assert.That(
+                    snapshot.ExecutionSequence,
+                    Is.EqualTo(source.Header.TickFrame.ExecutionSequence));
+                Assert.That(
+                    snapshot.Seconds,
+                    Is.EqualTo(source.Header.TickFrame.TimelinePosition.Seconds));
+                Assert.That(host.CurrentContext, Is.EqualTo(source));
+                Assert.That(
+                    runtime.Clock.TimelineId,
+                    Is.EqualTo(source.Header.TickFrame.TimelineId));
+                Assert.That(
+                    runtime.Clock.ClockDomainId,
+                    Is.EqualTo(source.Header.TickFrame.ClockDomainId));
+                Assert.That(
+                    runtime.Clock.TimelineEpoch,
+                    Is.EqualTo(source.Header.TickFrame.TimelineEpoch));
+                Assert.That(
+                    runtime.Clock.Tick,
+                    Is.EqualTo(source.Header.TickFrame.Tick));
+                Assert.That(
+                    runtime.Clock.ExecutionSequence,
+                    Is.EqualTo(source.Header.TickFrame.ExecutionSequence));
+                Assert.That(
+                    runtime.Clock.Seconds,
+                    Is.EqualTo(source.Header.TickFrame.TimelinePosition.Seconds));
+                Assert.That(actorBinding.CaptureCount, Is.EqualTo(actorCaptures));
+                Assert.That(
+                    ContextAuthorityMemoryStateBinding.CaptureCount,
+                    Is.EqualTo(graphCaptures));
+                Assert.That(ContextAuthorityLogic.UpdateCount, Is.EqualTo(logicUpdates));
+                Assert.That(host.Trace.TotalWritten, Is.EqualTo(traceCount));
+                Assert.That(
+                    gameObject.transform.localPosition,
+                    Is.EqualTo(dirtyWorldPosition));
+                Assert.That(host.Fault, Is.EqualTo(fault));
+                Assert.That(host.RequiresWorldCorrection, Is.True);
+
                 Assert.That(host.TryValidateRestore(
                     source,
                     resumed,

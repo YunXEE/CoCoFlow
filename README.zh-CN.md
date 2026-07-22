@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.6 · **Unity**：6000+
+> **版本**：0.4.0-pre.7 · **Unity**：6000+
 >
-> Pre6 加入每 Host 独占的 Temporal 投影历史、不改变权威状态的连续
-> Preview、进入新 TimelineEpoch 的单次原子 Restore，以及统一处理
-> Preview、Confirm、Cancel 与世界 Correction 的显式 Unity Binding。
+> Pre7 加入受限 StateGraph Editor 与 committed Runtime Debugger、仅用于表现的
+> 图布局、确定性 Catalog overlay 与 preset、显式 Host 场景引用，以及健康
+> Suspended Host 上的一次普通正向 Debug Tick。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -102,6 +102,24 @@ result；unreachable State 等 Warning 不阻止。普通 Transition 环与无�
 Completion 与 InterruptPolicy 被删除，normalized timing 改为 Activation-scoped
 ActionProgress。
 
+Pre7 Editor 每次只编辑一个 Asset、选中的 Layer 与一个递归 State scope。Transition
+两端只能是同一 Layer 的 leaf State，作者字段只有 Conditions、一个 Window 与同源唯一
+Priority；Completion 与 Interrupt 都不是作者字段。每次拓扑修改都经过支持 Undo 的作者
+操作，删除 State 子树会同时删除全部 incident Transition。删除 initial State 时，如有
+surviving sibling，用户必须显式选一个有效替代；如无 survivor，可以显式确认清空引用并
+留下 compiler-invalid 草稿。Pre7 Copy/Paste 只限同一 Asset，新副本使用新 ID 且只保留
+子树内部 Transition；跨 Asset 与跨 Editor session clipboard 延后。
+
+State 位置是按稳定 State ID 保存、独立版本化的表现数据，不进入 runtime schema v1、
+compiler snapshot、content fingerprint 或 compilation-cache key。selection、breadcrumb、
+foldout、pan/zoom、search 与 diagnostic location 是只保证跨 Domain Reload 的 session
+state。Editor 以稳定 identity 确定性枚举 internal Catalog，只叠加已有 Intent、Graph
+Operation 与 ContextFrame State 三类 Manifest。Simple preset 创建一个 Layer 与两个
+generic leaf State，并连接一条 same-Layer Transition；Combo 创建通用
+`Step1 -> Step2 -> Step3 -> Step4 -> Exit` 拓扑。两者都不创建 gameplay logic、
+animation timing、Sample 或第四类 Manifest。详见
+[StateGraph Editor 与 Runtime Debugger](Docs/StateGraphEditor.md)。
+
 ## StateGraph Runtime 与 Host
 
 每个 Actor 最少只需要一个框架组件和一个 Asset；存在 Actor-owned Slot 时，再显式引用
@@ -111,6 +129,8 @@ ActionProgress。
 Actor GameObject
 ├─ CoCoStateGraphHost        必需
 │  └─ StateGraphAsset       必需
+├─ Intent Source scripts     可选；由 Host 以显式顺序引用
+├─ Event Adapter scripts     按 Manifest 要求；由 Host 以显式顺序引用
 ├─ Operator scripts          可选；由 Host 以显式顺序引用
 ├─ Actor Context binding     仅有 Actor-owned Slot 时必需
 └─ Context Restore binding   启用 Temporal history 时必需
@@ -120,6 +140,11 @@ Runtime、Clock、Inbox、Router、Logic、Condition 与 Memory 都不是组件�
 旧 Controller、Context Provider、子物体或场景。多个 Host 可以共享不可变 compiled
 graph，但各自独占 StateLogic/Condition 实例、双 Memory Bank、active leaf、Clock、
 Inbox、staged Tick 与锁存 Fault。
+
+Host 拥有用户确认的具体场景组件引用及其顺序；Project Provider 继续拥有冻结 Catalog、
+State/Condition factory、通用 Intent/Adapter binding、Operation/Context type、Codec、
+default 与 AOT-safe construction 的类型权威。Editor 建议仅供参考，用户确认前不写入；
+Running 时配置只读。Host 不通过场景扫描发现这些引用。
 
 任何 Clock 或 Runtime factory 运行前，Transaction Preflight 必须精确覆盖 Graph state、
 Graph value、Claim、Operator、Actor 与 Derived Context Slot，并验证 Operator、Claim、
@@ -333,6 +358,9 @@ Host 的公开 `TryDispose` 只接受 `Created` 或 `Stopped`；Runtime `Dispose
   不使用 accumulator 或 catch-up。
 - Rewind 不使用负 Delta。Preview 只选择并投射历史 candidate；Confirm 在新
   TimelineEpoch 只 Restore 一次，然后继续正 Delta 正向 Tick。
+- 健康 Suspended Host 的内部 Debug Step 接受一个有限正 Delta，在 Update、FixedUpdate
+  或 Manual Driver 下执行恰好一个普通 Tick。它可以提交 Context、history、Trace 与
+  Outbox Event，且只在成功时回到 Suspended；它不是 Rewind 或中性 Preview。
 - StateGraph 只读取当前 IntentFrame 和 Previous ContextFrame，不能观察本 Tick
   执行中产生的 Outcome。
 - 首 Tick 通过 `CoCoContextFrameReadView` 读取 Layout 默认值，不伪造 Tick 0 或
@@ -348,7 +376,13 @@ Outcome 只能写入 Pre3 Manifest 中已声明、非 Derived、Operator-owned �
 的 Context Slot。Trace 按 compiled order 记录通过条件的 Transition Candidate，并把
 Winner 另记一条。不可变 Frame Reference 只含 identity、精确 Layout metadata、Revision
 与是否存在 committed Frame，不 Retain Frame Handle；Trace 不保存 payload、Unity Object、
-mutable Frame 或 diagnostic string。
+mutable Frame 或 diagnostic string。Trace 是 opt-in，capacity 默认为 0，Running 时不可
+改变。
+
+Runtime Debugger 的内部不可变 Snapshot 与 Trace 分离。它回答当前已提交的 Host/
+lifecycle/fault、Context revision、Tick/Clock/Epoch、各 Layer active path 与 committed
+Transition，不暴露 candidate Tick、payload、Inbox、Envelope、retained Context Handle
+或反射私有字段；失败或取消的 Tick 不能替换 committed Snapshot 权威。
 
 ## 仓库与包边界
 
@@ -365,7 +399,8 @@ Runtime/StateGraphHost   Unity Host 与 internal Gateway/Router 集成
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
 Runtime/Modules          过渡期表现与服务模块
-Editor/StateGraph        Editor-only 身份操作与 diagnostic navigation
+Editor/StateGraph        受限图创作与 diagnostics
+Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -386,12 +421,13 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
-- **Pre15/Pre16**：替代 Samples、Golden Path、技术文档以及完整跨模块性能/生命周期
-  认证。
+- **Pre15**：production gameplay State 与替代 Sample。
+- **Pre16**：完整跨模块性能与生命周期认证。
+- **Pre17**：不改变功能边界的最终视觉与 XML 文档 polish。
 
 ## 依赖
 
-Pre6 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre7 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
@@ -421,6 +457,7 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
+- [StateGraph Editor 与 Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
