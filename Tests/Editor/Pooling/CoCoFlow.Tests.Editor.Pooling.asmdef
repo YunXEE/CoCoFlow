@@ -1,0 +1,27 @@
+{
+    "name": "CoCoFlow.Tests.Editor.Pooling",
+    "rootNamespace": "CoCoFlow.Runtime.Pooling.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Pooling",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "UniTask"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

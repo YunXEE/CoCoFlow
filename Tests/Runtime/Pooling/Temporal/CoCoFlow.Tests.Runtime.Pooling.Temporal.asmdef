@@ -1,0 +1,32 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.Pooling.Temporal",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Pooling.Temporal",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Pooling",
+        "CoCoFlow.Runtime.Pooling.Temporal",
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Tests.Runtime.StateGraphHost",
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
