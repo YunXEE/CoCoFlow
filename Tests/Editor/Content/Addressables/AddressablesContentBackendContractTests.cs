@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using CoCoFlow.Runtime.Pooling;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEditor;
@@ -435,6 +436,323 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
                 else
                 {
                     PlayerPrefs.DeleteKey(UnityAddressables.kAddressablesRuntimeDataPath);
+                }
+
+                if (AssetDatabase.IsValidFolder(tempRoot))
+                {
+                    AssetDatabase.DeleteAsset(tempRoot);
+                }
+
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator RealAddressablesPrefabSourceReleasesAfterPoolScopeClose()
+        {
+            return UniTask.ToCoroutine(
+                RunRealAddressablesPrefabPoolLifecycleAsync);
+        }
+
+        private static async UniTask RunRealAddressablesPrefabPoolLifecycleAsync()
+        {
+            string suffix = Guid.NewGuid().ToString("N");
+            string folderName =
+                "__CoCoFlowAddressablesPoolIntegration_" + suffix;
+            string tempRoot = "Assets/" + folderName;
+            string prefabPath = tempRoot + "/Pooled.prefab";
+            string address =
+                "cocoflow/tests/addressables/pool/" + suffix;
+            string priorRuntimeDataPath = PlayerPrefs.GetString(
+                UnityAddressables.kAddressablesRuntimeDataPath,
+                string.Empty);
+            bool hadRuntimeDataPath = PlayerPrefs.HasKey(
+                UnityAddressables.kAddressablesRuntimeDataPath);
+
+            AddressablesStaticIsolation isolation = null;
+            BuildScriptFastMode fastModeBuilder = null;
+            GameObject prefabAuthoringObject = null;
+            GameObject backendObject = null;
+            GameObject runtimeOwnerObject = null;
+            GameObject consumerRootObject = null;
+            ContentRuntime contentRuntime = null;
+            PoolRuntime poolRuntime = null;
+            PoolScope poolScope = null;
+            AsyncOperationHandle<IResourceLocator> initializationHandle = default;
+            try
+            {
+                Assert.IsFalse(AssetDatabase.IsValidFolder(tempRoot));
+                string folderGuid = AssetDatabase.CreateFolder(
+                    "Assets",
+                    folderName);
+                Assert.IsFalse(string.IsNullOrEmpty(folderGuid));
+
+                prefabAuthoringObject = new GameObject(
+                    "CoCoFlow Addressables Pool Integration Prefab");
+                GameObject prefabAsset = PrefabUtility.SaveAsPrefabAsset(
+                    prefabAuthoringObject,
+                    prefabPath);
+                Assert.IsNotNull(prefabAsset);
+                UnityEngine.Object.DestroyImmediate(prefabAuthoringObject);
+                prefabAuthoringObject = null;
+
+                AddressableAssetSettings settings = AddressableAssetSettings.Create(
+                    tempRoot,
+                    "AddressableAssetSettings",
+                    true,
+                    true);
+                Assert.IsNotNull(settings);
+                string prefabGuid = AssetDatabase.AssetPathToGUID(prefabPath);
+                AddressableAssetEntry entry = settings.CreateOrMoveEntry(
+                    prefabGuid,
+                    settings.DefaultGroup,
+                    false,
+                    false);
+                Assert.IsNotNull(entry);
+                entry.SetAddress(address, false);
+                EditorUtility.SetDirty(settings);
+                AssetDatabase.SaveAssets();
+
+                fastModeBuilder = ScriptableObject.CreateInstance<BuildScriptFastMode>();
+                AddressablesPlayModeBuildResult buildResult =
+                    fastModeBuilder.BuildData<AddressablesPlayModeBuildResult>(
+                        new AddressablesDataBuilderInput(settings));
+                Assert.IsTrue(
+                    string.IsNullOrEmpty(buildResult.Error),
+                    buildResult.Error);
+
+                // Match the real-asset fixture's singleton isolation so this
+                // temporary FastMode locator/provider graph cannot leak to the host.
+                isolation = new AddressablesStaticIsolation();
+                initializationHandle = UnityAddressables.InitializeAsync(false);
+                IResourceLocator initializedLocator =
+                    initializationHandle.WaitForCompletion();
+                Assert.AreEqual(
+                    AsyncOperationStatus.Succeeded,
+                    initializationHandle.Status,
+                    initializationHandle.OperationException == null
+                        ? string.Empty
+                        : initializationHandle.OperationException.ToString());
+                Assert.IsNotNull(initializedLocator);
+                UnityAddressables.Release(initializationHandle);
+                initializationHandle = default;
+
+                const string assetDatabaseProviderId =
+                    "UnityEngine.ResourceManagement.ResourceProviders.AssetDatabaseProvider";
+                IList<IResourceProvider> providers =
+                    UnityAddressables.ResourceManager.ResourceProviders;
+                for (int index = providers.Count - 1; index >= 0; index--)
+                {
+                    if (providers[index].ProviderId == assetDatabaseProviderId)
+                    {
+                        providers.RemoveAt(index);
+                    }
+                }
+
+                var trackingProvider = new TrackingAssetDatabaseProvider();
+                Assert.IsTrue(
+                    trackingProvider.Initialize(
+                        assetDatabaseProviderId,
+                        string.Empty));
+                trackingProvider.SetLoadDelay(0f);
+                providers.Add(trackingProvider);
+                Assert.IsTrue(
+                    UnityAddressables.ResourceLocators.Any(locator =>
+                        locator.Locate(
+                            address,
+                            typeof(UnityEngine.Object),
+                            out IList<IResourceLocation> locations) &&
+                        locations != null &&
+                        locations.Count > 0),
+                    "The isolated FastMode settings did not publish the temporary prefab address.");
+
+                backendObject = new GameObject(
+                    "CoCoFlow Addressables Pool Integration Backend");
+                var backend = backendObject.AddComponent<AddressablesContentBackend>();
+                Assert.IsTrue(ContentRuntime.TryCreate(
+                    new IContentBackend[] { backend },
+                    64,
+                    false,
+                    out contentRuntime,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic runtimeDiagnostic),
+                    runtimeDiagnostic.Message);
+
+                runtimeOwnerObject = new GameObject(
+                    "CoCoFlow Addressables Pool Integration Owner");
+                consumerRootObject = new GameObject(
+                    "CoCoFlow Addressables Pool Integration Consumer Root");
+                consumerRootObject.transform.SetParent(
+                    runtimeOwnerObject.transform,
+                    false);
+                Assert.IsTrue(PoolRuntime.TryCreate(
+                    contentRuntime,
+                    runtimeOwnerObject.transform,
+                    64,
+                    false,
+                    out poolRuntime,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic poolRuntimeDiagnostic),
+                    poolRuntimeDiagnostic.Message);
+
+                Assert.IsTrue(ContentId.TryCreate(
+                    "content.addressables.pool.integration." + suffix,
+                    out ContentId contentId));
+                Assert.IsTrue(ContentReference.TryCreateAddressablePrefabSource(
+                    contentId,
+                    address,
+                    out ContentReference prefabSource));
+                Assert.IsTrue(PoolId.TryCreate(
+                    "pool.addressables.integration." + suffix,
+                    out PoolId poolId));
+                Assert.IsTrue(PoolProfile.TryCreate(
+                    poolId,
+                    prefabSource,
+                    0,
+                    1,
+                    out PoolProfile profile));
+                Assert.IsTrue(ContentOwnerId.TryCreate(
+                    "owner.addressables.pool.integration." + suffix,
+                    out ContentOwnerId ownerId));
+                Assert.IsTrue(poolRuntime.TryCreateScope(
+                    ownerId,
+                    out poolScope,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic scopeDiagnostic),
+                    scopeDiagnostic.Message);
+
+                PoolPrepareResult prepared =
+                    await poolScope.PrepareAsync(profile);
+                Assert.IsTrue(prepared.Succeeded, prepared.Diagnostic.Message);
+                Assert.AreEqual(
+                    1,
+                    trackingProvider.ProvideCount,
+                    "Pool Prepare must acquire one real Addressables prefab handle.");
+                Assert.AreEqual(
+                    0,
+                    trackingProvider.ReleaseCount,
+                    "The prepared pool must retain its prefab source handle.");
+
+                ContentRuntimeSnapshot preparedContent =
+                    contentRuntime.CaptureSnapshot();
+                Assert.AreEqual(1, preparedContent.Entries.Count);
+                Assert.AreEqual(1, preparedContent.Entries[0].LeaseCount);
+                PoolScopeSnapshot preparedPool = poolScope.CaptureSnapshot();
+                Assert.AreEqual(1, preparedPool.Entries.Count);
+                Assert.IsTrue(preparedPool.Entries[0].HoldsSourceLease);
+
+                Assert.IsTrue(poolScope.TryRent(
+                    poolId,
+                    out PooledHandle handle,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic rentDiagnostic),
+                    rentDiagnostic.Message);
+                Assert.IsTrue(handle.TryGetInstance(
+                    out GameObject instance,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic instanceDiagnostic),
+                    instanceDiagnostic.Message);
+                Assert.IsNotNull(instance);
+                instance.transform.SetParent(
+                    consumerRootObject.transform,
+                    false);
+                Assert.IsTrue(handle.TryActivate(
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic activateDiagnostic),
+                    activateDiagnostic.Message);
+                Assert.IsTrue(instance.activeInHierarchy);
+                Assert.AreEqual(
+                    0,
+                    trackingProvider.ReleaseCount,
+                    "Renting and activating must not release the pool's source lease.");
+
+                Assert.IsTrue(handle.TryReturn(
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic returnDiagnostic),
+                    returnDiagnostic.Message);
+                Assert.IsFalse(instance.activeSelf);
+                PoolEntrySnapshot retained = poolScope
+                    .CaptureSnapshot()
+                    .Entries
+                    .Single();
+                Assert.AreEqual(1, retained.InactiveCount);
+                Assert.IsTrue(retained.HoldsSourceLease);
+                Assert.AreEqual(
+                    0,
+                    trackingProvider.ReleaseCount,
+                    "Returning an idle instance must keep the source handle alive.");
+                ContentRuntimeSnapshot retainedContent =
+                    contentRuntime.CaptureSnapshot();
+                Assert.AreEqual(1, retainedContent.Entries.Count);
+                Assert.AreEqual(1, retainedContent.Entries[0].LeaseCount);
+
+                CoCoFlow.Runtime.Core.CoCoDiagnostic closeDiagnostic =
+                    await poolScope.CloseAsync();
+                Assert.IsTrue(closeDiagnostic.IsNone, closeDiagnostic.Message);
+                Assert.AreEqual(PoolScopeState.Closed, poolScope.State);
+                Assert.IsTrue(
+                    instance == null,
+                    "Scope close must physically destroy the retained instance before terminal release.");
+                await WaitUntilAsync(
+                    () => trackingProvider.ReleaseCount == 1 &&
+                          contentRuntime.CaptureSnapshot().Entries.Count == 0,
+                    "Pool Scope close did not release its final Addressables prefab handle.");
+                Assert.AreEqual(
+                    1,
+                    trackingProvider.ReleaseCount,
+                    "The final physical pool terminal must release exactly one provider handle.");
+                Assert.AreEqual(
+                    0,
+                    contentRuntime.CaptureSnapshot().Entries.Count);
+            }
+            finally
+            {
+                if (poolScope != null &&
+                    poolScope.State != PoolScopeState.Closed)
+                {
+                    await poolScope.CloseAsync();
+                }
+
+                if (poolRuntime != null && !poolRuntime.IsDisposed)
+                {
+                    await poolRuntime.ShutdownAsync();
+                }
+
+                if (contentRuntime != null)
+                {
+                    await contentRuntime.ShutdownAsync();
+                }
+
+                if (initializationHandle.IsValid())
+                {
+                    UnityAddressables.Release(initializationHandle);
+                }
+
+                if (runtimeOwnerObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(runtimeOwnerObject);
+                }
+
+                if (backendObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(backendObject);
+                }
+
+                if (prefabAuthoringObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(prefabAuthoringObject);
+                }
+
+                isolation?.Dispose();
+                if (fastModeBuilder != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(fastModeBuilder);
+                }
+
+                if (hadRuntimeDataPath)
+                {
+                    PlayerPrefs.SetString(
+                        UnityAddressables.kAddressablesRuntimeDataPath,
+                        priorRuntimeDataPath);
+                }
+                else
+                {
+                    PlayerPrefs.DeleteKey(
+                        UnityAddressables.kAddressablesRuntimeDataPath);
                 }
 
                 if (AssetDatabase.IsValidFolder(tempRoot))

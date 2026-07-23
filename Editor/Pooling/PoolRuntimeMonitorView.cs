@@ -137,8 +137,7 @@ namespace CoCoFlow.Editor.Pooling
                     using (new EditorGUI.DisabledScope(
                                entry.InactiveCount == 0 ||
                                scope.State != PoolScopeState.Open ||
-                               (entry.State != PoolEntryState.Ready &&
-                                entry.State != PoolEntryState.Prewarming)))
+                               entry.State != PoolEntryState.Ready))
                     {
                         if (GUILayout.Button(
                                 "Clear Inactive",

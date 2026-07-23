@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Linq;
 using CoCoFlow.Runtime.Content;
@@ -26,6 +27,10 @@ namespace CoCoFlow.Tests.Runtime.Pooling
         [UnityTest]
         public IEnumerator EachPreparedEntryOwnsExactlyOneContentLease() =>
             UniTask.ToCoroutine(RunContentLeasePerEntryAsync);
+
+        [UnityTest]
+        public IEnumerator CrossScopeReturnRejectsWithoutConsumingOwnerHandle() =>
+            UniTask.ToCoroutine(RunCrossScopeReturnAsync);
 
         private static async UniTask RunIdleRetentionAsync()
         {
@@ -190,6 +195,67 @@ namespace CoCoFlow.Tests.Runtime.Pooling
             }
             finally
             {
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask RunCrossScopeReturnAsync()
+        {
+            PoolingTestFixture fixture = PoolingTestFixture.Create(1, 1);
+            PoolScope otherScope = null;
+            try
+            {
+                Require(await fixture.Scope.PrepareAsync(fixture.Profile));
+                Assert.That(
+                    ContentOwnerId.TryCreate(
+                        "tests.pooling.other-owner." +
+                        Guid.NewGuid().ToString("N"),
+                        out ContentOwnerId otherOwner),
+                    Is.True);
+                Assert.That(
+                    fixture.PoolRuntime.TryCreateScope(
+                        otherOwner,
+                        out otherScope,
+                        out CoCoDiagnostic scopeDiagnostic),
+                    Is.True,
+                    scopeDiagnostic.Message);
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+
+                Assert.That(
+                    otherScope.TryReturn(
+                        handle,
+                        out CoCoDiagnostic rejected),
+                    Is.False);
+                Assert.That(
+                    rejected.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PooledHandleOwnerMismatch));
+                Assert.That(
+                    handle.TryGetInstance(
+                        out _,
+                        out CoCoDiagnostic stillOwned),
+                    Is.True,
+                    stillOwned.Message);
+                Assert.That(
+                    fixture.Scope.TryReturn(
+                        handle,
+                        out CoCoDiagnostic returned),
+                    Is.True,
+                    returned.Message);
+            }
+            finally
+            {
+                if (otherScope != null &&
+                    otherScope.State != PoolScopeState.Closed)
+                {
+                    await otherScope.CloseAsync();
+                }
+
                 await fixture.CleanupAsync();
             }
         }

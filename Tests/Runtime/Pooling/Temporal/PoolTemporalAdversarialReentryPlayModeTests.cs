@@ -56,6 +56,18 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         public IEnumerator TemporalActivationWithoutConsumerReparentIsRejectedAndDestroyed() =>
             UniTask.ToCoroutine(RunTemporalActivationWithoutReparentAsync);
 
+        [UnityTest]
+        public IEnumerator PendingActivationDespawnIsRejectedAndHostStopIsCallbackFree() =>
+            UniTask.ToCoroutine(RunPendingActivationLifecycleAsync);
+
+        [UnityTest]
+        public IEnumerator HostStopReleasesActiveTemporalEntityWithOneReturn() =>
+            UniTask.ToCoroutine(RunActiveHostStopLifecycleAsync);
+
+        [UnityTest]
+        public IEnumerator DestroyedPhysicalAfterAdoptFailsActivationWithoutThrowing() =>
+            UniTask.ToCoroutine(RunDestroyedPendingActivationAsync);
+
         private async UniTask RunTemporalActivationReentryAsync()
         {
             TemporalReentryFixture fixture = await CreateFixtureAsync();
@@ -388,6 +400,220 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             }
         }
 
+        private async UniTask RunPendingActivationLifecycleAsync()
+        {
+            TemporalReentryFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                PoolTemporalDespawnReentryProbe probe =
+                    instance.GetComponent<PoolTemporalDespawnReentryProbe>();
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xA11CEUL,
+                        0x0EADUL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+
+                Assert.That(
+                    fixture.Binding.TryDespawn(
+                        entityId,
+                        out CoCoDiagnostic rejected),
+                    Is.False);
+                Assert.That(
+                    rejected.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PoolTemporalConflict));
+                Assert.That(probe.RentCount, Is.Zero);
+                Assert.That(probe.ReturnCount, Is.Zero);
+                PoolEntrySnapshot retained =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(retained.TemporalRetainedCount, Is.EqualTo(1));
+                Assert.That(retained.QuarantineCount, Is.Zero);
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryStop(
+                        out CoCoDiagnostic stopped),
+                    Is.True,
+                    stopped.Message);
+                Assert.That(probe.RentCount, Is.Zero);
+                Assert.That(
+                    probe.ReturnCount,
+                    Is.Zero,
+                    "A pending activation has not received Rent and must not receive Return.");
+                PoolEntrySnapshot released =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(released.TemporalRetainedCount, Is.Zero);
+                Assert.That(released.QuarantineCount, Is.Zero);
+                Assert.That(released.InactiveCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunActiveHostStopLifecycleAsync()
+        {
+            TemporalReentryFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                PoolTemporalDespawnReentryProbe probe =
+                    instance.GetComponent<PoolTemporalDespawnReentryProbe>();
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xA11CEUL,
+                        0xA071EUL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+                Assert.That(
+                    fixture.Binding.TryActivate(
+                        entityId,
+                        out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Assert.That(probe.RentCount, Is.EqualTo(1));
+                Assert.That(probe.ReturnCount, Is.Zero);
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryStop(
+                        out CoCoDiagnostic stopped),
+                    Is.True,
+                    stopped.Message);
+                Assert.That(probe.RentCount, Is.EqualTo(1));
+                Assert.That(probe.ReturnCount, Is.EqualTo(1));
+                Assert.That(
+                    probe.LastReturnReason,
+                    Is.EqualTo(PoolReturnReason.TemporalRelease));
+                PoolEntrySnapshot released =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(released.TemporalRetainedCount, Is.Zero);
+                Assert.That(released.QuarantineCount, Is.Zero);
+                Assert.That(released.PendingDestroyCount, Is.Zero);
+                Assert.That(released.InactiveCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunDestroyedPendingActivationAsync()
+        {
+            TemporalReentryFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xA11CEUL,
+                        0xDEADUL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+
+                Object.Destroy(instance);
+                await UniTask.NextFrame();
+                Assert.That(instance == null, Is.True);
+                Assert.That(
+                    fixture.Binding.TryActivate(
+                        entityId,
+                        out CoCoDiagnostic unavailable),
+                    Is.False);
+                Assert.That(unavailable.IsError, Is.True);
+                Assert.That(
+                    unavailable.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PoolTemporalEntityUnavailable)
+                        .Or.EqualTo(CoCoDiagnosticCode.PooledInstanceDestroyed));
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    PoolEntrySnapshot pending =
+                        fixture.Scope.CaptureSnapshot().Entries.Single();
+                    if (pending.TemporalRetainedCount == 0 &&
+                        pending.PendingDestroyCount == 0)
+                    {
+                        break;
+                    }
+
+                    await UniTask.NextFrame();
+                }
+
+                PoolEntrySnapshot terminal =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(terminal.TemporalRetainedCount, Is.Zero);
+                Assert.That(terminal.PendingDestroyCount, Is.Zero);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
         private async UniTask<TemporalReentryFixture> CreateFixtureAsync()
         {
             TemporalHostTestScenario hostScenario =
@@ -548,6 +774,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         internal bool ReturnAttempted { get; private set; }
         internal bool HostStopSucceeded { get; private set; }
         internal CoCoDiagnostic HostStopDiagnostic { get; private set; }
+        internal int RentCount { get; private set; }
+        internal int ReturnCount { get; private set; }
+        internal PoolReturnReason LastReturnReason { get; private set; }
 
         internal void Arm(
             CoCoPoolTemporalBinding binding,
@@ -569,6 +798,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             in PoolRentContext context,
             out CoCoDiagnostic diagnostic)
         {
+            RentCount++;
             if (_despawnOnRentArmed)
             {
                 _despawnOnRentArmed = false;
@@ -586,6 +816,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             in PoolReturnContext context,
             out CoCoDiagnostic diagnostic)
         {
+            ReturnCount++;
+            LastReturnReason = context.Reason;
             if (_stopHostOnReturnArmed)
             {
                 _stopHostOnReturnArmed = false;

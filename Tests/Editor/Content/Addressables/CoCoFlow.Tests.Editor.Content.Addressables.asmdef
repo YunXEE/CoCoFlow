@@ -4,6 +4,7 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Content.Addressables",
+        "CoCoFlow.Runtime.Pooling",
         "CoCoFlow.Runtime.Core.Contracts",
         "Unity.Addressables",
         "Unity.Addressables.Editor",

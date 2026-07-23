@@ -58,6 +58,14 @@ namespace CoCoFlow.Tests.Runtime.Pooling
         public IEnumerator PhysicalOnDestroyObservesLeaseBeforeRelease() =>
             UniTask.ToCoroutine(RunPhysicalOnDestroyLeaseBoundaryAsync);
 
+        [UnityTest]
+        public IEnumerator ConcurrentInitialPrepareIsSingleFlightAndCancellationIsolated() =>
+            UniTask.ToCoroutine(RunConcurrentInitialPrepareAsync);
+
+        [UnityTest]
+        public IEnumerator CancelledAndFailedInitialPrepareRemoveUnpublishedOwnership() =>
+            UniTask.ToCoroutine(RunCancelledAndFailedInitialPrepareAsync);
+
         private static async UniTask RunCloseDuringExplicitPrewarmAsync()
         {
             const int TargetCount = 9;
@@ -341,6 +349,16 @@ namespace CoCoFlow.Tests.Runtime.Pooling
                             record.EventKind == PoolDiagnosticEventKind.InstanceDestroyed),
                     Is.True,
                     "The overlapping external/forced destroy must publish one terminal destruction record.");
+                Assert.That(
+                    finalized.Diagnostics.Count(
+                        record =>
+                            record.InstanceSequence == handle.InstanceSequence &&
+                            (record.EventKind ==
+                             PoolDiagnosticEventKind.ExternalDestroy ||
+                             record.EventKind ==
+                             PoolDiagnosticEventKind.InstanceDestroyed)),
+                    Is.EqualTo(1),
+                    "The overlapping paths must reconcile exactly one terminal event.");
                 await WaitUntilContentEmptyAsync(fixture.ContentRuntime);
                 Assert.That(
                     fixture.ContentRuntime.CaptureSnapshot().Entries,
@@ -801,6 +819,123 @@ namespace CoCoFlow.Tests.Runtime.Pooling
             {
                 await fixture.CleanupAsync();
                 PoolPhysicalDestroyLeaseProbe.ResetObservation();
+            }
+        }
+
+        private static async UniTask RunConcurrentInitialPrepareAsync()
+        {
+            PoolingTestFixture fixture =
+                PoolingTestFixture.CreateDelayed(1, 1);
+            var cancelledWaiter = new CancellationTokenSource();
+            try
+            {
+                UniTask<PoolPrepareResult> first =
+                    fixture.Scope.PrepareAsync(
+                        fixture.Profile,
+                        cancelledWaiter.Token);
+                UniTask<PoolPrepareResult> second =
+                    fixture.Scope.PrepareAsync(fixture.Profile);
+                Assert.That(fixture.DelayedBackend.LoadCount, Is.EqualTo(1));
+                Assert.That(fixture.DelayedBackend.PendingCount, Is.EqualTo(1));
+
+                cancelledWaiter.Cancel();
+                PoolPrepareResult cancelled = await first;
+                Assert.That(cancelled.Cancelled, Is.True);
+                Assert.That(
+                    fixture.DelayedBackend.LoadCount,
+                    Is.EqualTo(1),
+                    "Cancelling one waiter must not restart or cancel the shared physical load.");
+
+                fixture.DelayedBackend.CompleteNextSuccess(fixture.Prefab);
+                PoolPrepareResult prepared = await second;
+                Assert.That(prepared.Succeeded, Is.True, prepared.Diagnostic.Message);
+                Assert.That(prepared.CreatedCount, Is.EqualTo(1));
+                PoolEntrySnapshot snapshot =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(snapshot.State, Is.EqualTo(PoolEntryState.Ready));
+                Assert.That(snapshot.InactiveCount, Is.EqualTo(1));
+                Assert.That(snapshot.HoldsSourceLease, Is.True);
+                Assert.That(
+                    fixture.ContentRuntime.CaptureSnapshot()
+                        .Entries.Single().LeaseCount,
+                    Is.EqualTo(1));
+
+                CoCoDiagnostic closed = await fixture.Scope.CloseAsync();
+                Assert.That(closed.IsNone, Is.True, closed.Message);
+                await WaitUntilContentEmptyAsync(fixture.ContentRuntime);
+                Assert.That(fixture.DelayedBackend.ReleaseCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                cancelledWaiter.Dispose();
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask RunCancelledAndFailedInitialPrepareAsync()
+        {
+            PoolingTestFixture fixture =
+                PoolingTestFixture.CreateDelayed(0, 1);
+            var firstCancellation = new CancellationTokenSource();
+            var secondCancellation = new CancellationTokenSource();
+            try
+            {
+                UniTask<PoolPrepareResult> first =
+                    fixture.Scope.PrepareAsync(
+                        fixture.Profile,
+                        firstCancellation.Token);
+                UniTask<PoolPrepareResult> second =
+                    fixture.Scope.PrepareAsync(
+                        fixture.Profile,
+                        secondCancellation.Token);
+                Assert.That(fixture.DelayedBackend.LoadCount, Is.EqualTo(1));
+
+                firstCancellation.Cancel();
+                secondCancellation.Cancel();
+                PoolPrepareResult firstCancelled = await first;
+                PoolPrepareResult secondCancelled = await second;
+                Assert.That(firstCancelled.Cancelled, Is.True);
+                Assert.That(secondCancelled.Cancelled, Is.True);
+                await WaitUntilPrepareEntryRemovedAsync(fixture);
+                Assert.That(fixture.Scope.CaptureSnapshot().Entries, Is.Empty);
+                Assert.That(fixture.ContentRuntime.CaptureSnapshot().Entries, Is.Empty);
+                Assert.That(fixture.DelayedBackend.ReleaseCount, Is.Zero);
+
+                UniTask<PoolPrepareResult> failedPrepare =
+                    fixture.Scope.PrepareAsync(fixture.Profile);
+                Assert.That(fixture.DelayedBackend.LoadCount, Is.EqualTo(2));
+                fixture.DelayedBackend.CompleteNextFailure();
+                PoolPrepareResult failed = await failedPrepare;
+                Assert.That(failed.Succeeded, Is.False);
+                Assert.That(failed.Cancelled, Is.False);
+                Assert.That(
+                    failed.Diagnostic.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.ContentLoadFailed));
+                await WaitUntilPrepareEntryRemovedAsync(fixture);
+                Assert.That(fixture.Scope.CaptureSnapshot().Entries, Is.Empty);
+                Assert.That(fixture.ContentRuntime.CaptureSnapshot().Entries, Is.Empty);
+                Assert.That(fixture.DelayedBackend.ReleaseCount, Is.Zero);
+            }
+            finally
+            {
+                firstCancellation.Dispose();
+                secondCancellation.Dispose();
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask WaitUntilPrepareEntryRemovedAsync(
+            PoolingTestFixture fixture)
+        {
+            for (int frame = 0; frame < 20; frame++)
+            {
+                if (fixture.Scope.CaptureSnapshot().Entries.Count == 0 &&
+                    fixture.ContentRuntime.CaptureSnapshot().Entries.Count == 0)
+                {
+                    return;
+                }
+
+                await UniTask.NextFrame();
             }
         }
 

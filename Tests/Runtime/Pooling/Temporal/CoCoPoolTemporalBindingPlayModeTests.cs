@@ -49,6 +49,62 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         public IEnumerator DestroyedTemporalPhysicalFailsSafelyAndFaultsLiveAuthority() =>
             UniTask.ToCoroutine(RunUnavailablePhysicalAsync);
 
+        [UnityTest]
+        public IEnumerator SceneRootAndLatestLiveParentSurviveTemporalReplay() =>
+            UniTask.ToCoroutine(RunPresentationParentReplayAsync);
+
+        [UnityTest]
+        public IEnumerator DestroyedPresentationParentFailsReplayWithoutThrowing() =>
+            UniTask.ToCoroutine(RunDestroyedPresentationParentAsync);
+
+        [UnityTest]
+        public IEnumerator DestroyedDownstreamIsRejectedBeforePoolMutation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamPreflightFailureAsync(
+                    DownstreamPreflightFailure.Destroy));
+
+        [UnityTest]
+        public IEnumerator ReplacedDownstreamIsRejectedBeforePoolMutation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamPreflightFailureAsync(
+                    DownstreamPreflightFailure.Replace));
+
+        [UnityTest]
+        public IEnumerator MovedDownstreamIsRejectedBeforePoolMutation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamPreflightFailureAsync(
+                    DownstreamPreflightFailure.MoveOutside));
+
+        [UnityTest]
+        public IEnumerator DownstreamRejectionRequiresCorrectionBeforeActivation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamCallbackFailureAsync(
+                    PoolDownstreamFailure.Reject));
+
+        [UnityTest]
+        public IEnumerator DownstreamExceptionRequiresCorrectionBeforeActivation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamCallbackFailureAsync(
+                    PoolDownstreamFailure.Throw));
+
+        [UnityTest]
+        public IEnumerator DownstreamSelfMoveRequiresCorrectionBeforeActivation() =>
+            UniTask.ToCoroutine(
+                () => RunDownstreamCallbackFailureAsync(
+                    PoolDownstreamFailure.MoveOutside));
+
+        [UnityTest]
+        public IEnumerator ProjectedOnlyPhysicalLossCancelsInOneAttempt() =>
+            UniTask.ToCoroutine(RunProjectedOnlyCancelRecoveryAsync);
+
+        [UnityTest]
+        public IEnumerator ProjectedOnlyPhysicalLossCorrectsInOneAttempt() =>
+            UniTask.ToCoroutine(RunProjectedOnlyCorrectionRecoveryAsync);
+
+        [UnityTest]
+        public IEnumerator ConfirmAbsentDiscardsFutureAndReleasesLastPhysicalReference() =>
+            UniTask.ToCoroutine(RunConfirmAbsentBranchReleaseAsync);
+
         private async UniTask RunProjectionLifecycleAsync()
         {
             TemporalPoolingFixture fixture = await CreateFixtureAsync();
@@ -255,7 +311,546 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             }
         }
 
-        private async UniTask<TemporalPoolingFixture> CreateFixtureAsync()
+        private async UniTask RunPresentationParentReplayAsync()
+        {
+            TemporalPoolingFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(null, false);
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xABCDUL,
+                        0x5100UL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+                Assert.That(
+                    fixture.Binding.TryActivate(
+                        entityId,
+                        out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Step(fixture.HostScenario, 10);
+                Assert.That(
+                    fixture.Binding.TryDespawn(
+                        entityId,
+                        out CoCoDiagnostic despawned),
+                    Is.True,
+                    despawned.Message);
+                Step(fixture.HostScenario, 20);
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic preview),
+                    Is.True,
+                    preview.Message);
+                Assert.That(instance.transform.parent, Is.Null);
+                Assert.That(instance.activeInHierarchy, Is.True);
+                Assert.That(
+                    fixture.HostScenario.Host.TryConfirmTemporalRestore(
+                        out CoCoDiagnostic confirmed),
+                    Is.True,
+                    confirmed.Message);
+
+                var latestParent =
+                    new GameObject("Pre9 Latest Temporal Presentation Parent");
+                latestParent.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                _objects.Add(latestParent);
+                instance.transform.SetParent(latestParent.transform, false);
+                Assert.That(
+                    fixture.Binding.TryDespawn(
+                        entityId,
+                        out CoCoDiagnostic secondDespawn),
+                    Is.True,
+                    secondDespawn.Message);
+                Step(fixture.HostScenario, 30);
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic secondBegin),
+                    Is.True,
+                    secondBegin.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic secondPreview),
+                    Is.True,
+                    secondPreview.Message);
+                Assert.That(
+                    instance.transform.parent,
+                    Is.SameAs(latestParent.transform));
+                Assert.That(instance.activeInHierarchy, Is.True);
+                Assert.That(
+                    fixture.HostScenario.Host.TryCancelTemporalPreview(
+                        out CoCoDiagnostic cancelled),
+                    Is.True,
+                    cancelled.Message);
+                Assert.That(instance.activeSelf, Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunDestroyedPresentationParentAsync()
+        {
+            TemporalPoolingFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                var presentationParent =
+                    new GameObject("Pre9 Destroyed Temporal Presentation Parent");
+                presentationParent.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                _objects.Add(presentationParent);
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(presentationParent.transform, false);
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xABCDUL,
+                        0xD357UL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+                Assert.That(
+                    fixture.Binding.TryActivate(
+                        entityId,
+                        out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Step(fixture.HostScenario, 10);
+                Assert.That(
+                    fixture.Binding.TryDespawn(
+                        entityId,
+                        out CoCoDiagnostic despawned),
+                    Is.True,
+                    despawned.Message);
+                Step(fixture.HostScenario, 20);
+                Object.Destroy(presentationParent);
+                await UniTask.NextFrame();
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic unavailable),
+                    Is.False);
+                Assert.That(unavailable.IsError, Is.True);
+                Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.True);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.True);
+                Assert.That(instance == null || !instance.activeInHierarchy, Is.True);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunDownstreamPreflightFailureAsync(
+            DownstreamPreflightFailure failure)
+        {
+            TemporalPoolingFixture fixture =
+                await CreateFixtureAsync(useProbeDownstream: true);
+            try
+            {
+                RetainedTemporalEntity retained =
+                    await CreateRetainedHistoryAsync(fixture, 0xD001UL);
+                PoolEntrySnapshot before =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+
+                switch (failure)
+                {
+                    case DownstreamPreflightFailure.Destroy:
+                        Object.DestroyImmediate(fixture.DownstreamProbe);
+                        break;
+                    case DownstreamPreflightFailure.Replace:
+                        PoolDownstreamRestoreProbe replacement =
+                            fixture.HostScenario.GameObject
+                                .AddComponent<PoolDownstreamRestoreProbe>();
+                        SetField(
+                            fixture.Binding,
+                            "downstreamRestoreBinding",
+                            replacement);
+                        break;
+                    case DownstreamPreflightFailure.MoveOutside:
+                        fixture.DownstreamProbe.transform.SetParent(null, false);
+                        break;
+                }
+
+                bool began = fixture.HostScenario.Host.TryBeginTemporalPreview(
+                    out CoCoDiagnostic diagnostic);
+                if (began)
+                {
+                    Assert.That(
+                        fixture.HostScenario.Host.TryPreviewTemporal(
+                            1,
+                            out diagnostic),
+                        Is.False);
+                }
+                else
+                {
+                    Assert.That(diagnostic.IsError, Is.True);
+                }
+
+                PoolEntrySnapshot after =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(after.TemporalRetainedCount, Is.EqualTo(before.TemporalRetainedCount));
+                Assert.That(after.QuarantineCount, Is.EqualTo(before.QuarantineCount));
+                Assert.That(after.PendingDestroyCount, Is.EqualTo(before.PendingDestroyCount));
+                Assert.That(retained.Instance.activeSelf, Is.False);
+                Assert.That(retained.ApplyProbe.ApplyCount, Is.Zero);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunDownstreamCallbackFailureAsync(
+            PoolDownstreamFailure failure)
+        {
+            TemporalPoolingFixture fixture =
+                await CreateFixtureAsync(useProbeDownstream: true);
+            try
+            {
+                RetainedTemporalEntity retained =
+                    await CreateRetainedHistoryAsync(fixture, 0xD002UL);
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                fixture.DownstreamProbe.Failure = failure;
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic rejected),
+                    Is.False);
+                Assert.That(rejected.IsError, Is.True);
+                Assert.That(retained.ApplyProbe.ApplyCount, Is.Zero);
+                Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.True);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.True);
+
+                if (failure == PoolDownstreamFailure.MoveOutside)
+                {
+                    fixture.DownstreamProbe.transform.SetParent(
+                        fixture.HostScenario.GameObject.transform,
+                        false);
+                }
+
+                fixture.DownstreamProbe.Failure = PoolDownstreamFailure.None;
+                Assert.That(
+                    fixture.HostScenario.Host.TryCorrectWorld(
+                        out CoCoDiagnostic corrected),
+                    Is.True,
+                    corrected.Message);
+                Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.False);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.False);
+                Assert.That(
+                    fixture.HostScenario.Host.TemporalState.Mode,
+                    Is.EqualTo(CoCoTemporalMode.Ready));
+                Assert.That(retained.Instance.activeSelf, Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunProjectedOnlyCancelRecoveryAsync()
+        {
+            TemporalPoolingFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                RetainedTemporalEntity retained =
+                    await CreateRetainedHistoryAsync(fixture, 0xCA11UL);
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic preview),
+                    Is.True,
+                    preview.Message);
+                Assert.That(retained.Instance.activeInHierarchy, Is.True);
+
+                Object.Destroy(retained.Instance);
+                await UniTask.NextFrame();
+                Assert.That(
+                    fixture.HostScenario.Host.TryCancelTemporalPreview(
+                        out CoCoDiagnostic cancelled),
+                    Is.True,
+                    cancelled.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TemporalState.Mode,
+                    Is.EqualTo(CoCoTemporalMode.Ready));
+                Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.False);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunProjectedOnlyCorrectionRecoveryAsync()
+        {
+            TemporalPoolingFixture fixture =
+                await CreateFixtureAsync(useProbeDownstream: true);
+            try
+            {
+                RetainedTemporalEntity retained =
+                    await CreateRetainedHistoryAsync(fixture, 0xC022UL);
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                fixture.DownstreamProbe.Failure = PoolDownstreamFailure.Reject;
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic rejected),
+                    Is.False);
+                Assert.That(rejected.IsError, Is.True);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.True);
+
+                Object.Destroy(retained.Instance);
+                await UniTask.NextFrame();
+                fixture.DownstreamProbe.Failure = PoolDownstreamFailure.None;
+                Assert.That(
+                    fixture.HostScenario.Host.TryCorrectWorld(
+                        out CoCoDiagnostic corrected),
+                    Is.True,
+                    corrected.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TemporalState.Mode,
+                    Is.EqualTo(CoCoTemporalMode.Ready));
+                Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.False);
+                Assert.That(
+                    fixture.HostScenario.Host.RequiresWorldCorrection,
+                    Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private async UniTask RunConfirmAbsentBranchReleaseAsync()
+        {
+            TemporalPoolingFixture fixture = await CreateFixtureAsync();
+            try
+            {
+                Step(fixture.HostScenario, 5);
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(
+                    fixture.HostScenario.GameObject.transform,
+                    false);
+                Assert.That(
+                    CoCoTemporalEntityId.TryCreate(
+                        0xABCDUL,
+                        0xAB5EUL,
+                        out CoCoTemporalEntityId entityId),
+                    Is.True);
+                Assert.That(
+                    fixture.Binding.TryAdopt(
+                        entityId,
+                        ref handle,
+                        out CoCoDiagnostic adopted),
+                    Is.True,
+                    adopted.Message);
+                Assert.That(
+                    fixture.Binding.TryActivate(
+                        entityId,
+                        out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Step(fixture.HostScenario, 10);
+
+                Assert.That(
+                    fixture.HostScenario.Host.TryBeginTemporalPreview(
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TryPreviewTemporal(
+                        1,
+                        out CoCoDiagnostic preview),
+                    Is.True,
+                    preview.Message);
+                Assert.That(instance.activeSelf, Is.False);
+                Assert.That(
+                    fixture.HostScenario.Host.TryConfirmTemporalRestore(
+                        out CoCoDiagnostic confirmed),
+                    Is.True,
+                    confirmed.Message);
+                Assert.That(
+                    fixture.HostScenario.Host.TemporalState.Mode,
+                    Is.EqualTo(CoCoTemporalMode.Ready));
+
+                for (int frame = 0; frame < 20; frame++)
+                {
+                    PoolEntrySnapshot pending =
+                        fixture.Scope.CaptureSnapshot().Entries.Single();
+                    if (pending.TemporalRetainedCount == 0 &&
+                        pending.QuarantineCount == 0)
+                    {
+                        break;
+                    }
+
+                    await UniTask.NextFrame();
+                }
+
+                PoolEntrySnapshot released =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(released.TemporalRetainedCount, Is.Zero);
+                Assert.That(released.QuarantineCount, Is.Zero);
+                Assert.That(released.InactiveCount, Is.EqualTo(1));
+                Assert.That(instance.activeSelf, Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private UniTask<RetainedTemporalEntity>
+            CreateRetainedHistoryAsync(
+                TemporalPoolingFixture fixture,
+                ulong entityLow)
+        {
+            Assert.That(
+                fixture.Scope.TryRent(
+                    fixture.Profile.Id,
+                    out PooledHandle handle,
+                    out CoCoDiagnostic rent),
+                Is.True,
+                rent.Message);
+            Assert.That(
+                handle.TryGetInstance(
+                    out GameObject instance,
+                    out CoCoDiagnostic resolve),
+                Is.True,
+                resolve.Message);
+            instance.transform.SetParent(
+                fixture.HostScenario.GameObject.transform,
+                false);
+            PoolTemporalApplyProbe applyProbe =
+                instance.GetComponent<PoolTemporalApplyProbe>();
+            applyProbe.ObservedBinding = fixture.HostScenario.Binding;
+            Assert.That(
+                CoCoTemporalEntityId.TryCreate(
+                    0xABCDUL,
+                    entityLow,
+                    out CoCoTemporalEntityId entityId),
+                Is.True);
+            Assert.That(
+                fixture.Binding.TryAdopt(
+                    entityId,
+                    ref handle,
+                    out CoCoDiagnostic adopted),
+                Is.True,
+                adopted.Message);
+            Assert.That(
+                fixture.Binding.TryActivate(
+                    entityId,
+                    out CoCoDiagnostic activated),
+                Is.True,
+                activated.Message);
+            Step(fixture.HostScenario, 10);
+            Assert.That(
+                fixture.Binding.TryDespawn(
+                    entityId,
+                    out CoCoDiagnostic despawned),
+                Is.True,
+                despawned.Message);
+            Step(fixture.HostScenario, 20);
+            return UniTask.FromResult(
+                new RetainedTemporalEntity(
+                    entityId,
+                    instance,
+                    applyProbe));
+        }
+
+        private async UniTask<TemporalPoolingFixture> CreateFixtureAsync(
+            bool useProbeDownstream = false)
         {
             TemporalHostTestScenario hostScenario =
                 TemporalHostTestHarness.Create(historyCapacity: 3);
@@ -275,9 +870,24 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
 
             CoCoPoolTemporalBinding binding =
                 hostScenario.GameObject.AddComponent<CoCoPoolTemporalBinding>();
+            PoolDownstreamRestoreProbe downstreamProbe = null;
+            MonoBehaviour downstream = hostScenario.Binding;
+            if (useProbeDownstream)
+            {
+                var downstreamObject =
+                    new GameObject("Pre9 Pool Temporal Downstream Probe");
+                downstreamObject.transform.SetParent(
+                    hostScenario.GameObject.transform,
+                    false);
+                downstreamProbe =
+                    downstreamObject.AddComponent<PoolDownstreamRestoreProbe>();
+                _objects.Add(downstreamObject);
+                downstream = downstreamProbe;
+            }
+
             SetField(binding, "stateGraphHost", hostScenario.Host);
             SetField(binding, "poolHost", poolHost);
-            SetField(binding, "downstreamRestoreBinding", hostScenario.Binding);
+            SetField(binding, "downstreamRestoreBinding", downstream);
             TemporalHostTestHarness.SetRestoreBinding(hostScenario.Host, binding);
             Assert.That(
                 hostScenario.Host.TryStart(out CoCoDiagnostic start),
@@ -333,7 +943,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 poolHost,
                 binding,
                 scope,
-                profile);
+                profile,
+                downstreamProbe);
         }
 
         private static async UniTask CleanupFixtureAsync(
@@ -380,6 +991,30 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             field.SetValue(target, value);
         }
 
+        private enum DownstreamPreflightFailure
+        {
+            Destroy = 0,
+            Replace = 1,
+            MoveOutside = 2
+        }
+
+        private sealed class RetainedTemporalEntity
+        {
+            internal RetainedTemporalEntity(
+                CoCoTemporalEntityId entityId,
+                GameObject instance,
+                PoolTemporalApplyProbe applyProbe)
+            {
+                EntityId = entityId;
+                Instance = instance;
+                ApplyProbe = applyProbe;
+            }
+
+            internal CoCoTemporalEntityId EntityId { get; }
+            internal GameObject Instance { get; }
+            internal PoolTemporalApplyProbe ApplyProbe { get; }
+        }
+
         private sealed class TemporalPoolingFixture
         {
             internal TemporalPoolingFixture(
@@ -388,7 +1023,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 CoCoPoolHost poolHost,
                 CoCoPoolTemporalBinding binding,
                 PoolScope scope,
-                PoolProfile profile)
+                PoolProfile profile,
+                PoolDownstreamRestoreProbe downstreamProbe)
             {
                 HostScenario = hostScenario;
                 ContentHost = contentHost;
@@ -396,6 +1032,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Binding = binding;
                 Scope = scope;
                 Profile = profile;
+                DownstreamProbe = downstreamProbe;
             }
 
             internal TemporalHostTestScenario HostScenario { get; }
@@ -404,6 +1041,50 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             internal CoCoPoolTemporalBinding Binding { get; }
             internal PoolScope Scope { get; }
             internal PoolProfile Profile { get; }
+            internal PoolDownstreamRestoreProbe DownstreamProbe { get; }
+        }
+    }
+
+    internal enum PoolDownstreamFailure
+    {
+        None = 0,
+        Reject = 1,
+        Throw = 2,
+        MoveOutside = 3
+    }
+
+    internal sealed class PoolDownstreamRestoreProbe :
+        MonoBehaviour,
+        ICoCoContextRestoreBinding
+    {
+        internal PoolDownstreamFailure Failure { get; set; }
+        internal int ApplyCount { get; private set; }
+
+        public bool TryApply(
+            in CoCoContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            _ = context;
+            ApplyCount++;
+            switch (Failure)
+            {
+                case PoolDownstreamFailure.Reject:
+                    diagnostic = CoCoDiagnostic.Error(
+                        CoCoDiagnosticDomain.Pooling,
+                        CoCoDiagnosticCode.PoolTemporalProjectionFailed,
+                        "The Pool downstream test probe rejected projection.");
+                    return false;
+                case PoolDownstreamFailure.Throw:
+                    throw new InvalidOperationException(
+                        "The Pool downstream test probe threw during projection.");
+                case PoolDownstreamFailure.MoveOutside:
+                    transform.SetParent(null, false);
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+                default:
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+            }
         }
     }
 

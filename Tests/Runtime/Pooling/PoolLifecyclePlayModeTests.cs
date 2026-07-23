@@ -33,6 +33,14 @@ namespace CoCoFlow.Tests.Runtime.Pooling
         public IEnumerator RentCallbackFailureDestroysUnknownInstanceState() =>
             UniTask.ToCoroutine(RunRentFailureAsync);
 
+        [UnityTest]
+        public IEnumerator ReturnRestoresPrefabRootLocalTransformBaseline() =>
+            UniTask.ToCoroutine(RunRootTransformBaselineAsync);
+
+        [UnityTest]
+        public IEnumerator ReturnResetFailureDestroysInsteadOfReusingInstance() =>
+            UniTask.ToCoroutine(RunReturnFailureAsync);
+
         private static async UniTask RunBindActivateReturnAsync()
         {
             PoolingTestFixture fixture = PoolingTestFixture.Create(
@@ -342,6 +350,192 @@ namespace CoCoFlow.Tests.Runtime.Pooling
             finally
             {
                 await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask RunRootTransformBaselineAsync()
+        {
+            var baselinePosition = new Vector3(3.25f, -2.5f, 7.75f);
+            Quaternion baselineRotation = Quaternion.Euler(17f, 31f, 53f);
+            var baselineScale = new Vector3(1.5f, 0.75f, 2.25f);
+            PoolingTestFixture fixture = PoolingTestFixture.Create(
+                1,
+                1,
+                prefab =>
+                {
+                    prefab.transform.localPosition = baselinePosition;
+                    prefab.transform.localRotation = baselineRotation;
+                    prefab.transform.localScale = baselineScale;
+                    prefab.AddComponent<PoolLifecycleProbe>().Configure("baseline");
+                });
+            try
+            {
+                Require(await fixture.Scope.PrepareAsync(fixture.Profile));
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle first,
+                        out CoCoDiagnostic firstRent),
+                    Is.True,
+                    firstRent.Message);
+                Assert.That(
+                    first.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic firstResolve),
+                    Is.True,
+                    firstResolve.Message);
+                long sequence = first.InstanceSequence;
+                Transform retentionParent = instance.transform.parent;
+                instance.transform.SetParent(fixture.OwnerRoot.transform, false);
+                instance.transform.localPosition = new Vector3(-9f, 8f, -7f);
+                instance.transform.localRotation = Quaternion.Euler(91f, 42f, 13f);
+                instance.transform.localScale = new Vector3(4f, 5f, 6f);
+                Assert.That(
+                    first.TryActivate(out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Assert.That(
+                    first.TryReturn(out CoCoDiagnostic returned),
+                    Is.True,
+                    returned.Message);
+
+                Assert.That(
+                    instance.transform.parent,
+                    Is.SameAs(retentionParent));
+                Assert.That(instance.transform.localPosition, Is.EqualTo(baselinePosition));
+                Assert.That(
+                    Quaternion.Angle(
+                        instance.transform.localRotation,
+                        baselineRotation),
+                    Is.LessThan(0.001f));
+                Assert.That(instance.transform.localScale, Is.EqualTo(baselineScale));
+
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle second,
+                        out CoCoDiagnostic secondRent),
+                    Is.True,
+                    secondRent.Message);
+                Assert.That(second.InstanceSequence, Is.EqualTo(sequence));
+                Assert.That(
+                    second.TryGetInstance(
+                        out GameObject rerented,
+                        out CoCoDiagnostic secondResolve),
+                    Is.True,
+                    secondResolve.Message);
+                Assert.That(rerented, Is.SameAs(instance));
+                Assert.That(rerented.transform.localPosition, Is.EqualTo(baselinePosition));
+                Assert.That(
+                    Quaternion.Angle(
+                        rerented.transform.localRotation,
+                        baselineRotation),
+                    Is.LessThan(0.001f));
+                Assert.That(rerented.transform.localScale, Is.EqualTo(baselineScale));
+                Assert.That(
+                    second.TryReturn(out CoCoDiagnostic secondReturn),
+                    Is.True,
+                    secondReturn.Message);
+            }
+            finally
+            {
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask RunReturnFailureAsync()
+        {
+            PoolingTestFixture fixture = PoolingTestFixture.Create(
+                1,
+                1,
+                prefab =>
+                    prefab.AddComponent<PoolLifecycleProbe>()
+                        .Configure("return-reject"));
+            try
+            {
+                Require(await fixture.Scope.PrepareAsync(fixture.Profile));
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle failedHandle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    failedHandle.TryGetInstance(
+                        out GameObject failedInstance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                failedInstance.transform.SetParent(
+                    fixture.OwnerRoot.transform,
+                    false);
+                PoolLifecycleProbe probe =
+                    failedInstance.GetComponent<PoolLifecycleProbe>();
+                probe.FailReturn = true;
+                Assert.That(
+                    failedHandle.TryActivate(out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+
+                Assert.That(
+                    failedHandle.TryReturn(out CoCoDiagnostic rejected),
+                    Is.False);
+                Assert.That(
+                    rejected.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PoolResetFailed));
+                await WaitForDestroyedCountAsync(fixture, 1);
+                PoolEntrySnapshot failed =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(failed.InactiveCount, Is.Zero);
+                Assert.That(failed.ActiveCount, Is.Zero);
+                Assert.That(failed.DestroyedCount, Is.EqualTo(1));
+                Assert.That(failed.ResetFailureCount, Is.EqualTo(1));
+                Assert.That(
+                    failedHandle.TryGetInstance(
+                        out _,
+                        out CoCoDiagnostic consumed),
+                    Is.False);
+                Assert.That(
+                    consumed.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PooledHandleAlreadyReturned)
+                        .Or.EqualTo(CoCoDiagnosticCode.StalePooledHandle));
+
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle replacement,
+                        out CoCoDiagnostic replacementRent),
+                    Is.True,
+                    replacementRent.Message);
+                Assert.That(
+                    replacement.InstanceSequence,
+                    Is.Not.EqualTo(failedHandle.InstanceSequence));
+                Assert.That(
+                    replacement.TryReturn(out CoCoDiagnostic replacementReturn),
+                    Is.True,
+                    replacementReturn.Message);
+            }
+            finally
+            {
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask WaitForDestroyedCountAsync(
+            PoolingTestFixture fixture,
+            long expected)
+        {
+            for (int frame = 0; frame < 20; frame++)
+            {
+                PoolEntrySnapshot snapshot =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                if (snapshot.DestroyedCount >= expected)
+                {
+                    return;
+                }
+
+                await UniTask.NextFrame();
             }
         }
 
