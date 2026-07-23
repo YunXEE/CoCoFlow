@@ -2,11 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.7 · **Unity**：6000+
+> **版本**：0.4.0-pre.8 · **Unity**：6000+
 >
-> Pre7 加入受限 StateGraph Editor 与 committed Runtime Debugger、仅用于表现的
-> 图布局、确定性 Catalog overlay 与 preset、显式 Host 场景引用，以及健康
-> Suspended Host 上的一次普通正向 Debug Tick。
+> Pre8 加入显式 Content 获取与所有权、Direct 与可选 Addressables 后端、
+> single-flight 请求、Scope/Lease、确定性释放诊断，以及首批 UI/Map 消费者。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -396,11 +395,14 @@ Runtime/Core/StateFlow   与引擎隔离的 0.4 Frame、Section、Intent 与 Mai
 Runtime/Core/StateGraph  与引擎隔离的 Compiler、Runtime、Clock 与 staged Tick
 Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset、snapshot 与 compilation cache
 Runtime/StateGraphHost   Unity Host 与 internal Gateway/Router 集成
+Runtime/Content          Unity-facing Content 获取、所有权、Direct 后端与 diagnostics
+Runtime/Content/Addressables  可选条件编译的 Addressables 后端
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
 Runtime/Modules          过渡期表现与服务模块
 Editor/StateGraph        受限图创作与 diagnostics
 Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
+Editor/Content           Content Reference 创作与 Runtime Ownership Monitor
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -418,8 +420,11 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 后续 0.4 工作
 
+- **Pre9**：Object Pool ownership、rent/return、reset、capacity 与 prewarm。
+- **Pre10**：Map Region/Chunk 策略、production streaming、竞态与 replay。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
+- **Pre12**：最终 UI navigation、focus、transition 与 authoring 契约。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
 - **Pre15**：production gameplay State 与替代 Sample。
 - **Pre16**：完整跨模块性能与生命周期认证。
@@ -427,11 +432,11 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre7 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖参与编译。
+Pre8 从包体硬依赖中移除 Addressables。只使用 Direct 的项目不需要安装
+Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显式安装。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
-| Addressables | 2.9.1 | Map 和 UI 过渡期工作流 |
 | Input System | 1.18.0 | Input 模块 |
 | Newtonsoft Json | 3.2.2 | Persistence 过渡期模块 |
 | Cinemachine | 3.1.6 | Camera 过渡期模块 |
@@ -439,7 +444,14 @@ Pre7 不调整依赖集合，因为过渡期 0.3.9 模块仍需要这些依赖�
 | Mathematics | 1.3.3 | Enemy/Spline Assembly |
 | Splines | 2.6.0 | Enemy Spline 支持 |
 
-依赖精简由替换对应模块的 Pre 负责。
+可选依赖：
+
+| Package | 推荐版本 | 当前使用者 |
+|---|---:|---|
+| Addressables | `[2.9.1,3.0.0)` | 仅 `CoCoFlow.Runtime.Content.Addressables` |
+
+UniTask 仍由 Setup Assistant 管理。启用 `COCOFLOW_UNITASK_SUPPORT` 后编译
+Content、UI 与 Map；Addressables 适配器还需要对应 package version define。
 
 ## 安装与验证
 
@@ -459,6 +471,9 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 - [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
 - [StateGraph Editor 与 Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
+- [Content 获取与所有权](Docs/ContentOwnership.md)
+- [Module: UI](Docs/Module-UI.md)
+- [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

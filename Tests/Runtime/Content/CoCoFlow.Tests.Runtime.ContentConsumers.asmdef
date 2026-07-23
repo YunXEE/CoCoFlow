@@ -1,0 +1,29 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.ContentConsumers",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.ContentConsumers",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Modules.UI",
+        "CoCoFlow.Runtime.Modules.Map",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

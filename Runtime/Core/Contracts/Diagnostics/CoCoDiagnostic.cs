@@ -20,7 +20,8 @@ namespace CoCoFlow.Runtime.Core
         Restore = 13,
         Codec = 14,
         Operator = 15,
-        EventOutbox = 16
+        EventOutbox = 16,
+        Content = 17
     }
 
     public enum CoCoDiagnosticCode
@@ -92,7 +93,19 @@ namespace CoCoFlow.Runtime.Core
         ContextCaptureFailed = 65,
         InvalidGraphRestore = 66,
         InvalidClaimRestore = 67,
-        InvalidActorBinding = 68
+        InvalidActorBinding = 68,
+        InvalidContentId = 69,
+        InvalidContentReference = 70,
+        MissingContentBackend = 71,
+        ContentTypeMismatch = 72,
+        ContentLoadFailed = 73,
+        ContentRequestCancelled = 74,
+        ContentScopeDisposed = 75,
+        ContentReleaseFailed = 76,
+        ContentRuntimeDisposed = 77,
+        ContentReferenceConflict = 78,
+        ContentMainThreadRequired = 79,
+        ContentBackendConflict = 80
     }
 
     public enum CoCoDiagnosticSeverity

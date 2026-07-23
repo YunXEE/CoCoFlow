@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using CoCoFlow.Runtime.Content;
+using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Events;
 
@@ -18,7 +19,7 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
     {
         [Header("Action Routing")]
         [SerializeField] private UIButtonActionType actionType = UIButtonActionType.CustomGameLogic;
-        [SerializeField] private string targetPanelAddress;
+        [SerializeField] private ContentReference targetPanelSource;
 
         [Header("Custom Logic")]
         [SerializeField] private UnityEvent onCustomClick;
@@ -58,7 +59,8 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
             switch (actionType)
             {
                 case UIButtonActionType.OpenPanel:
-                    if (!string.IsNullOrEmpty(targetPanelAddress))
+                    if (targetPanelSource.IsValid &&
+                        targetPanelSource.Kind == ContentKind.PrefabSource)
                     {
                         UIManager uiManager = UIManager.Instance;
                         if (uiManager == null)
@@ -67,7 +69,7 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
                             return;
                         }
 
-                        uiManager.OpenPanel(targetPanelAddress);
+                        uiManager.OpenPanel(targetPanelSource);
                     }
                     break;
 

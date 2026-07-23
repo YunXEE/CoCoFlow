@@ -1,0 +1,19 @@
+{
+    "name": "CoCoFlow.Runtime.Content",
+    "rootNamespace": "CoCoFlow.Runtime.Content",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -103,6 +103,7 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             Assert.AreEqual(15, (int)CoCoDiagnosticDomain.Operator);
             Assert.AreEqual(16, (int)CoCoDiagnosticDomain.EventOutbox);
+            Assert.AreEqual(17, (int)CoCoDiagnosticDomain.Content);
 
             Assert.AreEqual(11, (int)CoCoDiagnosticCode.InvalidTimelinePosition);
             CoCoDiagnosticCode[] appendedCodes =
@@ -186,6 +187,26 @@ namespace CoCoFlow.Runtime.Core.Tests
             for (int index = 0; index < contextAuthorityCodes.Length; index++)
             {
                 Assert.AreEqual(64 + index, (int)contextAuthorityCodes[index]);
+            }
+
+            CoCoDiagnosticCode[] contentCodes =
+            {
+                CoCoDiagnosticCode.InvalidContentId,
+                CoCoDiagnosticCode.InvalidContentReference,
+                CoCoDiagnosticCode.MissingContentBackend,
+                CoCoDiagnosticCode.ContentTypeMismatch,
+                CoCoDiagnosticCode.ContentLoadFailed,
+                CoCoDiagnosticCode.ContentRequestCancelled,
+                CoCoDiagnosticCode.ContentScopeDisposed,
+                CoCoDiagnosticCode.ContentReleaseFailed,
+                CoCoDiagnosticCode.ContentRuntimeDisposed,
+                CoCoDiagnosticCode.ContentReferenceConflict,
+                CoCoDiagnosticCode.ContentMainThreadRequired,
+                CoCoDiagnosticCode.ContentBackendConflict
+            };
+            for (int index = 0; index < contentCodes.Length; index++)
+            {
+                Assert.AreEqual(69 + index, (int)contentCodes[index]);
             }
         }
 

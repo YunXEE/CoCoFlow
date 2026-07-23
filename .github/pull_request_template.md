@@ -177,6 +177,37 @@ intact even when their proposed model is superseded.
       to Suspended; faults and world-correction requirements remain real. This
       operation is not Rewind or authority-neutral Preview.
 
+### Pre8 Content acquisition and ownership
+
+- [ ] `ContentRuntime` is an explicit project/world instance; Core Contracts,
+      StateFlow, StateGraph, StateGraphHost, Temporal, and Persistence do not
+      depend on Content or retain Content leases, Unity Objects, or backend
+      handles.
+- [ ] `ContentId` is independent of backend locator. Asset, Prefab Source, and
+      Additive Scene requests use the same backend-neutral Runtime API for
+      Direct and optional Addressables implementations.
+- [ ] Every successful Acquire returns one reference-type idempotent Lease owned
+      by one Scope. Same-key overlapping requests single-flight; cancelling one
+      waiter does not cancel another; late success after ownership closes is
+      released without publication.
+- [ ] The final Lease immediately starts backend release. Load failure permits a
+      new generation; release failure preserves a fail-closed tombstone and does
+      not silently load a second generation. No hidden cache, grace period, LRU,
+      or release retry was introduced.
+- [ ] Direct Asset/Prefab Source release does not destroy the source. Direct and
+      Addressables Additive Scenes unload only after the final scene Lease.
+- [ ] Raw Addressables handles remain private to the optional conditional
+      adapter. `package.json` does not hard-depend on Addressables, and a
+      Direct-only host compiles without that package.
+- [ ] UI keeps its Prefab Source lease until the corresponding panel instance is
+      actually destroyed; UI still owns Instantiate/Destroy and does not pool.
+- [ ] Map demands are requester-scoped. Releasing requester A cannot unload a
+      scene still leased by requester B; Region/Chunk streaming policy remains
+      deferred to Pre10.
+- [ ] Content debug snapshots and the fixed-capacity ledger are immutable and
+      identity-only; they retain no resource, Scene, backend handle, Lease, or
+      exception object. Release-build stack capture is explicit and bounded.
+
 ## Serialization and rollback
 
 - ContextFrame Descriptor/Slot changes (including stable ID impact):
@@ -247,6 +278,14 @@ intact even when their proposed model is superseded.
       restored only session view state, recomputed diagnostics, and did not dirty
       the Asset or change content/cache fingerprints.
 - [ ] Relevant existing EditMode and PlayMode tests passed.
+- [ ] Pre8 Content ownership, race, tombstone, Direct backend, UI, and Map
+      focused suites passed; the optional Addressables suite passed when the
+      Addressables backend was installed.
+- [ ] Dependency variants were checked: Core-only, UniTask + Direct, and
+      UniTask + Addressables. UI/Map contain no raw Addressables reference.
+- [ ] Real Addressables/Scene residency evidence distinguishes released
+      resource retention from Unity allocator reserved-memory behavior; Direct
+      references make no false unload claim.
 - [ ] StateGraph Runtime EditMode and Host lifecycle/event PlayMode suites passed
       for this Pre's focused and full-package runs.
 - [ ] Committed debugger snapshot, default-disabled/fixed-while-Running Trace,
@@ -277,6 +316,8 @@ links that allow a reviewer to verify the checks above.
 - Focused EditMode/PlayMode totals:
 - Full-package EditMode/PlayMode totals:
 - Pre7 Editor/Domain Reload/debugger smoke result:
+- Pre8 Content Direct/Addressables/UI/Map result:
+- Pre8 dependency and memory-residency result:
 - Allocation summary (100 warm-up / 10,000 measured):
 - macOS Universal IL2CPP + High Stripping artifact/log:
 - Unity Package Validation Suite result/log:
