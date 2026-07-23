@@ -2,12 +2,11 @@
     "name": "CoCoFlow.Runtime.Modules.UI",
     "rootNamespace": "CoCoFlow.Runtime.Modules.UI",
     "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core",
-        "Unity.ResourceManager",
-        "Unity.Addressables",
+        "CoCoFlow.Runtime.Content",
         "DOTween.Modules",
         "UniTask",
-        "UniTask.Addressables",
         "UniTask.DOTween",
         "Unity.TextMeshPro"
     ],

@@ -1,200 +1,285 @@
-﻿using UnityEngine;
-using UnityEngine.ResourceManagement.ResourceProviders;
-using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.AddressableAssets;
-using UnityEngine.SceneManagement;
-using Cysharp.Threading.Tasks;
+using System;
 using System.Collections.Generic;
 using System.Threading;
+using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
+using Cysharp.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Map
 {
     #region Public API
 
-    public struct MapChunkLoadEvent
-    {
-        public string ChunkAddress;
-    }
-
-    public struct MapChunkUnloadEvent
-    {
-        public string ChunkAddress;
-    }
-
     /// <summary>
-    /// 地图区块加载完成事件 — 在 Addressables 场景加载成功后发布，
-    /// 用于触发 NavMesh 烘焙等后处理逻辑。
+    /// Published after one requester's additive-scene demand owns a live lease.
+    /// This notification does not grant release authority.
     /// </summary>
     public struct MapChunkLoadedEvent
     {
-        public string ChunkAddress;
+        public ContentOwnerId RequesterId;
+        public ContentId SceneId;
     }
 
     #endregion
 
     public class MapResourceManager : MonoBehaviour
     {
-        private readonly HashSet<string> _desiredLoadedChunks = new HashSet<string>();
-        private readonly Dictionary<string, AsyncOperationHandle<SceneInstance>> _loadingChunks =
-            new Dictionary<string, AsyncOperationHandle<SceneInstance>>();
-        private readonly Dictionary<string, AsyncOperationHandle<SceneInstance>> _loadedChunks =
-            new Dictionary<string, AsyncOperationHandle<SceneInstance>>();
-        private readonly HashSet<string> _unloadingChunks = new HashSet<string>();
-        private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
+        [Header("Content")]
+        [SerializeField] private CoCoContentHost contentHost;
 
-        // 声明事件代理
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly Dictionary<ContentOwnerId, RequesterDemands> _requesters =
+            new Dictionary<ContentOwnerId, RequesterDemands>();
+        private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
+        private uint _demandGeneration;
+        private bool _isDestroyed;
+
+        #region Public API
+
+        public void DemandScene(ContentOwnerId requesterId, ContentReference sceneSource)
+        {
+            if (_isDestroyed) return;
+            if (!requesterId.IsValid)
+            {
+                CoCoLog.Error("[MapResourceManager] DemandScene requires a valid Content Owner Id.");
+                return;
+            }
+
+            if (!sceneSource.IsValid || sceneSource.Kind != ContentKind.AdditiveScene)
+            {
+                CoCoLog.Error("[MapResourceManager] DemandScene requires a valid Additive Scene ContentReference.");
+                return;
+            }
+
+            if (contentHost == null)
+            {
+                CoCoLog.Error("[MapResourceManager] A CoCoContentHost reference is required.");
+                return;
+            }
+
+            if (!_requesters.TryGetValue(requesterId, out var requester))
+            {
+                if (!contentHost.TryCreateScope(requesterId, out var scope, out var diagnostic))
+                {
+                    CoCoLog.Error(
+                        $"[MapResourceManager] Unable to create requester Content Scope: {diagnostic}");
+                    return;
+                }
+
+                requester = new RequesterDemands(scope);
+                _requesters.Add(requesterId, requester);
+            }
+
+            if (requester.Scenes.TryGetValue(sceneSource.Id, out var existing))
+            {
+                if (!existing.Source.Equals(sceneSource))
+                {
+                    CoCoLog.Error(
+                        $"[MapResourceManager] Requester {requesterId} already demands " +
+                        $"{sceneSource.Id} through a different ContentReference.");
+                }
+
+                return;
+            }
+
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_destroyCts.Token);
+            var demand = new SceneDemand(sceneSource, cancellation, NextDemandGeneration());
+            requester.Scenes.Add(sceneSource.Id, demand);
+            AcquireSceneAsync(requesterId, requester, demand).Forget();
+        }
+
+        public void ReleaseScene(ContentOwnerId requesterId, ContentId sceneId)
+        {
+            if (!_requesters.TryGetValue(requesterId, out var requester) ||
+                !requester.Scenes.TryGetValue(sceneId, out var demand))
+            {
+                return;
+            }
+
+            requester.Scenes.Remove(sceneId);
+            demand.CancelAndRelease();
+            RemoveRequesterWhenEmpty(requesterId, requester);
+        }
+
+        #endregion
 
         #region Internal Logic
 
-        private void OnEnable()
-        {
-            _eventAgent.Subscribe<MapChunkLoadEvent>(OnLoadChunkReceived);
-            _eventAgent.Subscribe<MapChunkUnloadEvent>(OnUnloadChunkReceived);
-        }
-
-        private void OnDisable()
-        {
-            _eventAgent.UnsubscribeAll();
-        }
-
         private void OnDestroy()
         {
-            _eventAgent.UnsubscribeAll();
+            _isDestroyed = true;
             _destroyCts.Cancel();
-            UnloadAllTrackedChunks();
+
+            foreach (var requester in _requesters.Values)
+            {
+                requester.Dispose();
+            }
+
+            _requesters.Clear();
             _destroyCts.Dispose();
         }
 
-        private void OnLoadChunkReceived(ref MapChunkLoadEvent evt)
+        private async UniTask AcquireSceneAsync(
+            ContentOwnerId requesterId,
+            RequesterDemands requester,
+            SceneDemand demand)
         {
-            LoadChunkAsync(evt.ChunkAddress).Forget();
-        }
-
-        private void OnUnloadChunkReceived(ref MapChunkUnloadEvent evt)
-        {
-            UnloadChunkAsync(evt.ChunkAddress).Forget();
-        }
-
-        private async UniTask LoadChunkAsync(string chunkAddress)
-        {
-            if (string.IsNullOrWhiteSpace(chunkAddress)) return;
-
-            _desiredLoadedChunks.Add(chunkAddress);
-            if (_loadedChunks.ContainsKey(chunkAddress) ||
-                _loadingChunks.ContainsKey(chunkAddress) ||
-                _unloadingChunks.Contains(chunkAddress))
-            {
-                return;
-            }
-
-            var handle = Addressables.LoadSceneAsync(chunkAddress, LoadSceneMode.Additive);
-            _loadingChunks[chunkAddress] = handle;
-
+            ContentAcquireResult<Scene> result;
             try
             {
-                await handle.ToUniTask(cancellationToken: _destroyCts.Token);
+                result = await requester.Scope.AcquireAdditiveSceneAsync(
+                    demand.Source,
+                    demand.Cancellation.Token);
             }
-            catch (System.OperationCanceledException)
+            catch (Exception ex)
             {
-                if (handle.IsValid())
+                CoCoLog.Error(
+                    $"[MapResourceManager] Unexpected scene acquisition failure for " +
+                    $"{demand.Source.Id}: {ex}");
+                RemoveFailedDemand(requesterId, requester, demand);
+                return;
+            }
+
+            if (!IsCurrentDemand(requesterId, requester, demand))
+            {
+                result.Lease?.Dispose();
+                return;
+            }
+
+            demand.DisposeCancellation();
+            if (!result.Succeeded)
+            {
+                requester.Scenes.Remove(demand.Source.Id);
+                if (!result.Cancelled)
                 {
-                    _ = Addressables.UnloadSceneAsync(handle);
+                    CoCoLog.Error(
+                        $"[MapResourceManager] Failed to acquire scene {demand.Source.Id}: " +
+                        result.Diagnostic);
                 }
-                return;
-            }
-            catch (System.Exception ex)
-            {
-                CoCoLog.Error($"[MapResourceManager] 加载地图区块 {chunkAddress} 失败: {ex}");
-                if (handle.IsValid())
-                {
-                    Addressables.Release(handle);
-                }
-                return;
-            }
-            finally
-            {
-                _loadingChunks.Remove(chunkAddress);
-            }
 
-            if (_destroyCts.IsCancellationRequested || !_desiredLoadedChunks.Contains(chunkAddress))
-            {
-                await UnloadSceneHandleAsync(chunkAddress, handle);
+                RemoveRequesterWhenEmpty(requesterId, requester);
                 return;
             }
 
-            _loadedChunks[chunkAddress] = handle;
-
-            var loadedEvent = new MapChunkLoadedEvent { ChunkAddress = chunkAddress };
+            demand.Lease = result.Lease;
+            var loadedEvent = new MapChunkLoadedEvent
+            {
+                RequesterId = requesterId,
+                SceneId = demand.Source.Id
+            };
             CoCoEventBus.Publish(ref loadedEvent);
         }
 
-        private async UniTask UnloadChunkAsync(string chunkAddress)
+        private void RemoveFailedDemand(
+            ContentOwnerId requesterId,
+            RequesterDemands requester,
+            SceneDemand demand)
         {
-            if (string.IsNullOrWhiteSpace(chunkAddress)) return;
+            if (!IsCurrentDemand(requesterId, requester, demand)) return;
 
-            _desiredLoadedChunks.Remove(chunkAddress);
-            if (_loadingChunks.ContainsKey(chunkAddress) || _unloadingChunks.Contains(chunkAddress))
+            requester.Scenes.Remove(demand.Source.Id);
+            demand.CancelAndRelease();
+            RemoveRequesterWhenEmpty(requesterId, requester);
+        }
+
+        private bool IsCurrentDemand(
+            ContentOwnerId requesterId,
+            RequesterDemands requester,
+            SceneDemand demand)
+        {
+            return !_isDestroyed &&
+                   _requesters.TryGetValue(requesterId, out var currentRequester) &&
+                   ReferenceEquals(currentRequester, requester) &&
+                   requester.Scenes.TryGetValue(demand.Source.Id, out var currentDemand) &&
+                   ReferenceEquals(currentDemand, demand) &&
+                   currentDemand.Generation == demand.Generation;
+        }
+
+        private void RemoveRequesterWhenEmpty(
+            ContentOwnerId requesterId,
+            RequesterDemands requester)
+        {
+            if (requester.Scenes.Count != 0) return;
+            if (!_requesters.TryGetValue(requesterId, out var current) ||
+                !ReferenceEquals(current, requester))
             {
                 return;
             }
 
-            if (_loadedChunks.TryGetValue(chunkAddress, out var handle))
+            _requesters.Remove(requesterId);
+            requester.Dispose();
+        }
+
+        private uint NextDemandGeneration()
+        {
+            _demandGeneration++;
+            if (_demandGeneration == 0) _demandGeneration = 1;
+            return _demandGeneration;
+        }
+
+        private sealed class RequesterDemands : IDisposable
+        {
+            private bool _isDisposed;
+
+            public RequesterDemands(ContentScope scope)
             {
-                _loadedChunks.Remove(chunkAddress);
-                await UnloadSceneHandleAsync(chunkAddress, handle);
+                Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+            }
+
+            public ContentScope Scope { get; }
+            public Dictionary<ContentId, SceneDemand> Scenes { get; } =
+                new Dictionary<ContentId, SceneDemand>();
+
+            public void Dispose()
+            {
+                if (_isDisposed) return;
+                _isDisposed = true;
+
+                foreach (var demand in Scenes.Values)
+                {
+                    demand.CancelAndRelease();
+                }
+
+                Scenes.Clear();
+                Scope.Dispose();
             }
         }
 
-        private async UniTask UnloadSceneHandleAsync(string chunkAddress, AsyncOperationHandle<SceneInstance> handle)
+        private sealed class SceneDemand
         {
-            if (!handle.IsValid()) return;
-
-            _unloadingChunks.Add(chunkAddress);
-
-            try
+            public SceneDemand(
+                ContentReference source,
+                CancellationTokenSource cancellation,
+                uint generation)
             {
-                await Addressables.UnloadSceneAsync(handle).ToUniTask();
-            }
-            catch (System.Exception ex)
-            {
-                CoCoLog.Error($"[MapResourceManager] 卸载地图区块 {chunkAddress} 失败: {ex}");
-            }
-            finally
-            {
-                _unloadingChunks.Remove(chunkAddress);
+                Source = source;
+                Cancellation = cancellation;
+                Generation = generation;
             }
 
-            if (!_destroyCts.IsCancellationRequested && _desiredLoadedChunks.Contains(chunkAddress))
+            public ContentReference Source { get; }
+            public CancellationTokenSource Cancellation { get; private set; }
+            public uint Generation { get; }
+            public ContentLease<Scene> Lease { get; set; }
+
+            public void DisposeCancellation()
             {
-                LoadChunkAsync(chunkAddress).Forget();
+                Cancellation?.Dispose();
+                Cancellation = null;
             }
-        }
 
-        private void UnloadAllTrackedChunks()
-        {
-            _desiredLoadedChunks.Clear();
-
-            foreach (var handle in _loadingChunks.Values)
+            public void CancelAndRelease()
             {
-                if (handle.IsValid())
+                if (Cancellation != null)
                 {
-                    _ = Addressables.UnloadSceneAsync(handle);
+                    Cancellation.Cancel();
+                    Cancellation.Dispose();
+                    Cancellation = null;
                 }
-            }
 
-            foreach (var handle in _loadedChunks.Values)
-            {
-                if (handle.IsValid())
-                {
-                    _ = Addressables.UnloadSceneAsync(handle);
-                }
+                Lease?.Dispose();
+                Lease = null;
             }
-
-            _loadingChunks.Clear();
-            _loadedChunks.Clear();
-            _unloadingChunks.Clear();
         }
 
         #endregion

@@ -2,12 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.7 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.8 · **Unity**: 6000+
 >
-> Pre7 adds a constrained StateGraph Editor and committed Runtime Debugger,
-> presentation-only graph layout, deterministic Catalog overlays and presets,
-> explicit Host scene references, and one normal forward debug Tick from a
-> healthy Suspended Host.
+> Pre8 adds explicit Content acquisition and ownership, Direct and optional
+> Addressables backends, single-flight requests, scoped leases, deterministic
+> release diagnostics, and the first UI/Map consumers.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -478,11 +477,14 @@ Runtime/Core/StateFlow   engine-independent 0.4 Frame, Section, Intent, and Mail
 Runtime/Core/StateGraph  engine-independent compiler, runtime, clock, and staged Tick
 Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset, snapshot, and compilation cache
 Runtime/StateGraphHost   Unity Host plus internal Gateway/Router integration
+Runtime/Content          Unity-facing content acquisition, ownership, Direct backend, and diagnostics
+Runtime/Content/Addressables  optional conditional Addressables backend
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
 Runtime/Modules          transitional presentation and service modules
 Editor/StateGraph        constrained graph authoring and diagnostics
 Editor/StateGraphHost    Host Inspector and committed runtime debugger
+Editor/Content           Content reference authoring and runtime ownership monitor
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -503,8 +505,11 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
+- **Pre9**: Object Pool ownership, rent/return, reset, capacity, and prewarm.
+- **Pre10**: Map Region/Chunk policy, production streaming, races, and replay.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
+- **Pre12**: final UI navigation, focus, transition, and authoring contracts.
 - **Pre13**: Persistence V2, durable projection, migration, containers, and
   world facts.
 - **Pre15**: production gameplay States and replacement Samples.
@@ -514,12 +519,12 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-The dependency set remains unchanged in Pre7 because transitional 0.3.9 modules
-still compile against it.
+Pre8 removes Addressables from the package's hard dependency set. Direct-only
+projects need no Addressables package. Install the optional backend explicitly
+from `CoCoFlow/Setup/Setup Assistant` when Addressables content is required.
 
 | Package | Version | Current owner |
 |---|---:|---|
-| Addressables | 2.9.1 | Map and UI transitional workflows |
 | Input System | 1.18.0 | Input module |
 | Newtonsoft Json | 3.2.2 | Persistence transitional module |
 | Cinemachine | 3.1.6 | Camera transitional module |
@@ -527,7 +532,15 @@ still compile against it.
 | Mathematics | 1.3.3 | Enemy/spline assemblies |
 | Splines | 2.6.0 | Enemy spline support |
 
-Dependency pruning belongs to the Pre that replaces each owning module.
+Optional dependency:
+
+| Package | Recommended version | Current owner |
+|---|---:|---|
+| Addressables | 2.9.1 | `CoCoFlow.Runtime.Content.Addressables` only |
+
+UniTask remains Setup-Assistant-managed. Content, UI, and Map assemblies compile
+when `COCOFLOW_UNITASK_SUPPORT` is enabled; the optional Addressables assembly
+also requires the Addressables package version define.
 
 ## Installation and Validation
 
@@ -549,6 +562,9 @@ dependency/support-define tool; it does not install project content.
 - [StateGraph Runtime and Host](Docs/StateGraphRuntime.md)
 - [StateGraph Editor and Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
+- [Content Acquisition and Ownership](Docs/ContentOwnership.md)
+- [Module: UI](Docs/Module-UI.md)
+- [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

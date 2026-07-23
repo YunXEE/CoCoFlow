@@ -5,6 +5,54 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.8] - 2026-07-23
+
+### Added
+
+- A Unity-facing Content acquisition and ownership runtime with stable Content
+  IDs, explicit owner Scopes, reference-type idempotent Leases, typed Asset,
+  Prefab Source, and Additive Scene requests, and one explicit project/world
+  composition Host instead of a static global runtime.
+- Exact-key single-flight loading, per-caller cancellation isolation,
+  generation-safe late-completion cleanup, retryable load failures, immediate
+  last-lease release, and fail-closed release tombstones without a hidden
+  cache, grace period, or LRU policy.
+- A Direct backend for serialized Assets/Prefab Sources and SceneManager
+  Additive Scenes, including exact-instance ownership for concurrent same-path
+  requests, plus an optional conditional Addressables backend that keeps backend
+  handles private while preserving the same request/result/lease API.
+- Immutable runtime snapshots, a fixed-capacity identity-only ownership ledger,
+  optional bounded acquisition-stack capture, structured Content diagnostics,
+  Inspector authoring, and a Content Runtime Monitor.
+- Contract and PlayMode coverage for ownership, cancellation races, generation
+  replacement, release failure, Direct/Addressables paths, requester sharing,
+  UI panel-source lifetime, assembly boundaries, and dependency variants.
+
+### Changed
+
+- Migrated UI panel prefab ownership from a manager-lifetime Addressables handle
+  cache to one Prefab Source lease per live panel instance. UI still owns
+  Instantiate/Destroy; navigation, focus, transition, and final authoring policy
+  remain deferred to Pre12.
+- Migrated Map scene ownership from one global string desired-set to explicit
+  requester-scoped Content demands. Different requesters may share one physical
+  load, and one requester cannot unload another's scene lease; Region/Chunk and
+  production streaming policy remain deferred to Pre10.
+- Removed Addressables from `package.json` hard dependencies. Direct-only hosts
+  do not need Addressables; Setup Assistant exposes an explicit optional
+  Addressables installation action.
+- Updated the package version and existing Unity Package Validation Suite
+  exception scopes to `0.4.0-pre.8`.
+
+### Deferred
+
+- Pre9 owns Object Pool instance rent/return, reset, capacity, and prewarm.
+- Pre10 owns Map Region/Chunk policy, distance streaming, race orchestration,
+  replay, and final monitoring.
+- Pre11/Pre12/Pre13 respectively own Animation consumption, final UI behavior,
+  and Persistence content identity/migration. Pre16 owns complete cross-module
+  performance and platform certification.
+
 ## [0.4.0-pre.7] - 2026-07-22
 
 ### Added

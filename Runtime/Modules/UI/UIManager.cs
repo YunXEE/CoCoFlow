@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using CoCoFlow.Runtime.Content;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 using Cysharp.Threading.Tasks;
 using CoCoFlow.Runtime.Core;
 
@@ -25,20 +24,23 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private Transform panelRoot;
         [SerializeField] private Transform popupRoot;
 
+        [Header("Content")]
+        [SerializeField] private CoCoContentHost contentHost;
+
         [Header("Input Integration")]
         [SerializeField] private string pauseActionName = "Pause";
         [SerializeField] private string cancelActionName = "Cancel";
-        [SerializeField] private string pausePanelAddress = "UI_PausePanel";
+        [SerializeField] private ContentReference pausePanelSource;
 
         private IInputEventSource _inputEvents;
         private IInputModeController _inputMode;
         private IDisposable _inputEventsWait;
         private IDisposable _inputModeWait;
 
-        private readonly Dictionary<string, AsyncOperationHandle<GameObject>> _prefabHandles =
-            new Dictionary<string, AsyncOperationHandle<GameObject>>();
         private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
         private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
+        private ContentScope _pendingPanelScope;
+        private ulong _panelOwnerSequence;
         private bool _isTransitioning;
         private bool _isDestroyed;
 
@@ -49,19 +51,21 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         public static UIManager Instance { get; private set; }
 
-        public void OpenPanel(string address) => PushPanelAsync(address).Forget();
+        public void OpenPanel(ContentReference panelSource) => PushPanelAsync(panelSource).Forget();
         public void CloseCurrentPanel() => PopPanelAsync().Forget();
         public void CloseAllPanels() => PopAllPanelsAsync().Forget();
 
-        public void TogglePanel(string address)
+        public void TogglePanel(ContentReference panelSource)
         {
-            if (_panelStack.Count > 0 && _panelStack.Peek().PanelAddress == address)
+            if (_panelStack.Count > 0 &&
+                _panelStack.Peek() != null &&
+                _panelStack.Peek().SourceContentId.Equals(panelSource.Id))
             {
                 CloseCurrentPanel();
             }
             else
             {
-                OpenPanel(address);
+                OpenPanel(panelSource);
             }
         }
 
@@ -101,41 +105,78 @@ namespace CoCoFlow.Runtime.Modules.UI
             _inputEventsWait?.Dispose();
             _inputModeWait?.Dispose();
             if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
-            DestroyCachedPanels();
-            ReleasePrefabHandles();
+            _pendingPanelScope?.Dispose();
+            _pendingPanelScope = null;
+            DestroyOpenPanels();
             _destroyCts.Dispose();
             if (Instance == this) Instance = null;
         }
 
-        private async UniTask PushPanelAsync(string address)
+        private async UniTask PushPanelAsync(ContentReference panelSource)
         {
-            if (_isTransitioning || _isDestroyed || string.IsNullOrWhiteSpace(address)) return;
+            if (_isTransitioning || _isDestroyed) return;
+            if (!panelSource.IsValid || panelSource.Kind != ContentKind.PrefabSource)
+            {
+                CoCoLog.Error("[UIManager] OpenPanel requires a valid Prefab Source ContentReference.");
+                return;
+            }
+
+            if (contentHost == null)
+            {
+                CoCoLog.Error("[UIManager] A CoCoContentHost reference is required.");
+                return;
+            }
+
             _isTransitioning = true;
+            ContentScope pendingScope = null;
+            ContentLease<GameObject> sourceLease = null;
+            GameObject panelObject = null;
+            UIPanelBase newPanel = null;
+            UIPanelBase lowerPanel = null;
+            UIPanelConfig panelConfig = UIPanelConfig.None;
+            bool ownershipBound = false;
+            bool configApplied = false;
+            bool lowerPanelDisabled = false;
+            bool panelPushed = false;
 
             try
             {
-                GameObject prefab;
-                try
+                if (!TryCreatePanelOwnerId(out var ownerId))
                 {
-                    prefab = await LoadPanelPrefabAsync(address);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    CoCoLog.Error($"[UIManager] 加载面板 {address} 失败: {ex}");
+                    CoCoLog.Error("[UIManager] Unable to create a panel Content Owner Id.");
                     return;
                 }
 
+                if (!contentHost.TryCreateScope(ownerId, out pendingScope, out var scopeDiagnostic))
+                {
+                    CoCoLog.Error($"[UIManager] Unable to create panel Content Scope: {scopeDiagnostic}");
+                    return;
+                }
+
+                _pendingPanelScope = pendingScope;
+                ContentAcquireResult<GameObject> acquireResult =
+                    await pendingScope.AcquirePrefabSourceAsync(panelSource, _destroyCts.Token);
+                if (!acquireResult.Succeeded)
+                {
+                    if (!acquireResult.Cancelled)
+                    {
+                        CoCoLog.Error(
+                            $"[UIManager] Failed to acquire panel {panelSource.Id}: " +
+                            acquireResult.Diagnostic);
+                    }
+
+                    return;
+                }
+
+                sourceLease = acquireResult.Lease;
+                GameObject prefab = sourceLease?.Value;
                 if (_isDestroyed || prefab == null) return;
 
                 // 从 prefab 读取 Layer 来确定目标根节点，避免 Instantiate 后再 SetParent
                 UIPanelBase prefabPanel = prefab.GetComponent<UIPanelBase>();
                 if (prefabPanel == null)
                 {
-                    CoCoLog.Error($"[UIManager] 面板 {address} 缺少 UIPanelBase 组件。");
+                    CoCoLog.Error($"[UIManager] Panel {panelSource.Id} has no UIPanelBase component.");
                     return;
                 }
 
@@ -146,24 +187,83 @@ namespace CoCoFlow.Runtime.Modules.UI
                     _ => panelRoot
                 };
 
-                GameObject panelObj = Instantiate(prefab, targetRoot, false);
-                UIPanelBase newPanel = panelObj.GetComponent<UIPanelBase>();
-                panelObj.transform.SetAsLastSibling();
+                panelObject = Instantiate(prefab, targetRoot, false);
+                newPanel = panelObject.GetComponent<UIPanelBase>();
+                if (newPanel == null)
+                {
+                    CoCoLog.Error($"[UIManager] Instantiated panel {panelSource.Id} has no UIPanelBase component.");
+                    return;
+                }
 
-                ApplyPanelConfigOnPush(newPanel.Config);
+                newPanel.BindSourceOwnership(panelSource.Id, pendingScope, sourceLease);
+                ownershipBound = true;
+                _pendingPanelScope = null;
+                pendingScope = null;
+                sourceLease = null;
+                panelObject.transform.SetAsLastSibling();
+
+                panelConfig = newPanel.Config;
+                ApplyPanelConfigOnPush(panelConfig);
+                configApplied = true;
 
                 if (_panelStack.Count > 0)
                 {
-                    var topPanel = _panelStack.Peek();
-                    if (newPanel.Config.HasFlag(UIPanelConfig.HideLowerPanels))
-                        topPanel.SetInteractable(false);
+                    lowerPanel = _panelStack.Peek();
+                    if (panelConfig.HasFlag(UIPanelConfig.HideLowerPanels) && lowerPanel != null)
+                    {
+                        lowerPanel.SetInteractable(false);
+                        lowerPanelDisabled = true;
+                    }
                 }
 
                 _panelStack.Push(newPanel);
+                panelPushed = true;
                 await newPanel.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                CoCoLog.Error($"[UIManager] Failed to open panel {panelSource.Id}: {ex}");
+
+                if (panelPushed && _panelStack.Count > 0 && ReferenceEquals(_panelStack.Peek(), newPanel))
+                {
+                    _panelStack.Pop();
+                    panelPushed = false;
+                }
+
+                if (lowerPanelDisabled && lowerPanel != null)
+                {
+                    lowerPanel.SetInteractable(true);
+                    lowerPanelDisabled = false;
+                }
+
+                if (configApplied)
+                {
+                    ApplyPanelConfigOnPop(panelConfig);
+                    configApplied = false;
+                }
             }
             finally
             {
+                if (ReferenceEquals(_pendingPanelScope, pendingScope))
+                {
+                    _pendingPanelScope = null;
+                }
+
+                if (!ownershipBound)
+                {
+                    sourceLease?.Dispose();
+                    pendingScope?.Dispose();
+                    if (panelObject != null)
+                    {
+                        Destroy(panelObject);
+                    }
+                }
+
+                if (ownershipBound && !panelPushed && panelObject != null)
+                {
+                    Destroy(panelObject);
+                }
+
                 if (!_isDestroyed) _isTransitioning = false;
             }
         }
@@ -176,12 +276,24 @@ namespace CoCoFlow.Runtime.Modules.UI
             try
             {
                 var currentPanel = _panelStack.Pop();
-                await currentPanel.HideAsync();
-
-                var config = currentPanel.Config;
-                if (currentPanel != null && currentPanel.gameObject != null)
+                var config = currentPanel != null ? currentPanel.Config : UIPanelConfig.None;
+                try
                 {
-                    Destroy(currentPanel.gameObject);
+                    if (currentPanel != null)
+                    {
+                        await currentPanel.HideAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    CoCoLog.Error($"[UIManager] Failed to hide panel: {ex}");
+                }
+                finally
+                {
+                    if (currentPanel != null && currentPanel.gameObject != null)
+                    {
+                        Destroy(currentPanel.gameObject);
+                    }
                 }
 
                 if (_panelStack.Count > 0)
@@ -207,7 +319,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
             if (actionName == pauseActionName && _panelStack.Count == 0)
             {
-                PushPanelAsync(pausePanelAddress).Forget();
+                PushPanelAsync(pausePanelSource).Forget();
             }
             else if (actionName == cancelActionName && _panelStack.Count > 0)
             {
@@ -215,40 +327,7 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
         }
 
-        private async UniTask<GameObject> LoadPanelPrefabAsync(string address)
-        {
-            if (_prefabHandles.TryGetValue(address, out var cachedHandle))
-            {
-                if (cachedHandle.IsValid())
-                {
-                    return cachedHandle.IsDone
-                        ? cachedHandle.Result
-                        : await cachedHandle.ToUniTask(cancellationToken: _destroyCts.Token);
-                }
-
-                _prefabHandles.Remove(address);
-            }
-
-            var handle = Addressables.LoadAssetAsync<GameObject>(address);
-            _prefabHandles[address] = handle;
-
-            try
-            {
-                return await handle.ToUniTask(cancellationToken: _destroyCts.Token);
-            }
-            catch
-            {
-                if (handle.IsValid())
-                {
-                    Addressables.Release(handle);
-                }
-
-                _prefabHandles.Remove(address);
-                throw;
-            }
-        }
-
-        private void DestroyCachedPanels()
+        private void DestroyOpenPanels()
         {
             while (_panelStack.Count > 0)
             {
@@ -267,19 +346,6 @@ namespace CoCoFlow.Runtime.Modules.UI
             _pauseLockCount = 0;
             _cursorLockCount = 0;
             Time.timeScale = 1f;
-        }
-
-        private void ReleasePrefabHandles()
-        {
-            foreach (var handle in _prefabHandles.Values)
-            {
-                if (handle.IsValid())
-                {
-                    Addressables.Release(handle);
-                }
-            }
-
-            _prefabHandles.Clear();
         }
 
         private async UniTask PopAllPanelsAsync()
@@ -340,6 +406,14 @@ namespace CoCoFlow.Runtime.Modules.UI
             {
                 _inputMode?.SwitchActionMap(InputMapNames.Player);
             }
+        }
+
+        private bool TryCreatePanelOwnerId(out ContentOwnerId ownerId)
+        {
+            _panelOwnerSequence++;
+            return ContentOwnerId.TryCreate(
+                $"ui.manager.{GetInstanceID()}.panel.{_panelOwnerSequence}",
+                out ownerId);
         }
         #endregion
     }

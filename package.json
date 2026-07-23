@@ -1,11 +1,10 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.7",
+  "version": "0.4.0-pre.8",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with constrained graph authoring, explicit Actor bindings, committed runtime debugging, temporal restore, and atomic event publication.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with explicit content acquisition, shared ownership, Direct and optional Addressables backends, and deterministic release diagnostics.",
   "unity": "6000.0",
   "dependencies": {
-    "com.unity.addressables": "2.9.1",
     "com.unity.inputsystem": "1.18.0",
     "com.unity.cinemachine": "3.1.6",
     "com.unity.ai.navigation": "2.0.0",
@@ -27,6 +26,9 @@
     "temporal-rewind",
     "context-restore",
     "event-outbox",
+    "content-ownership",
+    "resource-lifecycle",
+    "addressables",
     "core-contracts",
     "deterministic-tick",
     "state-flow",

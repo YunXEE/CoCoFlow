@@ -125,6 +125,42 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void ContentIsUnityFacingAndCoreTemporalPersistenceRemainIndependent()
+        {
+            PackageInfo packageInfo = PackageInfo.FindForAssembly(typeof(CoCoStateLogic).Assembly);
+            Assert.IsNotNull(packageInfo);
+
+            AssemblyDefinition content = ReadAssemblyDefinition(
+                packageInfo.resolvedPath,
+                "Runtime/Content/CoCoFlow.Runtime.Content.asmdef");
+            CollectionAssert.AreEqual(
+                new[] { "CoCoFlow.Runtime.Core.Contracts", "UniTask" },
+                content.references);
+            Assert.IsFalse(content.noEngineReferences);
+
+            string[] independentAssemblyPaths =
+            {
+                "Runtime/Core/Contracts/CoCoFlow.Runtime.Core.Contracts.asmdef",
+                "Runtime/Core/StateFlow/CoCoFlow.Runtime.Core.StateFlow.asmdef",
+                "Runtime/Core/StateGraph/CoCoFlow.Runtime.Core.StateGraph.asmdef",
+                "Runtime/Core/StateGraphAuthoring/CoCoFlow.Runtime.Core.StateGraphAuthoring.asmdef",
+                "Runtime/Core/CoCoFlow.Runtime.Core.asmdef",
+                "Runtime/StateGraphHost/CoCoFlow.Runtime.StateGraphHost.asmdef",
+                "Runtime/Modules/Persistence/CoCoFlow.Runtime.Modules.Persistence.asmdef"
+            };
+            foreach (string relativePath in independentAssemblyPaths)
+            {
+                AssemblyDefinition definition = ReadAssemblyDefinition(
+                    packageInfo.resolvedPath,
+                    relativePath);
+                CollectionAssert.DoesNotContain(
+                    definition.references,
+                    "CoCoFlow.Runtime.Content",
+                    relativePath);
+            }
+        }
+
+        [Test]
         public void ContractsStateFlowAndStateGraphPublicTypesExposeNoUnityObjects()
         {
             AssertAssemblyExposesNoUnityObjects(typeof(CoCoStateLogic).Assembly);

@@ -17,6 +17,10 @@ namespace CoCoFlow.Editor.Core
         private const string ManifestPath = "Packages/manifest.json";
         private const string UniTaskPackageName = "com.cysharp.unitask";
         private const string RecommendedUniTaskGitUrl = "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11";
+        private const string AddressablesPackageName = "com.unity.addressables";
+        private const string RecommendedAddressablesVersion = "2.9.1";
+        private const string RecommendedAddressablesPackage =
+            AddressablesPackageName + "@" + RecommendedAddressablesVersion;
         private const string NewtonsoftPackageName = "com.unity.nuget.newtonsoft-json";
         private const string NewtonsoftMinimumVersion = "3.2.2";
         private const string CinemachineAssemblyName = "Unity.Cinemachine";
@@ -46,10 +50,25 @@ namespace CoCoFlow.Editor.Core
                 new[] { CinemachineAssemblyName },
                 "Cinemachine runtime module."),
             new ModuleDefinition(
+                "Content (Direct)",
+                new[] { UniTaskDefine },
+                new[] { "UniTask" },
+                "Direct Asset, Prefab Source, and additive Scene ownership."),
+            new ModuleDefinition(
+                "Content (Addressables)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "Unity.Addressables",
+                    "CoCoFlow.Runtime.Content.Addressables"
+                },
+                "Optional Addressables backend; enabled by assembly version detection."),
+            new ModuleDefinition(
                 "Map",
                 new[] { UniTaskDefine },
-                new[] { "UniTask", "Unity.Addressables" },
-                "Addressables scene streaming module."),
+                new[] { "UniTask", "CoCoFlow.Runtime.Content" },
+                "Map policy using shared Content scene ownership."),
             new ModuleDefinition(
                 "Enemy AI",
                 new string[0],
@@ -63,7 +82,7 @@ namespace CoCoFlow.Editor.Core
             new ModuleDefinition(
                 "UI",
                 new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
-                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro" },
+                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro", "CoCoFlow.Runtime.Content" },
                 "DOTween animated UI module.")
         };
 
@@ -71,6 +90,7 @@ namespace CoCoFlow.Editor.Core
         private DependencyStatus _status;
         private Vector2 _scrollPosition;
         private AddRequest _uniTaskRequest;
+        private AddRequest _addressablesRequest;
         private bool _isBusy;
 
         [MenuItem("CoCoFlow/Setup/Setup Assistant")]
@@ -90,6 +110,7 @@ namespace CoCoFlow.Editor.Core
         private void OnDisable()
         {
             EditorApplication.update -= TickPackageRequest;
+            EditorApplication.update -= TickAddressablesPackageRequest;
         }
 
         private void OnGUI()
@@ -124,6 +145,10 @@ namespace CoCoFlow.Editor.Core
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 DrawStatusLine("UniTask", _status.UniTaskMessage, _status.UniTaskState);
+                DrawStatusLine(
+                    "Addressables (Optional)",
+                    _status.AddressablesMessage,
+                    _status.AddressablesState);
                 DrawStatusLine("Newtonsoft", _status.NewtonsoftMessage, _status.NewtonsoftState);
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
@@ -180,6 +205,21 @@ namespace CoCoFlow.Editor.Core
                     if (GUILayout.Button("Refresh Status", GUILayout.Height(30f)))
                         RefreshStatus();
                 }
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(
+                           _isBusy || !_status.AddressablesInstallRecommended))
+                {
+                    if (GUILayout.Button("Install Optional Addressables", GUILayout.Height(26f)))
+                        InstallOptionalAddressables();
+                }
+
+                EditorGUILayout.LabelField(
+                    "Adds the optional project dependency only; no global support define is written.",
+                    EditorStyles.wordWrappedMiniLabel,
+                    GUILayout.MinHeight(26f));
             }
         }
 
@@ -315,6 +355,51 @@ namespace CoCoFlow.Editor.Core
 
             AddLog("UniTask Git dependency installed.");
             ApplyAvailableSupportDefines(true);
+            AssetDatabase.Refresh();
+            RefreshStatus();
+        }
+
+        private void InstallOptionalAddressables()
+        {
+            _log.Clear();
+
+            try
+            {
+                _addressablesRequest = Client.Add(RecommendedAddressablesPackage);
+                _isBusy = true;
+                AddLog("Requested optional Addressables dependency: " + RecommendedAddressablesPackage);
+                EditorApplication.update -= TickAddressablesPackageRequest;
+                EditorApplication.update += TickAddressablesPackageRequest;
+            }
+            catch (Exception ex)
+            {
+                _isBusy = false;
+                AddLog("ERROR: Failed to start optional Addressables install. " + ex.Message);
+                Debug.LogError("[CoCoFlow Setup] Failed to start optional Addressables install:\n" + ex);
+                RefreshStatus();
+            }
+        }
+
+        private void TickAddressablesPackageRequest()
+        {
+            if (_addressablesRequest == null || !_addressablesRequest.IsCompleted)
+                return;
+
+            EditorApplication.update -= TickAddressablesPackageRequest;
+            _isBusy = false;
+
+            if (_addressablesRequest.Status == StatusCode.Failure)
+            {
+                var message = _addressablesRequest.Error != null
+                    ? _addressablesRequest.Error.message
+                    : "Unknown Package Manager error.";
+                AddLog("ERROR: Optional Addressables install failed. " + message);
+                Debug.LogError("[CoCoFlow Setup] Optional Addressables install failed: " + message);
+                RefreshStatus();
+                return;
+            }
+
+            AddLog("Optional Addressables dependency installed.");
             AssetDatabase.Refresh();
             RefreshStatus();
         }
@@ -463,6 +548,9 @@ namespace CoCoFlow.Editor.Core
                     if (dependencies.TryGetString(UniTaskPackageName, out var unitaskDependency))
                         status.UniTaskDependency = unitaskDependency;
 
+                    if (dependencies.TryGetString(AddressablesPackageName, out var addressablesDependency))
+                        status.AddressablesDependency = addressablesDependency;
+
                     if (dependencies.TryGetString(NewtonsoftPackageName, out var newtonsoftDependency))
                         status.NewtonsoftDependency = newtonsoftDependency;
                 }
@@ -475,6 +563,9 @@ namespace CoCoFlow.Editor.Core
             }
 
             status.UniTaskInstalled = IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            status.AddressablesInstalled = IsAssemblyInstalled("Unity.Addressables") ||
+                                           IsTypeAvailable(
+                                               "UnityEngine.AddressableAssets.Addressables, Unity.Addressables");
             status.CinemachineInstalled = IsAssemblyInstalled(CinemachineAssemblyName) || IsTypeAvailable("Unity.Cinemachine.CinemachineCamera, Unity.Cinemachine");
             status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
             status.DotweenInstalled = IsDotweenInstalled();
@@ -484,11 +575,14 @@ namespace CoCoFlow.Editor.Core
             status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine }, checkedTargets);
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
-            status.AssemblyStates["UniTask.Addressables"] = IsAssemblyInstalled("UniTask.Addressables");
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
             status.AssemblyStates[CinemachineAssemblyName] = status.CinemachineInstalled;
             status.AssemblyStates[SplinesAssemblyName] = status.SplinesInstalled;
             status.AssemblyStates["Unity.Addressables"] = IsAssemblyInstalled("Unity.Addressables");
+            status.AssemblyStates["CoCoFlow.Runtime.Content"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Content");
+            status.AssemblyStates["CoCoFlow.Runtime.Content.Addressables"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Content.Addressables");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
@@ -717,21 +811,32 @@ namespace CoCoFlow.Editor.Core
         {
             public string ManifestError { get; set; }
             public string UniTaskDependency { get; set; }
+            public string AddressablesDependency { get; set; }
             public string NewtonsoftDependency { get; set; }
             public bool HasUniTaskOpenUpmScope { get; set; }
             public bool UniTaskInstalled { get; set; }
+            public bool AddressablesInstalled { get; set; }
             public bool CinemachineInstalled { get; set; }
             public bool SplinesInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
             public bool DotweenModulesInstalled { get; set; }
             public string UniTaskMessage { get; private set; }
+            public string AddressablesMessage { get; private set; }
             public string NewtonsoftMessage { get; private set; }
             public string DotweenMessage { get; private set; }
             public MessageType UniTaskState { get; private set; }
+            public MessageType AddressablesState { get; private set; }
             public MessageType NewtonsoftState { get; private set; }
             public int CheckedTargetCount { get; set; }
             public Dictionary<string, List<string>> MissingDefineTargets { get; set; } = new Dictionary<string, List<string>>();
             public Dictionary<string, bool> AssemblyStates { get; } = new Dictionary<string, bool>();
+
+            public bool AddressablesInstallRecommended =>
+                string.IsNullOrEmpty(AddressablesDependency) ||
+                IsSemanticVersionLower(
+                    AddressablesDependency,
+                    RecommendedAddressablesVersion) ||
+                !AddressablesInstalled;
 
             public bool DefinePresentOnAllTargets(string define)
             {
@@ -748,9 +853,11 @@ namespace CoCoFlow.Editor.Core
                 if (!string.IsNullOrEmpty(ManifestError))
                 {
                     UniTaskMessage = "Manifest error: " + ManifestError;
+                    AddressablesMessage = "Manifest error: " + ManifestError;
                     NewtonsoftMessage = "Manifest error: " + ManifestError;
                     DotweenMessage = "Manifest error: " + ManifestError;
                     UniTaskState = MessageType.Error;
+                    AddressablesState = MessageType.Error;
                     NewtonsoftState = MessageType.Error;
                     return;
                 }
@@ -769,6 +876,35 @@ namespace CoCoFlow.Editor.Core
                 {
                     UniTaskMessage = "Installed from non-recommended source: " + UniTaskDependency;
                     UniTaskState = MessageType.Warning;
+                }
+
+                if (string.IsNullOrEmpty(AddressablesDependency))
+                {
+                    AddressablesMessage = AddressablesInstalled
+                        ? "Assembly detected without a direct project manifest dependency."
+                        : "Not installed. Direct Content remains available; install only when the Addressables backend is needed.";
+                    AddressablesState = AddressablesInstalled
+                        ? MessageType.Warning
+                        : MessageType.Info;
+                }
+                else if (IsSemanticVersionLower(
+                             AddressablesDependency,
+                             RecommendedAddressablesVersion))
+                {
+                    AddressablesMessage = "Version " + AddressablesDependency +
+                                          " is below the recommended " +
+                                          RecommendedAddressablesVersion + ".";
+                    AddressablesState = MessageType.Warning;
+                }
+                else
+                {
+                    AddressablesMessage = AddressablesInstalled
+                        ? "Installed at " + AddressablesDependency + "."
+                        : "Dependency " + AddressablesDependency +
+                          " is configured; the package may still be resolving.";
+                    AddressablesState = AddressablesInstalled
+                        ? MessageType.Info
+                        : MessageType.Warning;
                 }
 
                 if (string.IsNullOrEmpty(NewtonsoftDependency))
