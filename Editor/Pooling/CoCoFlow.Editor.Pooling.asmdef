@@ -1,0 +1,22 @@
+{
+    "name": "CoCoFlow.Editor.Pooling",
+    "rootNamespace": "CoCoFlow.Editor.Pooling",
+    "references": [
+        "CoCoFlow.Runtime.Pooling",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

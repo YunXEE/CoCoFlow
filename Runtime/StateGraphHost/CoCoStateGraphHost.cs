@@ -69,6 +69,7 @@ namespace CoCoFlow.Runtime.Core
         internal int EventSourceCapacity => eventSourceCapacity;
         internal int EventDedupCapacity => eventDedupCapacity;
         internal bool HasLiveRuntime => _runtime != null;
+        internal bool IsRuntimeFaulted => _runtime?.IsFaulted ?? false;
         public int TemporalHistoryCapacity => temporalHistoryCapacity;
         public CoCoRuntimeLifecycleState Lifecycle => _runtime?.Lifecycle ??
             (_isDisposed
@@ -1219,6 +1220,7 @@ namespace CoCoFlow.Runtime.Core
                 out bool authorityCommitted,
                 out bool worldMayBeDirty,
                 out diagnostic);
+            _temporal.DrainPublishedCleanupNoFail();
             if (finalized)
             {
                 _lastDiagnostic = CoCoDiagnostic.None;

@@ -7,6 +7,11 @@ using Cysharp.Threading.Tasks;
 
 namespace CoCoFlow.Runtime.Content
 {
+    internal interface IContentRuntimeShutdownParticipant
+    {
+        UniTask<CoCoDiagnostic> DrainBeforeContentShutdownAsync();
+    }
+
     public sealed class ContentRuntime
     {
         private readonly struct RequestKey : IEquatable<RequestKey>
@@ -105,6 +110,8 @@ namespace CoCoFlow.Runtime.Content
         private readonly Dictionary<RequestKey, Entry> entries =
             new Dictionary<RequestKey, Entry>();
         private readonly HashSet<ContentScope> scopes = new HashSet<ContentScope>();
+        private readonly List<IContentRuntimeShutdownParticipant> shutdownParticipants =
+            new List<IContentRuntimeShutdownParticipant>();
         private readonly object scopeGate = new object();
         private readonly CancellationTokenSource runtimeCancellation =
             new CancellationTokenSource();
@@ -134,6 +141,31 @@ namespace CoCoFlow.Runtime.Content
         public bool IsShuttingDown => isShuttingDown;
         public bool IsDisposed => isDisposed;
         public bool CaptureLeaseStacks => captureLeaseStacks;
+
+        internal bool TryRegisterShutdownParticipant(
+            IContentRuntimeShutdownParticipant participant)
+        {
+            if (!IsMainThread ||
+                participant == null ||
+                isShuttingDown ||
+                isDisposed ||
+                shutdownParticipants.Contains(participant))
+            {
+                return false;
+            }
+
+            shutdownParticipants.Add(participant);
+            return true;
+        }
+
+        internal void UnregisterShutdownParticipant(
+            IContentRuntimeShutdownParticipant participant)
+        {
+            if (participant != null)
+            {
+                shutdownParticipants.Remove(participant);
+            }
+        }
 
         public static bool TryCreate(
             IEnumerable<IContentBackend> additionalBackends,
@@ -1060,6 +1092,51 @@ namespace CoCoFlow.Runtime.Content
         private async UniTask<CoCoDiagnostic> ShutdownCoreAsync()
         {
             isShuttingDown = true;
+            CoCoDiagnostic shutdownDiagnostic = CoCoDiagnostic.None;
+            IContentRuntimeShutdownParticipant[] participants =
+                shutdownParticipants.ToArray();
+            var pendingParticipantDrains =
+                new UniTask<CoCoDiagnostic>[participants.Length];
+            for (int index = 0; index < participants.Length; index++)
+            {
+                try
+                {
+                    pendingParticipantDrains[index] =
+                        participants[index].DrainBeforeContentShutdownAsync();
+                }
+                catch (Exception exception)
+                {
+                    pendingParticipantDrains[index] = UniTask.FromResult(
+                        ContentErrors.ReleaseFailed(
+                            default,
+                            "A dependent runtime failed to begin draining before Content shutdown. " +
+                            exception.Message));
+                }
+            }
+
+            for (int index = 0; index < pendingParticipantDrains.Length; index++)
+            {
+                try
+                {
+                    CoCoDiagnostic diagnostic =
+                        await pendingParticipantDrains[index];
+                    await UniTask.SwitchToMainThread();
+                    if (!diagnostic.IsNone)
+                    {
+                        shutdownDiagnostic = diagnostic;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    await UniTask.SwitchToMainThread();
+                    shutdownDiagnostic = ContentErrors.ReleaseFailed(
+                        default,
+                        "A dependent runtime failed to drain before Content shutdown. " +
+                        exception.Message);
+                }
+            }
+
+            shutdownParticipants.Clear();
             ContentScope[] liveScopes;
             lock (scopeGate)
             {
@@ -1107,7 +1184,6 @@ namespace CoCoFlow.Runtime.Content
                 }
             }
 
-            CoCoDiagnostic shutdownDiagnostic = CoCoDiagnostic.None;
             foreach (Entry entry in entries.Values)
             {
                 if (entry.State != ContentEntryState.ReleaseFailed) continue;

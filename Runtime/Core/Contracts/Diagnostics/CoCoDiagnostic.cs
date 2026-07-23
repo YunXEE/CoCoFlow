@@ -21,7 +21,8 @@ namespace CoCoFlow.Runtime.Core
         Codec = 14,
         Operator = 15,
         EventOutbox = 16,
-        Content = 17
+        Content = 17,
+        Pooling = 18
     }
 
     public enum CoCoDiagnosticCode
@@ -105,7 +106,32 @@ namespace CoCoFlow.Runtime.Core
         ContentRuntimeDisposed = 77,
         ContentReferenceConflict = 78,
         ContentMainThreadRequired = 79,
-        ContentBackendConflict = 80
+        ContentBackendConflict = 80,
+        InvalidPoolId = 81,
+        InvalidPoolProfile = 82,
+        PoolProfileConflict = 83,
+        PoolRuntimeDisposed = 84,
+        PoolScopeClosing = 85,
+        PoolNotReady = 86,
+        PoolOperationInProgress = 87,
+        PoolOperationCancelled = 88,
+        PoolInstanceCreateFailed = 89,
+        InvalidPooledHandle = 90,
+        PooledHandleAlreadyReturned = 91,
+        StalePooledHandle = 92,
+        PooledHandleOwnerMismatch = 93,
+        InvalidPoolTransition = 94,
+        PoolActivationFailed = 95,
+        PoolResetFailed = 96,
+        PooledInstanceDestroyed = 97,
+        PoolMainThreadRequired = 98,
+        PoolCallbackReentry = 99,
+        PoolHandleLeak = 100,
+        PoolForcedShutdown = 101,
+        PoolTemporalConflict = 102,
+        PoolTemporalEntityUnavailable = 103,
+        PoolTemporalProjectionFailed = 104,
+        PoolTemporalCleanupFailed = 105
     }
 
     public enum CoCoDiagnosticSeverity
