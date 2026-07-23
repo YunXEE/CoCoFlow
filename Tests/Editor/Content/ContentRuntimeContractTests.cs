@@ -268,7 +268,28 @@ namespace CoCoFlow.Runtime.Content.Tests
                         result.Diagnostic.Code);
                     Assert.AreEqual(mainThreadId, Environment.CurrentManagedThreadId);
                     Assert.AreNotEqual(mainThreadId, backend.ReleaseCompletionThreadId);
+                    Assert.AreEqual(1, backend.ReleaseCount);
                     Assert.AreEqual(0, runtime.CaptureSnapshot().Entries.Count);
+                    CollectionAssert.AreEqual(
+                        new[]
+                        {
+                            ContentDiagnosticEventKind.LoadFailed,
+                            ContentDiagnosticEventKind.ReleaseStarted,
+                            ContentDiagnosticEventKind.ReleaseSucceeded
+                        },
+                        runtime.CaptureSnapshot().Diagnostics
+                            .Where(record =>
+                                record.ContentId == reference.Id &&
+                                (record.EventKind ==
+                                 ContentDiagnosticEventKind.LoadFailed ||
+                                 record.EventKind ==
+                                 ContentDiagnosticEventKind.ReleaseStarted ||
+                                 record.EventKind ==
+                                 ContentDiagnosticEventKind.ReleaseSucceeded ||
+                                 record.EventKind ==
+                                 ContentDiagnosticEventKind.ReleaseFailed))
+                            .Select(record => record.EventKind)
+                            .ToArray());
                 }
                 finally
                 {
@@ -276,6 +297,24 @@ namespace CoCoFlow.Runtime.Content.Tests
                     await runtime.ShutdownAsync();
                     UnityEngine.Object.DestroyImmediate(wrongAsset);
                 }
+            });
+
+        [UnityTest]
+        public IEnumerator MismatchReleaseDiagnosticLeavesOneReleaseTombstone() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                await AssertMismatchReleaseFailureLeavesTombstoneAsync(
+                    MismatchReleaseOutcome.DiagnosticFailure,
+                    "content.mismatch-release-diagnostic");
+            });
+
+        [UnityTest]
+        public IEnumerator MismatchReleaseThrowLeavesOneReleaseTombstone() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                await AssertMismatchReleaseFailureLeavesTombstoneAsync(
+                    MismatchReleaseOutcome.Throw,
+                    "content.mismatch-release-throw");
             });
 
         [UnityTest]
@@ -786,6 +825,109 @@ namespace CoCoFlow.Runtime.Content.Tests
                 }
             });
 
+        private static async UniTask AssertMismatchReleaseFailureLeavesTombstoneAsync(
+            MismatchReleaseOutcome outcome,
+            string contentValue)
+        {
+            var wrongAsset = ScriptableObject.CreateInstance<WrongRuntimeContractAsset>();
+            var backend = new MismatchReleaseBackend(wrongAsset, outcome);
+            ContentRuntime runtime = CreateRuntime(backend);
+            ContentScope scopeA = CreateScope(runtime, "owner." + contentValue + ".a");
+            ContentScope scopeB = CreateScope(runtime, "owner." + contentValue + ".b");
+            try
+            {
+                ContentReference reference = CreateAddressableAssetReference(contentValue);
+                UniTask<ContentAcquireResult<RuntimeContractAsset>> requestA =
+                    scopeA.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                UniTask<ContentAcquireResult<RuntimeContractAsset>> requestB =
+                    scopeB.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                Assert.AreEqual(
+                    1,
+                    backend.LoadCount,
+                    "Overlapping waiters must share one physical mismatch load.");
+
+                backend.CompleteLoad();
+                ContentAcquireResult<RuntimeContractAsset> resultA = await requestA;
+                ContentAcquireResult<RuntimeContractAsset> resultB = await requestB;
+
+                Assert.AreEqual(ContentAcquireStatus.Failed, resultA.Status);
+                Assert.AreEqual(ContentAcquireStatus.Failed, resultB.Status);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    resultA.Diagnostic.Code);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    resultB.Diagnostic.Code);
+                Assert.AreEqual(resultA.Diagnostic, resultB.Diagnostic);
+                Assert.AreEqual(
+                    1,
+                    backend.ReleaseCount,
+                    "One unpublished mismatch resource must be released exactly once.");
+
+                ContentRuntimeSnapshot snapshot = runtime.CaptureSnapshot();
+                Assert.AreEqual(1, snapshot.Entries.Count);
+                Assert.AreEqual(
+                    ContentEntryState.ReleaseFailed,
+                    snapshot.Entries[0].State);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    snapshot.Entries[0].Diagnostic.Code);
+                Assert.AreSame(wrongAsset, GetOnlyEntryResource(runtime).Value);
+
+                ContentDiagnosticRecord[] lifecycle = snapshot.Diagnostics
+                    .Where(record =>
+                        record.ContentId == reference.Id &&
+                        (record.EventKind == ContentDiagnosticEventKind.LoadFailed ||
+                         record.EventKind == ContentDiagnosticEventKind.ReleaseStarted ||
+                         record.EventKind == ContentDiagnosticEventKind.ReleaseSucceeded ||
+                         record.EventKind == ContentDiagnosticEventKind.ReleaseFailed))
+                    .ToArray();
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        ContentDiagnosticEventKind.LoadFailed,
+                        ContentDiagnosticEventKind.ReleaseStarted,
+                        ContentDiagnosticEventKind.ReleaseFailed
+                    },
+                    lifecycle.Select(record => record.EventKind).ToArray());
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentTypeMismatch,
+                    lifecycle[0].Diagnostic.Code);
+                Assert.IsTrue(lifecycle[1].Diagnostic.IsNone);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    lifecycle[2].Diagnostic.Code);
+
+                ContentAcquireResult<RuntimeContractAsset> blocked =
+                    await scopeA.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                Assert.AreEqual(ContentAcquireStatus.Failed, blocked.Status);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    blocked.Diagnostic.Code);
+                Assert.AreEqual(
+                    1,
+                    backend.LoadCount,
+                    "A mismatch release tombstone must block a new generation.");
+                Assert.AreEqual(1, backend.ReleaseCount);
+
+                scopeA.Dispose();
+                scopeB.Dispose();
+                CoCoDiagnostic shutdownDiagnostic = await runtime.ShutdownAsync();
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    shutdownDiagnostic.Code);
+                Assert.AreEqual(resultA.Diagnostic, shutdownDiagnostic);
+                Assert.AreEqual(1, backend.ReleaseCount);
+            }
+            finally
+            {
+                scopeA.Dispose();
+                scopeB.Dispose();
+                await runtime.ShutdownAsync();
+                UnityEngine.Object.DestroyImmediate(wrongAsset);
+            }
+        }
+
         private static async UniTask AssertFailedLoadCleanupLeavesTombstoneAsync(
             FailureCleanupOutcome outcome,
             string ownerValue,
@@ -874,6 +1016,26 @@ namespace CoCoFlow.Runtime.Content.Tests
             PropertyInfo countProperty = scopes.GetType().GetProperty("Count");
             Assert.IsNotNull(countProperty);
             return (int)countProperty.GetValue(scopes);
+        }
+
+        private static ContentBackendResource GetOnlyEntryResource(ContentRuntime runtime)
+        {
+            FieldInfo entriesField = typeof(ContentRuntime).GetField(
+                "entries",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(entriesField);
+            var entries = entriesField.GetValue(runtime) as IDictionary;
+            Assert.IsNotNull(entries);
+            Assert.AreEqual(1, entries.Count);
+
+            object entry = entries.Values.Cast<object>().Single();
+            PropertyInfo resourceProperty = entry.GetType().GetProperty(
+                "Resource",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(resourceProperty);
+            var resource = resourceProperty.GetValue(entry) as ContentBackendResource;
+            Assert.IsNotNull(resource);
+            return resource;
         }
 
         private static ContentBackendFailureCleanup GetOnlyFailureCleanupAuthority(
@@ -974,6 +1136,81 @@ namespace CoCoFlow.Runtime.Content.Tests
             Success = 0,
             DiagnosticFailure = 1,
             Throw = 2
+        }
+
+        private enum MismatchReleaseOutcome
+        {
+            DiagnosticFailure = 0,
+            Throw = 1
+        }
+
+        private sealed class MismatchReleaseBackend : IContentBackend
+        {
+            private static readonly ContentBackendId Id = CreateBackendId();
+            private readonly UnityEngine.Object value;
+            private readonly MismatchReleaseOutcome releaseOutcome;
+            private readonly UniTaskCompletionSource<ContentBackendLoadResult>
+                loadCompletion = new UniTaskCompletionSource<ContentBackendLoadResult>();
+
+            internal MismatchReleaseBackend(
+                UnityEngine.Object value,
+                MismatchReleaseOutcome releaseOutcome)
+            {
+                this.value = value;
+                this.releaseOutcome = releaseOutcome;
+            }
+
+            internal int LoadCount { get; private set; }
+            internal int ReleaseCount { get; private set; }
+            public ContentBackendId BackendId => Id;
+
+            public bool CanHandle(ContentReference reference) =>
+                reference.IsValid &&
+                reference.SourceKind == ContentSourceKind.Addressables &&
+                reference.Kind == ContentKind.Asset;
+
+            public UniTask<ContentBackendLoadResult> LoadAsync(
+                ContentBackendRequest request,
+                CancellationToken lifetimeCancellationToken)
+            {
+                Assert.IsTrue(CanHandle(request.Reference));
+                _ = lifetimeCancellationToken;
+                LoadCount++;
+                return loadCompletion.Task;
+            }
+
+            internal void CompleteLoad()
+            {
+                loadCompletion.TrySetResult(ContentBackendLoadResult.Success(
+                    value,
+                    ReleaseAsync));
+            }
+
+            private UniTask<CoCoDiagnostic> ReleaseAsync()
+            {
+                ReleaseCount++;
+                switch (releaseOutcome)
+                {
+                    case MismatchReleaseOutcome.DiagnosticFailure:
+                        return UniTask.FromResult(CoCoDiagnostic.Error(
+                            CoCoDiagnosticDomain.Content,
+                            CoCoDiagnosticCode.ContentLoadFailed,
+                            "controlled mismatch release diagnostic"));
+                    case MismatchReleaseOutcome.Throw:
+                        throw new InvalidOperationException(
+                            "controlled mismatch release throw");
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+
+            private static ContentBackendId CreateBackendId()
+            {
+                ContentBackendId.TryCreate(
+                    "tests.mismatch-release",
+                    out ContentBackendId backendId);
+                return backendId;
+            }
         }
 
         private sealed class FailureCleanupBackend : IContentBackend
@@ -1177,6 +1414,7 @@ namespace CoCoFlow.Runtime.Content.Tests
             }
 
             internal int ReleaseCompletionThreadId { get; private set; }
+            internal int ReleaseCount { get; private set; }
             public ContentBackendId BackendId => Id;
 
             public bool CanHandle(ContentReference reference) =>
@@ -1192,7 +1430,7 @@ namespace CoCoFlow.Runtime.Content.Tests
                 _ = lifetimeCancellationToken;
                 return UniTask.FromResult(ContentBackendLoadResult.Success(
                     value,
-                    () => releaseCompletion.Task));
+                    ReleaseAsync));
             }
 
             internal Task CompleteReleaseFromWorkerAsync() => Task.Run(() =>
@@ -1200,6 +1438,12 @@ namespace CoCoFlow.Runtime.Content.Tests
                 ReleaseCompletionThreadId = Environment.CurrentManagedThreadId;
                 releaseCompletion.TrySetResult(CoCoDiagnostic.None);
             });
+
+            private UniTask<CoCoDiagnostic> ReleaseAsync()
+            {
+                ReleaseCount++;
+                return releaseCompletion.Task;
+            }
 
             private static ContentBackendId CreateBackendId()
             {

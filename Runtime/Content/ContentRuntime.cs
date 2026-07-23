@@ -708,21 +708,6 @@ namespace CoCoFlow.Runtime.Content
                 CoCoDiagnostic mismatch = ContentErrors.TypeMismatch(
                     entry.Key.ContentId,
                     entry.Key.ExpectedType);
-                CoCoDiagnostic releaseDiagnostic = await ReleaseUnpublishedResourceAsync(
-                    entry,
-                    result.Resource);
-                await UniTask.SwitchToMainThread();
-                if (!releaseDiagnostic.IsNone)
-                {
-                    entry.Resource = result.Resource;
-                    entry.State = ContentEntryState.ReleaseFailed;
-                    entry.LastDiagnostic = releaseDiagnostic;
-                }
-                else
-                {
-                    RemoveEntry(entry);
-                }
-
                 ledger.Record(
                     ContentDiagnosticEventKind.LoadFailed,
                     entry.Key.ContentId,
@@ -733,7 +718,50 @@ namespace CoCoFlow.Runtime.Content
                     0,
                     0,
                     mismatch);
-                return ContentBackendLoadResult.Failure(mismatch);
+                ledger.Record(
+                    ContentDiagnosticEventKind.ReleaseStarted,
+                    entry.Key.ContentId,
+                    default,
+                    entry.Key.BackendId,
+                    entry.Key.BackendGeneration,
+                    entry.ResourceGeneration,
+                    0,
+                    0,
+                    CoCoDiagnostic.None);
+                CoCoDiagnostic releaseDiagnostic = await ReleaseUnpublishedResourceAsync(
+                    entry,
+                    result.Resource);
+                await UniTask.SwitchToMainThread();
+                if (releaseDiagnostic.IsNone)
+                {
+                    ledger.Record(
+                        ContentDiagnosticEventKind.ReleaseSucceeded,
+                        entry.Key.ContentId,
+                        default,
+                        entry.Key.BackendId,
+                        entry.Key.BackendGeneration,
+                        entry.ResourceGeneration,
+                        0,
+                        0,
+                        CoCoDiagnostic.None);
+                    RemoveEntry(entry);
+                    return ContentBackendLoadResult.Failure(mismatch);
+                }
+
+                entry.Resource = result.Resource;
+                entry.State = ContentEntryState.ReleaseFailed;
+                entry.LastDiagnostic = releaseDiagnostic;
+                ledger.Record(
+                    ContentDiagnosticEventKind.ReleaseFailed,
+                    entry.Key.ContentId,
+                    default,
+                    entry.Key.BackendId,
+                    entry.Key.BackendGeneration,
+                    entry.ResourceGeneration,
+                    0,
+                    0,
+                    releaseDiagnostic);
+                return ContentBackendLoadResult.Failure(releaseDiagnostic);
             }
 
             entry.Resource = result.Resource;
@@ -984,9 +1012,17 @@ namespace CoCoFlow.Runtime.Content
             try
             {
                 CoCoDiagnostic diagnostic = await resource.ReleaseAsync();
-                return diagnostic.IsNone || diagnostic.IsError
+                if (diagnostic.IsNone)
+                {
+                    return CoCoDiagnostic.None;
+                }
+
+                return diagnostic.IsError &&
+                       diagnostic.Code == CoCoDiagnosticCode.ContentReleaseFailed
                     ? diagnostic
-                    : ContentErrors.ReleaseFailed(entry.Key.ContentId, diagnostic.Message);
+                    : ContentErrors.ReleaseFailed(
+                        entry.Key.ContentId,
+                        diagnostic.Message);
             }
             catch (Exception exception)
             {
