@@ -1,6 +1,6 @@
 # Module: Map
 
-> Pre8 integration status: `0.4.0-pre.8` · Updated 2026-07-23
+> Pre9 integration status: `0.4.0-pre.9` · Updated 2026-07-23
 
 The retained Map module now consumes Content for requester-scoped Additive Scene
 ownership. It remains a small trigger-driven bridge; Region, Chunk, distance,
@@ -25,6 +25,17 @@ scene.
 
 The module no longer stores Addressables handles or backend addresses. Direct
 SceneManager and optional Addressables scenes use the same Content request path.
+
+## Pooling boundary
+
+Pre9 does not pool Additive Scenes or migrate Map consumers. Scene residency
+continues to use requester-scoped Content leases; a scene is unloaded only
+through that ownership boundary.
+
+A project or later Map policy may create an explicit Pool Scope for transient
+objects spawned inside a loaded region, such as disposable enemies or effects.
+That instance policy remains separate from Region/Chunk demand and cannot keep,
+release, or substitute the scene lease.
 
 ## Deferred
 

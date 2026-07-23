@@ -2,10 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.8 · **Unity**：6000+
+> **版本**：0.4.0-pre.9 · **Unity**：6000+
 >
-> Pre8 加入显式 Content 获取与所有权、Direct 与可选 Addressables 后端、
-> single-flight 请求、Scope/Lease、确定性释放诊断，以及首批 UI/Map 消费者。
+> Pre9 加入由 Content 驱动的 GameObject Pool、generation-safe Handle、
+> 显式 prewarm/idle retention、Scope-owned shutdown，以及可选的 Host-scoped
+> Temporal entity retention sidecar。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -383,6 +384,22 @@ lifecycle/fault、Context revision、Tick/Clock/Epoch、各 Layer active path �
 Transition，不暴露 candidate Tick、payload、Inbox、Envelope、retained Context Handle
 或反射私有字段；失败或取消的 Tick 不能替换 committed Snapshot 权威。
 
+## Content 与 Object Pool 所有权
+
+Content 通过显式 Scope 与引用类型 `ContentLease` 管理已加载的 Asset、Prefab Source
+和 Additive Scene。Pooling 建立在这条边界之上：一个已 Prepare 的 Pool Entry 在拥有
+任何物理 GameObject 实例期间只保留一份 Prefab Source Lease；readonly、
+generation-safe 的 `PooledHandle` 只授予 consumer 一代 rental 权威。
+
+Prepare 与 Prewarm 是异步操作，Entry Ready 后 Rent 为同步操作。`PrewarmCount`
+只是预备目标，`MaxRetained` 只限制 idle retention；burst 可以超过二者，Return
+overflow 会销毁实例。不存在 hard active cap、自动 Trim、LRU 或隐藏的
+Addressables 路径。
+
+可选 Temporal sidecar 会在单个 Host 的历史仍能把实体投射为 present 时 quarantine
+同一物理实例。它只保存纯 identity/presence value，不是 multi-Actor 或 whole-world
+rollback。Pre9 不迁移现有 UI、Map 或 Enemy consumer。
+
 ## 仓库与包边界
 
 0.3.9 CCS Runtime 暂时保留，用于编译和历史回归证据。它的可变 Context Provider、
@@ -397,12 +414,15 @@ Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset、snapshot 与 compilat
 Runtime/StateGraphHost   Unity Host 与 internal Gateway/Router 集成
 Runtime/Content          Unity-facing Content 获取、所有权、Direct 后端与 diagnostics
 Runtime/Content/Addressables  可选条件编译的 Addressables 后端
+Runtime/Pooling          Content-backed GameObject 实例所有权与 diagnostics
+Runtime/Pooling/Temporal 可选的 Host-scoped pooled Temporal entity retention
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
 Runtime/Modules          过渡期表现与服务模块
 Editor/StateGraph        受限图创作与 diagnostics
 Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
 Editor/Content           Content Reference 创作与 Runtime Ownership Monitor
+Editor/Pooling           Pool Host 创作与 Runtime Ownership Monitor
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -420,7 +440,8 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 后续 0.4 工作
 
-- **Pre9**：Object Pool ownership、rent/return、reset、capacity 与 prewarm。
+- **Pooling 扩展**：generic non-GameObject pool、hard active/total cap、
+  自动 Trim/LRU、hot profile mutation，以及 world/durable rollback。
 - **Pre10**：Map Region/Chunk 策略、production streaming、竞态与 replay。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
@@ -432,7 +453,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Pre8 从包体硬依赖中移除 Addressables。只使用 Direct 的项目不需要安装
+Addressables 仍不属于包体硬依赖。只使用 Direct Content/Pooling 的项目不需要安装
 Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显式安装。
 
 | Package | Version | 当前使用者 |
@@ -451,7 +472,8 @@ Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显�
 | Addressables | `[2.9.1,3.0.0)` | 仅 `CoCoFlow.Runtime.Content.Addressables` |
 
 UniTask 仍由 Setup Assistant 管理。启用 `COCOFLOW_UNITASK_SUPPORT` 后编译
-Content、UI 与 Map；Addressables 适配器还需要对应 package version define。
+Content、Pooling、Pooling Temporal、UI 与 Map；Addressables 适配器还需要对应
+package version define。Setup Assistant 只报告 Pooling 可用性，不安装独立 Pool 包。
 
 ## 安装与验证
 
@@ -472,6 +494,7 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 - [StateGraph Editor 与 Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
 - [Content 获取与所有权](Docs/ContentOwnership.md)
+- [Object Pooling 与实例所有权](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
 - [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)

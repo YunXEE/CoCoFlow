@@ -1,6 +1,6 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-pre.8` · Updated 2026-07-23
+> Contract status: `0.4.0-pre.9` · Updated 2026-07-23
 
 Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity
@@ -25,7 +25,8 @@ ordinary Direct References when no runtime release boundary is needed.
 
 Content supports three kinds: Asset, Prefab Source, and Additive Scene. A
 Prefab Source lease keeps the source available; it never owns an instantiated
-GameObject. Pooling and instance reuse remain Pre9 responsibilities.
+GameObject. The Pre9 Pooling module consumes that source lease and separately
+owns physical instances and rental generations.
 
 ## Runtime and backend boundary
 
@@ -93,12 +94,24 @@ normally available in Editor/Development builds and disabled in Release builds.
 ## Consumer boundaries
 
 - UI owns panel instances and keeps one Prefab Source lease alive until each
-  instance is actually destroyed. Navigation policy remains Pre12.
+  instance is actually destroyed. Pre9 does not migrate the retained UI module
+  to Pooling; navigation and any later pooled-UI policy remain Pre12.
 - Map owns requester-scoped Additive Scene demands. Different requesters may
   share one physical scene load, and one requester cannot unload another's
-  lease. Region/Chunk policy remains Pre10.
-- Object Pool will consume Prefab Source leases in Pre9 and will own rented
-  instances; it will not control Content's backend release rules.
+  lease. Additive Scenes are not pooled; Region/Chunk policy remains Pre10.
+- One prepared Pool Entry owns exactly one Prefab Source `ContentLease` until
+  its idle, rented, pending-destroy, and Temporal-retained physical instances
+  are terminal. Pooling owns those instances and their generation-safe
+  `PooledHandle` values; it does not alter Content's backend release rules.
+- Direct and optional Addressables Prefab Sources enter Pooling through the
+  same Content request. Pooling never owns a raw Addressables handle.
+- A Pool runtime registers an internal shutdown dependency with its
+  `ContentRuntime`. Content shutdown begins and awaits Pool's physical-instance
+  drain before disposing Content Scopes, so source release does not depend on
+  Unity component destruction order.
 
 Content leases, Unity Objects, backend locators, and handles never enter
 StateFlow Frames, Temporal history, or Persistence documents.
+
+See [Object Pooling and Instance Ownership](ObjectPooling.md) for the instance
+ownership, reset, capacity, Scope-close, and Temporal-retention contracts.
