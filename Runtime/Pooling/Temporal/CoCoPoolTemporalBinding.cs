@@ -17,6 +17,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         private PoolTemporalRuntime _runtime;
         private PoolRuntime _attachedPoolRuntime;
+        private bool _downstreamWasConfigured;
+        private MonoBehaviour _attachedDownstreamComponent;
+        private ICoCoContextRestoreBinding _attachedDownstreamBinding;
         private CoCoDiagnostic _lastDiagnostic;
 
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
@@ -105,6 +108,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         {
             if (!TryRequireRuntime(out diagnostic) ||
                 !context.IsValid ||
+                !TryValidateFrozenDownstream(stateGraphHost, out diagnostic) ||
                 !_runtime.TryApplyPreparedBeforeRestore(out diagnostic))
             {
                 if (!diagnostic.IsError)
@@ -117,29 +121,35 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 return false;
             }
 
-            if (downstreamRestoreBinding != null)
+            if (!TryValidateFrozenDownstream(stateGraphHost, out diagnostic))
             {
-                if (!(downstreamRestoreBinding is ICoCoContextRestoreBinding downstream) ||
-                    !CoCoStateGraphHostBoundary.Contains(
-                        stateGraphHost,
-                        downstreamRestoreBinding))
-                {
-                    diagnostic = ProjectionError(
-                        "The downstream Restore Binding is no longer live inside the Host boundary.");
-                    _lastDiagnostic = diagnostic;
-                    return false;
-                }
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
 
+            if (_downstreamWasConfigured)
+            {
                 bool applied;
                 try
                 {
-                    applied = downstream.TryApply(context, out diagnostic);
+                    applied = _attachedDownstreamBinding.TryApply(
+                        context,
+                        out diagnostic);
                 }
                 catch (Exception)
                 {
                     applied = false;
                     diagnostic = ProjectionError(
                         "The downstream Restore Binding threw during Pool Temporal projection.");
+                }
+
+                if (!TryValidateFrozenDownstream(
+                        stateGraphHost,
+                        out CoCoDiagnostic livenessDiagnostic))
+                {
+                    diagnostic = livenessDiagnostic;
+                    _lastDiagnostic = diagnostic;
+                    return false;
                 }
 
                 if (!applied || diagnostic.IsError)
@@ -180,7 +190,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 poolHost.Runtime == null ||
                 poolHost.Runtime.IsDisposed ||
                 !CoCoStateGraphHostBoundary.Contains(host, this) ||
-                !TryValidateDownstream(host, out diagnostic))
+                !TryFreezeDownstream(host, out diagnostic))
             {
                 if (!diagnostic.IsError)
                 {
@@ -208,6 +218,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 _runtime?.Dispose();
                 _runtime = null;
                 _attachedPoolRuntime = null;
+                ClearFrozenDownstream();
                 diagnostic = ProjectionError(
                     "Pool Temporal sidecar allocation failed during Host startup.");
                 _lastDiagnostic = diagnostic;
@@ -224,7 +235,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             ReferenceEquals(host, stateGraphHost) &&
             poolHost != null &&
             ReferenceEquals(poolHost.Runtime, _attachedPoolRuntime) &&
-            CoCoStateGraphHostBoundary.Contains(host, this);
+            CoCoStateGraphHostBoundary.Contains(host, this) &&
+            TryValidateFrozenDownstream(host, out _);
 
         bool ICoCoStateGraphTemporalParticipant.TryPrepareForwardCapture(
             in CoCoTemporalFrameInfo candidate,
@@ -309,18 +321,20 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             return false;
         }
 
-        private bool TryValidateDownstream(
+        private bool TryFreezeDownstream(
             CoCoStateGraphHost host,
             out CoCoDiagnostic diagnostic)
         {
-            if (downstreamRestoreBinding == null)
+            if (ReferenceEquals(downstreamRestoreBinding, null))
             {
+                ClearFrozenDownstream();
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }
 
             if (ReferenceEquals(downstreamRestoreBinding, this) ||
-                !(downstreamRestoreBinding is ICoCoContextRestoreBinding) ||
+                downstreamRestoreBinding == null ||
+                !(downstreamRestoreBinding is ICoCoContextRestoreBinding downstream) ||
                 !CoCoStateGraphHostBoundary.Contains(
                     host,
                     downstreamRestoreBinding))
@@ -330,8 +344,66 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 return false;
             }
 
+            _downstreamWasConfigured = true;
+            _attachedDownstreamComponent = downstreamRestoreBinding;
+            _attachedDownstreamBinding = downstream;
             diagnostic = CoCoDiagnostic.None;
             return true;
+        }
+
+        private bool TryValidateFrozenDownstream(
+            CoCoStateGraphHost host,
+            out CoCoDiagnostic diagnostic)
+        {
+            bool configuredNow =
+                !ReferenceEquals(downstreamRestoreBinding, null);
+            if (configuredNow != _downstreamWasConfigured)
+            {
+                diagnostic = ProjectionError(
+                    "The downstream Restore Binding assignment changed after Host attachment.");
+                return false;
+            }
+
+            if (!_downstreamWasConfigured)
+            {
+                bool remainsEmpty =
+                    ReferenceEquals(_attachedDownstreamComponent, null) &&
+                    ReferenceEquals(_attachedDownstreamBinding, null);
+                diagnostic = remainsEmpty
+                    ? CoCoDiagnostic.None
+                    : ProjectionError(
+                        "The optional downstream Restore Binding lost its frozen attachment state.");
+                return remainsEmpty;
+            }
+
+            if (!ReferenceEquals(
+                    downstreamRestoreBinding,
+                    _attachedDownstreamComponent) ||
+                ReferenceEquals(_attachedDownstreamComponent, null) ||
+                _attachedDownstreamComponent == null ||
+                ReferenceEquals(_attachedDownstreamComponent, this) ||
+                ReferenceEquals(_attachedDownstreamBinding, null) ||
+                !(_attachedDownstreamComponent is
+                    ICoCoContextRestoreBinding currentBinding) ||
+                !ReferenceEquals(currentBinding, _attachedDownstreamBinding) ||
+                !CoCoStateGraphHostBoundary.Contains(
+                    host,
+                    _attachedDownstreamComponent))
+            {
+                diagnostic = ProjectionError(
+                    "The original downstream Restore Binding is no longer live inside the Host boundary.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private void ClearFrozenDownstream()
+        {
+            _downstreamWasConfigured = false;
+            _attachedDownstreamComponent = null;
+            _attachedDownstreamBinding = null;
         }
 
         private void DetachTemporalHostNoFail()
@@ -349,6 +421,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             {
                 _runtime = null;
                 _attachedPoolRuntime = null;
+                ClearFrozenDownstream();
             }
         }
 

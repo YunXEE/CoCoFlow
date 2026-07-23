@@ -223,7 +223,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             PoolTemporalRecord record = FindRecord(entityId);
             if (record == null ||
                 record.Unavailable ||
-                (!record.AuthorityPresent && !record.PendingActivation))
+                !record.AuthorityPresent ||
+                record.PendingActivation)
             {
                 diagnostic = Error(
                     CoCoDiagnosticCode.PoolTemporalConflict,
@@ -485,6 +486,17 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
                 if (!record.ProjectedPresent && !record.PreparedInactive)
                 {
+                    continue;
+                }
+
+                if (TargetsRecoverableAbsence(record, desiredPresent) &&
+                    !PoolTemporalAccess.TryGetInstance(
+                        record.Token,
+                        out _,
+                        out CoCoDiagnostic physicalDiagnostic))
+                {
+                    MarkUnavailable(record, physicalDiagnostic);
+                    diagnostic = CoCoDiagnostic.None;
                     continue;
                 }
 
@@ -792,9 +804,27 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 PoolTemporalRecord record = _records[index];
                 if (record != null)
                 {
-                    PoolTemporalAccess.ForceDestroy(
-                        ref record.Token,
-                        out _);
+                    bool released = false;
+                    if (!record.Unavailable && !_externalMutationActive)
+                    {
+                        try
+                        {
+                            released = PoolTemporalAccess.TryRelease(
+                                ref record.Token,
+                                out _);
+                        }
+                        catch (Exception)
+                        {
+                            released = false;
+                        }
+                    }
+
+                    if (!released)
+                    {
+                        PoolTemporalAccess.ForceDestroy(
+                            ref record.Token,
+                            out _);
+                    }
                 }
 
                 _records[index] = null;
@@ -896,6 +926,14 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                      record.PreparedInactive) &&
                     !TryValidatePhysical(record, out diagnostic))
                 {
+                    if (CanTreatUnavailableAsDesiredAbsence(
+                            record,
+                            desiredPresent))
+                    {
+                        diagnostic = CoCoDiagnostic.None;
+                        continue;
+                    }
+
                     return false;
                 }
             }
@@ -955,6 +993,22 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 : record.AuthorityPresent;
         }
 
+        private bool CanTreatUnavailableAsDesiredAbsence(
+            PoolTemporalRecord record,
+            bool desiredPresent) =>
+            record != null &&
+            record.Unavailable &&
+            TargetsRecoverableAbsence(record, desiredPresent);
+
+        private bool TargetsRecoverableAbsence(
+            PoolTemporalRecord record,
+            bool desiredPresent) =>
+            record != null &&
+            !desiredPresent &&
+            !record.AuthorityPresent &&
+            (_preparedApplyKind == CoCoContextRestoreApplyKind.Cancel ||
+             _preparedApplyKind == CoCoContextRestoreApplyKind.Correction);
+
         private bool UsesHistoryFrame =>
             (_preparedApplyKind == CoCoContextRestoreApplyKind.Preview ||
              _preparedApplyKind == CoCoContextRestoreApplyKind.Confirm) &&
@@ -1013,11 +1067,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             CoCoDiagnostic diagnostic)
         {
             record.Unavailable = true;
+            record.ProjectedPresent = false;
             record.PreparedInactive = false;
-            if (!record.AuthorityPresent)
-            {
-                record.PendingActivation = false;
-            }
+            record.PendingActivation = false;
 
             _lastDiagnostic = diagnostic.IsError
                 ? diagnostic
