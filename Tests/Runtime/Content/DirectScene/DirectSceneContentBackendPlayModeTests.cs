@@ -1,5 +1,7 @@
+using System;
 using System.Collections;
 using System.Linq;
+using System.Threading;
 using CoCoFlow.Runtime.Core;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -18,6 +20,9 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
         private const string FixtureScenePath =
             "Packages/com.yunxee.cocoflow/Tests/Runtime/Content/DirectScene/" +
             "Fixtures/DirectSceneContentFixture.unity";
+        private const string FixtureSceneName = "DirectSceneContentFixture";
+        private const string FixtureRelativePath =
+            "Tests/Runtime/Content/DirectScene/Fixtures/DirectSceneContentFixture";
 
         public void Setup()
         {
@@ -46,6 +51,195 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
         public IEnumerator ConcurrentSameLocatorLoadsOwnAndReleaseDistinctSceneInstances() =>
             UniTask.ToCoroutine(RunSceneOwnershipContractAsync);
 
+        [UnityTest]
+        public IEnumerator SupportedLocatorVariantsOwnAndReleaseWithZeroResidualScenes() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                string[] locations =
+                {
+                    FixtureScenePath,
+                    FixtureScenePath.Substring(
+                        0,
+                        FixtureScenePath.Length - ".unity".Length),
+                    FixtureRelativePath,
+                    FixtureRelativePath + ".UNITY",
+                    FixtureSceneName,
+                    (FixtureSceneName + ".unity").ToUpperInvariant(),
+                    FixtureScenePath.ToUpperInvariant(),
+                    FixtureRelativePath.Replace('/', '\\')
+                };
+                ContentRuntime runtime = null;
+                ContentScope scope = null;
+                ContentLease<Scene> lease = null;
+                DirectSceneLifecycleProbe.ResetCounts();
+                try
+                {
+                    runtime = CreateRuntime();
+                    for (int index = 0; index < locations.Length; index++)
+                    {
+                        scope = CreateScope(runtime, "owner.direct-scene.locator." + index);
+                        ContentReference reference = CreateReference(
+                            "content.direct-scene.locator." + index,
+                            locations[index]);
+                        ContentAcquireResult<Scene> result =
+                            await scope.AcquireAdditiveSceneAsync(reference);
+
+                        Assert.IsTrue(
+                            result.Succeeded,
+                            locations[index] + ": " + result.Diagnostic.Message);
+                        lease = result.Lease;
+                        Scene scene = lease.Value;
+                        Assert.IsTrue(scene.IsValid() && scene.isLoaded);
+                        Assert.IsTrue(string.Equals(
+                            FixtureScenePath,
+                            scene.path,
+                            StringComparison.OrdinalIgnoreCase));
+
+                        int handle = scene.handle;
+                        lease.Dispose();
+                        lease = null;
+                        await WaitUntilSceneUnloadedAsync(handle);
+                        scope.Dispose();
+                        scope = null;
+                        await WaitUntilRuntimeEmptyAsync(runtime);
+                        Assert.AreEqual(0, CountLoadedFixtureScenes());
+                    }
+
+                    Assert.AreEqual(locations.Length, DirectSceneLifecycleProbe.AwakeCount);
+                    Assert.AreEqual(locations.Length, DirectSceneLifecycleProbe.EnableCount);
+                }
+                finally
+                {
+                    lease?.Dispose();
+                    scope?.Dispose();
+                    if (runtime != null)
+                    {
+                        await runtime.ShutdownAsync();
+                    }
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator CancelledQueuedLoadIsSkippedAndNextWaiterAcquiresGate() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                ContentRuntime runtime = null;
+                ContentScope scopeA = null;
+                ContentScope scopeB = null;
+                ContentScope scopeC = null;
+                ContentLease<Scene> leaseA = null;
+                ContentLease<Scene> leaseC = null;
+                var cancellation = new CancellationTokenSource();
+                DirectSceneLifecycleProbe.ResetCounts();
+                try
+                {
+                    runtime = CreateRuntime();
+                    scopeA = CreateScope(runtime, "owner.direct-scene.gate.a");
+                    scopeB = CreateScope(runtime, "owner.direct-scene.gate.b");
+                    scopeC = CreateScope(runtime, "owner.direct-scene.gate.c");
+                    ContentReference referenceA =
+                        CreateReference("content.direct-scene.gate.a");
+                    ContentReference referenceB =
+                        CreateReference("content.direct-scene.gate.b");
+                    ContentReference referenceC =
+                        CreateReference("content.direct-scene.gate.c");
+
+                    UniTask<ContentAcquireResult<Scene>> requestA =
+                        scopeA.AcquireAdditiveSceneAsync(referenceA);
+                    UniTask<ContentAcquireResult<Scene>> requestB =
+                        scopeB.AcquireAdditiveSceneAsync(referenceB, cancellation.Token);
+                    UniTask<ContentAcquireResult<Scene>> requestC =
+                        scopeC.AcquireAdditiveSceneAsync(referenceC);
+                    cancellation.Cancel();
+
+                    ContentAcquireResult<Scene> resultB = await requestB;
+                    ContentAcquireResult<Scene> resultA = await requestA;
+                    ContentAcquireResult<Scene> resultC = await requestC;
+
+                    Assert.IsTrue(resultB.Cancelled, resultB.Diagnostic.Message);
+                    Assert.IsTrue(resultA.Succeeded, resultA.Diagnostic.Message);
+                    Assert.IsTrue(resultC.Succeeded, resultC.Diagnostic.Message);
+                    leaseA = resultA.Lease;
+                    leaseC = resultC.Lease;
+                    Assert.AreNotEqual(leaseA.Value.handle, leaseC.Value.handle);
+                    Assert.AreEqual(
+                        2,
+                        DirectSceneLifecycleProbe.AwakeCount,
+                        "The cancelled gate waiter must not start a physical Scene load.");
+                    Assert.AreEqual(2, DirectSceneLifecycleProbe.EnableCount);
+                    Assert.AreEqual(2, CountLoadedFixtureScenes());
+
+                    int handleA = leaseA.Value.handle;
+                    int handleC = leaseC.Value.handle;
+                    leaseA.Dispose();
+                    leaseA = null;
+                    leaseC.Dispose();
+                    leaseC = null;
+                    await WaitUntilSceneUnloadedAsync(handleA);
+                    await WaitUntilSceneUnloadedAsync(handleC);
+                    await WaitUntilRuntimeEmptyAsync(runtime);
+                    Assert.AreEqual(0, CountLoadedFixtureScenes());
+                }
+                finally
+                {
+                    cancellation.Dispose();
+                    leaseA?.Dispose();
+                    leaseC?.Dispose();
+                    scopeA?.Dispose();
+                    scopeB?.Dispose();
+                    scopeC?.Dispose();
+                    if (runtime != null)
+                    {
+                        await runtime.ShutdownAsync();
+                    }
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator CancellationAfterPhysicalLoadStartsReclaimsLateScene() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                ContentRuntime runtime = null;
+                ContentScope scope = null;
+                var cancellation = new CancellationTokenSource();
+                DirectSceneLifecycleProbe.ResetCounts();
+                try
+                {
+                    runtime = CreateRuntime();
+                    scope = CreateScope(runtime, "owner.direct-scene.late-reclaim");
+                    ContentReference reference =
+                        CreateReference("content.direct-scene.late-reclaim");
+
+                    UniTask<ContentAcquireResult<Scene>> request =
+                        scope.AcquireAdditiveSceneAsync(reference, cancellation.Token);
+                    cancellation.Cancel();
+                    ContentAcquireResult<Scene> result = await request;
+
+                    Assert.IsTrue(result.Cancelled, result.Diagnostic.Message);
+                    await WaitUntilRuntimeEmptyAsync(runtime);
+                    Assert.AreEqual(0, CountLoadedFixtureScenes());
+                    Assert.AreEqual(
+                        1,
+                        DirectSceneLifecycleProbe.AwakeCount,
+                        "A physical load already started before cancellation and must finish.");
+                    Assert.AreEqual(1, DirectSceneLifecycleProbe.EnableCount);
+                    Assert.AreEqual(
+                        1,
+                        runtime.CaptureSnapshot().Diagnostics.Count(record =>
+                            record.EventKind ==
+                            ContentDiagnosticEventKind.ReleaseSucceeded));
+                }
+                finally
+                {
+                    cancellation.Dispose();
+                    scope?.Dispose();
+                    if (runtime != null)
+                    {
+                        await runtime.ShutdownAsync();
+                    }
+                }
+            });
+
         private static async UniTask RunSceneOwnershipContractAsync()
         {
             ContentRuntime runtime = null;
@@ -55,13 +249,7 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
             ContentLease<Scene> leaseB = null;
             try
             {
-                Assert.IsTrue(ContentRuntime.TryCreate(
-                    null,
-                    64,
-                    false,
-                    out runtime,
-                    out CoCoDiagnostic runtimeDiagnostic),
-                    runtimeDiagnostic.Message);
+                runtime = CreateRuntime();
                 scopeA = CreateScope(runtime, "owner.direct-scene.a");
                 scopeB = CreateScope(runtime, "owner.direct-scene.b");
                 ContentReference referenceA = CreateReference("content.direct-scene.a");
@@ -121,6 +309,18 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
             }
         }
 
+        private static ContentRuntime CreateRuntime()
+        {
+            Assert.IsTrue(ContentRuntime.TryCreate(
+                null,
+                64,
+                false,
+                out ContentRuntime runtime,
+                out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            return runtime;
+        }
+
         private static ContentScope CreateScope(ContentRuntime runtime, string ownerValue)
         {
             Assert.IsTrue(ContentOwnerId.TryCreate(ownerValue, out ContentOwnerId ownerId));
@@ -132,12 +332,14 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
             return scope;
         }
 
-        private static ContentReference CreateReference(string contentValue)
+        private static ContentReference CreateReference(
+            string contentValue,
+            string location = FixtureScenePath)
         {
             Assert.IsTrue(ContentId.TryCreate(contentValue, out ContentId contentId));
             Assert.IsTrue(ContentReference.TryCreateDirectAdditiveScene(
                 contentId,
-                FixtureScenePath,
+                location,
                 out ContentReference reference));
             return reference;
         }
