@@ -44,6 +44,24 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Updated the package version and existing Unity Package Validation Suite
   exception scopes to `0.4.0-pre.8`.
 
+### Fixed
+
+- Protected concurrent `ContentScope` request completion and disposal so its
+  cancellation source, owned leases, and Runtime registration cannot be left
+  partially cleaned.
+- Added failed-load cleanup authority to the backend contract. Addressables
+  failed handles are now released through Runtime ownership, and a cleanup
+  failure retains the same fail-closed tombstone as a published release
+  failure.
+- Rejected worker-thread `ContentRuntime` creation before backend registration
+  instead of treating the first caller thread as Unity's main thread.
+- Canonicalized Direct additive-Scene locators against Build Settings and made
+  queued Scene loads observe cancellation before starting physical work.
+- Aligned Setup Assistant compatibility reporting with the optional
+  Addressables assembly range `[2.9.1,3.0.0)`.
+- Added delayed UI/Map lifecycle races and real Addressables additive-Scene
+  ownership to the Pre8 verification surface.
+
 ### Deferred
 
 - Pre9 owns Object Pool instance rent/return, reset, capacity, and prewarm.

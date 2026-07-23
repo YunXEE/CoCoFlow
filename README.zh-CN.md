@@ -448,7 +448,7 @@ Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显�
 
 | Package | 推荐版本 | 当前使用者 |
 |---|---:|---|
-| Addressables | 2.9.1 | 仅 `CoCoFlow.Runtime.Content.Addressables` |
+| Addressables | `[2.9.1,3.0.0)` | 仅 `CoCoFlow.Runtime.Content.Addressables` |
 
 UniTask 仍由 Setup Assistant 管理。启用 `COCOFLOW_UNITASK_SUPPORT` 后编译
 Content、UI 与 Map；Addressables 适配器还需要对应 package version define。

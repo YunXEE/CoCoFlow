@@ -31,7 +31,10 @@ GameObject. Pooling and instance reuse remain Pre9 responsibilities.
 
 `ContentRuntime` is created explicitly by a project/world composition root.
 `CoCoContentHost` is the package MonoBehaviour for that role; it is not a
-singleton, and consumers reference the intended Host explicitly.
+singleton, and consumers reference the intended Host explicitly. Runtime
+creation must start on the Unity main thread; worker-thread factory calls fail
+with a structured `ContentMainThreadRequired` diagnostic before backend
+registration begins.
 
 The Direct backend is always registered by the Host:
 
@@ -42,11 +45,20 @@ The Direct backend is always registered by the Host:
   scene instance owned by the backend. Direct additive Scene loads are
   serialized across Content Runtime instances because `SceneManager` does not
   return the loaded `Scene` handle from its asynchronous operation.
+- Direct Scene locators are resolved against Build Settings before physical
+  loading. Full paths, Build Settings-relative paths, bare names, optional
+  `.unity` suffixes, slash variants, and case variants resolve to one canonical
+  path; an ambiguous bare name selects the first Build Settings entry.
+- Do not load the same Direct Scene path concurrently through both Content and
+  an out-of-band `SceneManager` call. Unity does not expose an operation-to-Scene
+  handle correlation API, so exact ownership is only guaranteed when Content is
+  the sole authority for that path during its serialized load.
 
 The Addressables backend is an optional conditional assembly. It keeps raw
 Addressables handles private and presents the same request/result/lease model as
 Direct. The package manifest does not force Addressables into Direct-only
 projects; Setup Assistant provides an explicit optional installation action.
+The supported package range is `[2.9.1,3.0.0)`.
 
 ## Concurrency and failure
 
@@ -56,10 +68,13 @@ removes only that caller's waiter. If all waiters leave, Content requests
 backend cancellation; a backend that completes late is released without
 publishing an ownerless lease.
 
-Load failure removes only the failed generation, so the next request may retry.
-Release failure is different: Content retains a diagnostic tombstone and blocks
-a second generation for that key because the old backend ownership may have
-been partially released. Pre8 deliberately has no automatic release retry.
+Load failure removes only the failed generation, so the next request may retry
+when the backend acquired no cleanup authority. A backend that owns a handle
+while reporting load failure returns `FailureWithCleanup`; Content executes that
+cleanup exactly once before deciding whether retry is safe. Successful cleanup
+removes the failed generation. Failed cleanup retains a diagnostic tombstone and
+blocks a second generation for that key because the old backend ownership may
+have been partially released. Pre8 deliberately has no automatic release retry.
 
 All registry state transitions are serialized on the Unity main thread.
 Expected cancellation and backend failures are represented by structured

@@ -536,7 +536,7 @@ Optional dependency:
 
 | Package | Recommended version | Current owner |
 |---|---:|---|
-| Addressables | 2.9.1 | `CoCoFlow.Runtime.Content.Addressables` only |
+| Addressables | `[2.9.1,3.0.0)` | `CoCoFlow.Runtime.Content.Addressables` only |
 
 UniTask remains Setup-Assistant-managed. Content, UI, and Map assemblies compile
 when `COCOFLOW_UNITASK_SUPPORT` is enabled; the optional Addressables assembly
