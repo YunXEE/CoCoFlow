@@ -283,6 +283,16 @@ synchronous Restore-binding slot. The sidecar projects whether an adopted
 `CoCoTemporalEntityId` is physically present; the Context projection remains
 authoritative for gameplay values.
 
+The aggregate binding freezes the downstream Restore component at Host attach:
+whether it was configured, its exact `MonoBehaviour` identity, and its interface
+reference. Every projection validates that frozen identity, Unity liveness, and
+Host boundary before Pool mutation, again before the downstream call, and after
+the call returns. A destroyed, replaced, moved, rejecting, or throwing
+downstream cannot silently degrade to “not configured” and cannot proceed to
+after-restore Pool activation. Once a downstream callback has started, failure
+uses the Host's existing world-correction path; CoCoFlow does not fabricate a
+transactional Unity rollback.
+
 The identity and storage boundaries stay separate:
 
 - `CoCoTemporalEntityId` is a pure Core Contracts value.
@@ -296,6 +306,14 @@ The identity and storage boundaries stay separate:
 - A successful adoption transfers generation authority from the consumer's
   handle to `PoolTemporalRuntime`; old handle copies remain stale after Preview,
   Cancel, Confirm, and Correction.
+- Presentation parent is live-record state. Scene Root is represented
+  explicitly and replayed with `SetParent(null, false)`; a Transform parent must
+  remain live. The most recent parent is refreshed whenever an active entity
+  leaves presentation, and no Transform enters the Temporal ring.
+- Callback ownership follows physical state. Initial `TemporalInactive` has not
+  received Rent and rejects public Despawn; `TemporalActive` owns exactly one
+  matched reverse Return; `TemporalQuarantined` was already reset. Host stop
+  attempts this normal state-aware release before terminal Force Destroy.
 - `IPoolTemporalApply` is a distinct synchronous presentation hook invoked
   after Context projection. It is not a second Context history or a persistence
   codec.
@@ -310,6 +328,11 @@ If an adopted physical instance is externally destroyed or cannot be reset, the
 sidecar records it as unavailable. It does not fabricate a replacement with the
 same historical identity or rewrite Context history. Selections that require
 that entity cannot Confirm until the project repairs or abandons the Host.
+When current authority already requires a projected-only entity absent,
+physical loss is itself the desired result: the same Cancel or Correction can
+finish and return the Host to `Ready`. This tolerance never applies while
+authority or the selected history frame still requires the entity present;
+authority-present loss continues to latch world correction.
 
 This bridge covers one Host's pooled physical identity. It is not a world
 snapshot and does not roll back scenes, physics, navigation, animation,

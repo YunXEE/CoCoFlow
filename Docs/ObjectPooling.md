@@ -1,6 +1,6 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-pre.9` · Updated 2026-07-23
+> Contract status: `0.4.0-pre.9` · Updated 2026-07-24
 
 Pre9 adds a Unity-facing GameObject instance-ownership boundary on top of
 Content. It reduces repeated `Instantiate`/`Destroy` work for high-frequency
@@ -125,10 +125,20 @@ the same generation-safe return path:
 4. restore the retention parent/baseline transform;
 5. retain the instance as idle or destroy it.
 
+The baseline is the prefab root's local position, rotation, and scale captured
+when the physical instance is created under the Retention Root. Every successful
+normal Return and Temporal return to retention restores those root-local values.
+Nested transforms and domain-specific state remain the responsibility of
+`IPoolable`; Pooling does not infer a deep object reset.
+
 If a Rent or Return callback refuses or throws, the runtime continues
 best-effort cleanup and destroys that physical instance. It is never silently
 reused with unknown state. External destruction is also detected, reconciled
-against authoritative counts, and recorded as a diagnostic.
+against authoritative counts, and recorded as a diagnostic. When an external
+`Destroy` overlaps a same-frame force shutdown, the event category is
+best-effort according to the first observable owner. The strong guarantees are
+one terminal record, invalidated generations, and source ownership retained
+through the physical-destruction barrier.
 
 ## Capacity semantics
 
@@ -164,6 +174,13 @@ invalidates generations, performs best-effort reset/destruction, waits for the
 same terminal barrier, releases source ownership, and records leak/forced-
 shutdown diagnostics.
 
+For Temporal records, Host stop first uses the normal state-aware release path.
+An active record owns one matched Rent callback lease and therefore receives
+exactly one reverse Return. A pending `TemporalInactive` record has not received
+Rent and releases without Return; a quarantined record was already reset and
+also releases without another Return. Force Destroy is reserved for unavailable
+physical identity, reset/reparent failure, or callback re-entry.
+
 Pooling also registers an internal dependency drain with its `ContentRuntime`.
 If Content shutdown begins first, it starts and awaits Pool shutdown before
 disposing Content Scopes. Correct ownership therefore does not depend on
@@ -194,18 +211,37 @@ deactivated, reset, and quarantined. It cannot return to normal idle reuse.
 Ring overwrite, branch-future discard, history clear, or Host stop releases it
 only after the last historical reference expires.
 
-Each adopted live record remembers its most recent activation parent. When a
-historical projection makes the entity present again, Pooling restores that
-live presentation parent before activation. The Transform reference belongs to
-the live record only; it is cleared at terminal release and never enters the
-Temporal ring or a Host snapshot.
+Each adopted live record remembers its most recent activation parent. Scene
+Root is an explicit parent state rather than an ambiguous null: replay performs
+`SetParent(null, false)`. A live Transform parent is restored only while that
+exact Transform remains available. The record refreshes the presentation parent
+whenever `TemporalActive` exits, so a consumer reparent performed during the
+active interval becomes the next replay target. A destroyed parent, destroyed
+GameObject, or failed `SetParent` produces a structured failure and terminal
+physical cleanup rather than a `MissingReferenceException`. The Transform
+reference belongs to the live record only; it is cleared at terminal release
+and never enters the Temporal ring or a Host snapshot.
 
 `CoCoPoolTemporalBinding` composes Pool presence projection with the Host's one
 synchronous Context restore binding. `IPoolTemporalApply` provides a separate,
 synchronous hook for reapplying entity presentation after Context projection.
+At Host attachment the aggregate binding freezes whether a downstream binding
+was configured, its exact `MonoBehaviour` identity, and its interface reference.
+Identity, Unity liveness, and Host boundary are checked before Pool mutation,
+again before the downstream call, and after it returns. Rejection, exception,
+replacement, destruction, or boundary escape stops after-restore activation and
+uses the Host's existing world-correction contract; Pooling does not claim an
+unprovable Unity transaction rollback.
+
 Temporal history stores only entity and physical identity values. It never
 stores a GameObject, Component, `PooledHandle`, `ContentLease`, backend handle,
 or arbitrary world snapshot.
+
+If a projected-only entity loses its physical instance while current authority
+already requires it absent, the same Cancel or Correction may treat physical
+absence as the desired result and finish Preview. A historical Preview or
+Confirm that still requires that entity present continues to fail. Loss of an
+authority-present entity remains a world-correction fault.
 
 This sidecar is not multi-Actor or whole-world rollback. It does not reverse
 physics, animation, navigation, networking, already delivered side effects, or

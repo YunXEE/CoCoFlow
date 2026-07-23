@@ -51,6 +51,24 @@ projects and does not include a migration runtime for 0.3.9 projects.
   Pooling through the same Content request, and Pooling retains no raw
   Addressables handle.
 
+### Fixed
+
+- Restored each physical instance's captured prefab-root local transform
+  baseline whenever normal or Temporal ownership returns it to retention.
+- Preserved explicit Scene Root and the latest live Transform parent across
+  Temporal replay, with structured terminal cleanup for destroyed physical or
+  parent identity.
+- Matched Temporal Rent/Return callbacks across pending, active, quarantined,
+  Host-stop, and re-entry paths; pending activation remains non-despawnable.
+- Froze downstream Restore identity at Host attachment and validated it before
+  Pool mutation, around the downstream call, and before after-restore
+  activation.
+- Allowed projected-only physical loss to complete the same absent-authority
+  Cancel or Correction while retaining the fault for authority-present loss.
+- Limited Runtime Monitor `Clear Inactive` enablement to Ready entries and
+  clarified same-frame external-destroy/force-shutdown event classification as
+  best-effort while terminal ownership guarantees remain strict.
+
 ### Deferred
 
 - Generic non-GameObject pools, Unity versions below Unity 6, a separate Pool
