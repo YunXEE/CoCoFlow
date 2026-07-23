@@ -91,6 +91,7 @@ namespace CoCoFlow.Runtime.Content
             internal CancellationTokenSource LoadCancellation { get; }
             internal ContentEntryState State { get; set; }
             internal ContentBackendResource Resource { get; set; }
+            internal ContentBackendFailureCleanup FailureCleanup { get; set; }
             internal CoCoDiagnostic LastDiagnostic { get; set; }
             internal Task<ContentBackendLoadResult> LoadTask { get; set; }
             internal Task<CoCoDiagnostic> ReleaseTask { get; set; }
@@ -127,7 +128,7 @@ namespace CoCoFlow.Runtime.Content
             this.backends = backends;
             this.captureLeaseStacks = captureLeaseStacks;
             ledger = new ContentDiagnosticLedger(diagnosticCapacity);
-            mainThreadId = Environment.CurrentManagedThreadId;
+            mainThreadId = ContentMainThreadGuard.MainThreadId;
         }
 
         public bool IsShuttingDown => isShuttingDown;
@@ -142,6 +143,12 @@ namespace CoCoFlow.Runtime.Content
             out CoCoDiagnostic diagnostic)
         {
             runtime = null;
+            if (!ContentMainThreadGuard.IsMainThread)
+            {
+                diagnostic = ContentErrors.MainThreadRequired();
+                return false;
+            }
+
             if (diagnosticCapacity <= 0)
             {
                 diagnostic = ContentErrors.InvalidReference(
@@ -628,8 +635,71 @@ namespace CoCoFlow.Runtime.Content
                     0,
                     0,
                     failure);
-                RemoveEntry(entry);
-                return ContentBackendLoadResult.Failure(failure);
+
+                if (!result.TryTakeFailureCleanup(
+                        out ContentBackendFailureCleanup failureCleanup))
+                {
+                    RemoveEntry(entry);
+                    return ContentBackendLoadResult.Failure(failure);
+                }
+
+                entry.FailureCleanup = failureCleanup;
+                ledger.Record(
+                    ContentDiagnosticEventKind.ReleaseStarted,
+                    entry.Key.ContentId,
+                    default,
+                    entry.Key.BackendId,
+                    entry.Key.BackendGeneration,
+                    entry.ResourceGeneration,
+                    0,
+                    0,
+                    CoCoDiagnostic.None);
+                CoCoDiagnostic cleanupDiagnostic;
+                if (!failureCleanup.TryBeginExecution(
+                        out Func<UniTask<CoCoDiagnostic>> cleanupAsync))
+                {
+                    cleanupDiagnostic = ContentErrors.ReleaseFailed(
+                        entry.Key.ContentId,
+                        "Failed-load cleanup authority was already executed.");
+                }
+                else
+                {
+                    cleanupDiagnostic =
+                        await InvokeFailedLoadCleanupAsync(entry, cleanupAsync);
+                }
+
+                await UniTask.SwitchToMainThread();
+                if (cleanupDiagnostic.IsNone)
+                {
+                    ledger.Record(
+                        ContentDiagnosticEventKind.ReleaseSucceeded,
+                        entry.Key.ContentId,
+                        default,
+                        entry.Key.BackendId,
+                        entry.Key.BackendGeneration,
+                        entry.ResourceGeneration,
+                        0,
+                        0,
+                        CoCoDiagnostic.None);
+                    failureCleanup.ClearAuthority();
+                    entry.FailureCleanup = null;
+                    RemoveEntry(entry);
+                    return ContentBackendLoadResult.Failure(failure);
+                }
+
+                entry.State = ContentEntryState.ReleaseFailed;
+                entry.LastDiagnostic = cleanupDiagnostic;
+                ledger.Record(
+                    ContentDiagnosticEventKind.ReleaseFailed,
+                    entry.Key.ContentId,
+                    default,
+                    entry.Key.BackendId,
+                    entry.Key.BackendGeneration,
+                    entry.ResourceGeneration,
+                    0,
+                    0,
+                    cleanupDiagnostic);
+                return ContentBackendLoadResult.Failure(cleanupDiagnostic);
             }
 
             if (!entry.Key.ExpectedType.IsAssignableFrom(result.Resource.ValueType) ||
@@ -921,6 +991,33 @@ namespace CoCoFlow.Runtime.Content
             catch (Exception exception)
             {
                 return ContentErrors.ReleaseFailed(entry.Key.ContentId, exception.Message);
+            }
+        }
+
+        private static async UniTask<CoCoDiagnostic> InvokeFailedLoadCleanupAsync(
+            Entry entry,
+            Func<UniTask<CoCoDiagnostic>> cleanupAsync)
+        {
+            try
+            {
+                CoCoDiagnostic diagnostic = await cleanupAsync();
+                if (diagnostic.IsNone)
+                {
+                    return CoCoDiagnostic.None;
+                }
+
+                return diagnostic.IsError &&
+                       diagnostic.Code == CoCoDiagnosticCode.ContentReleaseFailed
+                    ? diagnostic
+                    : ContentErrors.ReleaseFailed(
+                        entry.Key.ContentId,
+                        diagnostic.Message);
+            }
+            catch (Exception exception)
+            {
+                return ContentErrors.ReleaseFailed(
+                    entry.Key.ContentId,
+                    exception.Message);
             }
         }
 

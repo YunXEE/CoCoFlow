@@ -50,21 +50,66 @@ namespace CoCoFlow.Runtime.Content
                 : releaseAsync();
     }
 
+    internal sealed class ContentBackendFailureCleanup
+    {
+        private Func<UniTask<CoCoDiagnostic>> cleanupAsync;
+        private int claimed;
+        private int executionStarted;
+
+        internal ContentBackendFailureCleanup(
+            Func<UniTask<CoCoDiagnostic>> cleanupAsync)
+        {
+            this.cleanupAsync = cleanupAsync;
+        }
+
+        internal bool RetainsAuthority =>
+            Volatile.Read(ref cleanupAsync) != null;
+
+        internal bool ExecutionStarted =>
+            Volatile.Read(ref executionStarted) != 0;
+
+        internal bool TryClaim()
+        {
+            return Interlocked.CompareExchange(ref claimed, 1, 0) == 0;
+        }
+
+        internal bool TryBeginExecution(
+            out Func<UniTask<CoCoDiagnostic>> cleanup)
+        {
+            if (Interlocked.CompareExchange(ref executionStarted, 1, 0) != 0)
+            {
+                cleanup = null;
+                return false;
+            }
+
+            cleanup = Volatile.Read(ref cleanupAsync);
+            return cleanup != null;
+        }
+
+        internal void ClearAuthority()
+        {
+            Interlocked.Exchange(ref cleanupAsync, null);
+        }
+    }
+
     public readonly struct ContentBackendLoadResult
     {
         private ContentBackendLoadResult(
             bool succeeded,
             ContentBackendResource resource,
-            CoCoDiagnostic diagnostic)
+            CoCoDiagnostic diagnostic,
+            ContentBackendFailureCleanup failureCleanup)
         {
             Succeeded = succeeded;
             Resource = resource;
             Diagnostic = diagnostic;
+            FailureCleanup = failureCleanup;
         }
 
         public bool Succeeded { get; }
         public ContentBackendResource Resource { get; }
         public CoCoDiagnostic Diagnostic { get; }
+        internal ContentBackendFailureCleanup FailureCleanup { get; }
 
         public static ContentBackendLoadResult Success<T>(
             T value,
@@ -74,19 +119,63 @@ namespace CoCoFlow.Runtime.Content
             return new ContentBackendLoadResult(
                 true,
                 new ContentBackendResource(value, valueType, releaseAsync),
-                CoCoDiagnostic.None);
+                CoCoDiagnostic.None,
+                null);
         }
 
         public static ContentBackendLoadResult Failure(CoCoDiagnostic diagnostic)
         {
-            if (!diagnostic.IsError)
+            ValidateFailureDiagnostic(diagnostic);
+
+            return new ContentBackendLoadResult(false, null, diagnostic, null);
+        }
+
+        /// <summary>
+        /// Reports a failed load that acquired backend ownership requiring one
+        /// Runtime-controlled cleanup attempt.
+        /// </summary>
+        /// <param name="diagnostic">The original load-failure diagnostic.</param>
+        /// <param name="cleanupAsync">
+        /// The cleanup authority retained internally by the Content Runtime.
+        /// </param>
+        /// <returns>A failed result whose resource and raw backend handle remain hidden.</returns>
+        public static ContentBackendLoadResult FailureWithCleanup(
+            CoCoDiagnostic diagnostic,
+            Func<UniTask<CoCoDiagnostic>> cleanupAsync)
+        {
+            ValidateFailureDiagnostic(diagnostic);
+            if (cleanupAsync == null)
             {
-                throw new ArgumentException(
-                    "A failed backend result requires an error diagnostic.",
-                    nameof(diagnostic));
+                throw new ArgumentNullException(nameof(cleanupAsync));
             }
 
-            return new ContentBackendLoadResult(false, null, diagnostic);
+            return new ContentBackendLoadResult(
+                false,
+                null,
+                diagnostic,
+                new ContentBackendFailureCleanup(cleanupAsync));
+        }
+
+        internal bool TryTakeFailureCleanup(
+            out ContentBackendFailureCleanup failureCleanup)
+        {
+            if (FailureCleanup != null && FailureCleanup.TryClaim())
+            {
+                failureCleanup = FailureCleanup;
+                return true;
+            }
+
+            failureCleanup = null;
+            return false;
+        }
+
+        private static void ValidateFailureDiagnostic(CoCoDiagnostic diagnostic)
+        {
+            if (diagnostic.IsError) return;
+
+            throw new ArgumentException(
+                "A failed backend result requires an error diagnostic.",
+                nameof(diagnostic));
         }
     }
 }

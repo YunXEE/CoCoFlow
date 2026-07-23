@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using CoCoFlow.Runtime.Core;
@@ -203,6 +204,45 @@ namespace CoCoFlow.Runtime.Content.Tests
                     await runtime.ShutdownAsync();
                     UnityEngine.Object.DestroyImmediate(lateAsset);
                 }
+            });
+
+        [UnityTest]
+        public IEnumerator WorkerTryCreateIsRejectedBeforeBackendEnumeration() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                ContentMainThreadGuard.CaptureCurrentThread();
+                var backends = new CountingBackendEnumerable();
+
+                WorkerCreationResult workerResult = await Task.Run(() =>
+                {
+                    bool created = ContentRuntime.TryCreate(
+                        backends,
+                        32,
+                        false,
+                        out ContentRuntime runtime,
+                        out CoCoDiagnostic diagnostic);
+                    return new WorkerCreationResult(created, runtime, diagnostic);
+                });
+
+                Assert.IsFalse(workerResult.Created);
+                Assert.IsNull(workerResult.Runtime);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentMainThreadRequired,
+                    workerResult.Diagnostic.Code);
+                Assert.AreEqual(
+                    0,
+                    backends.EnumerationCount,
+                    "Worker creation must fail before custom backends are enumerated.");
+
+                Assert.IsTrue(ContentRuntime.TryCreate(
+                    backends,
+                    32,
+                    false,
+                    out ContentRuntime mainThreadRuntime,
+                    out CoCoDiagnostic mainThreadDiagnostic),
+                    mainThreadDiagnostic.Message);
+                Assert.AreEqual(1, backends.EnumerationCount);
+                await mainThreadRuntime.ShutdownAsync();
             });
 
         [UnityTest]
@@ -490,6 +530,103 @@ namespace CoCoFlow.Runtime.Content.Tests
             });
 
         [UnityTest]
+        public IEnumerator ScopeDisposeWaitsForCancellationBeforeEndRequestDisposesSource() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                var backend = new ControlledBackend();
+                ContentRuntime runtime = CreateRuntime(backend);
+                ContentScope scope = CreateScope(runtime, "owner.scope-race");
+                var asset = ScriptableObject.CreateInstance<RuntimeContractAsset>();
+                var requestCancellation = new CancellationTokenSource();
+                var disposalMarked = new ManualResetEventSlim(false);
+                var allowCancellation = new ManualResetEventSlim(false);
+                Task disposeTask = null;
+                try
+                {
+                    ContentReference heldReference = CreateAddressableAssetReference(
+                        "content.scope-race-held");
+                    UniTask<ContentAcquireResult<RuntimeContractAsset>> heldRequest =
+                        scope.AcquireAssetAsync<RuntimeContractAsset>(heldReference);
+                    backend.CompleteSuccess(0, asset);
+                    ContentAcquireResult<RuntimeContractAsset> held = await heldRequest;
+                    Assert.IsTrue(held.Succeeded, held.Diagnostic.Message);
+
+                    ContentReference pendingReference = CreateAddressableAssetReference(
+                        "content.scope-race-pending");
+                    UniTask<ContentAcquireResult<RuntimeContractAsset>> pendingRequest =
+                        scope.AcquireAssetAsync<RuntimeContractAsset>(
+                            pendingReference,
+                            requestCancellation.Token);
+
+                    disposeTask = Task.Run(() => scope.Dispose(() =>
+                    {
+                        disposalMarked.Set();
+                        if (!allowCancellation.Wait(TimeSpan.FromSeconds(10)))
+                        {
+                            throw new TimeoutException(
+                                "The Scope disposal race barrier timed out.");
+                        }
+                    }));
+
+                    for (int index = 0; index < 256 && !disposalMarked.IsSet; index++)
+                    {
+                        await UniTask.Yield();
+                    }
+
+                    Assert.IsTrue(disposalMarked.IsSet);
+                    requestCancellation.Cancel();
+                    ContentAcquireResult<RuntimeContractAsset> cancelled = await pendingRequest;
+                    Assert.IsTrue(cancelled.Cancelled);
+
+                    allowCancellation.Set();
+                    await disposeTask;
+                    backend.CompleteFailure(1, "late cancelled load");
+                    for (int index = 0;
+                         index < 128 &&
+                         (backend.ReleaseCount == 0 ||
+                          runtime.CaptureSnapshot().Entries.Count != 0);
+                         index++)
+                    {
+                        await UniTask.Yield();
+                    }
+
+                    Assert.IsTrue(scope.IsDisposed);
+                    Assert.IsTrue(held.Lease.IsReleased);
+                    Assert.IsNull(held.Lease.Value);
+                    Assert.AreEqual(1, backend.ReleaseCount);
+                    Assert.AreEqual(0, runtime.CaptureSnapshot().Entries.Count);
+                    Assert.AreEqual(0, GetTrackedScopeCount(runtime));
+
+                    scope.Dispose();
+                    Assert.AreEqual(
+                        1,
+                        backend.ReleaseCount,
+                        "Repeated Scope disposal must remain idempotent.");
+                    Assert.AreEqual(0, GetTrackedScopeCount(runtime));
+                }
+                finally
+                {
+                    allowCancellation.Set();
+                    if (disposeTask != null)
+                    {
+                        await disposeTask;
+                    }
+
+                    for (int index = 0; index < backend.LoadCount; index++)
+                    {
+                        backend.CompleteFailure(index, "test cleanup");
+                    }
+
+                    requestCancellation.Dispose();
+                    disposalMarked.Dispose();
+                    allowCancellation.Dispose();
+                    scope.Dispose();
+                    await runtime.ShutdownAsync();
+                    UnityEngine.Object.DestroyImmediate(asset);
+                }
+            });
+
+        [UnityTest]
         public IEnumerator LoadFailureRetriesButReleaseFailureLeavesTombstone() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -539,6 +676,71 @@ namespace CoCoFlow.Runtime.Content.Tests
             });
 
         [UnityTest]
+        public IEnumerator FailedLoadCleanupSuccessRemovesEntryAndAllowsRetry() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                var asset = ScriptableObject.CreateInstance<RuntimeContractAsset>();
+                var backend = new FailureCleanupBackend(
+                    asset,
+                    FailureCleanupOutcome.Success);
+                ContentRuntime runtime = CreateRuntime(backend);
+                ContentScope scope = CreateScope(runtime, "owner.cleanup-success");
+                try
+                {
+                    ContentReference reference = CreateAddressableAssetReference(
+                        "content.cleanup-success");
+                    UniTask<ContentAcquireResult<RuntimeContractAsset>> failedRequest =
+                        scope.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                    backend.CompleteFailedLoad();
+                    ContentAcquireResult<RuntimeContractAsset> failed = await failedRequest;
+
+                    Assert.AreEqual(ContentAcquireStatus.Failed, failed.Status);
+                    Assert.AreEqual(
+                        CoCoDiagnosticCode.ContentLoadFailed,
+                        failed.Diagnostic.Code);
+                    Assert.AreEqual(1, backend.CleanupCount);
+                    Assert.AreEqual(0, runtime.CaptureSnapshot().Entries.Count);
+                    Assert.IsTrue(runtime.CaptureSnapshot().Diagnostics.Any(record =>
+                        record.EventKind == ContentDiagnosticEventKind.ReleaseSucceeded));
+
+                    ContentAcquireResult<RuntimeContractAsset> retried =
+                        await scope.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                    Assert.IsTrue(retried.Succeeded, retried.Diagnostic.Message);
+                    Assert.AreEqual(2, backend.LoadCount);
+                    retried.Lease.Dispose();
+                    Assert.AreEqual(1, backend.ReleaseCount);
+                    Assert.AreEqual(1, backend.CleanupCount);
+                }
+                finally
+                {
+                    backend.CompleteFailedLoad();
+                    scope.Dispose();
+                    await runtime.ShutdownAsync();
+                    UnityEngine.Object.DestroyImmediate(asset);
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator FailedLoadCleanupDiagnosticLeavesOneReleaseTombstone() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                await AssertFailedLoadCleanupLeavesTombstoneAsync(
+                    FailureCleanupOutcome.DiagnosticFailure,
+                    "owner.cleanup-diagnostic",
+                    "content.cleanup-diagnostic");
+            });
+
+        [UnityTest]
+        public IEnumerator FailedLoadCleanupThrowLeavesOneReleaseTombstone() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                await AssertFailedLoadCleanupLeavesTombstoneAsync(
+                    FailureCleanupOutcome.Throw,
+                    "owner.cleanup-throw",
+                    "content.cleanup-throw");
+            });
+
+        [UnityTest]
         public IEnumerator LedgerIsFixedCapacityAndDirectReleaseKeepsSourceAlive() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -584,6 +786,118 @@ namespace CoCoFlow.Runtime.Content.Tests
                 }
             });
 
+        private static async UniTask AssertFailedLoadCleanupLeavesTombstoneAsync(
+            FailureCleanupOutcome outcome,
+            string ownerValue,
+            string contentValue)
+        {
+            var asset = ScriptableObject.CreateInstance<RuntimeContractAsset>();
+            var backend = new FailureCleanupBackend(asset, outcome);
+            ContentRuntime runtime = CreateRuntime(backend);
+            ContentScope scopeA = CreateScope(runtime, ownerValue + ".a");
+            ContentScope scopeB = CreateScope(runtime, ownerValue + ".b");
+            try
+            {
+                ContentReference reference = CreateAddressableAssetReference(contentValue);
+                UniTask<ContentAcquireResult<RuntimeContractAsset>> requestA =
+                    scopeA.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                UniTask<ContentAcquireResult<RuntimeContractAsset>> requestB =
+                    scopeB.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                Assert.AreEqual(1, backend.LoadCount);
+
+                backend.CompleteFailedLoad();
+                ContentAcquireResult<RuntimeContractAsset> resultA = await requestA;
+                ContentAcquireResult<RuntimeContractAsset> resultB = await requestB;
+                Assert.AreEqual(ContentAcquireStatus.Failed, resultA.Status);
+                Assert.AreEqual(ContentAcquireStatus.Failed, resultB.Status);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    resultA.Diagnostic.Code);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    resultB.Diagnostic.Code);
+                Assert.AreEqual(
+                    1,
+                    backend.CleanupCount,
+                    "One physical failed load grants exactly one cleanup authority.");
+
+                ContentRuntimeSnapshot snapshot = runtime.CaptureSnapshot();
+                Assert.AreEqual(1, snapshot.Entries.Count);
+                Assert.AreEqual(
+                    ContentEntryState.ReleaseFailed,
+                    snapshot.Entries[0].State);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    snapshot.Entries[0].Diagnostic.Code);
+                Assert.AreEqual(
+                    1,
+                    snapshot.Diagnostics.Count(record =>
+                        record.EventKind == ContentDiagnosticEventKind.ReleaseFailed));
+                ContentBackendFailureCleanup cleanupAuthority =
+                    GetOnlyFailureCleanupAuthority(runtime);
+                Assert.IsTrue(cleanupAuthority.RetainsAuthority);
+                Assert.IsTrue(cleanupAuthority.ExecutionStarted);
+                Assert.IsFalse(cleanupAuthority.TryBeginExecution(out _));
+
+                ContentAcquireResult<RuntimeContractAsset> blocked =
+                    await scopeA.AcquireAssetAsync<RuntimeContractAsset>(reference);
+                Assert.AreEqual(ContentAcquireStatus.Failed, blocked.Status);
+                Assert.AreEqual(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    blocked.Diagnostic.Code);
+                Assert.AreEqual(1, backend.LoadCount);
+                Assert.AreEqual(1, backend.CleanupCount);
+                Assert.AreSame(
+                    cleanupAuthority,
+                    GetOnlyFailureCleanupAuthority(runtime));
+                Assert.IsTrue(cleanupAuthority.RetainsAuthority);
+                Assert.IsTrue(cleanupAuthority.ExecutionStarted);
+            }
+            finally
+            {
+                backend.CompleteFailedLoad();
+                scopeA.Dispose();
+                scopeB.Dispose();
+                await runtime.ShutdownAsync();
+                UnityEngine.Object.DestroyImmediate(asset);
+            }
+        }
+
+        private static int GetTrackedScopeCount(ContentRuntime runtime)
+        {
+            FieldInfo scopesField = typeof(ContentRuntime).GetField(
+                "scopes",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(scopesField);
+            object scopes = scopesField.GetValue(runtime);
+            Assert.IsNotNull(scopes);
+            PropertyInfo countProperty = scopes.GetType().GetProperty("Count");
+            Assert.IsNotNull(countProperty);
+            return (int)countProperty.GetValue(scopes);
+        }
+
+        private static ContentBackendFailureCleanup GetOnlyFailureCleanupAuthority(
+            ContentRuntime runtime)
+        {
+            FieldInfo entriesField = typeof(ContentRuntime).GetField(
+                "entries",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(entriesField);
+            var entries = entriesField.GetValue(runtime) as IDictionary;
+            Assert.IsNotNull(entries);
+            Assert.AreEqual(1, entries.Count);
+
+            object entry = entries.Values.Cast<object>().Single();
+            PropertyInfo cleanupProperty = entry.GetType().GetProperty(
+                "FailureCleanup",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(cleanupProperty);
+            var cleanupAuthority =
+                cleanupProperty.GetValue(entry) as ContentBackendFailureCleanup;
+            Assert.IsNotNull(cleanupAuthority);
+            return cleanupAuthority;
+        }
+
         private static ContentRuntime CreateRuntime(
             IContentBackend backend,
             bool captureStacks = false)
@@ -621,6 +935,131 @@ namespace CoCoFlow.Runtime.Content.Tests
 
         private sealed class RuntimeContractAsset : ScriptableObject
         {
+        }
+
+        private readonly struct WorkerCreationResult
+        {
+            internal WorkerCreationResult(
+                bool created,
+                ContentRuntime runtime,
+                CoCoDiagnostic diagnostic)
+            {
+                Created = created;
+                Runtime = runtime;
+                Diagnostic = diagnostic;
+            }
+
+            internal bool Created { get; }
+            internal ContentRuntime Runtime { get; }
+            internal CoCoDiagnostic Diagnostic { get; }
+        }
+
+        private sealed class CountingBackendEnumerable : IEnumerable<IContentBackend>
+        {
+            private int enumerationCount;
+
+            internal int EnumerationCount => Volatile.Read(ref enumerationCount);
+
+            public IEnumerator<IContentBackend> GetEnumerator()
+            {
+                Interlocked.Increment(ref enumerationCount);
+                return Enumerable.Empty<IContentBackend>().GetEnumerator();
+            }
+
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
+        private enum FailureCleanupOutcome
+        {
+            Success = 0,
+            DiagnosticFailure = 1,
+            Throw = 2
+        }
+
+        private sealed class FailureCleanupBackend : IContentBackend
+        {
+            private static readonly ContentBackendId Id = CreateBackendId();
+            private readonly RuntimeContractAsset asset;
+            private readonly FailureCleanupOutcome cleanupOutcome;
+            private readonly UniTaskCompletionSource<ContentBackendLoadResult>
+                failedLoadCompletion =
+                    new UniTaskCompletionSource<ContentBackendLoadResult>();
+
+            internal FailureCleanupBackend(
+                RuntimeContractAsset asset,
+                FailureCleanupOutcome cleanupOutcome)
+            {
+                this.asset = asset;
+                this.cleanupOutcome = cleanupOutcome;
+            }
+
+            internal int LoadCount { get; private set; }
+            internal int CleanupCount { get; private set; }
+            internal int ReleaseCount { get; private set; }
+            public ContentBackendId BackendId => Id;
+
+            public bool CanHandle(ContentReference reference) =>
+                reference.IsValid &&
+                reference.SourceKind == ContentSourceKind.Addressables &&
+                reference.Kind == ContentKind.Asset;
+
+            public UniTask<ContentBackendLoadResult> LoadAsync(
+                ContentBackendRequest request,
+                CancellationToken lifetimeCancellationToken)
+            {
+                Assert.IsTrue(CanHandle(request.Reference));
+                _ = lifetimeCancellationToken;
+                LoadCount++;
+                return LoadCount == 1
+                    ? failedLoadCompletion.Task
+                    : UniTask.FromResult(ContentBackendLoadResult.Success(
+                        asset,
+                        ReleaseAsync));
+            }
+
+            internal void CompleteFailedLoad()
+            {
+                failedLoadCompletion.TrySetResult(
+                    ContentBackendLoadResult.FailureWithCleanup(
+                        CoCoDiagnostic.Error(
+                            CoCoDiagnosticDomain.Content,
+                            CoCoDiagnosticCode.ContentLoadFailed,
+                            "controlled load failure"),
+                        CleanupAsync));
+            }
+
+            private UniTask<CoCoDiagnostic> CleanupAsync()
+            {
+                CleanupCount++;
+                switch (cleanupOutcome)
+                {
+                    case FailureCleanupOutcome.Success:
+                        return UniTask.FromResult(CoCoDiagnostic.None);
+                    case FailureCleanupOutcome.DiagnosticFailure:
+                        return UniTask.FromResult(CoCoDiagnostic.Error(
+                            CoCoDiagnosticDomain.Content,
+                            CoCoDiagnosticCode.ContentLoadFailed,
+                            "controlled cleanup diagnostic"));
+                    case FailureCleanupOutcome.Throw:
+                        throw new InvalidOperationException("controlled cleanup throw");
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+
+            private UniTask<CoCoDiagnostic> ReleaseAsync()
+            {
+                ReleaseCount++;
+                return UniTask.FromResult(CoCoDiagnostic.None);
+            }
+
+            private static ContentBackendId CreateBackendId()
+            {
+                ContentBackendId.TryCreate(
+                    "tests.failure-cleanup",
+                    out ContentBackendId backendId);
+                return backendId;
+            }
         }
 
         private sealed class ControlledBackend : IContentBackend

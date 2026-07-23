@@ -78,31 +78,41 @@ namespace CoCoFlow.Runtime.Content
                 if (!completion.Succeeded || completion.Result == null)
                 {
                     string reason = completion.ErrorMessage;
-                    string cleanupFailure = ReleaseFailedLoad(handle, ref ownsHandle);
-                    return ContentBackendLoadResult.Failure(Error(
+                    return ContentBackendLoadResult.FailureWithCleanup(Error(
                         CoCoDiagnosticCode.ContentLoadFailed,
                         "Addressables could not load Content '" + reference.Id + "' from '" +
-                        reference.Location + "'. " + reason + cleanupFailure));
+                        reference.Location + "'. " + reason),
+                        () => ReleaseFailedLoadAsync(
+                            reference.Id,
+                            "Asset/Prefab Source",
+                            handle));
                 }
 
                 UnityEngine.Object value = completion.Result;
-                ownsHandle = false;
-                return ContentBackendLoadResult.Success(
+                ContentBackendLoadResult result = ContentBackendLoadResult.Success(
                     value,
                     () => ReleaseObjectAsync(reference.Id, handle));
+                ownsHandle = false;
+                return result;
             }
             catch (Exception exception)
             {
-                string cleanupFailure = string.Empty;
                 if (ownsHandle)
                 {
-                    cleanupFailure = ReleaseFailedLoad(handle, ref ownsHandle);
+                    return ContentBackendLoadResult.FailureWithCleanup(Error(
+                            CoCoDiagnosticCode.ContentLoadFailed,
+                            "Addressables could not load Content '" + reference.Id + "'. " +
+                            exception.Message),
+                        () => ReleaseFailedLoadAsync(
+                            reference.Id,
+                            "Asset/Prefab Source",
+                            handle));
                 }
 
                 return ContentBackendLoadResult.Failure(Error(
                     CoCoDiagnosticCode.ContentLoadFailed,
                     "Addressables could not load Content '" + reference.Id + "'. " +
-                    exception.Message + cleanupFailure));
+                    exception.Message));
             }
         }
 
@@ -122,42 +132,53 @@ namespace CoCoFlow.Runtime.Content
                 if (!completion.Succeeded)
                 {
                     string reason = completion.ErrorMessage;
-                    string cleanupFailure = ReleaseFailedLoad(handle, ref ownsHandle);
-                    return ContentBackendLoadResult.Failure(Error(
+                    return ContentBackendLoadResult.FailureWithCleanup(Error(
                         CoCoDiagnosticCode.ContentLoadFailed,
                         "Addressables could not load additive Scene Content '" +
-                        reference.Id + "' from '" + reference.Location + "'. " + reason +
-                        cleanupFailure));
+                        reference.Id + "' from '" + reference.Location + "'. " + reason),
+                        () => ReleaseFailedLoadAsync(
+                            reference.Id,
+                            "additive Scene",
+                            handle));
                 }
 
                 Scene scene = completion.Result.Scene;
                 if (!scene.IsValid() || !scene.isLoaded)
                 {
-                    string cleanupFailure = ReleaseFailedLoad(handle, ref ownsHandle);
-                    return ContentBackendLoadResult.Failure(Error(
+                    return ContentBackendLoadResult.FailureWithCleanup(Error(
                         CoCoDiagnosticCode.ContentLoadFailed,
                         "Addressables returned an invalid or unloaded Scene for Content '" +
-                        reference.Id + "' from '" + reference.Location + "'." +
-                        cleanupFailure));
+                        reference.Id + "' from '" + reference.Location + "'."),
+                        () => ReleaseFailedLoadAsync(
+                            reference.Id,
+                            "additive Scene",
+                            handle));
                 }
 
-                ownsHandle = false;
-                return ContentBackendLoadResult.Success(
+                ContentBackendLoadResult result = ContentBackendLoadResult.Success(
                     scene,
                     () => ReleaseSceneAsync(reference.Id, handle));
+                ownsHandle = false;
+                return result;
             }
             catch (Exception exception)
             {
-                string cleanupFailure = string.Empty;
                 if (ownsHandle)
                 {
-                    cleanupFailure = ReleaseFailedLoad(handle, ref ownsHandle);
+                    return ContentBackendLoadResult.FailureWithCleanup(Error(
+                            CoCoDiagnosticCode.ContentLoadFailed,
+                            "Addressables could not load additive Scene Content '" +
+                            reference.Id + "'. " + exception.Message),
+                        () => ReleaseFailedLoadAsync(
+                            reference.Id,
+                            "additive Scene",
+                            handle));
                 }
 
                 return ContentBackendLoadResult.Failure(Error(
                     CoCoDiagnosticCode.ContentLoadFailed,
                     "Addressables could not load additive Scene Content '" +
-                    reference.Id + "'. " + exception.Message + cleanupFailure));
+                    reference.Id + "'. " + exception.Message));
             }
         }
 
@@ -199,13 +220,16 @@ namespace CoCoFlow.Runtime.Content
                     "' was invalid before unload.");
             }
 
+            AsyncOperationHandle<SceneInstance> unloadHandle = default;
+            CoCoDiagnostic diagnostic;
             try
             {
-                AsyncOperationHandle<SceneInstance> unloadHandle =
-                    Addressables.UnloadSceneAsync(handle, true);
+                // Keep the unload-operation handle valid until ObserveAsync has
+                // captured completion, then release that operation explicitly.
+                unloadHandle = Addressables.UnloadSceneAsync(handle, false);
                 AddressablesCompletion<SceneInstance> completion =
                     await ObserveAsync(unloadHandle);
-                return completion.Succeeded
+                diagnostic = completion.Succeeded
                     ? CoCoDiagnostic.None
                     : Error(
                         CoCoDiagnosticCode.ContentReleaseFailed,
@@ -214,11 +238,35 @@ namespace CoCoFlow.Runtime.Content
             }
             catch (Exception exception)
             {
-                return Error(
+                diagnostic = Error(
                     CoCoDiagnosticCode.ContentReleaseFailed,
                     "Addressables could not unload Scene Content '" + contentId +
                     "'. " + exception.Message);
             }
+
+            if (!unloadHandle.IsValid())
+            {
+                return diagnostic.IsNone
+                    ? Error(
+                        CoCoDiagnosticCode.ContentReleaseFailed,
+                        "Addressables unload-operation handle for Scene Content '" +
+                        contentId + "' became invalid before release.")
+                    : diagnostic;
+            }
+
+            try
+            {
+                Addressables.Release(unloadHandle);
+            }
+            catch (Exception exception)
+            {
+                return Error(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    "Addressables could not release the unload operation for Scene Content '" +
+                    contentId + "'. " + exception.Message);
+            }
+
+            return diagnostic;
         }
 
         private static UniTask<AddressablesCompletion<T>> ObserveAsync<T>(
@@ -258,30 +306,30 @@ namespace CoCoFlow.Runtime.Content
             }
         }
 
-        private static string ReleaseFailedLoad<T>(
-            AsyncOperationHandle<T> handle,
-            ref bool ownsHandle)
+        private static UniTask<CoCoDiagnostic> ReleaseFailedLoadAsync<T>(
+            ContentId contentId,
+            string contentKind,
+            AsyncOperationHandle<T> handle)
         {
-            if (!ownsHandle)
-            {
-                return string.Empty;
-            }
-
-            ownsHandle = false;
             if (!handle.IsValid())
             {
-                return " Failed-load handle was already invalid during reclamation.";
+                return UniTask.FromResult(Error(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    "Addressables " + contentKind + " handle for failed Content '" +
+                    contentId + "' was invalid before reclamation."));
             }
 
             try
             {
                 Addressables.Release(handle);
-                return string.Empty;
+                return UniTask.FromResult(CoCoDiagnostic.None);
             }
             catch (Exception exception)
             {
-                return " Failed-load handle reclamation also failed: " +
-                       exception.Message;
+                return UniTask.FromResult(Error(
+                    CoCoDiagnosticCode.ContentReleaseFailed,
+                    "Addressables could not reclaim the failed " + contentKind +
+                    " handle for Content '" + contentId + "'. " + exception.Message));
             }
         }
 

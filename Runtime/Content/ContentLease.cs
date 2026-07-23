@@ -138,6 +138,7 @@ namespace CoCoFlow.Runtime.Content
         private readonly List<ContentLease> leases = new List<ContentLease>();
         private int disposed;
         private int activeRequests;
+        private bool lifetimeCancellationCompleted;
         private bool lifetimeCancellationDisposed;
 
         internal ContentScope(
@@ -216,28 +217,55 @@ namespace CoCoFlow.Runtime.Content
 
         public void Dispose()
         {
+            Dispose(null);
+        }
+
+        internal void Dispose(Action beforeLifetimeCancellation)
+        {
             if (Interlocked.Exchange(ref disposed, 1) != 0) return;
 
-            lifetimeCancellation.Cancel();
             ContentLease[] ownedLeases;
-            bool disposeCancellation;
             lock (leaseGate)
             {
                 ownedLeases = leases.ToArray();
                 leases.Clear();
-                disposeCancellation = activeRequests == 0 &&
-                                      !lifetimeCancellationDisposed;
-                if (disposeCancellation) lifetimeCancellationDisposed = true;
             }
 
-            foreach (ContentLease lease in ownedLeases)
+            bool disposeCancellation = false;
+            try
             {
-                lease.Dispose();
+                beforeLifetimeCancellation?.Invoke();
+                lifetimeCancellation.Cancel();
             }
+            finally
+            {
+                lock (leaseGate)
+                {
+                    lifetimeCancellationCompleted = true;
+                    disposeCancellation = activeRequests == 0 &&
+                                          !lifetimeCancellationDisposed;
+                    if (disposeCancellation) lifetimeCancellationDisposed = true;
+                }
 
-            if (disposeCancellation) lifetimeCancellation.Dispose();
-
-            runtime.OnScopeDisposed(this);
+                try
+                {
+                    foreach (ContentLease lease in ownedLeases)
+                    {
+                        lease.Dispose();
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (disposeCancellation) lifetimeCancellation.Dispose();
+                    }
+                    finally
+                    {
+                        runtime.OnScopeDisposed(this);
+                    }
+                }
+            }
         }
 
         internal void OnLeaseReleased(ContentLease lease)
@@ -265,7 +293,10 @@ namespace CoCoFlow.Runtime.Content
             lock (leaseGate)
             {
                 activeRequests--;
-                if (activeRequests == 0 && IsDisposed && !lifetimeCancellationDisposed)
+                if (activeRequests == 0 &&
+                    IsDisposed &&
+                    lifetimeCancellationCompleted &&
+                    !lifetimeCancellationDisposed)
                 {
                     lifetimeCancellationDisposed = true;
                     disposeCancellation = true;

@@ -106,6 +106,116 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
         }
 
         [UnityTest]
+        public IEnumerator FailedHandleIsReclaimedBeforeRuntimeAllowsRetry()
+        {
+            return UniTask.ToCoroutine(RunFailedHandleReclamationAsync);
+        }
+
+        private static async UniTask RunFailedHandleReclamationAsync()
+        {
+            string suffix = Guid.NewGuid().ToString("N");
+            string address = "cocoflow/tests/addressables/failing/" + suffix;
+            AddressablesStaticIsolation isolation = null;
+            GameObject backendObject = null;
+            ContentRuntime runtime = null;
+            ContentScope scope = null;
+            Action<AsyncOperationHandle, Exception> previousExceptionHandler =
+                ResourceManager.ExceptionHandler;
+            try
+            {
+                isolation = new AddressablesStaticIsolation();
+                isolation.ConfigureInMemory();
+                ResourceManager.ExceptionHandler = (_, _) => { };
+
+                var provider = new FailingHandleTrackingReleaseProvider();
+                UnityAddressables.ResourceManager.ResourceProviders.Add(provider);
+                var locator = new ResourceLocationMap(
+                    "CoCoFlow Failed Addressables Handle " + suffix);
+                locator.Add(
+                    address,
+                    new ResourceLocationBase(
+                        address,
+                        address,
+                        provider.ProviderId,
+                        typeof(UnityEngine.Object)));
+                UnityAddressables.AddResourceLocator(locator);
+
+                backendObject = new GameObject(
+                    "CoCoFlow Failed Addressables Handle Backend");
+                var backend = backendObject.AddComponent<AddressablesContentBackend>();
+                Assert.IsTrue(ContentRuntime.TryCreate(
+                    new IContentBackend[] { backend },
+                    64,
+                    false,
+                    out runtime,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic runtimeDiagnostic),
+                    runtimeDiagnostic.Message);
+                Assert.IsTrue(ContentOwnerId.TryCreate(
+                    "owner.addressables.failing." + suffix,
+                    out ContentOwnerId ownerId));
+                Assert.IsTrue(runtime.TryCreateScope(
+                    ownerId,
+                    out scope,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic scopeDiagnostic),
+                    scopeDiagnostic.Message);
+                Assert.IsTrue(ContentId.TryCreate(
+                    "content.addressables.failing." + suffix,
+                    out ContentId contentId));
+                Assert.IsTrue(ContentReference.TryCreateAddressableAsset(
+                    contentId,
+                    address,
+                    out ContentReference reference));
+
+                ContentAcquireResult<UnityEngine.Object> first =
+                    await scope.AcquireAssetAsync<UnityEngine.Object>(reference);
+                Assert.AreEqual(ContentAcquireStatus.Failed, first.Status);
+                Assert.AreEqual(
+                    CoCoFlow.Runtime.Core.CoCoDiagnosticCode.ContentLoadFailed,
+                    first.Diagnostic.Code);
+                Assert.AreEqual(1, provider.ProvideCount);
+                Assert.AreEqual(
+                    1,
+                    provider.FailedCompletionCount,
+                    "The provider must produce a genuinely failed Addressables handle.");
+                Assert.AreEqual(0, runtime.CaptureSnapshot().Entries.Count);
+
+                ContentAcquireResult<UnityEngine.Object> retried =
+                    await scope.AcquireAssetAsync<UnityEngine.Object>(reference);
+                Assert.AreEqual(ContentAcquireStatus.Failed, retried.Status);
+                Assert.AreEqual(
+                    CoCoFlow.Runtime.Core.CoCoDiagnosticCode.ContentLoadFailed,
+                    retried.Diagnostic.Code);
+                Assert.AreEqual(
+                    2,
+                    provider.ProvideCount,
+                    "Successful failed-handle cleanup must allow a new generation.");
+                Assert.AreEqual(
+                    2,
+                    provider.FailedCompletionCount);
+                await WaitUntilAsync(
+                    () => provider.ReleaseCount == 2,
+                    "Both failed Addressables handles were not released.");
+                Assert.AreEqual(0, runtime.CaptureSnapshot().Entries.Count);
+            }
+            finally
+            {
+                ResourceManager.ExceptionHandler = previousExceptionHandler;
+                scope?.Dispose();
+                if (runtime != null)
+                {
+                    await runtime.ShutdownAsync();
+                }
+
+                if (backendObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(backendObject);
+                }
+
+                isolation?.Dispose();
+            }
+        }
+
+        [UnityTest]
         public IEnumerator RealAddressablesAssetReleasesOnlyAfterLastLease()
         {
             return UniTask.ToCoroutine(RunRealAddressablesAssetLifecycleAsync);
@@ -401,6 +511,44 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
             }
         }
 
+        private sealed class FailingHandleTrackingReleaseProvider :
+            ResourceProviderBase
+        {
+            internal int ProvideCount { get; private set; }
+            internal int FailedCompletionCount { get; private set; }
+            internal int ReleaseCount { get; private set; }
+
+            public override Type GetDefaultType(IResourceLocation location)
+            {
+                _ = location;
+                return typeof(UnityEngine.Object);
+            }
+
+            public override void Provide(ProvideHandle provideHandle)
+            {
+                ProvideCount++;
+                try
+                {
+                    // Addressables 2.9.1 records release authority before validating
+                    // the provided value type. The intentional mismatch therefore
+                    // produces a Failed operation that still calls this provider's
+                    // Release when Content reclaims the failed handle.
+                    provideHandle.Complete<object>(new object(), true, null);
+                }
+                catch (Exception)
+                {
+                    FailedCompletionCount++;
+                }
+            }
+
+            public override void Release(IResourceLocation location, object asset)
+            {
+                _ = location;
+                _ = asset;
+                ReleaseCount++;
+            }
+        }
+
         private sealed class AddressablesStaticIsolation : IDisposable
         {
             private readonly FieldInfo instanceField;
@@ -438,6 +586,31 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
                 reinitializeField.SetValue(null, false);
             }
 
+            internal void ConfigureInMemory()
+            {
+                const BindingFlags instanceFlags =
+                    BindingFlags.Instance |
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic;
+                FieldInfo initializedField = isolatedInstance.GetType().GetField(
+                    "hasStartedInitialization",
+                    instanceFlags);
+                Assert.IsNotNull(initializedField);
+                initializedField.SetValue(isolatedInstance, true);
+                SetCallback(
+                    isolatedInstance,
+                    "m_OnHandleCompleteAction",
+                    "OnHandleCompleted");
+                SetCallback(
+                    isolatedInstance,
+                    "m_OnSceneHandleCompleteAction",
+                    "OnSceneHandleCompleted");
+                SetCallback(
+                    isolatedInstance,
+                    "m_OnHandleDestroyedAction",
+                    "OnHandleDestroyed");
+            }
+
             public void Dispose()
             {
                 if (disposed)
@@ -464,6 +637,28 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
                     instanceField.SetValue(null, originalInstance);
                     reinitializeField.SetValue(null, originalReinitialize);
                 }
+            }
+
+            private static void SetCallback(
+                object instance,
+                string fieldName,
+                string methodName)
+            {
+                const BindingFlags instanceFlags =
+                    BindingFlags.Instance |
+                    BindingFlags.Public |
+                    BindingFlags.NonPublic;
+                FieldInfo field = instance.GetType().GetField(
+                    fieldName,
+                    instanceFlags);
+                MethodInfo method = instance.GetType().GetMethod(
+                    methodName,
+                    instanceFlags);
+                Assert.IsNotNull(field);
+                Assert.IsNotNull(method);
+                field.SetValue(
+                    instance,
+                    Delegate.CreateDelegate(field.FieldType, instance, method));
             }
         }
     }
