@@ -23,16 +23,49 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
         private const string FixtureSceneName = "DirectSceneContentFixture";
         private const string FixtureRelativePath =
             "Tests/Runtime/Content/DirectScene/Fixtures/DirectSceneContentFixture";
+#if UNITY_EDITOR
+        private const string BuildSettingsOwnershipModeStateKey =
+            "CoCoFlow.Tests.Content.DirectScene.BuildSettingsOwnership.Mode";
+        private const string BuildSettingsOwnershipOrdinalStateKey =
+            "CoCoFlow.Tests.Content.DirectScene.BuildSettingsOwnership.Ordinal";
+        private const int BuildSettingsOwnershipNone = 0;
+        private const int BuildSettingsOwnershipAdded = 1;
+        private const int BuildSettingsOwnershipEnabled = 2;
+#endif
 
         public void Setup()
         {
 #if UNITY_EDITOR
-            if (EditorBuildSettings.scenes.Any(scene => scene.path == FixtureScenePath))
+            if (SessionState.GetInt(
+                    BuildSettingsOwnershipModeStateKey,
+                    BuildSettingsOwnershipNone) !=
+                BuildSettingsOwnershipNone)
             {
                 return;
             }
 
-            EditorBuildSettings.scenes = EditorBuildSettings.scenes
+            EditorBuildSettingsScene[] scenes = EditorBuildSettings.scenes;
+            int firstMatchIndex = FindFixtureSceneIndex(scenes, 0);
+            if (firstMatchIndex >= 0)
+            {
+                if (scenes.Any(scene =>
+                        scene.enabled &&
+                        string.Equals(
+                            scene.path,
+                            FixtureScenePath,
+                            StringComparison.Ordinal)))
+                {
+                    return;
+                }
+
+                RecordBuildSettingsOwnership(BuildSettingsOwnershipEnabled, 0);
+                scenes[firstMatchIndex].enabled = true;
+                EditorBuildSettings.scenes = scenes;
+                return;
+            }
+
+            RecordBuildSettingsOwnership(BuildSettingsOwnershipAdded, 0);
+            EditorBuildSettings.scenes = scenes
                 .Concat(new[] { new EditorBuildSettingsScene(FixtureScenePath, true) })
                 .ToArray();
 #endif
@@ -41,11 +74,91 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
         public void Cleanup()
         {
 #if UNITY_EDITOR
-            EditorBuildSettings.scenes = EditorBuildSettings.scenes
-                .Where(scene => scene.path != FixtureScenePath)
-                .ToArray();
+            int ownershipMode = SessionState.GetInt(
+                BuildSettingsOwnershipModeStateKey,
+                BuildSettingsOwnershipNone);
+            if (ownershipMode == BuildSettingsOwnershipNone)
+            {
+                return;
+            }
+
+            int ownedOrdinal = SessionState.GetInt(
+                BuildSettingsOwnershipOrdinalStateKey,
+                -1);
+            if (ownedOrdinal < 0 ||
+                (ownershipMode != BuildSettingsOwnershipAdded &&
+                 ownershipMode != BuildSettingsOwnershipEnabled))
+            {
+                throw new InvalidOperationException(
+                    "Direct Scene Build Settings ownership state is invalid.");
+            }
+
+            EditorBuildSettingsScene[] scenes = EditorBuildSettings.scenes;
+            int ownedIndex = FindFixtureSceneIndex(scenes, ownedOrdinal);
+            if (ownershipMode == BuildSettingsOwnershipAdded)
+            {
+                if (ownedIndex >= 0)
+                {
+                    EditorBuildSettings.scenes = scenes
+                        .Where((scene, index) => index != ownedIndex)
+                        .ToArray();
+                }
+            }
+            else if (ownedIndex >= 0 && scenes[ownedIndex].enabled)
+            {
+                scenes[ownedIndex].enabled = false;
+                EditorBuildSettings.scenes = scenes;
+            }
+
+            ClearBuildSettingsOwnership();
 #endif
         }
+
+#if UNITY_EDITOR
+        private static int FindFixtureSceneIndex(
+            EditorBuildSettingsScene[] scenes,
+            int fixtureOrdinal)
+        {
+            int currentOrdinal = 0;
+            for (int index = 0; index < scenes.Length; index++)
+            {
+                if (!string.Equals(
+                        scenes[index].path,
+                        FixtureScenePath,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (currentOrdinal == fixtureOrdinal)
+                {
+                    return index;
+                }
+
+                currentOrdinal++;
+            }
+
+            return -1;
+        }
+
+        private static void RecordBuildSettingsOwnership(
+            int ownershipMode,
+            int ownedOrdinal)
+        {
+            SessionState.SetInt(
+                BuildSettingsOwnershipOrdinalStateKey,
+                ownedOrdinal);
+            SessionState.SetInt(
+                BuildSettingsOwnershipModeStateKey,
+                ownershipMode);
+        }
+
+        private static void ClearBuildSettingsOwnership()
+        {
+            SessionState.EraseInt(BuildSettingsOwnershipModeStateKey);
+            SessionState.EraseInt(BuildSettingsOwnershipOrdinalStateKey);
+        }
+#endif
 
         [UnityTest]
         public IEnumerator ConcurrentSameLocatorLoadsOwnAndReleaseDistinctSceneInstances() =>
