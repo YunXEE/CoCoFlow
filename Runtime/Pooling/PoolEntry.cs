@@ -9,6 +9,13 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Pooling
 {
+    internal enum TemporalActivationParentKind
+    {
+        Unset = 0,
+        SceneRoot = 1,
+        Transform = 2
+    }
+
     internal sealed class PoolInstanceRecord
     {
         internal PoolInstanceRecord(
@@ -16,13 +23,19 @@ namespace CoCoFlow.Runtime.Pooling
             long instanceSequence,
             GameObject gameObject,
             PoolInstanceSentinel sentinel,
-            IPoolable[] participants)
+            IPoolable[] participants,
+            Vector3 baselineLocalPosition,
+            Quaternion baselineLocalRotation,
+            Vector3 baselineLocalScale)
         {
             Entry = entry;
             InstanceSequence = instanceSequence;
             GameObject = gameObject;
             Sentinel = sentinel;
             Participants = participants ?? Array.Empty<IPoolable>();
+            BaselineLocalPosition = baselineLocalPosition;
+            BaselineLocalRotation = baselineLocalRotation;
+            BaselineLocalScale = baselineLocalScale;
             State = PooledInstanceState.Internal;
         }
 
@@ -36,7 +49,12 @@ namespace CoCoFlow.Runtime.Pooling
         internal uint LastReturnedGeneration { get; set; }
         internal bool ExpectedDestroy { get; set; }
         internal bool DestroyObservationScheduled { get; set; }
+        internal Vector3 BaselineLocalPosition { get; }
+        internal Quaternion BaselineLocalRotation { get; }
+        internal Vector3 BaselineLocalScale { get; }
+        internal TemporalActivationParentKind TemporalParentKind { get; set; }
         internal Transform TemporalActivationParent { get; set; }
+        internal bool TemporalCallbacksActive { get; set; }
         internal string AllocationStack { get; set; }
     }
 
@@ -807,6 +825,10 @@ namespace CoCoFlow.Runtime.Pooling
                     prefab,
                     scope.RetentionRoot,
                     false);
+                Transform instanceTransform = instance.transform;
+                Vector3 baselineLocalPosition = instanceTransform.localPosition;
+                Quaternion baselineLocalRotation = instanceTransform.localRotation;
+                Vector3 baselineLocalScale = instanceTransform.localScale;
                 instance.SetActive(false);
 
                 MonoBehaviour[] components =
@@ -828,7 +850,10 @@ namespace CoCoFlow.Runtime.Pooling
                     instanceSequence,
                     instance,
                     sentinel,
-                    participants.ToArray());
+                    participants.ToArray(),
+                    baselineLocalPosition,
+                    baselineLocalRotation,
+                    baselineLocalScale);
                 sentinel.Initialize(this, instanceSequence);
                 records.Add(instanceSequence, record);
                 createdCount++;
@@ -958,9 +983,18 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
+            if (!TryCaptureTemporalActivationParent(record, out diagnostic))
+            {
+                lastDiagnostic = diagnostic;
+                AdvanceGeneration(record);
+                ScheduleDestroy(record);
+                Record(PoolDiagnosticEventKind.LifecycleFailed, record, diagnostic);
+                return false;
+            }
+
             AdvanceGeneration(record);
             Transition(record, PooledInstanceState.TemporalInactive);
-            record.TemporalActivationParent = record.GameObject.transform.parent;
+            record.TemporalCallbacksActive = false;
             token = new PoolTemporalToken(
                 scope,
                 Id,
@@ -1041,17 +1075,14 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
-            Transform currentParent = record.GameObject.transform.parent;
-            if (currentParent == scope.RetentionRoot &&
-                record.TemporalActivationParent != null)
+            if (!TryRestoreTemporalActivationParent(record, out diagnostic))
             {
-                record.GameObject.transform.SetParent(
-                    record.TemporalActivationParent,
-                    false);
-            }
-            else if (currentParent != scope.RetentionRoot)
-            {
-                record.TemporalActivationParent = currentParent;
+                lastDiagnostic = diagnostic;
+                AdvanceGeneration(record);
+                ScheduleDestroy(record);
+                token = default;
+                Record(PoolDiagnosticEventKind.LifecycleFailed, record, diagnostic);
+                return false;
             }
 
             if (!TryRunRentCallbacks(
@@ -1073,6 +1104,7 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
+            record.TemporalCallbacksActive = true;
             uint expectedGeneration = record.Generation;
             if (!ContainsRecord(record) ||
                 record.GameObject == null ||
@@ -1093,14 +1125,12 @@ namespace CoCoFlow.Runtime.Pooling
                         "The physical GameObject was destroyed during activation.");
                 if (ContainsRecord(record))
                 {
-                    TryRunReturnCallbacks(
+                    TryRunTemporalReturnCallbacks(
                         record,
-                        record.Participants.Length,
                         State == PoolEntryState.Closing ||
                         State == PoolEntryState.Closed
                             ? PoolReturnReason.ScopeClosing
                             : PoolReturnReason.ActivationFailure,
-                        true,
                         expectedGeneration,
                         out _);
                     AdvanceGeneration(record);
@@ -1121,15 +1151,17 @@ namespace CoCoFlow.Runtime.Pooling
                     Id,
                     record.InstanceSequence,
                     exception.Message);
-                TryRunReturnCallbacks(
-                    record,
-                    record.Participants.Length,
-                    PoolReturnReason.ActivationFailure,
-                    true,
-                    expectedGeneration,
-                    out _);
-                AdvanceGeneration(record);
-                ScheduleDestroy(record);
+                if (ContainsRecord(record))
+                {
+                    TryRunTemporalReturnCallbacks(
+                        record,
+                        PoolReturnReason.ActivationFailure,
+                        expectedGeneration,
+                        out _);
+                    AdvanceGeneration(record);
+                    ScheduleDestroy(record);
+                }
+
                 token = default;
                 return false;
             }
@@ -1154,14 +1186,12 @@ namespace CoCoFlow.Runtime.Pooling
                         "The physical GameObject was destroyed during activation.");
                 if (ContainsRecord(record))
                 {
-                    TryRunReturnCallbacks(
+                    TryRunTemporalReturnCallbacks(
                         record,
-                        record.Participants.Length,
                         State == PoolEntryState.Closing ||
                         State == PoolEntryState.Closed
                             ? PoolReturnReason.ScopeClosing
                             : PoolReturnReason.ActivationFailure,
-                        true,
                         expectedGeneration,
                         out _);
                     AdvanceGeneration(record);
@@ -1206,8 +1236,7 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
-            if (record.State != PooledInstanceState.TemporalActive &&
-                record.State != PooledInstanceState.TemporalInactive)
+            if (record.State != PooledInstanceState.TemporalActive)
             {
                 diagnostic = PoolingErrors.InvalidTransition(
                     Id,
@@ -1292,6 +1321,38 @@ namespace CoCoFlow.Runtime.Pooling
                     return true;
                 }
 
+                if (record.State == PooledInstanceState.TemporalInactive)
+                {
+                    uint expectedGeneration = record.Generation;
+                    if (!ResetTemporalRecord(
+                            record,
+                            PooledInstanceState.TemporalInactive,
+                            expectedGeneration,
+                            PoolReturnReason.TemporalDespawn,
+                            out diagnostic))
+                    {
+                        if (ContainsRecord(record) &&
+                            record.Generation == expectedGeneration)
+                        {
+                            AdvanceGeneration(record);
+                        }
+
+                        ScheduleDestroy(record);
+                        token = default;
+                        return false;
+                    }
+
+                    Transition(
+                        record,
+                        PooledInstanceState.TemporalQuarantined);
+                    Record(
+                        PoolDiagnosticEventKind.TemporalStateChanged,
+                        record,
+                        CoCoDiagnostic.None);
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+                }
+
                 return TryDespawnTemporalCore(ref token, out diagnostic);
             }
 
@@ -1351,6 +1412,7 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
+            bool retained = false;
             if (record.State == PooledInstanceState.TemporalActive ||
                 record.State == PooledInstanceState.TemporalInactive)
             {
@@ -1373,6 +1435,8 @@ namespace CoCoFlow.Runtime.Pooling
                     token = default;
                     return false;
                 }
+
+                retained = true;
             }
             else if (record.State != PooledInstanceState.TemporalQuarantined)
             {
@@ -1384,16 +1448,28 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
+            if (!retained &&
+                !TryReparentForRetention(record, out diagnostic))
+            {
+                resetFailureCount++;
+                lastDiagnostic = diagnostic;
+                AdvanceGeneration(record);
+                token = default;
+                ClearTemporalRuntimeState(record);
+                ScheduleDestroy(record);
+                Record(PoolDiagnosticEventKind.LifecycleFailed, record, diagnostic);
+                return false;
+            }
+
             AdvanceGeneration(record);
             token = default;
-            record.TemporalActivationParent = null;
+            ClearTemporalRuntimeState(record);
             if (State == PoolEntryState.Closing || State == PoolEntryState.Closed)
             {
                 ScheduleDestroy(record);
             }
             else
             {
-                ReparentForRetention(record);
                 adapter.Release(record);
             }
 
@@ -1422,6 +1498,7 @@ namespace CoCoFlow.Runtime.Pooling
 
             AdvanceGeneration(record);
             token = default;
+            ClearTemporalRuntimeState(record);
             ScheduleDestroy(record);
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -1680,7 +1757,22 @@ namespace CoCoFlow.Runtime.Pooling
             Transition(record, PooledInstanceState.Returning);
             if (record.GameObject != null)
             {
-                record.GameObject.SetActive(false);
+                try
+                {
+                    record.GameObject.SetActive(false);
+                }
+                catch (Exception exception)
+                {
+                    diagnostic = PoolingErrors.ResetFailed(
+                        Id,
+                        record.InstanceSequence,
+                        exception.Message);
+                    resetFailureCount++;
+                    lastDiagnostic = diagnostic;
+                    ScheduleDestroy(record);
+                    Record(PoolDiagnosticEventKind.LifecycleFailed, record, diagnostic);
+                    return false;
+                }
             }
 
             bool resetSucceeded = TryRunReturnCallbacks(
@@ -1713,7 +1805,15 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
-            ReparentForRetention(record);
+            if (!TryReparentForRetention(record, out diagnostic))
+            {
+                resetFailureCount++;
+                lastDiagnostic = diagnostic;
+                ScheduleDestroy(record);
+                Record(PoolDiagnosticEventKind.LifecycleFailed, record, diagnostic);
+                return false;
+            }
+
             if (State == PoolEntryState.Closing || State == PoolEntryState.Closed)
             {
                 ScheduleDestroy(record);
@@ -1735,11 +1835,6 @@ namespace CoCoFlow.Runtime.Pooling
             PoolReturnReason reason,
             out CoCoDiagnostic diagnostic)
         {
-            if (record.GameObject != null)
-            {
-                record.GameObject.SetActive(false);
-            }
-
             if (!IsExpectedTemporalResetState(
                     record,
                     expectedState,
@@ -1751,14 +1846,62 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
-            bool reset = TryRunReturnCallbacks(
-                record,
-                record.Participants.Length,
-                reason,
-                true,
-                expectedGeneration,
-                out diagnostic);
-            if (!reset)
+            bool wasActive = expectedState == PooledInstanceState.TemporalActive;
+            if (wasActive)
+            {
+                if (!record.TemporalCallbacksActive)
+                {
+                    diagnostic = PoolingErrors.TemporalUnavailable(
+                        "The active temporal instance no longer owns its callback lease.");
+                    lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!TryCaptureTemporalActivationParent(record, out diagnostic))
+                {
+                    lastDiagnostic = diagnostic;
+                    return false;
+                }
+            }
+            else if (record.TemporalCallbacksActive)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "An inactive temporal instance still owns an active callback lease.");
+                lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            try
+            {
+                record.GameObject.SetActive(false);
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.ResetFailed(
+                    Id,
+                    record.InstanceSequence,
+                    exception.Message);
+                lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!IsExpectedTemporalResetState(
+                    record,
+                    expectedState,
+                    expectedGeneration))
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "Temporal authority changed during reset.");
+                lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (wasActive &&
+                !TryRunTemporalReturnCallbacks(
+                    record,
+                    reason,
+                    expectedGeneration,
+                    out diagnostic))
             {
                 resetFailureCount++;
                 lastDiagnostic = diagnostic;
@@ -1776,7 +1919,13 @@ namespace CoCoFlow.Runtime.Pooling
                 return false;
             }
 
-            ReparentForRetention(record);
+            if (!TryReparentForRetention(record, out diagnostic))
+            {
+                resetFailureCount++;
+                lastDiagnostic = diagnostic;
+                return false;
+            }
+
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -1798,6 +1947,15 @@ namespace CoCoFlow.Runtime.Pooling
             uint contextGeneration)
         {
             CoCoDiagnostic failure = CoCoDiagnostic.None;
+            if (temporal &&
+                record.State == PooledInstanceState.TemporalActive &&
+                !TryCaptureTemporalActivationParent(
+                    record,
+                    out CoCoDiagnostic parentFailure))
+            {
+                failure = parentFailure;
+            }
+
             if (record.GameObject != null)
             {
                 try
@@ -1815,13 +1973,35 @@ namespace CoCoFlow.Runtime.Pooling
 
             if (ContainsRecord(record) && record.GameObject != null)
             {
-                bool reset = TryRunReturnCallbacks(
-                    record,
-                    record.Participants.Length,
-                    PoolReturnReason.ForcedShutdown,
-                    temporal,
-                    contextGeneration,
-                    out CoCoDiagnostic callbackFailure);
+                bool reset;
+                CoCoDiagnostic callbackFailure;
+                if (temporal)
+                {
+                    if (record.TemporalCallbacksActive)
+                    {
+                        reset = TryRunTemporalReturnCallbacks(
+                            record,
+                            PoolReturnReason.ForcedShutdown,
+                            contextGeneration,
+                            out callbackFailure);
+                    }
+                    else
+                    {
+                        reset = true;
+                        callbackFailure = CoCoDiagnostic.None;
+                    }
+                }
+                else
+                {
+                    reset = TryRunReturnCallbacks(
+                        record,
+                        record.Participants.Length,
+                        PoolReturnReason.ForcedShutdown,
+                        false,
+                        contextGeneration,
+                        out callbackFailure);
+                }
+
                 if (!reset && failure.IsNone)
                 {
                     failure = callbackFailure;
@@ -1967,6 +2147,31 @@ namespace CoCoFlow.Runtime.Pooling
             return succeeded;
         }
 
+        private bool TryRunTemporalReturnCallbacks(
+            PoolInstanceRecord record,
+            PoolReturnReason reason,
+            uint contextGeneration,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!record.TemporalCallbacksActive)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The temporal callback lease was already returned.");
+                return false;
+            }
+
+            // Consume the callback lease before invoking user code so callback
+            // re-entry and terminal fallback cannot issue a second Return.
+            record.TemporalCallbacksActive = false;
+            return TryRunReturnCallbacks(
+                record,
+                record.Participants.Length,
+                reason,
+                true,
+                contextGeneration,
+                out diagnostic);
+        }
+
         private bool TryValidateHandle(
             in PooledHandle handle,
             out PoolInstanceRecord record,
@@ -2034,12 +2239,252 @@ namespace CoCoFlow.Runtime.Pooling
             return true;
         }
 
-        private void ReparentForRetention(PoolInstanceRecord record)
+        private bool TryCaptureTemporalActivationParent(
+            PoolInstanceRecord record,
+            out CoCoDiagnostic diagnostic)
         {
-            if (record.GameObject == null) return;
+            if (!TryGetLiveTemporalTransform(
+                    record,
+                    out Transform instanceTransform,
+                    out diagnostic))
+            {
+                return false;
+            }
 
-            record.GameObject.transform.SetParent(scope.RetentionRoot, false);
-            record.GameObject.SetActive(false);
+            Transform parent;
+            try
+            {
+                parent = instanceTransform.parent;
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The activation parent could not be captured. " +
+                    exception.Message);
+                return false;
+            }
+
+            if (!ReferenceEquals(parent, null) && parent == null)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The activation parent was destroyed.");
+                return false;
+            }
+
+            if (ReferenceEquals(parent, null))
+            {
+                record.TemporalParentKind =
+                    TemporalActivationParentKind.SceneRoot;
+                record.TemporalActivationParent = null;
+            }
+            else
+            {
+                record.TemporalParentKind =
+                    TemporalActivationParentKind.Transform;
+                record.TemporalActivationParent = parent;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryRestoreTemporalActivationParent(
+            PoolInstanceRecord record,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryGetLiveTemporalTransform(
+                    record,
+                    out Transform instanceTransform,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            Transform retentionRoot = scope.RetentionRoot;
+            if (retentionRoot == null)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The Pool retention root was destroyed.");
+                return false;
+            }
+
+            Transform currentParent;
+            try
+            {
+                currentParent = instanceTransform.parent;
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The current activation parent could not be inspected. " +
+                    exception.Message);
+                return false;
+            }
+
+            if (!ReferenceEquals(currentParent, null) && currentParent == null)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The current activation parent was destroyed.");
+                return false;
+            }
+
+            if (currentParent != retentionRoot)
+            {
+                return TryCaptureTemporalActivationParent(record, out diagnostic);
+            }
+
+            Transform target;
+            switch (record.TemporalParentKind)
+            {
+                case TemporalActivationParentKind.SceneRoot:
+                    target = null;
+                    break;
+                case TemporalActivationParentKind.Transform:
+                    target = record.TemporalActivationParent;
+                    if (target == null)
+                    {
+                        diagnostic = PoolingErrors.TemporalUnavailable(
+                            "The remembered activation parent was destroyed.");
+                        return false;
+                    }
+
+                    break;
+                default:
+                    diagnostic = PoolingErrors.TemporalUnavailable(
+                        "No activation parent was captured for this temporal instance.");
+                    return false;
+            }
+
+            try
+            {
+                instanceTransform.SetParent(target, false);
+                if (record.GameObject == null || instanceTransform == null)
+                {
+                    diagnostic = PoolingErrors.TemporalUnavailable(
+                        "The physical GameObject was destroyed while restoring its parent.");
+                    return false;
+                }
+
+                Transform restoredParent = instanceTransform.parent;
+                bool restored = record.TemporalParentKind ==
+                                TemporalActivationParentKind.SceneRoot
+                    ? restoredParent == null
+                    : restoredParent == target;
+                if (!restored)
+                {
+                    diagnostic = PoolingErrors.TemporalUnavailable(
+                        "The activation parent changed while it was being restored.");
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The activation parent could not be restored. " +
+                    exception.Message);
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryGetLiveTemporalTransform(
+            PoolInstanceRecord record,
+            out Transform instanceTransform,
+            out CoCoDiagnostic diagnostic)
+        {
+            instanceTransform = null;
+            GameObject instance = record.GameObject;
+            if (instance == null)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The physical GameObject was destroyed.");
+                return false;
+            }
+
+            try
+            {
+                instanceTransform = instance.transform;
+                if (instanceTransform == null)
+                {
+                    diagnostic = PoolingErrors.TemporalUnavailable(
+                        "The physical GameObject transform is unavailable.");
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.TemporalUnavailable(
+                    "The physical GameObject transform is unavailable. " +
+                    exception.Message);
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryReparentForRetention(
+            PoolInstanceRecord record,
+            out CoCoDiagnostic diagnostic)
+        {
+            GameObject instance = record.GameObject;
+            if (instance == null)
+            {
+                diagnostic = PoolingErrors.ResetFailed(
+                    Id,
+                    record.InstanceSequence,
+                    "The physical GameObject was destroyed.");
+                return false;
+            }
+
+            Transform retentionRoot = scope.RetentionRoot;
+            if (retentionRoot == null)
+            {
+                diagnostic = PoolingErrors.ResetFailed(
+                    Id,
+                    record.InstanceSequence,
+                    "The Pool retention root was destroyed.");
+                return false;
+            }
+
+            try
+            {
+                Transform instanceTransform = instance.transform;
+                instance.SetActive(false);
+                instanceTransform.SetParent(retentionRoot, false);
+                instanceTransform.localPosition = record.BaselineLocalPosition;
+                instanceTransform.localRotation = record.BaselineLocalRotation;
+                instanceTransform.localScale = record.BaselineLocalScale;
+                if (instance == null || instanceTransform == null)
+                {
+                    diagnostic = PoolingErrors.ResetFailed(
+                        Id,
+                        record.InstanceSequence,
+                        "The physical GameObject was destroyed while entering retention.");
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnostic = PoolingErrors.ResetFailed(
+                    Id,
+                    record.InstanceSequence,
+                    exception.Message);
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static void ClearTemporalRuntimeState(PoolInstanceRecord record)
+        {
+            record.TemporalParentKind =
+                TemporalActivationParentKind.Unset;
+            record.TemporalActivationParent = null;
+            record.TemporalCallbacksActive = false;
         }
 
         private void ScheduleDestroy(PoolInstanceRecord record)
@@ -2138,7 +2583,7 @@ namespace CoCoFlow.Runtime.Pooling
             Transition(record, PooledInstanceState.Destroyed);
             records.Remove(record.InstanceSequence);
             record.GameObject = null;
-            record.TemporalActivationParent = null;
+            ClearTemporalRuntimeState(record);
             destroyedCount++;
             CoCoDiagnostic diagnostic = PoolingErrors.InstanceDestroyed(
                 Id,
