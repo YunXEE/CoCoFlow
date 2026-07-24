@@ -10,6 +10,7 @@ This page is the Unity Package Manager documentation entry point for CoCoFlow.
 - [Temporal Rewind](../Docs/TemporalRewind.md)
 - [State Flow / Event Boundary](../Docs/ContextNetworkBoundary.md)
 - [Content acquisition and ownership](../Docs/ContentOwnership.md)
+- [Object pooling and instance ownership](../Docs/ObjectPooling.md)
 - [UI module](../Docs/Module-UI.md)
 - [Map module](../Docs/Module-Map.md)
 - [Animation module](../Docs/Module-Animation.md)

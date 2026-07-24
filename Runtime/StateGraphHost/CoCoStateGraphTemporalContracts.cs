@@ -200,4 +200,52 @@ namespace CoCoFlow.Runtime.Core
             in CoCoContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic);
     }
+
+    // Optional host-scoped participant seam. It deliberately carries only Temporal
+    // metadata; implementations remain responsible for their own private value history.
+    internal interface ICoCoStateGraphTemporalParticipant
+    {
+        bool TryAttachTemporalHost(
+            CoCoStateGraphHost host,
+            int historyCapacity,
+            out CoCoDiagnostic diagnostic);
+
+        bool IsTemporalParticipantLive(CoCoStateGraphHost host);
+
+        bool TryPrepareForwardCapture(
+            in CoCoTemporalFrameInfo candidate,
+            out CoCoDiagnostic diagnostic);
+
+        void PublishForwardCaptureNoFail();
+
+        void CancelPreparedCaptureNoFail();
+
+        bool TryBeginPreview(
+            int historyCount,
+            out CoCoDiagnostic diagnostic);
+
+        bool TryPrepareProjection(
+            CoCoContextRestoreApplyKind applyKind,
+            int historyDepth,
+            in CoCoTemporalFrameInfo source,
+            in CoCoTickFrame targetTickFrame,
+            out CoCoDiagnostic diagnostic);
+
+        void FinishProjectionNoFail(bool succeeded);
+
+        bool CanConfirmPreview(int historyDepth);
+
+        bool TryPrepareBranchCapture(
+            int historyDepth,
+            in CoCoTemporalFrameInfo branchHead,
+            out CoCoDiagnostic diagnostic);
+
+        void PublishBranchCaptureNoFail();
+
+        void CompletePreviewNoFail(CoCoContextRestoreApplyKind applyKind);
+
+        void DrainPublishedCleanupNoFail();
+
+        void DetachTemporalHostNoFail();
+    }
 }

@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.8 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.9 · **Unity**: 6000+
 >
-> Pre8 adds explicit Content acquisition and ownership, Direct and optional
-> Addressables backends, single-flight requests, scoped leases, deterministic
-> release diagnostics, and the first UI/Map consumers.
+> Pre9 adds Content-backed GameObject pooling, generation-safe handles,
+> explicit prewarm/idle retention, Scope-owned shutdown, and an optional
+> Host-scoped Temporal entity-retention sidecar.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -464,6 +464,24 @@ exposes a candidate Tick, payload, Inbox, Envelope, retained Context handle, or
 private reflected field; a failed or cancelled Tick cannot replace committed
 snapshot authority.
 
+## Content and Object Pool Ownership
+
+Content owns loaded Assets, Prefab Sources, and Additive Scenes through explicit
+Scopes and reference-type `ContentLease` values. Pooling builds on that
+boundary: one prepared Pool Entry retains one Prefab Source lease while it owns
+physical GameObject instances, and a readonly generation-safe `PooledHandle`
+grants one consumer rental.
+
+Pool preparation and prewarm are asynchronous; Rent is synchronous once Ready.
+`PrewarmCount` is a preparation target and `MaxRetained` limits only idle
+retention. Bursts may exceed both values, and return overflow is destroyed.
+There is no hard active cap, automatic trim, LRU, or hidden Addressables path.
+
+The optional Temporal sidecar keeps the same physical instance quarantined
+while one Host's retained history can still project its entity as present. It
+stores only pure identity/presence values and is not multi-Actor or whole-world
+rollback. Pre9 does not migrate the retained UI, Map, or Enemy consumers.
+
 ## Repository and Package Boundary
 
 The 0.3.9 CCS Runtime remains temporarily for compilation and historical
@@ -479,12 +497,15 @@ Runtime/Core/StateGraphAuthoring  Unity StateGraph Asset, snapshot, and compilat
 Runtime/StateGraphHost   Unity Host plus internal Gateway/Router integration
 Runtime/Content          Unity-facing content acquisition, ownership, Direct backend, and diagnostics
 Runtime/Content/Addressables  optional conditional Addressables backend
+Runtime/Pooling          Content-backed GameObject instance ownership and diagnostics
+Runtime/Pooling/Temporal optional Host-scoped pooled Temporal entity retention
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
 Runtime/Modules          transitional presentation and service modules
 Editor/StateGraph        constrained graph authoring and diagnostics
 Editor/StateGraphHost    Host Inspector and committed runtime debugger
 Editor/Content           Content reference authoring and runtime ownership monitor
+Editor/Pooling           Pool Host authoring and runtime ownership monitor
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -505,7 +526,8 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Deferred 0.4 Work
 
-- **Pre9**: Object Pool ownership, rent/return, reset, capacity, and prewarm.
+- **Pooling extensions**: generic non-GameObject pools, hard active/total caps,
+  automatic trim/LRU, hot profile mutation, and world/durable rollback.
 - **Pre10**: Map Region/Chunk policy, production streaming, races, and replay.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
@@ -519,8 +541,8 @@ with this document, the Pre2 State Flow model is authoritative.
 
 ## Dependencies
 
-Pre8 removes Addressables from the package's hard dependency set. Direct-only
-projects need no Addressables package. Install the optional backend explicitly
+Addressables remains outside the package's hard dependency set. Direct-only
+Content and Pooling projects need no Addressables package. Install the optional backend explicitly
 from `CoCoFlow/Setup/Setup Assistant` when Addressables content is required.
 
 | Package | Version | Current owner |
@@ -538,9 +560,11 @@ Optional dependency:
 |---|---:|---|
 | Addressables | `[2.9.1,3.0.0)` | `CoCoFlow.Runtime.Content.Addressables` only |
 
-UniTask remains Setup-Assistant-managed. Content, UI, and Map assemblies compile
-when `COCOFLOW_UNITASK_SUPPORT` is enabled; the optional Addressables assembly
-also requires the Addressables package version define.
+UniTask remains Setup-Assistant-managed. Content, Pooling, Pooling Temporal, UI,
+and Map assemblies compile when `COCOFLOW_UNITASK_SUPPORT` is enabled; the
+optional Addressables assembly also requires the Addressables package version
+define. Setup Assistant reports Pooling availability but does not install a
+separate Pool package.
 
 ## Installation and Validation
 
@@ -563,6 +587,7 @@ dependency/support-define tool; it does not install project content.
 - [StateGraph Editor and Runtime Debugger](Docs/StateGraphEditor.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
 - [Content Acquisition and Ownership](Docs/ContentOwnership.md)
+- [Object Pooling and Instance Ownership](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
 - [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)

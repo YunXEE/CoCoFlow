@@ -13,6 +13,7 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoActorEventInboxCore _inbox;
         private readonly MonoBehaviour _bindingComponent;
         private readonly ICoCoContextRestoreBinding _binding;
+        private readonly ICoCoStateGraphTemporalParticipant _participant;
         private readonly CoCoTemporalHistory _history;
         private readonly CoCoContextRestoreReadLease _readLease;
         private CoCoTemporalMode _mode;
@@ -33,6 +34,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoActorEventInboxCore inbox,
             MonoBehaviour bindingComponent,
             ICoCoContextRestoreBinding binding,
+            ICoCoStateGraphTemporalParticipant participant,
             CoCoTemporalHistory history)
         {
             _host = host;
@@ -41,6 +43,7 @@ namespace CoCoFlow.Runtime.Core
             _inbox = inbox;
             _bindingComponent = bindingComponent;
             _binding = binding;
+            _participant = participant;
             _history = history;
             _readLease = new CoCoContextRestoreReadLease();
             _mode = history == null
@@ -65,7 +68,9 @@ namespace CoCoFlow.Runtime.Core
                                   _history != null &&
                                   _previewDepth < _history.Count &&
                                   !_host.Fault.IsFaulted &&
-                                  IsBindingLive;
+                                  IsBindingLive &&
+                                  (_participant == null ||
+                                   _participant.CanConfirmPreview(_previewDepth));
                 return new CoCoTemporalState(
                     _mode,
                     _history?.Capacity ?? 0,
@@ -189,6 +194,19 @@ namespace CoCoFlow.Runtime.Core
                     CoCoStateGraphHostBoundary.Contains(host, bindingComponent)
                         ? bindingComponent
                         : null;
+                var participant = capacity > 0
+                    ? activeBindingComponent as ICoCoStateGraphTemporalParticipant
+                    : null;
+                if (participant != null &&
+                    !participant.TryAttachTemporalHost(
+                        host,
+                        capacity,
+                        out diagnostic))
+                {
+                    history?.Dispose();
+                    return false;
+                }
+
                 controller = new CoCoStateGraphTemporalController(
                     host,
                     layout,
@@ -196,12 +214,15 @@ namespace CoCoFlow.Runtime.Core
                     inbox,
                     activeBindingComponent,
                     activeBindingComponent as ICoCoContextRestoreBinding,
+                    participant,
                     history);
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }
             catch (Exception)
             {
+                (bindingComponent as ICoCoStateGraphTemporalParticipant)
+                    ?.DetachTemporalHostNoFail();
                 history?.Dispose();
                 diagnostic = HistoryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
@@ -222,20 +243,52 @@ namespace CoCoFlow.Runtime.Core
 
             try
             {
-                if (_history.TryPrepareCapture(candidate, out CoCoDiagnosticCode diagnosticCode))
+                if (!_history.TryPrepareCapture(
+                        candidate,
+                        out CoCoDiagnosticCode diagnosticCode))
                 {
-                    diagnostic = CoCoDiagnostic.None;
-                    return true;
+                    _history.CancelPreparedCapture();
+                    diagnostic = HistoryError(
+                        diagnosticCode,
+                        "Temporal projection capture rejected the finalized Context candidate.");
+                    return false;
                 }
 
-                _history.CancelPreparedCapture();
-                diagnostic = HistoryError(
-                    diagnosticCode,
-                    "Temporal projection capture rejected the finalized Context candidate.");
-                return false;
+                if (_participant != null)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    if (!_participant.IsTemporalParticipantLive(_host) ||
+                        !candidate.TryGetMetadata(
+                            out CoCoStateFlowFrameHeader header,
+                            out CoCoContextRevision revision,
+                            out CoCoContextFrameOrigin origin) ||
+                        !_participant.TryPrepareForwardCapture(
+                            new CoCoTemporalFrameInfo(
+                                header.Identity.GraphInstanceId,
+                                header.TickFrame,
+                                revision,
+                                origin),
+                            out diagnostic))
+                    {
+                        _participant.CancelPreparedCaptureNoFail();
+                        _history.CancelPreparedCapture();
+                        if (!diagnostic.IsError)
+                        {
+                            diagnostic = HistoryError(
+                                CoCoDiagnosticCode.CommitPreparationFailed,
+                                "Temporal participant rejected the finalized capture candidate.");
+                        }
+
+                        return false;
+                    }
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                return true;
             }
             catch (Exception)
             {
+                _participant?.CancelPreparedCaptureNoFail();
                 _history.CancelPreparedCapture();
                 diagnostic = HistoryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
@@ -247,11 +300,25 @@ namespace CoCoFlow.Runtime.Core
         internal void PublishCaptureNoFail()
         {
             _history?.PublishCaptureNoFail();
+            _participant?.PublishForwardCaptureNoFail();
         }
 
         internal void CancelPreparedCapture()
         {
             _history?.CancelPreparedCapture();
+            _participant?.CancelPreparedCaptureNoFail();
+        }
+
+        internal void DrainPublishedCleanupNoFail()
+        {
+            try
+            {
+                _participant?.DrainPublishedCleanupNoFail();
+            }
+            catch (Exception)
+            {
+                // Post-barrier cleanup is diagnostics-only and cannot roll back authority.
+            }
         }
 
         internal bool TryBegin(
@@ -280,6 +347,13 @@ namespace CoCoFlow.Runtime.Core
             {
                 diagnostic = MailboxError(
                     "Inbox could not enter Rewind mode at the resolved Running boundary.");
+                return false;
+            }
+
+            if (_participant != null &&
+                !_participant.TryBeginPreview(_history.Count, out diagnostic))
+            {
+                _inbox?.CancelRewindOrRestoreNoFail();
                 return false;
             }
 
@@ -328,6 +402,17 @@ namespace CoCoFlow.Runtime.Core
             {
                 CoCoContextFrameReadView authority = _transaction.PreviousContext;
                 previewInfo = ToPublicInfo(_transaction.CurrentContext);
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Preview,
+                        historyDepth,
+                        previewInfo,
+                        previewInfo.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
                 applied = TryApplyAuthority(
                     CoCoContextRestoreApplyKind.Preview,
                     previewInfo,
@@ -335,6 +420,7 @@ namespace CoCoFlow.Runtime.Core
                     authority,
                     out worldMayBeDirty,
                     out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
             }
             else
             {
@@ -361,6 +447,17 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 previewInfo = ToPublicInfo(selection.Info);
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Preview,
+                        historyDepth,
+                        previewInfo,
+                        previewInfo.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
                 applied = TryApplyRestore(
                     CoCoContextRestoreApplyKind.Preview,
                     previewInfo,
@@ -368,6 +465,7 @@ namespace CoCoFlow.Runtime.Core
                     selection.RestoreView,
                     out worldMayBeDirty,
                     out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
             }
 
             if (!applied)
@@ -460,14 +558,35 @@ namespace CoCoFlow.Runtime.Core
             }
 
             CoCoTemporalFrameInfo sourceInfo = ToPublicInfo(selection.Info);
-            if (!TryApplyRestore(
-                    CoCoContextRestoreApplyKind.Confirm,
-                    sourceInfo,
-                    resumedTickFrame,
-                    restoreSource,
-                    out _,
-                    out diagnostic))
+            if (_participant != null &&
+                (!_participant.TryPrepareBranchCapture(
+                     _previewDepth,
+                     sourceInfo,
+                     out diagnostic) ||
+                 !_participant.TryPrepareProjection(
+                     CoCoContextRestoreApplyKind.Confirm,
+                     _previewDepth,
+                     sourceInfo,
+                     resumedTickFrame,
+                     out diagnostic)))
             {
+                _participant.CancelPreparedCaptureNoFail();
+                preparedRestore.Cancel();
+                _history.CancelPreparedCapture();
+                return false;
+            }
+
+            bool applied = TryApplyRestore(
+                CoCoContextRestoreApplyKind.Confirm,
+                sourceInfo,
+                resumedTickFrame,
+                restoreSource,
+                out _,
+                out diagnostic);
+            _participant?.FinishProjectionNoFail(applied);
+            if (!applied)
+            {
+                _participant?.CancelPreparedCaptureNoFail();
                 preparedRestore.Cancel();
                 _history.CancelPreparedCapture();
                 _host.LatchWorldCorrectionFault(diagnostic);
@@ -479,6 +598,7 @@ namespace CoCoFlow.Runtime.Core
                 !_history.HasPreparedCapture ||
                 (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
             {
+                _participant?.CancelPreparedCaptureNoFail();
                 preparedRestore.Cancel();
                 _history.CancelPreparedCapture();
                 diagnostic = TemporalLifecycleError(
@@ -489,11 +609,14 @@ namespace CoCoFlow.Runtime.Core
 
             preparedRestore.CommitNoFail();
             _history.PublishBranchCaptureNoFail();
+            _participant?.PublishBranchCaptureNoFail();
             _inbox?.ResumeAfterTimelineResetNoFail(resumedTickFrame.TimelineEpoch);
+            _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Confirm);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
             _hasAppliedPreviewProjection = false;
             _previewInfo = ToPublicInfo(_transaction.CurrentContext);
+            DrainPublishedCleanupNoFail();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -525,13 +648,26 @@ namespace CoCoFlow.Runtime.Core
             if (_hasAppliedPreviewProjection)
             {
                 CoCoContextFrameReadView authority = _transaction.PreviousContext;
-                if (!TryApplyAuthority(
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Cancel,
+                        0,
+                        current,
+                        current.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                bool applied = TryApplyAuthority(
                         CoCoContextRestoreApplyKind.Cancel,
                         current,
                         current.TickFrame,
                         authority,
                         out _,
-                        out diagnostic))
+                        out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
+                if (!applied)
                 {
                     _host.LatchWorldCorrectionFault(diagnostic);
                     return false;
@@ -539,6 +675,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             _inbox?.CancelRewindOrRestoreNoFail();
+            _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Cancel);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
             _hasAppliedPreviewProjection = false;
@@ -588,13 +725,27 @@ namespace CoCoFlow.Runtime.Core
 
             CoCoContextFrameReadView authority = _transaction.PreviousContext;
             CoCoTemporalFrameInfo current = ToPublicInfo(_transaction.CurrentContext);
-            if (!TryApplyAuthority(
+            if (_participant != null &&
+                !_participant.TryPrepareProjection(
                     CoCoContextRestoreApplyKind.Correction,
+                    0,
                     current,
                     current.TickFrame,
-                    authority,
-                    out _,
                     out diagnostic))
+            {
+                recovery.Cancel();
+                return false;
+            }
+
+            bool applied = TryApplyAuthority(
+                CoCoContextRestoreApplyKind.Correction,
+                current,
+                current.TickFrame,
+                authority,
+                out _,
+                out diagnostic);
+            _participant?.FinishProjectionNoFail(applied);
+            if (!applied)
             {
                 recovery.Cancel();
                 return false;
@@ -619,12 +770,15 @@ namespace CoCoFlow.Runtime.Core
 
             recovery.CompleteNoFail();
             _host.ClearWorldCorrectionRequirementNoFail();
+            _participant?.CompletePreviewNoFail(
+                CoCoContextRestoreApplyKind.Correction);
             _mode = _history == null
                 ? CoCoTemporalMode.Disabled
                 : CoCoTemporalMode.Ready;
             _previewDepth = 0;
             _hasAppliedPreviewProjection = false;
             _previewInfo = current;
+            DrainPublishedCleanupNoFail();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -638,6 +792,15 @@ namespace CoCoFlow.Runtime.Core
 
             _isDisposed = true;
             ClearActiveRead();
+            try
+            {
+                _participant?.DetachTemporalHostNoFail();
+            }
+            catch (Exception)
+            {
+                // Host teardown cannot be rejected by an optional participant.
+            }
+
             _history?.Dispose();
             _previewInfo = default;
             _previewDepth = 0;
@@ -844,7 +1007,9 @@ namespace CoCoFlow.Runtime.Core
         private bool IsBindingLive =>
             _binding != null &&
             _bindingComponent != null &&
-            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent);
+            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent) &&
+            (_participant == null ||
+             _participant.IsTemporalParticipantLive(_host));
 
         private void ClearActiveRead()
         {

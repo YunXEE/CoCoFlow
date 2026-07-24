@@ -1,0 +1,20 @@
+{
+    "name": "CoCoFlow.Runtime.Pooling.Temporal",
+    "rootNamespace": "CoCoFlow.Runtime.Pooling.Temporal",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Runtime.Pooling"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

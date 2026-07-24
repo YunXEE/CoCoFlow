@@ -66,6 +66,27 @@ namespace CoCoFlow.Editor.Core
                 },
                 "Optional Addressables backend; enabled by assembly version detection."),
             new ModuleDefinition(
+                "Pooling",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Content",
+                    "CoCoFlow.Runtime.Pooling"
+                },
+                "Content-backed GameObject pooling using Unity's private pool implementation."),
+            new ModuleDefinition(
+                "Pooling (Temporal)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Pooling",
+                    "CoCoFlow.Runtime.Pooling.Temporal",
+                    "CoCoFlow.Runtime.StateGraphHost"
+                },
+                "Optional Host-scoped temporal retention sidecar; not world rollback."),
+            new ModuleDefinition(
                 "Map",
                 new[] { UniTaskDefine },
                 new[] { "UniTask", "CoCoFlow.Runtime.Content" },
@@ -587,6 +608,12 @@ namespace CoCoFlow.Editor.Core
                 IsAssemblyInstalled("CoCoFlow.Runtime.Content");
             status.AssemblyStates["CoCoFlow.Runtime.Content.Addressables"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Content.Addressables");
+            status.AssemblyStates["CoCoFlow.Runtime.Pooling"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Pooling");
+            status.AssemblyStates["CoCoFlow.Runtime.Pooling.Temporal"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Pooling.Temporal");
+            status.AssemblyStates["CoCoFlow.Runtime.StateGraphHost"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.StateGraphHost");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");

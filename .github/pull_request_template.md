@@ -208,6 +208,62 @@ intact even when their proposed model is superseded.
       identity-only; they retain no resource, Scene, backend handle, Lease, or
       exception object. Release-build stack capture is explicit and bounded.
 
+### Pre9 Object Pool ownership and Temporal entities
+
+- [ ] `PoolRuntime` is an explicit project/world instance and `CoCoPoolHost`
+      references the intended `CoCoContentHost`; there is no global Pool
+      singleton or implicit Host lookup.
+- [ ] One prepared Pool Entry owns exactly one Prefab Source `ContentLease`
+      while any idle, rented, pending-destroy, or Temporal-retained physical
+      instance exists. Direct and optional Addressables sources use the same
+      Content path, and Pooling retains no raw Addressables handle.
+- [ ] Unity's Object Pool remains a private implementation detail. The public
+      contract is GameObject-specific and does not introduce a competing
+      generic pool or expose Unity pool callbacks.
+- [ ] Prepare and initial Prewarm are asynchronous and publish Ready atomically;
+      exact concurrent preparation is single-flight. Rent is synchronous and
+      rejects an Entry that is not Ready.
+- [ ] `PrewarmCount` is a preparation target and `MaxRetained` limits only idle
+      retention. Empty pools may burst, return overflow is destroyed, and no
+      hard active/total cap, automatic Trim, LRU, grace period, or hidden refill
+      was introduced.
+- [ ] `PooledHandle` is a readonly generation token. The raw GameObject has no
+      Return authority; duplicate, stale, copied-generation, and cross-Scope
+      returns are detected without mutating a newer rental.
+- [ ] Rent returns an inactive instance so consumer binding occurs before
+      activation. `IPoolable` callbacks run synchronously in deterministic Rent
+      and reverse Return order; refusal/exception/reset failure terminally
+      destroys the physical instance.
+- [ ] Scope Closing rejects new prepare/prewarm/rent work, cancels pending
+      preparation, destroys idle instances, destroys late returns after reset,
+      and releases Content ownership only after every physical instance is
+      terminal. Host destruction records and force-cleans leaked generations.
+- [ ] Requested destruction is not treated as terminal until the physical
+      observer completes. Content-first shutdown starts and awaits Pool's
+      registered dependency drain before disposing Content Scopes.
+- [ ] Pool snapshots and the fixed-capacity ledger are immutable and
+      identity/count-only; they retain no Unity Object, Lease, Handle, delegate,
+      backend handle, or exception object. Monitor actions are manual and do not
+      alter domain capacity policy.
+- [ ] `CoCoTemporalEntityId` remains a pure Core Contracts identity. Temporal
+      history stores no GameObject, Component, `PooledHandle`, `ContentLease`,
+      backend handle, Transform, or arbitrary domain payload.
+- [ ] The optional `Pooling.Temporal` sidecar is Host-scoped and one-way
+      dependent on Pooling and StateGraphHost. Adoption consumes the consumer
+      generation, the same physical instance remains quarantined while
+      historically reachable, and Preview/Cancel/Confirm/Correction never
+      revive an old handle.
+- [ ] Reappearing Temporal entities recover the live record's most recent
+      activation parent. That Transform reference is not stored in history or
+      snapshots and is cleared when the physical instance becomes terminal.
+- [ ] Pooling Temporal projects entity presence and invokes a separate
+      synchronous Temporal Apply hook. It is not multi-Actor/world rollback,
+      durable reconstruction, physics/animation/navigation reversal, or
+      automatic domain-payload capture.
+- [ ] Existing UI, Map, and Enemy consumers were not migrated. Additive Scenes
+      and permanent world roots remain outside Pooling; downstream modules must
+      opt in with an explicit reset and ownership contract.
+
 ## Serialization and rollback
 
 - ContextFrame Descriptor/Slot changes (including stable ID impact):
@@ -286,6 +342,16 @@ intact even when their proposed model is superseded.
 - [ ] Real Addressables/Scene residency evidence distinguishes released
       resource retention from Unity allocator reserved-memory behavior; Direct
       references make no false unload claim.
+- [ ] Pre9 Pooling contracts, Unity Object Pool black-box behavior,
+      Content-source ownership, handle generations, capacity, callback order,
+      Scope Closing, leak/external-destroy cleanup, and manual Clear focused
+      suites passed.
+- [ ] Pre9 Temporal adoption, Preview/Cancel/Confirm/Correction, quarantine,
+      history wrap/branch discard, unavailable-entity failure, and single-Host
+      boundary focused suites passed.
+- [ ] Pre9 dependency variants were checked in isolated hosts: UniTask + Direct
+      without Addressables, and UniTask + supported optional Addressables.
+      Pooling adds no separate installation action or hard package dependency.
 - [ ] StateGraph Runtime EditMode and Host lifecycle/event PlayMode suites passed
       for this Pre's focused and full-package runs.
 - [ ] Committed debugger snapshot, default-disabled/fixed-while-Running Trace,
@@ -318,6 +384,9 @@ links that allow a reviewer to verify the checks above.
 - Pre7 Editor/Domain Reload/debugger smoke result:
 - Pre8 Content Direct/Addressables/UI/Map result:
 - Pre8 dependency and memory-residency result:
+- Pre9 Pooling Direct/Addressables/EditMode/PlayMode result:
+- Pre9 Temporal retention/projection result:
+- Pre9 Ready idle-hit allocation and Unity Object Pool black-box result:
 - Allocation summary (100 warm-up / 10,000 measured):
 - macOS Universal IL2CPP + High Stripping artifact/log:
 - Unity Package Validation Suite result/log:

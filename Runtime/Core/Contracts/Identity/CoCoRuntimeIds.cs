@@ -470,6 +470,51 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoStableEntityId left, CoCoStableEntityId right) => !left.Equals(right);
     }
 
+    public readonly struct CoCoTemporalEntityId : IEquatable<CoCoTemporalEntityId>
+    {
+        private CoCoTemporalEntityId(ulong high, ulong low)
+        {
+            High = high;
+            Low = low;
+        }
+
+        public ulong High { get; }
+        public ulong Low { get; }
+        public bool IsValid => High != 0UL || Low != 0UL;
+
+        public static bool TryCreate(ulong high, ulong low, out CoCoTemporalEntityId id)
+        {
+            if (high == 0UL && low == 0UL)
+            {
+                id = default;
+                return false;
+            }
+
+            id = new CoCoTemporalEntityId(high, low);
+            return true;
+        }
+
+        public static bool TryParse(string value, out CoCoTemporalEntityId id)
+        {
+            if (!CoCoId128Parser.TryParse(value, out ulong high, out ulong low))
+            {
+                id = default;
+                return false;
+            }
+
+            return TryCreate(high, low, out id);
+        }
+
+        public bool Equals(CoCoTemporalEntityId other) => High == other.High && Low == other.Low;
+        public override bool Equals(object obj) => obj is CoCoTemporalEntityId other && Equals(other);
+        public override int GetHashCode() => unchecked((High.GetHashCode() * 397) ^ Low.GetHashCode());
+        public override string ToString() => High.ToString("x16", CultureInfo.InvariantCulture) +
+                                             Low.ToString("x16", CultureInfo.InvariantCulture);
+
+        public static bool operator ==(CoCoTemporalEntityId left, CoCoTemporalEntityId right) => left.Equals(right);
+        public static bool operator !=(CoCoTemporalEntityId left, CoCoTemporalEntityId right) => !left.Equals(right);
+    }
+
     public readonly struct CoCoCorrelationId : IEquatable<CoCoCorrelationId>
     {
         private CoCoCorrelationId(ulong high, ulong low)

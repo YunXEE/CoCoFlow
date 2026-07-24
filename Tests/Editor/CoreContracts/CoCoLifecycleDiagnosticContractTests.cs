@@ -104,6 +104,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(15, (int)CoCoDiagnosticDomain.Operator);
             Assert.AreEqual(16, (int)CoCoDiagnosticDomain.EventOutbox);
             Assert.AreEqual(17, (int)CoCoDiagnosticDomain.Content);
+            Assert.AreEqual(18, (int)CoCoDiagnosticDomain.Pooling);
 
             Assert.AreEqual(11, (int)CoCoDiagnosticCode.InvalidTimelinePosition);
             CoCoDiagnosticCode[] appendedCodes =
@@ -207,6 +208,39 @@ namespace CoCoFlow.Runtime.Core.Tests
             for (int index = 0; index < contentCodes.Length; index++)
             {
                 Assert.AreEqual(69 + index, (int)contentCodes[index]);
+            }
+
+            CoCoDiagnosticCode[] poolingCodes =
+            {
+                CoCoDiagnosticCode.InvalidPoolId,
+                CoCoDiagnosticCode.InvalidPoolProfile,
+                CoCoDiagnosticCode.PoolProfileConflict,
+                CoCoDiagnosticCode.PoolRuntimeDisposed,
+                CoCoDiagnosticCode.PoolScopeClosing,
+                CoCoDiagnosticCode.PoolNotReady,
+                CoCoDiagnosticCode.PoolOperationInProgress,
+                CoCoDiagnosticCode.PoolOperationCancelled,
+                CoCoDiagnosticCode.PoolInstanceCreateFailed,
+                CoCoDiagnosticCode.InvalidPooledHandle,
+                CoCoDiagnosticCode.PooledHandleAlreadyReturned,
+                CoCoDiagnosticCode.StalePooledHandle,
+                CoCoDiagnosticCode.PooledHandleOwnerMismatch,
+                CoCoDiagnosticCode.InvalidPoolTransition,
+                CoCoDiagnosticCode.PoolActivationFailed,
+                CoCoDiagnosticCode.PoolResetFailed,
+                CoCoDiagnosticCode.PooledInstanceDestroyed,
+                CoCoDiagnosticCode.PoolMainThreadRequired,
+                CoCoDiagnosticCode.PoolCallbackReentry,
+                CoCoDiagnosticCode.PoolHandleLeak,
+                CoCoDiagnosticCode.PoolForcedShutdown,
+                CoCoDiagnosticCode.PoolTemporalConflict,
+                CoCoDiagnosticCode.PoolTemporalEntityUnavailable,
+                CoCoDiagnosticCode.PoolTemporalProjectionFailed,
+                CoCoDiagnosticCode.PoolTemporalCleanupFailed
+            };
+            for (int index = 0; index < poolingCodes.Length; index++)
+            {
+                Assert.AreEqual(81 + index, (int)poolingCodes[index]);
             }
         }
 

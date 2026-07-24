@@ -5,6 +5,88 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.9] - 2026-07-23
+
+### Added
+
+- A Content-backed GameObject Pool runtime with stable `PoolId`, serializable
+  `PoolProfile`, explicit `CoCoPoolHost`/`PoolScope` composition, and one
+  Prefab Source `ContentLease` per prepared Pool Entry. The public API does not
+  expose a generic pool; Unity's Object Pool remains a private implementation
+  detail.
+- Asynchronous atomic Prepare and explicit Prewarm, followed by synchronous
+  Ready-only Rent. `PrewarmCount` is a preparation target and `MaxRetained`
+  limits only idle retention; empty pools may burst, and return overflow is
+  destroyed without introducing a hard active/total cap.
+- Readonly generation-safe `PooledHandle` ownership, inactive bind-before-
+  activate flow, deterministic synchronous `IPoolable` rent/return callbacks,
+  stale/duplicate/cross-Scope rejection, reset-failure destruction, external
+  destruction detection, and force-cleanup diagnostics for leaked rentals.
+- Explicit Scope close semantics that reject new work, destroy idle and late-
+  returned instances, and release the Prefab Source only after every physical
+  and Temporal-retained instance is terminal. Content-first shutdown invokes
+  the same Pool dependency drain before disposing Content Scopes.
+- Immutable identity/count-only Pool snapshots, a fixed-capacity diagnostic
+  ledger, Pool Host authoring, a Runtime Monitor with manual idle Clear, and
+  Setup Assistant status for Pooling and Pooling Temporal without a separate
+  Pool package installation action.
+- An optional Host-scoped Pooling Temporal sidecar with pure
+  `CoCoTemporalEntityId`, generation-authority transfer, physical-instance
+  quarantine while history remains reachable, restoration of the live
+  presentation parent on reappearance, branch/overwrite cleanup, and a separate
+  synchronous Temporal Apply hook. Transform references remain outside history.
+  The sidecar is not multi-Actor or whole-world rollback.
+- Contract, lifecycle, Content-ownership, Unity Object Pool behavior, Temporal
+  retention/projection, Direct-only dependency, optional Addressables, and
+  Player-build verification surfaces for Pre9.
+
+### Changed
+
+- Updated the package version and existing Unity Package Validation Suite
+  exception scopes to `0.4.0-pre.9`.
+- Updated Content, Temporal, UI, and Map documentation to distinguish Prefab
+  Source leases from physical-instance ownership. Existing UI, Map, and Enemy
+  consumers are intentionally not migrated by Pre9.
+- Kept Addressables optional: Direct and Addressables Prefab Sources enter
+  Pooling through the same Content request, and Pooling retains no raw
+  Addressables handle.
+
+### Fixed
+
+- Avoided forced-shutdown warnings for clean Content-first Pool dependency
+  drains while preserving terminal force cleanup and diagnostics for live
+  physical or Temporal ownership.
+- Guarded public Temporal Adopt, Activate, and Despawn mutations with the frozen
+  downstream Restore identity, Unity-liveness, and Host-boundary checks before
+  Pool ownership can change.
+- Kept `TemporalState` Confirm eligibility observation side-effect free;
+  physical identity is revalidated by the actual projection and Confirm
+  preparation paths.
+- Restored each physical instance's captured prefab-root local transform
+  baseline whenever normal or Temporal ownership returns it to retention.
+- Preserved explicit Scene Root and the latest live Transform parent across
+  Temporal replay, with structured terminal cleanup for destroyed physical or
+  parent identity.
+- Matched Temporal Rent/Return callbacks across pending, active, quarantined,
+  Host-stop, and re-entry paths; pending activation remains non-despawnable.
+- Froze downstream Restore identity at Host attachment and validated it before
+  Pool mutation, around the downstream call, and before after-restore
+  activation.
+- Allowed projected-only physical loss to complete the same absent-authority
+  Cancel or Correction while retaining the fault for authority-present loss.
+- Limited Runtime Monitor `Clear Inactive` enablement to Ready entries and
+  clarified same-frame external-destroy/force-shutdown event classification as
+  best-effort while terminal ownership guarantees remain strict.
+
+### Deferred
+
+- Generic non-GameObject pools, Unity versions below Unity 6, a separate Pool
+  package/container, hard active/total caps, automatic trim/LRU, runtime hot
+  profiles, and direct Addressables ownership remain outside Pre9.
+- UI/Map/Enemy migration, permanent-scene-object pooling, network or world
+  rollback, durable entity reconstruction, and reflection-driven automatic
+  cleanup remain owned by downstream work or explicitly unplanned extensions.
+
 ## [0.4.0-pre.8] - 2026-07-23
 
 ### Added
