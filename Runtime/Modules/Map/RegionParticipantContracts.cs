@@ -91,6 +91,11 @@ namespace CoCoFlow.Runtime.Modules.Map
         void ForceCleanupNoFail();
     }
 
+    internal interface IRegionParticipantTerminalCleanupInterrupt
+    {
+        void InterruptPendingCleanupForTerminalFallback();
+    }
+
     public interface IRegionFragmentResolver
     {
         bool TryResolveGameObject(

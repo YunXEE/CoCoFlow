@@ -698,11 +698,10 @@ namespace CoCoFlow.Runtime.Modules.Map
                 !regions.TryGetValue(
                     regionId,
                     out RegionDemandState state) ||
-                state.Resolution == null ||
-                !state.Resolution.HasDemand)
+                state.Resolution == null)
             {
                 diagnostic = RegionErrors.DemandConflict(
-                    "A live Region Demand is required before retry.");
+                    "A live Region transition state is required before retry.");
                 return false;
             }
 

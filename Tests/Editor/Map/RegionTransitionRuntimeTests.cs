@@ -873,6 +873,157 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator ReadyDependencyRemainsReadyDuringOtherOwnerUpgrade() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.ready-dependency.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "ready-dependency-target",
+                        new SensitiveTestPlan(
+                            "ready-dependency-target")));
+                RegionCompiledDependencyRule rule = Dependency(
+                    RegionCapabilityId.Represented,
+                    wildernessId,
+                    RegionCapabilityId.Represented);
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.ready-dependency.castle",
+                    new[] { rule },
+                    Node(
+                        castleId,
+                        "ready-dependency-source",
+                        new SensitiveTestPlan(
+                            "ready-dependency-source")));
+                var controller = new CandidateController();
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(5),
+                           castleId,
+                           wildernessPlan,
+                           castlePlan))
+                {
+                    RegionDemandScope sourceScope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(sourceScope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease sourceLease,
+                        out RegionDemandRevision sourceFirst,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await sourceLease.WaitUntilReadyAsync(
+                            sourceFirst)).Status);
+
+                    RegionTransitionMonitorRegionSnapshot initialSource =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            castleId);
+                    Assert.AreEqual(
+                        1,
+                        initialSource.Dependencies.Count);
+                    RegionDependencyMonitorSnapshot dependency =
+                        initialSource.Dependencies[0];
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        dependency.Readiness);
+                    long dependencyLeaseSequence =
+                        dependency.LeaseSequence;
+                    RegionDemandRevision dependencyRevision =
+                        dependency.Revision;
+
+                    controller.BlockPrepare(
+                        "ready-dependency-target");
+                    RegionDemandScope targetScope =
+                        harness.CreateScope("wilderness-upgrade");
+                    Assert.IsTrue(targetScope.TryDemand(
+                        wildernessId,
+                        Capabilities(RegionCapabilityId.Full),
+                        RegionCoverage.All,
+                        out RegionDemandLease targetLease,
+                        out RegionDemandRevision targetRevision,
+                        out diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount(
+                                  "ready-dependency-target") == 2,
+                        "The other Owner did not begin the target upgrade.");
+
+                    RegionRuntimeSnapshot upgrading =
+                        harness.Runtime.CaptureSnapshot();
+                    RegionDemandRuntimeSnapshot retainedDependency =
+                        FindDemandByLeaseSequence(
+                            upgrading,
+                            dependencyLeaseSequence);
+                    Assert.AreEqual(
+                        dependencyRevision,
+                        retainedDependency.Revision);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        retainedDependency.Readiness,
+                        "Another Owner's target upgrade must not invalidate an already-Ready dependency revision.");
+                    Assert.IsFalse(
+                        FindDemandByLeaseSequence(
+                                upgrading,
+                                targetLease.LeaseSequence)
+                            .Readiness.HasValue,
+                        "The upgrading Owner should remain Pending while its target candidate is blocked.");
+
+                    Assert.IsTrue(sourceLease.TryUpdate(
+                        Capabilities(RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out RegionDemandRevision sourceSecond,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await sourceLease.WaitUntilReadyAsync(
+                            sourceSecond)).Status,
+                        "The source must reuse its still-Ready dependency instead of waiting for an unrelated Owner's upgrade.");
+                    Assert.AreEqual(
+                        2,
+                        controller.PrepareCount(
+                            "ready-dependency-source"));
+                    Assert.AreEqual(
+                        2,
+                        controller.PrepareCount(
+                            "ready-dependency-target"),
+                        "The target upgrade must still be blocked when the source commits its reused dependency.");
+
+                    RegionTransitionMonitorRegionSnapshot reusedSource =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            castleId);
+                    Assert.AreEqual(
+                        1,
+                        reusedSource.Dependencies.Count);
+                    Assert.AreEqual(
+                        dependencyLeaseSequence,
+                        reusedSource.Dependencies[0]
+                            .LeaseSequence);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        reusedSource.Dependencies[0].Readiness);
+
+                    controller.CompleteBlockedPrepare();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await targetLease.WaitUntilReadyAsync(
+                            targetRevision)).Status);
+                }
+            });
+
+        [UnityTest]
         public IEnumerator CrossRegionTargetFailureFailsSourceBeforePrepare() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -1615,6 +1766,78 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator RemovedRegionCanRetryBlockedCleanupWithoutDemand() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "removed-blocked";
+                var controller = new CandidateController();
+                controller.BlockFirstCleanup(key);
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromMilliseconds(20),
+                           Node(
+                               key,
+                               new StableTestPlan(key))))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(revision))
+                        .Status);
+
+                    lease.Dispose();
+                    await WaitUntilAsync(
+                        () =>
+                        {
+                            RegionRuntimeSnapshot snapshot =
+                                harness.Runtime.CaptureSnapshot();
+                            return snapshot.Regions.Count == 1 &&
+                                   snapshot.Regions[0]
+                                       .BlockedCleanup;
+                        },
+                        "The transition to Off did not enter BlockedCleanup.");
+                    RegionRuntimeSnapshot blocked =
+                        harness.Runtime.CaptureSnapshot();
+                    Assert.AreEqual(0, blocked.Demands.Count);
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1));
+
+                    controller.CompleteBlockedCleanup();
+                    Assert.IsTrue(harness.Runtime.TryRetryRegion(
+                        harness.RegionId,
+                        out diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => harness.Runtime.CaptureSnapshot()
+                                  .Regions.Count == 0,
+                        "The no-Demand Region did not finish its retried Off cleanup.");
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1),
+                        "Retry must observe the late cleanup completion without invoking Cleanup twice.");
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupCount(
+                            key,
+                            RegionParticipantCleanupReason.Removed));
+                }
+            });
+
+        [UnityTest]
         public IEnumerator ShutdownDoesNotInvokeBlockedCleanupTwice() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -1813,6 +2036,81 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator ForceShutdownInterruptsTerminalAwareCleanup() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "terminal-interrupt";
+                var controller = new CandidateController();
+                controller.BlockFirstCleanup(key);
+                controller.SetTerminalCleanupInterrupt(key, true);
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(5),
+                    Node(
+                        key,
+                        new StableTestPlan(key)));
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(revision))
+                        .Status);
+
+                    lease.Dispose();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .CleanupAsyncInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The terminal-aware candidate did not begin cleanup.");
+                    Assert.IsFalse(
+                        harness.Runtime.CaptureSnapshot()
+                            .Regions[0].BlockedCleanup,
+                        "The regression must force shutdown before the regular cleanup timeout.");
+                    Assert.AreEqual(
+                        0,
+                        controller
+                            .TerminalCleanupInterruptCount(key));
+                    Assert.AreEqual(
+                        0,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1));
+
+                    harness.Runtime.ForceShutdown();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "Force shutdown remained blocked on an interruptible late cleanup.");
+                    Assert.AreEqual(
+                        1,
+                        controller
+                            .TerminalCleanupInterruptCount(key));
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1));
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
         public IEnumerator CleanupRunsInExactReversePlanOrder() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -1896,6 +2194,63 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     Assert.AreEqual(
                         CoCoDiagnosticCode.RegionDemandConflict,
                         controller.ReentrantDiagnostic.Code);
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator AsyncPrepareCanBeSupersededByExternalDemandUpdate() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "async-supersede";
+                var controller = new CandidateController();
+                controller.BlockPrepare(key);
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(5),
+                           Node(
+                               key,
+                               new SensitiveTestPlan(key))))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount(key) == 1,
+                        "The first candidate did not enter asynchronous Prepare.");
+
+                    Assert.IsTrue(lease.TryUpdate(
+                        Capabilities(
+                            RegionCapabilityId.Represented,
+                            RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out RegionDemandRevision second,
+                        out diagnostic),
+                        "An external Demand update must remain legal while Prepare is awaiting. " +
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Superseded,
+                        (await lease.WaitUntilReadyAsync(first)).Status);
+
+                    controller.CompleteBlockedPrepare();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(second)).Status);
+                    Assert.AreEqual(
+                        2,
+                        controller.PrepareCount(key));
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupCount(
+                            key,
+                            RegionParticipantCleanupReason
+                                .CandidateCancelled));
                 }
             });
 
@@ -2872,7 +3227,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
         private class RecordingCandidate :
             IRegionParticipantCandidate,
-            IRegionParticipantTerminalCleanup
+            IRegionParticipantTerminalCleanup,
+            IRegionParticipantTerminalCleanupInterrupt
         {
             private readonly CandidateController controller;
             private readonly RegionPlanNodeId nodeId;
@@ -3000,6 +3356,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     creation,
                     RegionParticipantCleanupReason.HostShutdown);
             }
+
+            void IRegionParticipantTerminalCleanupInterrupt.
+                InterruptPendingCleanupForTerminalFallback() =>
+                controller.InterruptPendingCleanup(plan.Key);
         }
 
         private sealed class WrongRecordingCandidate :
@@ -3044,6 +3404,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 new Dictionary<string, int>();
             private readonly Dictionary<string, int> terminalCleanupInvocations =
                 new Dictionary<string, int>();
+            private readonly Dictionary<string, int>
+                terminalCleanupInterrupts =
+                    new Dictionary<string, int>();
             private readonly HashSet<string> prepareFailures =
                 new HashSet<string>();
             private readonly HashSet<string> commitFailures =
@@ -3060,6 +3423,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 new HashSet<string>();
             private readonly HashSet<string> aliasExistingCandidates =
                 new HashSet<string>();
+            private readonly HashSet<string>
+                terminalCleanupInterruptible =
+                    new HashSet<string>();
             private readonly Dictionary<string, RecordingCandidate>
                 existingCandidates =
                     new Dictionary<string, RecordingCandidate>();
@@ -3186,6 +3552,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             internal void SetCleanupThrow(string key, bool enabled) =>
                 SetFlag(cleanupThrows, key, enabled);
+
+            internal void SetTerminalCleanupInterrupt(
+                string key,
+                bool enabled) =>
+                SetFlag(
+                    terminalCleanupInterruptible,
+                    key,
+                    enabled);
 
             internal void SetFactoryFailureWithCandidate(
                 string key,
@@ -3314,6 +3688,26 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                             "Requested late cleanup failure.")));
             }
 
+            internal void InterruptPendingCleanup(string key)
+            {
+                if (!terminalCleanupInterruptible.Contains(key))
+                {
+                    return;
+                }
+
+                Increment(terminalCleanupInterrupts, key);
+                if (string.Equals(
+                        key,
+                        blockedKey,
+                        StringComparison.Ordinal))
+                {
+                    blockedCleanup.TrySetResult(
+                        RegionParticipantCleanupResult.Failure(
+                            RegionErrors.CleanupBlocked(
+                                "Terminal fallback interrupted pending cleanup.")));
+                }
+            }
+
             internal void TryReenterMutation()
             {
                 if (!ReenterOnCommit || ReentrantRuntime == null) return;
@@ -3371,6 +3765,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 Get(
                     terminalCleanupInvocations,
                     CreationKey(key, creation));
+
+            internal int TerminalCleanupInterruptCount(
+                string key) =>
+                Get(terminalCleanupInterrupts, key);
 
             internal int CleanupCount(
                 string key,

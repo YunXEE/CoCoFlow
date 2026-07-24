@@ -466,6 +466,17 @@ namespace CoCoFlow.Runtime.Modules.Map
                         attempt.UnregisterChunkAnchor(nodeId, anchor);
                     }
                 }
+
+                public UniTask<CoCoDiagnostic>
+                    ObserveContentReleaseAsync(
+                        ContentId contentId,
+                        long resourceGeneration,
+                        CancellationToken terminalCancellationToken) =>
+                    RegionContentReleaseObserver.ObserveAsync(
+                        attempt.owner.runtime.ContentRuntime,
+                        contentId,
+                        resourceGeneration,
+                        terminalCancellationToken);
             }
         }
 
@@ -1321,6 +1332,9 @@ namespace CoCoFlow.Runtime.Modules.Map
                     EnterParticipantCallback();
                     try
                     {
+                        // Only synchronous callback re-entry is rejected here.
+                        // Once Prepare returns its task, external Demand changes
+                        // must remain able to supersede the in-flight attempt.
                         prepareTask = candidate.PrepareAsync(
                             prepareContext,
                             cancellationToken);
@@ -3383,6 +3397,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                 {
                     RegionState state = shutdownOrder[stateIndex];
                     state.ActiveCancellation?.Cancel();
+                    InterruptCleanupBatchForTerminalFallbackNoThrow(
+                        state.ActiveCleanupBatch);
                     Task runner = state.RunnerTask;
                     if (runner != null && !runner.IsCompleted)
                     {
@@ -3456,6 +3472,12 @@ namespace CoCoFlow.Runtime.Modules.Map
                         bool succeeded = false;
                         try
                         {
+                            if (!cleanup.Value.IsCompleted)
+                            {
+                                InterruptPendingCleanupForTerminalFallbackNoThrow(
+                                    cleanup.Key);
+                            }
+
                             RegionParticipantCleanupResult result =
                                 await cleanup.Value;
                             succeeded = result.Succeeded;
@@ -3499,6 +3521,12 @@ namespace CoCoFlow.Runtime.Modules.Map
                     bool succeeded = false;
                     try
                     {
+                        if (!pair.Value.IsCompleted)
+                        {
+                            InterruptPendingCleanupForTerminalFallbackNoThrow(
+                                pair.Key);
+                        }
+
                         RegionParticipantCleanupResult result =
                             await pair.Value;
                         succeeded = result.Succeeded;
@@ -3525,6 +3553,53 @@ namespace CoCoFlow.Runtime.Modules.Map
             catch
             {
                 // Terminal shutdown has no remaining recovery surface.
+            }
+        }
+
+        private static void
+            InterruptPendingCleanupForTerminalFallbackNoThrow(
+                IRegionParticipantCandidate candidate)
+        {
+            if (!(candidate is
+                    IRegionParticipantTerminalCleanupInterrupt
+                    interruptible))
+            {
+                return;
+            }
+
+            try
+            {
+                interruptible
+                    .InterruptPendingCleanupForTerminalFallback();
+            }
+            catch
+            {
+                // Terminal force cleanup below remains authoritative.
+            }
+        }
+
+        private static void
+            InterruptCleanupBatchForTerminalFallbackNoThrow(
+                CleanupBatch batch)
+        {
+            if (batch == null)
+            {
+                return;
+            }
+
+            for (int index = batch.Index;
+                 index < batch.Works.Count;
+                 index++)
+            {
+                CleanupWork work = batch.Works[index];
+                if (work.InFlight == null ||
+                    work.InFlight.IsCompleted)
+                {
+                    continue;
+                }
+
+                InterruptPendingCleanupForTerminalFallbackNoThrow(
+                    work.Node.Candidate);
             }
         }
 

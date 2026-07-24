@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using Cysharp.Threading.Tasks;
@@ -103,18 +104,24 @@ namespace CoCoFlow.Runtime.Modules.Map
         private sealed class ContentCandidate :
             IRegionParticipantCandidate,
             IRegionParticipantTerminalCleanup,
+            IRegionParticipantTerminalCleanupInterrupt,
             IRegionChunkAnchorSource,
             IRegionContentMonitorSource
         {
             private readonly RegionPlanNodeId nodeId;
             private readonly ContentPlan plan;
             private readonly IRegionContentParticipantRuntime runtime;
+            private readonly CancellationTokenSource
+                terminalCleanupCancellation =
+                    new CancellationTokenSource();
             private ContentScope scope;
             private ContentLease<Scene> lease;
             private CoCoRegionChunkAnchor anchor;
             private bool registered;
             private bool prepared;
             private bool cleaned;
+            private Task<CoCoDiagnostic> releaseObservationTask;
+            private Task<RegionParticipantCleanupResult> cleanupTask;
 
             internal ContentCandidate(
                 RegionPlanNodeId nodeId,
@@ -156,13 +163,39 @@ namespace CoCoFlow.Runtime.Modules.Map
                 RegionParticipantCleanupReason reason,
                 CancellationToken cancellationToken)
             {
-                return UniTask.FromResult(CleanupNoThrow());
+                if (cleanupTask == null)
+                {
+                    cleanupTask = CleanupCoreAsync().AsTask();
+                }
+
+                return AwaitCleanupAsync(cleanupTask);
             }
 
             public void ForceCleanupNoFail()
             {
-                CleanupNoThrow();
+                InterruptPendingCleanupForTerminalFallback();
+                if (cleaned)
+                {
+                    return;
+                }
+
+                try
+                {
+                    BeginRelease(false);
+                }
+                catch
+                {
+                    // Terminal Host shutdown cannot recover Content release.
+                }
+
+                anchor = null;
+                prepared = false;
+                cleaned = true;
             }
+
+            void IRegionParticipantTerminalCleanupInterrupt.
+                InterruptPendingCleanupForTerminalFallback() =>
+                InterruptPendingCleanupForTerminalFallback();
 
             public bool TryGetAnchor(out CoCoRegionChunkAnchor result)
             {
@@ -274,7 +307,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return RegionParticipantPrepareResult.Success();
             }
 
-            private RegionParticipantCleanupResult CleanupNoThrow()
+            private async UniTask<RegionParticipantCleanupResult>
+                CleanupCoreAsync()
             {
                 if (cleaned)
                 {
@@ -283,13 +317,21 @@ namespace CoCoFlow.Runtime.Modules.Map
 
                 try
                 {
-                    if (registered)
+                    BeginRelease(true);
+                    if (releaseObservationTask != null)
                     {
-                        runtime.UnregisterChunkAnchor(nodeId, anchor);
-                        registered = false;
+                        CoCoDiagnostic releaseDiagnostic =
+                            await releaseObservationTask;
+                        await UniTask.SwitchToMainThread();
+                        if (!releaseDiagnostic.IsNone)
+                        {
+                            return RegionParticipantCleanupResult.Failure(
+                                RegionErrors.CleanupBlocked(
+                                    "The Content participant's Chunk Scene release failed: " +
+                                    releaseDiagnostic.Message));
+                        }
                     }
 
-                    DisposeScope();
                     anchor = null;
                     prepared = false;
                     cleaned = true;
@@ -304,12 +346,62 @@ namespace CoCoFlow.Runtime.Modules.Map
                 }
             }
 
-            private void DisposeScope()
+            private void BeginRelease(bool observeRelease)
             {
+                if (registered)
+                {
+                    runtime.UnregisterChunkAnchor(nodeId, anchor);
+                    registered = false;
+                }
+
+                DisposeScope(observeRelease);
+                anchor = null;
+                prepared = false;
+            }
+
+            private void DisposeScope(bool observeRelease = true)
+            {
+                ContentLease<Scene> ownedLease = lease;
                 lease = null;
                 ContentScope ownedScope = scope;
                 scope = null;
-                ownedScope?.Dispose();
+                if (ownedScope == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    ownedScope.Dispose();
+                }
+                finally
+                {
+                    if (observeRelease &&
+                        ownedLease != null &&
+                        releaseObservationTask == null)
+                    {
+                        releaseObservationTask =
+                            runtime.ObserveContentReleaseAsync(
+                                    ownedLease.Id,
+                                    ownedLease.ResourceGeneration,
+                                    terminalCleanupCancellation.Token)
+                                .AsTask();
+                    }
+                }
+            }
+
+            private static async UniTask<RegionParticipantCleanupResult>
+                AwaitCleanupAsync(
+                    Task<RegionParticipantCleanupResult> task) =>
+                await task;
+
+            private void InterruptPendingCleanupForTerminalFallback()
+            {
+                if (!terminalCleanupCancellation
+                        .IsCancellationRequested)
+                {
+                    terminalCleanupCancellation.Cancel();
+                }
             }
 
             private static bool IsExpectedLeasedScene(
@@ -495,11 +587,85 @@ namespace CoCoFlow.Runtime.Modules.Map
         void UnregisterChunkAnchor(
             RegionPlanNodeId nodeId,
             CoCoRegionChunkAnchor anchor);
+
+        UniTask<CoCoDiagnostic> ObserveContentReleaseAsync(
+            ContentId contentId,
+            long resourceGeneration,
+            CancellationToken terminalCancellationToken);
     }
 
     internal interface IRegionChunkAnchorSource
     {
         bool TryGetAnchor(out CoCoRegionChunkAnchor anchor);
+    }
+
+    internal static class RegionContentReleaseObserver
+    {
+        internal static async UniTask<CoCoDiagnostic> ObserveAsync(
+            ContentRuntime runtime,
+            ContentId contentId,
+            long resourceGeneration,
+            CancellationToken terminalCancellationToken = default)
+        {
+            if (runtime == null ||
+                !contentId.IsValid ||
+                resourceGeneration <= 0L)
+            {
+                return RegionErrors.CleanupBlocked(
+                    "Content release observation requires a live runtime and a valid resource generation.");
+            }
+
+            while (true)
+            {
+                if (terminalCancellationToken
+                    .IsCancellationRequested)
+                {
+                    return RegionErrors.CleanupBlocked(
+                        "Terminal fallback interrupted Content release observation.");
+                }
+
+                ContentRuntimeSnapshot snapshot =
+                    runtime.CaptureSnapshot();
+                bool found = false;
+                for (int index = 0;
+                     index < snapshot.Entries.Count;
+                     index++)
+                {
+                    ContentEntrySnapshot entry =
+                        snapshot.Entries[index];
+                    if (entry.ContentId != contentId ||
+                        entry.ResourceGeneration !=
+                        resourceGeneration)
+                    {
+                        continue;
+                    }
+
+                    found = true;
+                    if (entry.State ==
+                        ContentEntryState.ReleaseFailed)
+                    {
+                        return entry.Diagnostic.IsNone
+                            ? RegionErrors.CleanupBlocked(
+                                "Content release failed without a diagnostic.")
+                            : entry.Diagnostic;
+                    }
+
+                    if (entry.LeaseCount > 0)
+                    {
+                        return CoCoDiagnostic.None;
+                    }
+
+                    break;
+                }
+
+                if (!found)
+                {
+                    return CoCoDiagnostic.None;
+                }
+
+                await UniTask.Yield();
+            }
+        }
     }
 
     internal static class RegionBuiltInParticipantUtilities
