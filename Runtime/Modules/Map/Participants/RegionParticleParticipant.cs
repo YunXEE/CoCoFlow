@@ -146,7 +146,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             private OriginalState[] originalStates =
                 Array.Empty<OriginalState>();
             private bool prepared;
-            private bool committed;
+            private bool restoreRequired;
             private bool cleaned;
 
             internal ParticleCandidate(
@@ -243,14 +243,17 @@ namespace CoCoFlow.Runtime.Modules.Map
                                 "The Particle participant lost a target before commit.");
                             return false;
                         }
+                    }
 
+                    restoreRequired = true;
+                    for (int index = 0; index < systems.Length; index++)
+                    {
                         ApplyAction(
                             systems[index],
                             plan.Action,
                             plan.ClearOnStop);
                     }
 
-                    committed = true;
                     diagnostic = CoCoDiagnostic.None;
                     return true;
                 }
@@ -286,7 +289,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
                 try
                 {
-                    if (committed && !preserveCommittedState)
+                    if (restoreRequired && !preserveCommittedState)
                     {
                         int count = Math.Min(
                             systems.Length,
@@ -318,7 +321,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                     systems = Array.Empty<ParticleSystem>();
                     originalStates = Array.Empty<OriginalState>();
                     prepared = false;
-                    committed = false;
+                    restoreRequired = false;
                     return RegionParticipantCleanupResult.Success();
                 }
                 catch (Exception exception)

@@ -25,6 +25,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         private bool projectionPrepared;
         private CoCoContextRestoreApplyKind preparedApplyKind;
         private RegionTemporalFrame preparedProjectionFrame;
+        private RegionRuntime.RegionTemporalBarrier previewBarrier;
+        private RegionRuntime.RegionTemporalBarrier correctionBarrier;
         private bool isDisposed;
 
         private RegionTemporalRuntime(
@@ -98,6 +100,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             out CoCoDiagnostic diagnostic)
         {
             if (!TryRequireIdle(out diagnostic) ||
+                regionRuntime.IsTemporalDispatchDeferred ||
                 isPreviewing ||
                 pendingTarget != null ||
                 !candidate.IsValid)
@@ -178,10 +181,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             if (!TryRequireIdle(out diagnostic) ||
                 isPreviewing ||
                 pendingTarget != null ||
-                historyCount != count ||
-                !TryValidateTargetAvailable(
-                    BuildPublishedTarget(),
-                    out diagnostic))
+                historyCount != count)
             {
                 if (diagnostic.IsNone)
                 {
@@ -192,6 +192,22 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 return RecordFailure(diagnostic);
             }
 
+            if (!regionRuntime.TryEnterTemporalBarrier(
+                    out RegionRuntime.RegionTemporalBarrier barrier,
+                    out diagnostic))
+            {
+                return RecordFailure(diagnostic);
+            }
+
+            if (!TryValidateTargetAvailable(
+                    BuildPublishedTarget(),
+                    out diagnostic))
+            {
+                barrier.Dispose();
+                return RecordFailure(diagnostic);
+            }
+
+            previewBarrier = barrier;
             isPreviewing = true;
             diagnostic = CoCoDiagnostic.None;
             LastDiagnostic = diagnostic;
@@ -203,6 +219,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             if (!isDisposed && !projectionPrepared)
             {
                 isPreviewing = false;
+                ReleasePreviewBarrierNoFail();
             }
         }
 
@@ -213,15 +230,35 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             in CoCoTickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
+            diagnostic = CoCoDiagnostic.None;
+            bool standaloneCorrection =
+                applyKind == CoCoContextRestoreApplyKind.Correction &&
+                !isPreviewing;
             if (isDisposed ||
                 projectionPrepared ||
                 !source.IsValid ||
                 !targetTickFrame.IsValid ||
                 (applyKind != CoCoContextRestoreApplyKind.Correction &&
-                 !isPreviewing))
+                 !isPreviewing) ||
+                (isPreviewing && previewBarrier == null) ||
+                (standaloneCorrection &&
+                 !TryRequireIdle(out diagnostic)))
             {
-                diagnostic = RegionErrors.TemporalProjection(
-                    "Map Temporal projection metadata is invalid for the current lifecycle state.");
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = RegionErrors.TemporalProjection(
+                        "Map Temporal projection metadata is invalid for the current lifecycle state.");
+                }
+
+                return RecordFailure(diagnostic);
+            }
+
+            RegionRuntime.RegionTemporalBarrier acquiredCorrection = null;
+            if (standaloneCorrection &&
+                !regionRuntime.TryEnterTemporalBarrier(
+                    out acquiredCorrection,
+                    out diagnostic))
+            {
                 return RecordFailure(diagnostic);
             }
 
@@ -233,6 +270,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                         out frame,
                         out diagnostic))
                 {
+                    acquiredCorrection?.Dispose();
                     return RecordFailure(diagnostic);
                 }
             }
@@ -249,9 +287,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
             if (!TryValidateFrameAvailable(frame, out diagnostic))
             {
+                acquiredCorrection?.Dispose();
                 return RecordFailure(diagnostic);
             }
 
+            correctionBarrier = acquiredCorrection;
             preparedApplyKind = applyKind;
             preparedProjectionFrame = frame;
             projectionPrepared = true;
@@ -296,6 +336,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
 
             ClearPreparedProjection();
+            ReleaseCorrectionBarrierNoFail();
         }
 
         internal bool CanConfirmPreview(int historyDepth)
@@ -372,6 +413,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
             isPreviewing = false;
             ClearPreparedProjection();
+            ReleaseCorrectionBarrierNoFail();
+            ReleasePreviewBarrierNoFail();
         }
 
         internal void DrainPublishedCleanupNoFail()
@@ -405,6 +448,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             if (isDisposed) return;
 
             isDisposed = true;
+            ReleaseCorrectionBarrierNoFail();
+            ReleasePreviewBarrierNoFail();
             try
             {
                 retentionScope.Dispose();
@@ -473,7 +518,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                     return false;
                 }
 
-                if (source.CommittedCapabilities.Count == 0)
+                if (source.CommittedEffectiveCapabilities.Count == 0)
                 {
                     continue;
                 }
@@ -494,7 +539,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 {
                     RegionChunkRuntimeSnapshot chunk =
                         source.Chunks[chunkIndex];
-                    if (chunk.CommittedCapabilities.Count == 0)
+                    if (chunk.CommittedEffectiveCapabilities.Count == 0)
                     {
                         continue;
                     }
@@ -502,9 +547,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                     chunks.Add(
                         new RegionTemporalChunkState(
                             chunk.ChunkId,
-                            chunk.CommittedCapabilities));
+                            chunk.CommittedEffectiveCapabilities));
                     chunkUnion =
-                        chunkUnion.Union(chunk.CommittedCapabilities);
+                        chunkUnion.Union(
+                            chunk.CommittedEffectiveCapabilities);
                 }
 
                 if (chunks.Count == 0)
@@ -518,7 +564,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                     }
                 }
                 else if (!chunkUnion.Equals(
-                             source.CommittedCapabilities))
+                             source.CommittedEffectiveCapabilities))
                 {
                     diagnostic = RegionErrors.TemporalProjection(
                         "Region '" + source.RegionId.Value +
@@ -535,7 +581,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 if (source.CommittedCoverage.CoversAll)
                 {
                     if (!TryResolveAllCoverageCapabilities(
-                            source.CommittedCapabilities,
+                            source.CommittedEffectiveCapabilities,
                             chunks,
                             out allCoverageCapabilities))
                     {
@@ -549,7 +595,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 regions.Add(
                     new RegionTemporalRegionState(
                         source.RegionId,
-                        source.CommittedCapabilities,
+                        source.CommittedEffectiveCapabilities,
                         source.CommittedCoverage,
                         allCoverageCapabilities,
                         chunks));
@@ -607,7 +653,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                         out RegionRuntimeRegionSnapshot available) ||
                     available.Faulted ||
                     available.BlockedCleanup ||
-                    !available.CommittedCapabilities.IsSupersetOf(
+                    !available.CommittedEffectiveCapabilities.IsSupersetOf(
                         required.Capabilities))
                 {
                     diagnostic = RegionErrors.TemporalProjection(
@@ -633,7 +679,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                      chunkIndex++)
                 {
                     chunks[available.Chunks[chunkIndex].ChunkId] =
-                        available.Chunks[chunkIndex].CommittedCapabilities;
+                        available.Chunks[chunkIndex]
+                            .CommittedEffectiveCapabilities;
                 }
 
                 for (int chunkIndex = 0;
@@ -1031,6 +1078,42 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             projectionPrepared = false;
             preparedApplyKind = default;
             preparedProjectionFrame = null;
+        }
+
+        private void ReleasePreviewBarrierNoFail()
+        {
+            try
+            {
+                previewBarrier?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                LastDiagnostic = RegionErrors.TemporalCleanup(
+                    "Map Temporal Preview barrier release threw: " +
+                    exception.Message);
+            }
+            finally
+            {
+                previewBarrier = null;
+            }
+        }
+
+        private void ReleaseCorrectionBarrierNoFail()
+        {
+            try
+            {
+                correctionBarrier?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                LastDiagnostic = RegionErrors.TemporalCleanup(
+                    "Map Temporal Correction barrier release threw: " +
+                    exception.Message);
+            }
+            finally
+            {
+                correctionBarrier = null;
+            }
         }
 
         private bool RecordFailure(CoCoDiagnostic diagnostic)

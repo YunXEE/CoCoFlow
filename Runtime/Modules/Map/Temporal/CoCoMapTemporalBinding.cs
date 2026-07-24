@@ -8,7 +8,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
     public sealed class CoCoMapTemporalBinding :
         MonoBehaviour,
         ICoCoContextRestoreBinding,
-        ICoCoStateGraphTemporalParticipant
+        ICoCoStateGraphTemporalParticipant,
+        ICoCoTemporalDecoratorBinding
     {
         [SerializeField] private CoCoStateGraphHost stateGraphHost;
         [SerializeField] private CoCoMapHost mapHost;
@@ -30,6 +31,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
         public CoCoMapHost MapHost => mapHost;
+        MonoBehaviour ICoCoTemporalDecoratorBinding
+            .DownstreamRestoreBinding => downstreamRestoreBinding;
+
         public CoCoDiagnostic LastDiagnostic
         {
             get
@@ -149,6 +153,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 mapHost.Runtime.IsShuttingDown ||
                 mapHost.Runtime.IsDisposed ||
                 !CoCoStateGraphHostBoundary.Contains(host, this) ||
+                !CoCoTemporalDecoratorChain.TryValidate(
+                    host,
+                    this,
+                    out diagnostic) ||
                 !TryFreezeDownstream(host, out diagnostic))
             {
                 if (diagnostic.IsNone)

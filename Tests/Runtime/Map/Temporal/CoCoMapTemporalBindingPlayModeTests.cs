@@ -33,6 +33,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         public IEnumerator MapPoolProjectDecoratorDelegatesFullLifecycleInOrder() =>
             UniTask.ToCoroutine(RunDecoratorLifecycleAsync);
 
+        [UnityTest]
+        public IEnumerator IndirectMapPoolMapDecoratorCycleIsRejectedBeforeAttach() =>
+            UniTask.ToCoroutine(RunIndirectCycleRejectionAsync);
+
         private static async UniTask RunDecoratorLifecycleAsync()
         {
             DecoratorFixture fixture = CreateFixture();
@@ -131,6 +135,42 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     fixture.Sink.RequestCount,
                     Is.EqualTo(transitionsBefore),
                     "Preview must not dispatch Map loading or tier transitions.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask RunIndirectCycleRejectionAsync()
+        {
+            DecoratorFixture fixture = CreateFixture();
+            try
+            {
+                SetField(
+                    fixture.PoolTemporalBinding,
+                    "downstreamRestoreBinding",
+                    fixture.MapTemporalBinding);
+
+                Assert.That(
+                    fixture.Host.TryStart(
+                        out CoCoDiagnostic diagnostic),
+                    Is.False);
+                Assert.That(
+                    diagnostic.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.InvalidActorBinding));
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "runtime"),
+                    Is.Null,
+                    "Decorator cycle validation must reject before Map sidecar attachment.");
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_runtime"),
+                    Is.Null,
+                    "Decorator cycle validation must reject before Pool sidecar attachment.");
             }
             finally
             {

@@ -27,6 +27,70 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         public IEnumerator BranchTruncateDefersRetentionDecreaseUntilDrain() =>
             UniTask.ToCoroutine(RunDeferredBranchCleanupAsync);
 
+        [UnityTest]
+        public IEnumerator PreviewDefersLogicalDemandMutationsUntilOneFlush() =>
+            UniTask.ToCoroutine(RunDeferredDemandMutationAsync);
+
+        [UnityTest]
+        public IEnumerator StandaloneCorrectionHoldsBarrierUntilFinish() =>
+            UniTask.ToCoroutine(RunStandaloneCorrectionBarrierAsync);
+
+        [UnityTest]
+        public IEnumerator TemporalRetainsResolvedEffectiveCapabilities() =>
+            UniTask.ToCoroutine(RunEffectiveCapabilityRetentionAsync);
+
+        private static async UniTask RunEffectiveCapabilityRetentionAsync()
+        {
+            TemporalRuntimeFixture fixture =
+                CreateFixture(FullRequirementOnly());
+            try
+            {
+                RegionRuntimeRegionSnapshot committed =
+                    fixture.Region.CaptureSnapshot().Regions[0];
+                Assert.That(
+                    committed.CommittedCapabilities.Count,
+                    Is.EqualTo(1),
+                    "The public snapshot must preserve the raw Demand requirement.");
+                Assert.That(
+                    committed.CommittedEffectiveCapabilities.Count,
+                    Is.EqualTo(4),
+                    "The transition authority must publish the cumulative resolved tier.");
+
+                CaptureForward(
+                    fixture.Temporal,
+                    CreateFrame(50UL));
+                fixture.GameplayLease.Dispose();
+
+                RegionDemandRuntimeSnapshot retained =
+                    FindTemporalDemand(
+                        fixture.Region.CaptureSnapshot());
+                Assert.That(
+                    retained.Capabilities.Count,
+                    Is.EqualTo(4),
+                    "Temporal retention must record effective capabilities, not the raw {Full} requirement.");
+                Assert.That(
+                    retained.Capabilities.Contains(
+                        RegionCapabilityId.Represented),
+                    Is.True);
+                Assert.That(
+                    retained.Capabilities.Contains(
+                        RegionCapabilityId.Background),
+                    Is.True);
+                Assert.That(
+                    retained.Capabilities.Contains(
+                        RegionCapabilityId.Enterable),
+                    Is.True);
+                Assert.That(
+                    retained.Capabilities.Contains(
+                        RegionCapabilityId.Full),
+                    Is.True);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
         private static async UniTask RunHistoricalAvailabilityAsync()
         {
             TemporalRuntimeFixture fixture =
@@ -228,8 +292,162 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     Is.True);
                 Assert.That(
                     fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBeforeBranch),
+                    "The cleanup callback may update logical retention, but dispatch must wait until the callback stack has exited.");
+
+                fixture.Region.FlushDeferredTransitionsNoThrow();
+                Assert.That(
+                    fixture.Sink.RequestCount,
                     Is.GreaterThan(transitionsBeforeBranch),
-                    "Only the published cleanup drain may dispatch the retention decrease.");
+                    "LateUpdate-equivalent flush must publish the final retention resolution.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask RunDeferredDemandMutationAsync()
+        {
+            TemporalRuntimeFixture fixture =
+                CreateFixture(FullCapabilities());
+            RegionDemandScope transientScope = null;
+            try
+            {
+                CaptureForward(fixture.Temporal, CreateFrame(30UL));
+                int transitionsBefore = fixture.Sink.RequestCount;
+                Assert.That(
+                    fixture.Temporal.TryBeginPreview(
+                        fixture.Temporal.HistoryCount,
+                        out CoCoDiagnostic begin),
+                    Is.True,
+                    begin.Message);
+
+                Assert.That(
+                    fixture.GameplayLease.TryUpdate(
+                        RepresentedCapabilities(),
+                        fixture.Coverage,
+                        out RegionDemandRevision updatedRevision,
+                        out CoCoDiagnostic update),
+                    Is.True,
+                    update.Message);
+                UniTask<RegionReadinessResult> updatedReadiness =
+                    fixture.GameplayLease.WaitUntilReadyAsync(
+                        updatedRevision);
+
+                Assert.That(
+                    RegionDemandOwnerId.TryCreate(
+                        "tests.map.temporal.transient." +
+                        Guid.NewGuid().ToString("N"),
+                        out RegionDemandOwnerId transientOwner),
+                    Is.True);
+                Assert.That(
+                    fixture.Region.TryCreateDemandScope(
+                        transientOwner,
+                        out transientScope,
+                        out CoCoDiagnostic scopeDiagnostic),
+                    Is.True,
+                    scopeDiagnostic.Message);
+                Assert.That(
+                    transientScope.TryDemand(
+                        fixture.RegionId,
+                        FullCapabilities(),
+                        fixture.Coverage,
+                        out RegionDemandLease transientLease,
+                        out RegionDemandRevision transientRevision,
+                        out CoCoDiagnostic transientDiagnostic),
+                    Is.True,
+                    transientDiagnostic.Message);
+                UniTask<RegionReadinessResult> transientReadiness =
+                    transientLease.WaitUntilReadyAsync(
+                        transientRevision);
+                transientLease.Dispose();
+                Assert.That(
+                    (await transientReadiness).Status,
+                    Is.EqualTo(RegionReadinessStatus.Superseded));
+
+                Assert.That(
+                    fixture.Region.TryRetryRegion(
+                        fixture.RegionId,
+                        out CoCoDiagnostic retryDiagnostic),
+                    Is.False);
+                Assert.That(
+                    retryDiagnostic.Code,
+                    Is.EqualTo(
+                        CoCoDiagnosticCode.RegionTemporalConflict));
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore),
+                    "Preview mutations and rejected Retry must have no transition side effects.");
+
+                fixture.Temporal.CompletePreviewNoFail(
+                    CoCoContextRestoreApplyKind.Cancel);
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore),
+                    "Preview completion must not dispatch while still on the Temporal callback stack.");
+
+                fixture.Region.FlushDeferredTransitionsNoThrow();
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore + 1),
+                    "One flush must coalesce all Preview mutations to the final Region resolution.");
+                Assert.That(
+                    (await updatedReadiness).Status,
+                    Is.EqualTo(RegionReadinessStatus.Ready));
+            }
+            finally
+            {
+                transientScope?.Dispose();
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask RunStandaloneCorrectionBarrierAsync()
+        {
+            TemporalRuntimeFixture fixture =
+                CreateFixture(RepresentedCapabilities());
+            try
+            {
+                CoCoTemporalFrameInfo frame = CreateFrame(40UL);
+                Assert.That(
+                    fixture.Temporal.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Correction,
+                        0,
+                        frame,
+                        frame.TickFrame,
+                        out CoCoDiagnostic correction),
+                    Is.True,
+                    correction.Message);
+                int transitionsBefore = fixture.Sink.RequestCount;
+
+                Assert.That(
+                    fixture.GameplayLease.TryUpdate(
+                        FullCapabilities(),
+                        fixture.Coverage,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic update),
+                    Is.True,
+                    update.Message);
+                UniTask<RegionReadinessResult> readiness =
+                    fixture.GameplayLease.WaitUntilReadyAsync(revision);
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore));
+
+                fixture.Temporal.FinishProjectionNoFail(true);
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore),
+                    "Correction completion must leave dispatch queued until the callback stack exits.");
+
+                fixture.Region.FlushDeferredTransitionsNoThrow();
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBefore + 1));
+                Assert.That(
+                    (await readiness).Status,
+                    Is.EqualTo(RegionReadinessStatus.Ready));
             }
             finally
             {
@@ -438,6 +656,16 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             return capabilities;
         }
 
+        private static RegionCapabilitySet FullRequirementOnly()
+        {
+            Assert.That(
+                RegionCapabilitySet.TryCreate(
+                    new[] { RegionCapabilityId.Full },
+                    out RegionCapabilitySet capabilities),
+                Is.True);
+            return capabilities;
+        }
+
         private static RegionDemandRuntimeSnapshot FindTemporalDemand(
             RegionRuntimeSnapshot snapshot)
         {
@@ -598,6 +826,33 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 RegionDemandResolution resolution)
             {
                 RequestCount++;
+                ResolveDefaultTier(
+                    resolution.RegionCapabilities,
+                    out RegionTierId regionTierId,
+                    out RegionCapabilitySet regionEffective);
+                var chunkFidelity =
+                    new Dictionary<
+                        RegionChunkId,
+                        RegionResolvedChunkFidelity>();
+                foreach (RegionChunkId chunkId in knownChunks)
+                {
+                    ResolveDefaultTier(
+                        resolution.GetChunkCapabilities(chunkId),
+                        out RegionTierId chunkTierId,
+                        out RegionCapabilitySet chunkEffective);
+                    chunkFidelity.Add(
+                        chunkId,
+                        new RegionResolvedChunkFidelity(
+                            chunkTierId,
+                            chunkEffective));
+                }
+
+                runtime.PublishResolvedFidelity(
+                    resolution.RegionId,
+                    resolution.DesiredGeneration,
+                    regionTierId,
+                    regionEffective,
+                    chunkFidelity);
                 runtime.PublishTransitionProgress(
                     resolution.RegionId,
                     resolution.DesiredGeneration,
