@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
+using CoCoFlow.Editor.Modules.Map;
 using CoCoFlow.Fixtures.ExternalMapTa;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Map;
@@ -130,9 +132,41 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
                     CoCoDiagnosticCode.RegionCatalogConflict));
         }
 
+        [Test]
+        public void LinkXmlUsesUnityLinkerNameForNestedTypes()
+        {
+            string path = CoCoMapBuildValidation.WriteLinkXml(
+                new[] { typeof(NestedLinkerFixture) });
+            try
+            {
+                string xml = File.ReadAllText(path);
+                string expectedName =
+                    typeof(NestedLinkerFixture).FullName
+                        .Replace('+', '/');
+
+                StringAssert.Contains(
+                    "fullname=\"" + expectedName + "\"",
+                    xml);
+                StringAssert.DoesNotContain(
+                    typeof(NestedLinkerFixture).FullName,
+                    xml);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
         [Serializable]
         private sealed class ConcreteConfig :
             RegionParticipantConfig
+        {
+        }
+
+        private sealed class NestedLinkerFixture
         {
         }
 

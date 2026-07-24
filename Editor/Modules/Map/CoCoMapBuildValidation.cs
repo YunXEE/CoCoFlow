@@ -137,7 +137,8 @@ namespace CoCoFlow.Editor.Modules.Map
                             names);
                     }
 
-                    names.Add(type.FullName);
+                    names.Add(
+                        type.FullName.Replace('+', '/'));
                 }
             }
 

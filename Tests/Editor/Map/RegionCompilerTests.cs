@@ -249,6 +249,171 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         }
 
         [Test]
+        public void CompileAllRejectsDuplicateChunkIdAcrossRegions()
+        {
+            CoCoRegionBinding first = CreateBinding(
+                "world.castle",
+                CreateProfile(),
+                "shared-interior",
+                CreateDirectScene(
+                    "world.castle.shared-interior",
+                    "Assets/World/CastleSharedInterior.unity"));
+            CoCoRegionBinding second = CreateBinding(
+                "world.chapel",
+                CreateProfile(),
+                "shared-interior",
+                CreateDirectScene(
+                    "world.chapel.shared-interior",
+                    "Assets/World/ChapelSharedInterior.unity"));
+
+            IReadOnlyList<RegionCompileResult> results =
+                new RegionBindingCompiler().CompileAll(
+                    new[] { first, second },
+                    CreateCatalog());
+
+            Assert.IsFalse(results[0].Succeeded);
+            Assert.IsFalse(results[1].Succeeded);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.InvalidRegionIdentifier,
+                FirstError(results[0]).Code);
+            StringAssert.Contains(
+                "world.castle/shared-interior/scene",
+                FirstError(results[0]).Message);
+            StringAssert.Contains(
+                "world.chapel/shared-interior/scene",
+                FirstError(results[0]).Message);
+        }
+
+        [Test]
+        public void CanonicalNodeIdentitySeparatesAmbiguousDisplayPaths()
+        {
+            Assert.IsTrue(
+                RegionId.TryCreate(
+                    "world",
+                    out RegionId regionId));
+            Assert.IsTrue(
+                RegionParticipantSlotId.TryCreate(
+                    "a/b",
+                    out RegionParticipantSlotId globalSlotId));
+            Assert.IsTrue(
+                RegionChunkId.TryCreate(
+                    "global",
+                    out RegionChunkId globalChunkId));
+            Assert.IsTrue(
+                RegionPlanNodeId.TryCreateGlobal(
+                    regionId,
+                    globalSlotId,
+                    out RegionPlanNodeId globalNodeId));
+            Assert.IsTrue(
+                RegionPlanNodeId.TryCreateChunk(
+                    regionId,
+                    globalChunkId,
+                    globalSlotId,
+                    out RegionPlanNodeId chunkNodeId));
+
+            Assert.AreEqual(
+                globalNodeId.ToString(),
+                chunkNodeId.ToString());
+            Assert.AreNotEqual(
+                RegionBindingCompiler.BuildCanonicalNodeIdentity(
+                    globalNodeId),
+                RegionBindingCompiler.BuildCanonicalNodeIdentity(
+                    chunkNodeId));
+            Assert.AreNotEqual(
+                0,
+                RegionBindingCompiler.CompareNodeIds(
+                    globalNodeId,
+                    chunkNodeId));
+
+            Assert.IsTrue(
+                RegionChunkId.TryCreate(
+                    "a/b",
+                    out RegionChunkId longChunkId));
+            Assert.IsTrue(
+                RegionParticipantSlotId.TryCreate(
+                    "c",
+                    out RegionParticipantSlotId shortSlotId));
+            Assert.IsTrue(
+                RegionChunkId.TryCreate(
+                    "a",
+                    out RegionChunkId shortChunkId));
+            Assert.IsTrue(
+                RegionParticipantSlotId.TryCreate(
+                    "b/c",
+                    out RegionParticipantSlotId longSlotId));
+            Assert.IsTrue(
+                RegionPlanNodeId.TryCreateChunk(
+                    regionId,
+                    longChunkId,
+                    shortSlotId,
+                    out RegionPlanNodeId left));
+            Assert.IsTrue(
+                RegionPlanNodeId.TryCreateChunk(
+                    regionId,
+                    shortChunkId,
+                    longSlotId,
+                    out RegionPlanNodeId right));
+
+            Assert.AreEqual(left.ToString(), right.ToString());
+            Assert.AreNotEqual(
+                RegionBindingCompiler.BuildCanonicalNodeIdentity(left),
+                RegionBindingCompiler.BuildCanonicalNodeIdentity(right));
+            Assert.AreNotEqual(
+                0,
+                RegionBindingCompiler.CompareNodeIds(left, right));
+            Assert.AreEqual(
+                -Math.Sign(
+                    RegionBindingCompiler.CompareNodeIds(left, right)),
+                Math.Sign(
+                    RegionBindingCompiler.CompareNodeIds(right, left)));
+        }
+
+        [Test]
+        public void AmbiguousDisplayPathsKeepCompiledCacheEntriesSeparate()
+        {
+            CoCoRegionProfile profile = CreateProfile();
+            ContentReference scene = CreateDirectScene(
+                "world.shared",
+                "Assets/World/Shared.unity");
+            CoCoRegionBinding first = CreateBinding(
+                "world",
+                profile,
+                "a/b",
+                scene);
+            CoCoRegionBinding second = CreateBinding(
+                "world/a",
+                profile,
+                "b",
+                scene);
+            var cache = new RegionProfileCompilationCache();
+            var compiler = new RegionBindingCompiler();
+            RegionParticipantCatalog catalog = CreateCatalog();
+
+            RegionCompileResult firstResult = cache.Compile(
+                compiler,
+                first,
+                catalog);
+            RegionCompileResult secondResult = cache.Compile(
+                compiler,
+                second,
+                catalog);
+
+            Assert.IsTrue(firstResult.Succeeded, FirstDiagnostic(firstResult));
+            Assert.IsTrue(secondResult.Succeeded, FirstDiagnostic(secondResult));
+            Assert.AreEqual(
+                firstResult.Plan.Nodes[0].Id.ToString(),
+                secondResult.Plan.Nodes[0].Id.ToString());
+            Assert.AreNotEqual(
+                firstResult.Plan.Nodes[0].Fingerprint,
+                secondResult.Plan.Nodes[0].Fingerprint);
+            Assert.AreNotEqual(
+                firstResult.Plan.Fingerprint,
+                secondResult.Plan.Fingerprint);
+            Assert.AreNotSame(firstResult.Plan, secondResult.Plan);
+            Assert.AreEqual(2, cache.Count);
+        }
+
+        [Test]
         public void PublicRegistrationCannotOwnChunkScene()
         {
             RegionParticipantCatalog catalog =

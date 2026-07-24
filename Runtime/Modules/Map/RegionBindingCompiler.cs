@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 
@@ -219,6 +220,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                     StringComparer.Ordinal);
             var ownersByContentId =
                 new Dictionary<ContentId, List<SceneOwner>>();
+            var ownersByChunkId =
+                new Dictionary<RegionChunkId, List<SceneOwner>>();
             var ownersByRegionId =
                 new Dictionary<RegionId, List<int>>();
             for (int resultIndex = 0;
@@ -258,6 +261,17 @@ namespace CoCoFlow.Runtime.Modules.Map
                         chunk.ChunkId,
                         chunk.OwningContentSlotId);
                     owners.Add(owner);
+                    if (!ownersByChunkId.TryGetValue(
+                            chunk.ChunkId,
+                            out List<SceneOwner> chunkOwners))
+                    {
+                        chunkOwners = new List<SceneOwner>();
+                        ownersByChunkId.Add(
+                            chunk.ChunkId,
+                            chunkOwners);
+                    }
+
+                    chunkOwners.Add(owner);
                     if (!ownersByContentId.TryGetValue(
                             chunk.SceneReference.ContentId,
                             out List<SceneOwner> contentOwners))
@@ -287,6 +301,26 @@ namespace CoCoFlow.Runtime.Modules.Map
                         RegionErrors.InvalidIdentifier(
                             "RegionId '" + pair.Key.Value +
                             "' is owned by more than one bootstrap Binding."));
+                }
+            }
+
+            foreach (
+                KeyValuePair<RegionChunkId, List<SceneOwner>> pair
+                in ownersByChunkId)
+            {
+                if (pair.Value.Count < 2) continue;
+
+                string owners = FormatOwners(pair.Value);
+                for (int index = 0; index < pair.Value.Count; index++)
+                {
+                    AddDuplicateDiagnostic(
+                        duplicateDiagnostics,
+                        pair.Value[index].ResultIndex,
+                        "binding.chunks.chunkId",
+                        RegionErrors.InvalidIdentifier(
+                            "RegionChunkId '" + pair.Key.Value +
+                            "' has multiple owning Region/Chunk/Slot tuples: " +
+                            owners + "."));
                 }
             }
 
@@ -973,7 +1007,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             string participantFingerprint)
         {
             var builder = new FingerprintBuilder();
-            builder.Append(seed.Id.ToString());
+            builder.Append(BuildCanonicalNodeIdentity(seed.Id));
             builder.Append(seed.Definition.Source.ParticipantTypeId.Value);
             builder.Append(seed.Definition.Source.ModeId.Value);
             builder.Append((int)seed.Definition.Source.Phase);
@@ -990,7 +1024,9 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             for (int index = 0; index < seed.Dependencies.Count; index++)
             {
-                builder.Append(seed.Dependencies[index].ToString());
+                builder.Append(
+                    BuildCanonicalNodeIdentity(
+                        seed.Dependencies[index]));
             }
 
             builder.Append(seed.Binding.FragmentId);
@@ -1033,7 +1069,9 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             for (int nodeIndex = 0; nodeIndex < nodes.Count; nodeIndex++)
             {
-                builder.Append(nodes[nodeIndex].Id.ToString());
+                builder.Append(
+                    BuildCanonicalNodeIdentity(
+                        nodes[nodeIndex].Id));
                 builder.Append(nodes[nodeIndex].Fingerprint);
             }
 
@@ -1096,10 +1134,63 @@ namespace CoCoFlow.Runtime.Modules.Map
                     right.SlotId.Value);
         }
 
-        private static int CompareNodeIds(
+        internal static int CompareNodeIds(
             RegionPlanNodeId left,
-            RegionPlanNodeId right) =>
-            string.CompareOrdinal(left.ToString(), right.ToString());
+            RegionPlanNodeId right)
+        {
+            int region = string.CompareOrdinal(
+                left.RegionId.Value,
+                right.RegionId.Value);
+            if (region != 0) return region;
+
+            int scope = left.HasChunkId.CompareTo(right.HasChunkId);
+            if (scope != 0) return scope;
+
+            if (left.HasChunkId)
+            {
+                int chunk = string.CompareOrdinal(
+                    left.ChunkId.Value,
+                    right.ChunkId.Value);
+                if (chunk != 0) return chunk;
+            }
+
+            return string.CompareOrdinal(
+                left.SlotId.Value,
+                right.SlotId.Value);
+        }
+
+        internal static string BuildCanonicalNodeIdentity(
+            RegionPlanNodeId nodeId)
+        {
+            var builder = new StringBuilder();
+            AppendCanonicalComponent(
+                builder,
+                nodeId.RegionId.Value);
+            builder.Append(nodeId.HasChunkId ? 'C' : 'G');
+            if (nodeId.HasChunkId)
+            {
+                AppendCanonicalComponent(
+                    builder,
+                    nodeId.ChunkId.Value);
+            }
+
+            AppendCanonicalComponent(
+                builder,
+                nodeId.SlotId.Value);
+            return builder.ToString();
+        }
+
+        private static void AppendCanonicalComponent(
+            StringBuilder builder,
+            string value)
+        {
+            string safe = value ?? string.Empty;
+            builder.Append(
+                safe.Length.ToString(
+                    CultureInfo.InvariantCulture));
+            builder.Append(':');
+            builder.Append(safe);
+        }
 
         private static string FormatOwners(IReadOnlyList<SceneOwner> owners)
         {
