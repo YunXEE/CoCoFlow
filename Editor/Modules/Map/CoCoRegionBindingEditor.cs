@@ -157,6 +157,46 @@ namespace CoCoFlow.Editor.Modules.Map
                     }
                 }
             }
+
+            using (new EditorGUILayout.VerticalScope(
+                       EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(
+                    "Cross-Region Demand Rules",
+                    EditorStyles.miniBoldLabel);
+                if (binding.DependencyRules.Count == 0)
+                {
+                    EditorGUILayout.LabelField(
+                        "<no cross-Region dependencies>");
+                }
+
+                for (int ruleIndex = 0;
+                     ruleIndex < binding.DependencyRules.Count;
+                     ruleIndex++)
+                {
+                    RegionDependencyRule rule =
+                        binding.DependencyRules[ruleIndex];
+                    if (rule == null)
+                    {
+                        EditorGUILayout.LabelField(
+                            "• [" + ruleIndex + "] <null rule>");
+                        continue;
+                    }
+
+                    string coverage = rule.TargetCoverageKind ==
+                                      RegionCoverageKind.All
+                        ? "All"
+                        : "Chunks(" +
+                          JoinChunks(rule.TargetChunks) +
+                          ")";
+                    EditorGUILayout.LabelField(
+                        "• " + rule.SourceCapability.Value +
+                        " → " + rule.TargetRegionId.Value,
+                        JoinCapabilities(rule.TargetCapabilities) +
+                        " · " + coverage,
+                        EditorStyles.wordWrappedMiniLabel);
+                }
+            }
         }
 
         private void DrawCompilation()
@@ -281,6 +321,40 @@ namespace CoCoFlow.Editor.Modules.Map
                  index++)
             {
                 values[index] = slots[index].Value;
+            }
+
+            return string.Join(", ", values);
+        }
+
+        private static string JoinCapabilities(
+            IReadOnlyList<RegionCapabilityId> capabilities)
+        {
+            if (capabilities == null || capabilities.Count == 0)
+            {
+                return "<no capabilities>";
+            }
+
+            var values = new string[capabilities.Count];
+            for (int index = 0; index < capabilities.Count; index++)
+            {
+                values[index] = capabilities[index].Value;
+            }
+
+            return string.Join(", ", values);
+        }
+
+        private static string JoinChunks(
+            IReadOnlyList<RegionChunkId> chunks)
+        {
+            if (chunks == null || chunks.Count == 0)
+            {
+                return "<none>";
+            }
+
+            var values = new string[chunks.Count];
+            for (int index = 0; index < chunks.Count; index++)
+            {
+                values[index] = chunks[index].Value;
             }
 
             return string.Join(", ", values);
