@@ -247,6 +247,72 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
             }
         }
 
+        [Test]
+        public void BuildCatalogResolutionNeverBorrowsALoadedHost()
+        {
+            Func<RegionParticipantCatalog> previousCatalogProvider =
+                CoCoMapEditorCatalogProvider.CatalogProvider;
+            Func<IRegionAddressableSceneResolver> previousResolverProvider =
+                CoCoMapEditorCatalogProvider
+                    .AddressableSceneResolverProvider;
+            var hostObject =
+                new GameObject("Build Catalog Fallback Trap");
+            hostObject.SetActive(false);
+            try
+            {
+                CoCoDefaultRegionCatalogProvider hostProvider =
+                    hostObject.AddComponent<
+                        CoCoDefaultRegionCatalogProvider>();
+                CoCoMapHost host =
+                    hostObject.AddComponent<CoCoMapHost>();
+                var serializedHost = new SerializedObject(host);
+                serializedHost.FindProperty(
+                        "catalogProviderComponent")
+                    .objectReferenceValue = hostProvider;
+                serializedHost.ApplyModifiedPropertiesWithoutUndo();
+
+                CoCoMapEditorCatalogProvider.CatalogProvider = null;
+                CoCoMapEditorCatalogProvider
+                    .AddressableSceneResolverProvider = null;
+                Assert.That(
+                    CoCoMapAuthoringContext.TryResolveGlobal(
+                        out _,
+                        out _,
+                        out string failure),
+                    Is.False);
+                StringAssert.Contains(
+                    "requires an explicit",
+                    failure);
+
+                Assert.That(
+                    hostProvider.TryGetCatalog(
+                        out RegionParticipantCatalog expected,
+                        out CoCoDiagnostic diagnostic),
+                    Is.True,
+                    diagnostic.Message);
+                CoCoMapEditorCatalogProvider.CatalogProvider =
+                    () => expected;
+                Assert.That(
+                    CoCoMapAuthoringContext.TryResolveGlobal(
+                        out RegionParticipantCatalog resolved,
+                        out IRegionAddressableSceneResolver resolver,
+                        out failure),
+                    Is.True,
+                    failure);
+                Assert.That(resolved, Is.SameAs(expected));
+                Assert.That(resolver, Is.Null);
+            }
+            finally
+            {
+                CoCoMapEditorCatalogProvider.CatalogProvider =
+                    previousCatalogProvider;
+                CoCoMapEditorCatalogProvider
+                    .AddressableSceneResolverProvider =
+                    previousResolverProvider;
+                UnityEngine.Object.DestroyImmediate(hostObject);
+            }
+        }
+
         [Serializable]
         private sealed class ConcreteConfig :
             RegionParticipantConfig

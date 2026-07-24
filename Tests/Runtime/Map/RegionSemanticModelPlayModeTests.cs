@@ -1,11 +1,13 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Map;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
+using UnityEngine;
 using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.Map
@@ -161,6 +163,101 @@ namespace CoCoFlow.Tests.Runtime.Map
                     observer.Dispose();
                     landmarks.Dispose();
                     await regionRuntime.ShutdownAsync();
+                    await contentRuntime.ShutdownAsync();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator DisabledHostRemainsTerminalAfterReenable() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionMainThreadGuard.CaptureCurrentThread();
+                Assert.That(
+                    ContentRuntime.TryCreate(
+                        out ContentRuntime contentRuntime,
+                        out CoCoDiagnostic diagnostic),
+                    Is.True,
+                    diagnostic.Message);
+                Assert.That(
+                    RegionRuntime.TryCreate(
+                        contentRuntime,
+                        out RegionRuntime regionRuntime,
+                        out diagnostic),
+                    Is.True,
+                    diagnostic.Message);
+                var hostObject =
+                    new GameObject("Terminal Map Host");
+                hostObject.SetActive(false);
+                CoCoMapHost host =
+                    hostObject.AddComponent<CoCoMapHost>();
+                PropertyInfo runtimeProperty =
+                    typeof(CoCoMapHost).GetProperty(
+                        nameof(CoCoMapHost.Runtime),
+                        BindingFlags.Instance |
+                        BindingFlags.Public);
+                Assert.That(runtimeProperty, Is.Not.Null);
+                runtimeProperty.SetValue(host, regionRuntime);
+
+                try
+                {
+                    hostObject.SetActive(true);
+                    Assert.That(host.IsInitialized, Is.True);
+                    Assert.That(host.Runtime, Is.SameAs(regionRuntime));
+
+                    hostObject.SetActive(false);
+                    await host.ShutdownAsync();
+                    Assert.That(regionRuntime.IsDisposed, Is.True);
+                    Assert.That(host.IsInitialized, Is.False);
+                    Assert.That(host.Runtime, Is.SameAs(regionRuntime));
+
+                    hostObject.SetActive(true);
+                    await UniTask.Yield();
+                    Assert.That(
+                        host.Runtime,
+                        Is.SameAs(regionRuntime),
+                        "Re-enabling a terminal Host must not create a second runtime.");
+                    Assert.That(
+                        host.TryInitialize(out diagnostic),
+                        Is.False);
+                    Assert.That(
+                        diagnostic.Code,
+                        Is.EqualTo(
+                            CoCoDiagnosticCode.RegionRuntimeDisposed));
+
+                    Assert.That(
+                        RegionDemandOwnerId.TryCreate(
+                            "terminal-host-owner",
+                            out RegionDemandOwnerId ownerId),
+                        Is.True);
+                    Assert.That(
+                        host.TryCreateDemandScope(
+                            ownerId,
+                            out _,
+                            out diagnostic),
+                        Is.False);
+                    Assert.That(
+                        diagnostic.Code,
+                        Is.EqualTo(
+                            CoCoDiagnosticCode.RegionRuntimeDisposed));
+
+                    Assert.That(
+                        RegionId.TryCreate(
+                            "terminal-host-region",
+                            out RegionId regionId),
+                        Is.True);
+                    Assert.That(
+                        host.TryRetryRegion(
+                            regionId,
+                            out diagnostic),
+                        Is.False);
+                    Assert.That(
+                        diagnostic.Code,
+                        Is.EqualTo(
+                            CoCoDiagnosticCode.RegionRuntimeDisposed));
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(hostObject);
                     await contentRuntime.ShutdownAsync();
                 }
             });

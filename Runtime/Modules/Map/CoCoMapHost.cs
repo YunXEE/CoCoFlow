@@ -319,6 +319,9 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private void OnDisable()
         {
+            // Disabling a Host is a terminal lifecycle operation. Runtime is
+            // deliberately retained as a disposed sentinel so re-enabling the
+            // same component cannot silently create a second ownership graph.
             ShutdownOnDisableNoThrowAsync().Forget();
         }
 

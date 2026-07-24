@@ -73,6 +73,11 @@ namespace CoCoFlow.Runtime.Modules.Map
 
     public interface IRegionParticipantCandidate
     {
+        /// <summary>
+        /// Prepares candidate-owned resources. Implementations must observe
+        /// cancellation and must not retain or publish resources from a late
+        /// continuation after cleanup or terminal cleanup has begun.
+        /// </summary>
         UniTask<RegionParticipantPrepareResult> PrepareAsync(
             in RegionParticipantPrepareContext context,
             CancellationToken cancellationToken);
@@ -88,6 +93,12 @@ namespace CoCoFlow.Runtime.Modules.Map
 
     public interface IRegionParticipantTerminalCleanup
     {
+        /// <summary>
+        /// Atomically fences late asynchronous continuations and releases
+        /// candidate-owned resources without throwing. Map may invoke this
+        /// after its bounded shutdown wait while Prepare or Cleanup is still
+        /// incomplete.
+        /// </summary>
         void ForceCleanupNoFail();
     }
 

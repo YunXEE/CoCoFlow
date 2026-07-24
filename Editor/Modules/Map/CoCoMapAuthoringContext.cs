@@ -9,6 +9,8 @@ namespace CoCoFlow.Editor.Modules.Map
     /// <summary>
     /// Explicit Editor-only provider seam used by authoring and Player build validation.
     /// Project Editor code may assign these delegates during domain initialization.
+    /// The global catalog must contain the union of registrations used by every
+    /// binding discovered by build validation.
     /// </summary>
     public static class CoCoMapEditorCatalogProvider
     {
@@ -61,32 +63,13 @@ namespace CoCoFlow.Editor.Modules.Map
                 return true;
             }
 
-            CoCoMapHost[] hosts =
-                Resources.FindObjectsOfTypeAll<CoCoMapHost>();
-            Array.Sort(
-                hosts,
-                (left, right) => string.CompareOrdinal(
-                    GetStableHostPath(left),
-                    GetStableHostPath(right)));
-            for (int index = 0; index < hosts.Length; index++)
-            {
-                CoCoMapHost host = hosts[index];
-                if (!IsLoadedSceneObject(host)) continue;
-                if (TryResolveFromHost(
-                        host,
-                        out catalog,
-                        out resolver,
-                        out failure))
-                {
-                    return true;
-                }
-            }
-
             catalog = null;
             resolver = null;
             failure =
-                "Register CoCoMapEditorCatalogProvider.CatalogProvider or assign a " +
-                "valid catalog provider on a loaded CoCoMapHost.";
+                "Player build validation requires an explicit " +
+                "CoCoMapEditorCatalogProvider.CatalogProvider that contains " +
+                "the union of registrations used by all bindings discovered " +
+                "by build validation. " + failure;
             return false;
         }
 

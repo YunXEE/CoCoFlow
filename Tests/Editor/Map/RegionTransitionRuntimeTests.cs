@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using Cysharp.Threading.Tasks;
@@ -1285,10 +1286,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     CollectionAssert.AreEqual(
                         new[]
                         {
-                            "chapel|1",
-                            "mine|1",
-                            "castle|1",
-                            "wilderness|1"
+                            "chapel#1",
+                            "mine#1",
+                            "castle#1",
+                            "wilderness#1"
                         },
                         controller.HostShutdownOrder);
                 }
@@ -1376,8 +1377,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     CollectionAssert.AreEqual(
                         new[]
                         {
-                            "castle|1",
-                            "wilderness|1"
+                            "castle#1",
+                            "wilderness#1"
                         },
                         controller.HostShutdownOrder);
                 }
@@ -1461,16 +1462,315 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
                     controller.CompleteBlockedPrepare();
                     await WaitUntilAsync(
-                        () => controller.HostShutdownOrder.Count == 2,
+                        () => controller.HostShutdownOrder.Count == 3,
                         "Ordered terminal fallback did not finish source and target cleanup.");
                     CollectionAssert.AreEqual(
                         new[]
                         {
-                            "castle|1",
-                            "wilderness|1"
+                            "castle#2",
+                            "castle#1",
+                            "wilderness#1"
                         },
                         controller.HostShutdownOrder);
+                    Assert.AreEqual(
+                        1,
+                        controller.CommitCount("castle"),
+                        "The late source candidate must not commit after terminal ownership transfer.");
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            "castle",
+                            2),
+                        "The late source candidate must transfer to the source force pass exactly once.");
                     await harness.ShutdownAsync();
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator
+            FactoryReentrantForceRetainsLateCandidateUntilRunnerReturns() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "factory-force";
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(1),
+                    Node(
+                        key,
+                        new StableTestPlan(key)));
+                controller.ReentrantTransitionRuntime =
+                    harness.TransitionRuntime;
+                controller.SetForceShutdownOnFactory(key, true);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Task<RegionReadinessResult> readiness =
+                        lease.WaitUntilReadyAsync(revision).AsTask();
+
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The late factory candidate was not retained by the source force pass.");
+                    Assert.AreEqual(1, controller.CreateCount(key));
+                    Assert.AreEqual(0, controller.PrepareCount(key));
+                    Assert.AreEqual(0, controller.CommitCount(key));
+                    Assert.AreEqual(
+                        0,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1));
+                    Assert.IsFalse(
+                        controller
+                            .TerminalCleanupDuringSynchronousForceCallback,
+                        "Terminal cleanup ran before the factory callback returned.");
+                    Assert.IsFalse(
+                        harness.TransitionRuntime
+                            .IsInvokingParticipantCallback,
+                        "A reentrant ForceShutdown unbalanced callback ownership.");
+                    Assert.IsFalse(
+                        readiness.IsCompleted,
+                        "A terminally fenced factory candidate published late readiness.");
+
+                    lease.Dispose();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Superseded,
+                        (await readiness).Status);
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator
+            FactoryReentrantForceCleansAliasedCandidateExactlyOnce() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "factory-alias-force";
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(1),
+                    Node(
+                        key,
+                        new SensitiveTestPlan(key)));
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(first)).Status);
+
+                    controller.ReentrantTransitionRuntime =
+                        harness.TransitionRuntime;
+                    controller.SetAliasExistingCandidate(key, true);
+                    controller.SetForceShutdownOnFactory(key, true);
+                    Assert.IsTrue(lease.TryUpdate(
+                        Capabilities(
+                            RegionCapabilityId.Represented,
+                            RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out RegionDemandRevision second,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Task<RegionReadinessResult> readiness =
+                        lease.WaitUntilReadyAsync(second).AsTask();
+
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The aliased candidate was not terminal-cleaned.");
+                    Assert.AreEqual(2, controller.CreateCount(key));
+                    Assert.AreEqual(1, controller.PrepareCount(key));
+                    Assert.AreEqual(1, controller.CommitCount(key));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1),
+                        "The aliased instance was terminal-cleaned more than once.");
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupCount(
+                            key,
+                            RegionParticipantCleanupReason.HostShutdown));
+                    Assert.IsFalse(
+                        controller
+                            .TerminalCleanupDuringSynchronousForceCallback);
+                    Assert.IsFalse(
+                        harness.TransitionRuntime
+                            .IsInvokingParticipantCallback);
+                    Assert.IsFalse(
+                        readiness.IsCompleted,
+                        "An aliased terminal candidate published late readiness.");
+
+                    lease.Dispose();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Superseded,
+                        (await readiness).Status);
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator
+            CommitReentrantForceDefersPhysicalCleanupUntilCallbackReturns() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "commit-force";
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(1),
+                    Node(
+                        key,
+                        new StableTestPlan(key)));
+                controller.ReentrantTransitionRuntime =
+                    harness.TransitionRuntime;
+                controller.SetForceShutdownOnCommit(key, true);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Task<RegionReadinessResult> readiness =
+                        lease.WaitUntilReadyAsync(revision).AsTask();
+
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The committed-on-stack candidate was not terminal-cleaned.");
+                    Assert.AreEqual(1, controller.CommitCount(key));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1));
+                    Assert.IsFalse(
+                        controller
+                            .TerminalCleanupDuringSynchronousForceCallback,
+                        "Physical cleanup reentered an active Commit callback.");
+                    Assert.IsFalse(
+                        harness.TransitionRuntime
+                            .IsInvokingParticipantCallback,
+                        "A reentrant Commit ForceShutdown unbalanced callback ownership.");
+                    Assert.IsFalse(
+                        readiness.IsCompleted,
+                        "A terminally fenced Commit published late readiness.");
+
+                    lease.Dispose();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Superseded,
+                        (await readiness).Status);
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator
+            CleanupReentrantForceDefersTerminalFallbackUntilCallbackReturns() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "cleanup-force";
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(1),
+                    Node(
+                        key,
+                        new StableTestPlan(key)));
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(revision))
+                        .Status);
+
+                    controller.ReentrantTransitionRuntime =
+                        harness.TransitionRuntime;
+                    controller.SetCleanupFailure(key, true);
+                    controller.SetForceShutdownOnCleanup(key, true);
+                    await harness.TransitionRuntime.ShutdownAsync();
+
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The failed reentrant Cleanup did not reach terminal fallback.");
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1),
+                        "CleanupAsync must remain exactly once.");
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1),
+                        "Terminal fallback must remain exactly once.");
+                    Assert.IsFalse(
+                        controller
+                            .TerminalCleanupDuringSynchronousForceCallback,
+                        "Terminal cleanup reentered the synchronous CleanupAsync callback.");
+                    Assert.IsFalse(
+                        harness.TransitionRuntime
+                            .IsInvokingParticipantCallback,
+                        "Cleanup reentrancy unbalanced callback ownership.");
                 }
                 finally
                 {
@@ -1643,7 +1943,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
-        public IEnumerator ShutdownWaitsForIgnoredCancellationPrepareBeforeCleanup() =>
+        public IEnumerator
+            ForceFallbackDoesNotWaitForIgnoredCancellationPrepare() =>
             UniTask.ToCoroutine(async () =>
             {
                 var controller = new CandidateController();
@@ -1669,35 +1970,62 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         1,
                         controller.PrepareCount("slow-prepare"));
 
-                    await harness.ShutdownAsync();
+                    harness.Runtime.ForceShutdown();
+                    await WaitUntilAsync(
+                        () => controller.TerminalCleanupInvocationCount(
+                                  "slow-prepare",
+                                  1) == 1,
+                        "Bounded force fallback remained blocked on Prepare.");
                     Assert.AreEqual(
                         0,
                         controller.CleanupAsyncInvocationCount(
                             "slow-prepare",
                             1));
                     Assert.AreEqual(
-                        0,
+                        1,
                         controller.TerminalCleanupInvocationCount(
                             "slow-prepare",
                             1));
 
                     controller.CompleteBlockedPrepare();
                     await WaitUntilAsync(
-                        () => controller.CleanupAsyncInvocationCount(
-                                  "slow-prepare",
-                                  1) == 1,
-                        "Cancelled Prepare runner did not clean its candidate.");
-                    Assert.AreEqual(
-                        1,
-                        controller.CleanupCount(
-                            "slow-prepare",
-                            RegionParticipantCleanupReason
-                                .CandidateCancelled));
+                        () => controller
+                                  .LatePrepareResourceRejectionCount(
+                                      "slow-prepare",
+                                      1) == 1,
+                        "The late Prepare did not observe its permanent terminal fence.");
                     Assert.AreEqual(
                         0,
-                        controller.TerminalCleanupInvocationCount(
+                        controller.CleanupAsyncInvocationCount(
+                            "slow-prepare",
+                            1),
+                        "A late Prepare completion must not reacquire cleanup authority.");
+                    Assert.AreEqual(
+                        0,
+                        controller.CommitCount("slow-prepare"),
+                        "A late Prepare completion must not commit after terminal ownership transfer.");
+                    Assert.AreEqual(
+                        0,
+                        controller.LatePrepareResourceAcquisitionCount(
+                            "slow-prepare",
+                            1),
+                        "A terminally-cleaned candidate must not reacquire its Prepare resource.");
+                    Assert.AreEqual(
+                        1,
+                        controller.LatePrepareResourceRejectionCount(
+                            "slow-prepare",
+                            1),
+                        "The regression candidate did not exercise its permanent terminal fence.");
+                    Assert.IsFalse(
+                        controller.HasLatePrepareResource(
                             "slow-prepare",
                             1));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            "slow-prepare",
+                            1),
+                        "Terminal cleanup must remain exactly once after the late Prepare completion.");
                 }
                 finally
                 {
@@ -1838,7 +2166,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
-        public IEnumerator ShutdownDoesNotInvokeBlockedCleanupTwice() =>
+        public IEnumerator
+            ShutdownTerminalFallbackDoesNotInvokeCleanupAsyncTwice() =>
             UniTask.ToCoroutine(async () =>
             {
                 var controller = new CandidateController();
@@ -1876,17 +2205,35 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         (await lease.WaitUntilReadyAsync(second)).Status);
 
                     await harness.ShutdownAsync();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      "sensitive",
+                                      1) == 1,
+                        "Bounded shutdown fallback did not terminal-clean the blocked candidate.");
                     Assert.AreEqual(
                         1,
                         controller.CleanupAsyncInvocationCount(
                             "sensitive",
                             1));
                     Assert.AreEqual(
-                        0,
+                        1,
                         controller.TerminalCleanupInvocationCount(
                             "sensitive",
                             1));
-                    controller.CompleteBlockedCleanup();
+                    controller.FaultBlockedCleanup();
+                    await UniTask.Yield();
+                    await UniTask.Yield();
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            "sensitive",
+                            1));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            "sensitive",
+                            1));
                 }
                 finally
                 {
@@ -1895,7 +2242,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
-        public IEnumerator LateBlockedCleanupFailureUsesTerminalFallback() =>
+        public IEnumerator
+            LateBlockedCleanupFailureDoesNotRepeatTerminalFallback() =>
             UniTask.ToCoroutine(async () =>
             {
                 var controller = new CandidateController();
@@ -1933,26 +2281,34 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         (await lease.WaitUntilReadyAsync(second)).Status);
 
                     await harness.ShutdownAsync();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      "sensitive",
+                                      1) == 1,
+                        "Bounded shutdown fallback did not terminal-clean the late-failing candidate.");
                     Assert.AreEqual(
                         1,
                         controller.CleanupAsyncInvocationCount(
                             "sensitive",
                             1));
                     Assert.AreEqual(
-                        0,
+                        1,
                         controller.TerminalCleanupInvocationCount(
                             "sensitive",
                             1));
 
                     controller.FailBlockedCleanup();
-                    await WaitUntilAsync(
-                        () => controller.TerminalCleanupInvocationCount(
-                                  "sensitive",
-                                  1) == 1,
-                        "Late failed cleanup did not invoke terminal fallback.");
+                    await UniTask.Yield();
+                    await UniTask.Yield();
                     Assert.AreEqual(
                         1,
                         controller.CleanupAsyncInvocationCount(
+                            "sensitive",
+                            1));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
                             "sensitive",
                             1));
                 }
@@ -1963,7 +2319,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
-        public IEnumerator TerminalCleanupFailureAndThrowAreNotInvokedAgain() =>
+        public IEnumerator
+            ExplicitRetryDoesNotReinvokeCompletedCleanupFailureOrThrow() =>
             UniTask.ToCoroutine(async () =>
             {
                 await VerifyTerminalCleanupIsNotInvokedAgainAsync(
@@ -1975,7 +2332,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
-        public IEnumerator ShutdownBatchTimeoutWaitsForLateTerminalFallback() =>
+        public IEnumerator
+            ShutdownBatchTimeoutUsesImmediateTerminalFallback() =>
             UniTask.ToCoroutine(async () =>
             {
                 var controller = new CandidateController();
@@ -2006,26 +2364,34 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     Assert.AreEqual(
                         CoCoDiagnosticCode.RegionCleanupBlocked,
                         shutdownDiagnostic.Code);
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      "shutdown-timeout",
+                                      1) == 1,
+                        "Bounded shutdown-batch fallback did not terminal-clean its candidate.");
                     Assert.AreEqual(
                         1,
                         controller.CleanupAsyncInvocationCount(
                             "shutdown-timeout",
                             1));
                     Assert.AreEqual(
-                        0,
+                        1,
                         controller.TerminalCleanupInvocationCount(
                             "shutdown-timeout",
                             1));
 
                     controller.FailBlockedCleanup();
-                    await WaitUntilAsync(
-                        () => controller.TerminalCleanupInvocationCount(
-                                  "shutdown-timeout",
-                                  1) == 1,
-                        "Timed-out shutdown Cleanup did not use terminal fallback.");
+                    await UniTask.Yield();
+                    await UniTask.Yield();
                     Assert.AreEqual(
                         1,
                         controller.CleanupAsyncInvocationCount(
+                            "shutdown-timeout",
+                            1));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
                             "shutdown-timeout",
                             1));
                 }
@@ -2103,6 +2469,89 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         controller.CleanupAsyncInvocationCount(
                             key,
                             1));
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator
+            ForceShutdownDoesNotWaitForNonInterruptibleCleanup() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "terminal-no-interrupt";
+                var controller = new CandidateController();
+                controller.BlockFirstCleanup(key);
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromMilliseconds(20),
+                    Node(
+                        key,
+                        new StableTestPlan(key)));
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(revision))
+                        .Status);
+
+                    lease.Dispose();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .CleanupAsyncInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "The non-interruptible candidate did not begin cleanup.");
+
+                    harness.Runtime.ForceShutdown();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .TerminalCleanupInvocationCount(
+                                      key,
+                                      1) == 1,
+                        "Bounded force shutdown remained blocked on non-interruptible cleanup.");
+                    Assert.AreEqual(
+                        0,
+                        controller
+                            .TerminalCleanupInterruptCount(key));
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1),
+                        "Force shutdown waited for a cleanup that ignored terminal interruption.");
+
+                    controller.CompleteBlockedCleanup();
+                    await UniTask.Yield();
+                    await UniTask.Yield();
+                    Assert.AreEqual(
+                        1,
+                        controller.CleanupAsyncInvocationCount(
+                            key,
+                            1),
+                        "Late cleanup completion must not invoke CleanupAsync again.");
+                    Assert.AreEqual(
+                        1,
+                        controller.TerminalCleanupInvocationCount(
+                            key,
+                            1),
+                        "Late cleanup completion must not repeat terminal cleanup.");
+                    Assert.AreEqual(
+                        1,
+                        controller.CommitCount(key),
+                        "Late cleanup completion must not commit a new candidate.");
                 }
                 finally
                 {
@@ -3183,6 +3632,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 candidate = controller.Create(
                     context.NodeId,
                     typed);
+                controller.TryForceShutdownFromFactory(typed.Key);
                 if (controller.ShouldFactoryThrowAfterAllocation(typed.Key))
                 {
                     throw new InvalidOperationException(
@@ -3260,7 +3710,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         plan.Key,
                         out UniTask<RegionParticipantPrepareResult> pending))
                 {
-                    return pending;
+                    return CompleteBlockedPrepareAsync(pending);
                 }
 
                 bool fails =
@@ -3283,6 +3733,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     context.TierId,
                     context.Capabilities);
                 controller.TryReenterMutation();
+                controller.TryForceShutdownFromCommit(plan.Key);
                 if (controller.ShouldCommitFail(plan.Key))
                 {
                     diagnostic = RegionErrors.CommitFaulted(
@@ -3310,10 +3761,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 }
 
                 cleanupInvoked = true;
+                controller.ReleaseLatePrepareResource(
+                    plan.Key,
+                    creation);
                 controller.RecordCleanup(
                     plan.Key,
                     creation,
                     reason);
+                controller.TryForceShutdownFromCleanup(plan.Key);
                 if (controller.ShouldThrowCleanup(
                         plan.Key,
                         creation))
@@ -3351,6 +3806,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     creation);
                 if (cleanupInvoked) return;
                 cleanupInvoked = true;
+                controller.ReleaseLatePrepareResource(
+                    plan.Key,
+                    creation);
                 controller.RecordCleanup(
                     plan.Key,
                     creation,
@@ -3360,6 +3818,28 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             void IRegionParticipantTerminalCleanupInterrupt.
                 InterruptPendingCleanupForTerminalFallback() =>
                 controller.InterruptPendingCleanup(plan.Key);
+
+            private async UniTask<RegionParticipantPrepareResult>
+                CompleteBlockedPrepareAsync(
+                    UniTask<RegionParticipantPrepareResult> pending)
+            {
+                RegionParticipantPrepareResult result =
+                    await pending;
+                if (cleanupInvoked)
+                {
+                    controller.RecordLatePrepareResourceRejected(
+                        plan.Key,
+                        creation);
+                }
+                else
+                {
+                    controller.AcquireLatePrepareResource(
+                        plan.Key,
+                        creation);
+                }
+
+                return result;
+            }
         }
 
         private sealed class WrongRecordingCandidate :
@@ -3407,6 +3887,15 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             private readonly Dictionary<string, int>
                 terminalCleanupInterrupts =
                     new Dictionary<string, int>();
+            private readonly Dictionary<string, int>
+                latePrepareResourceAcquisitions =
+                    new Dictionary<string, int>();
+            private readonly Dictionary<string, int>
+                latePrepareResourceRejections =
+                    new Dictionary<string, int>();
+            private readonly HashSet<string>
+                liveLatePrepareResources =
+                    new HashSet<string>();
             private readonly HashSet<string> prepareFailures =
                 new HashSet<string>();
             private readonly HashSet<string> commitFailures =
@@ -3435,6 +3924,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             private string blockedPrepareKey;
             private UniTaskCompletionSource<RegionParticipantPrepareResult>
                 blockedPrepare;
+            private string forceShutdownOnFactoryKey;
+            private string forceShutdownOnCommitKey;
+            private string forceShutdownOnCleanupKey;
+            private bool synchronousForceCallbackActive;
 
             internal static CandidateController Active { get; set; }
             internal List<string> RemovedOrder { get; } =
@@ -3442,9 +3935,16 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             internal List<string> HostShutdownOrder { get; } =
                 new List<string>();
             internal RegionRuntime ReentrantRuntime { get; set; }
+            internal RegionTransitionRuntime
+                ReentrantTransitionRuntime { get; set; }
             internal bool ReenterOnCommit { get; set; }
             internal bool ReentrantMutationSucceeded { get; private set; }
             internal CoCoDiagnostic ReentrantDiagnostic { get; private set; }
+            internal bool TerminalCleanupDuringSynchronousForceCallback
+            {
+                get;
+                private set;
+            }
 
             internal RecordingCandidate Create(
                 RegionPlanNodeId nodeId,
@@ -3517,10 +4017,17 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             internal void RecordTerminalCleanupInvocation(
                 string key,
-                int creation) =>
+                int creation)
+            {
+                if (synchronousForceCallbackActive)
+                {
+                    TerminalCleanupDuringSynchronousForceCallback = true;
+                }
+
                 Increment(
                     terminalCleanupInvocations,
                     CreationKey(key, creation));
+            }
 
             internal void RecordCleanup(
                 string key,
@@ -3582,6 +4089,48 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             internal bool ShouldFactoryThrowAfterAllocation(string key) =>
                 factoryThrowsAfterAllocation.Contains(key);
+
+            internal void SetForceShutdownOnFactory(
+                string key,
+                bool enabled)
+            {
+                forceShutdownOnFactoryKey = enabled ? key : null;
+            }
+
+            internal void SetForceShutdownOnCommit(
+                string key,
+                bool enabled)
+            {
+                forceShutdownOnCommitKey = enabled ? key : null;
+            }
+
+            internal void SetForceShutdownOnCleanup(
+                string key,
+                bool enabled)
+            {
+                forceShutdownOnCleanupKey = enabled ? key : null;
+            }
+
+            internal void TryForceShutdownFromFactory(string key)
+            {
+                TryForceShutdown(
+                    key,
+                    ref forceShutdownOnFactoryKey);
+            }
+
+            internal void TryForceShutdownFromCommit(string key)
+            {
+                TryForceShutdown(
+                    key,
+                    ref forceShutdownOnCommitKey);
+            }
+
+            internal void TryForceShutdownFromCleanup(string key)
+            {
+                TryForceShutdown(
+                    key,
+                    ref forceShutdownOnCleanupKey);
+            }
 
             internal void SetAliasExistingCandidate(
                 string key,
@@ -3688,6 +4237,13 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                             "Requested late cleanup failure.")));
             }
 
+            internal void FaultBlockedCleanup()
+            {
+                blockedCleanup.TrySetException(
+                    new InvalidOperationException(
+                        "Requested late cleanup task fault."));
+            }
+
             internal void InterruptPendingCleanup(string key)
             {
                 if (!terminalCleanupInterruptible.Contains(key))
@@ -3720,6 +4276,31 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         out _,
                         out CoCoDiagnostic diagnostic);
                 ReentrantDiagnostic = diagnostic;
+            }
+
+            private void TryForceShutdown(
+                string key,
+                ref string configuredKey)
+            {
+                if (ReentrantTransitionRuntime == null ||
+                    !string.Equals(
+                        key,
+                        configuredKey,
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                configuredKey = null;
+                synchronousForceCallbackActive = true;
+                try
+                {
+                    ReentrantTransitionRuntime.ForceShutdown();
+                }
+                finally
+                {
+                    synchronousForceCallbackActive = false;
+                }
             }
 
             internal int CreateCount(string key) =>
@@ -3769,6 +4350,51 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             internal int TerminalCleanupInterruptCount(
                 string key) =>
                 Get(terminalCleanupInterrupts, key);
+
+            internal void AcquireLatePrepareResource(
+                string key,
+                int creation)
+            {
+                string candidateKey =
+                    CreationKey(key, creation);
+                Increment(
+                    latePrepareResourceAcquisitions,
+                    candidateKey);
+                liveLatePrepareResources.Add(candidateKey);
+            }
+
+            internal void RecordLatePrepareResourceRejected(
+                string key,
+                int creation) =>
+                Increment(
+                    latePrepareResourceRejections,
+                    CreationKey(key, creation));
+
+            internal void ReleaseLatePrepareResource(
+                string key,
+                int creation) =>
+                liveLatePrepareResources.Remove(
+                    CreationKey(key, creation));
+
+            internal int LatePrepareResourceAcquisitionCount(
+                string key,
+                int creation) =>
+                Get(
+                    latePrepareResourceAcquisitions,
+                    CreationKey(key, creation));
+
+            internal int LatePrepareResourceRejectionCount(
+                string key,
+                int creation) =>
+                Get(
+                    latePrepareResourceRejections,
+                    CreationKey(key, creation));
+
+            internal bool HasLatePrepareResource(
+                string key,
+                int creation) =>
+                liveLatePrepareResources.Contains(
+                    CreationKey(key, creation));
 
             internal int CleanupCount(
                 string key,

@@ -219,12 +219,19 @@ once after success, failure, cancellation, replacement, removal, or Host
 shutdown. An optional Prepare failure produces `Absent + OptionalDegraded`; it
 does not retain a mixed old optional state.
 
+A Participant whose asynchronous work can outlive cancellation must implement
+terminal cleanup. That cleanup atomically fences late continuations as well as
+releasing current resources, because terminal Host fallback may run after its
+bounded wait while `PrepareAsync` or `CleanupAsync` is still incomplete.
+
 A Prepare failure remains explicitly retryable. A Commit exception enters the
 terminal, non-retryable `FaultedCommit` state, stops remaining commits, and
 keeps old/candidate ownership for Host shutdown. Cleanup uses a 30-second
 unscaled-time default. A timeout enters `BlockedCleanup`, continues observing
 the late completion, and requires explicit retry to resolve blocked cleanup
-before another transition.
+before another transition. Retry never invokes `CleanupAsync` a second time: a
+completed cleanup failure remains blocked until terminal Host fallback, while a
+timed-out in-flight cleanup is observed through its original task.
 
 ## Content and cold-start Scenes
 
@@ -313,6 +320,11 @@ registration, or runtime Profile write-back. Unloaded Chunk definitions come
 from the bootstrap binding; Scene anchors only resolve fragments after a lease
 exists.
 
+Player build validation requires an explicit
+`CoCoMapEditorCatalogProvider.CatalogProvider`. Its catalog is the deterministic
+union of registrations used by all bindings discovered by build validation;
+validation never borrows whichever loaded Host happens to sort first.
+
 Retry first performs a synchronous acceptance check and only then starts an
 unrejectable retry operation. A rejected retry cannot mark a waiter Pending or
 publish a transition failure.
@@ -320,16 +332,22 @@ publish a transition failure.
 `OnDisable` begins one idempotent graceful shutdown. `OnDestroy` invokes
 terminal fallback only when that shared shutdown task has not completed, and a
 disabled Host cannot initialize itself again. Both paths first freeze new
-operations, then dispose every demand Scope/Lease, terminal-clean transitions,
-clear runtime dictionaries, and finally unregister the Content shutdown
-participant. Pending released revisions settle as `Superseded`; subsequent
-waits observe `Disposed`, and a previously Ready lease cannot return stale Ready
-after shutdown.
+operations and dispose every demand Scope/Lease. Graceful shutdown awaits
+source-first transition cleanup before clearing runtime dictionaries and
+unregistering the Content shutdown participant. Terminal fallback instead
+transfers ownership to a retained cleanup snapshot, immediately closes the
+public runtime state, and completes physical force-cleanup from that snapshot.
+Pending released revisions settle as `Superseded`; subsequent waits observe
+`Disposed`, and a previously Ready lease cannot return stale Ready after
+shutdown.
 
 Normal terminal order is source-first across the Region dependency DAG, then
-Pool, then Content. Content-first shutdown remains an idempotent terminal
-fallback that coordinates outstanding ownership; it is not the normal
-composition path.
+Pool, then Content. Terminal fallback fences every Region before returning and
+waits at most the configured cleanup timeout for each source runner before
+force-cleaning that Region and advancing to its dependency targets. Late runner
+completion cannot publish or commit after ownership transfer. Content-first
+shutdown remains an idempotent terminal fallback that coordinates outstanding
+ownership; it is not the normal composition path.
 
 ## Internal runtime monitor
 
