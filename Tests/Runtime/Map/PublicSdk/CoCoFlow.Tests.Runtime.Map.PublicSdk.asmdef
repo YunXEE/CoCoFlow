@@ -1,0 +1,25 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.Map.PublicSdk",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Map.PublicSdk",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Modules.Map",
+        "CoCoFlow.Fixtures.ExternalMapTa",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

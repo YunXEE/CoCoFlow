@@ -103,7 +103,8 @@ namespace CoCoFlow.Runtime.Modules.Map
         private sealed class ContentCandidate :
             IRegionParticipantCandidate,
             IRegionParticipantTerminalCleanup,
-            IRegionChunkAnchorSource
+            IRegionChunkAnchorSource,
+            IRegionContentMonitorSource
         {
             private readonly RegionPlanNodeId nodeId;
             private readonly ContentPlan plan;
@@ -113,7 +114,6 @@ namespace CoCoFlow.Runtime.Modules.Map
             private CoCoRegionChunkAnchor anchor;
             private bool registered;
             private bool prepared;
-            private bool committed;
             private bool cleaned;
 
             internal ContentCandidate(
@@ -148,7 +148,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                     return false;
                 }
 
-                committed = true;
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }
@@ -170,6 +169,15 @@ namespace CoCoFlow.Runtime.Modules.Map
                 result = !cleaned && anchor != null ? anchor : null;
                 return result != null;
             }
+
+            ContentId IRegionContentMonitorSource.ContentId =>
+                plan.SceneReference.ContentId;
+
+            long IRegionContentMonitorSource.ContentScopeSequence =>
+                scope == null ? 0L : scope.ScopeSequence;
+
+            long IRegionContentMonitorSource.ContentLeaseSequence =>
+                lease == null ? 0L : lease.LeaseSequence;
 
             private async UniTask<RegionParticipantPrepareResult>
                 PrepareCoreAsync(
@@ -284,7 +292,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                     DisposeScope();
                     anchor = null;
                     prepared = false;
-                    committed = false;
                     cleaned = true;
                     return RegionParticipantCleanupResult.Success();
                 }

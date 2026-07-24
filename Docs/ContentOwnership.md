@@ -1,6 +1,6 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-24
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
 >
 > Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
 > package, Player-build, and Package Validation Suite evidence is recorded.
@@ -129,6 +129,13 @@ If Content shutdown begins first, it is treated as an idempotent terminal
 fallback: dependent Map and Pool ownership drains coordinate before Content
 disposes their Scopes. This fallback is not the normal lifecycle order and does
 not make Content a global Map/Pool service locator.
+
+Map shutdown freezes new demand operations, disposes every public and internal
+dependency demand Scope/Lease, terminal-cleans participant transitions, and
+unregisters its Content shutdown participant only after owned scene and Pool
+resources have crossed their cleanup barriers. The Map runtime monitor may copy
+Content ID and Scope/Lease sequence values into its own immutable internal
+snapshot, but it never exposes or stores a raw `ContentScope` or `ContentLease`.
 
 Content leases, Unity Objects, backend locators, and handles never enter
 StateFlow Frames, Temporal history, or Persistence documents.

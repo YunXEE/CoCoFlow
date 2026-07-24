@@ -1,6 +1,6 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-24
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
 >
 > Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
 > package, Player-build, and Package Validation Suite evidence is recorded.
@@ -190,6 +190,13 @@ Map itself owns. It may use that path during terminal Map Host shutdown after
 normal close cannot complete; it cannot force-stop the shared `PoolRuntime` or a
 Scope owned by another consumer.
 
+Map's graceful and terminal shutdown paths share this same owned-Scope barrier:
+new Map operations are frozen, demand ownership is disposed, and participant
+cleanup closes each Map-owned Scope before its corresponding Scene lease can be
+released. Repeated Disable, Destroy, explicit shutdown, or Content-first
+fallback therefore converge on one terminal task rather than force-closing the
+shared Pool runtime more than once.
+
 For Temporal records, Host stop first uses the normal state-aware release path.
 An active record owns one matched Rent callback lease and therefore receives
 exactly one reverse Return. A pending `TemporalInactive` record has not received
@@ -248,6 +255,11 @@ synchronous Context restore slot. When Map retention is enabled, the complete
 decorator chain is `Map -> optional Pool -> project restore binding`.
 `IPoolTemporalApply` provides a separate, synchronous hook for reapplying entity
 presentation after Context projection.
+
+Before the StateGraph Host starts, its internal decorator introspection walks
+the exact downstream component chain and rejects self-reference or an indirect
+cycle such as `Map -> Pool -> Map`. This validation stays inside the Host-facing
+adapter contracts and does not create a Map-to-Pool product dependency.
 
 Each decorator freezes its exact downstream identity at Host attachment.
 Identity, Unity liveness, Host boundary, and callback reentry are checked before

@@ -483,24 +483,32 @@ stores only pure identity/presence values and is not multi-Actor or whole-world
 rollback. The retained UI and Enemy consumers are not automatically migrated.
 
 Map now treats a Region as a logical fidelity unit and a Chunk as that Region's
-optimization partition. `CoCoRegionProfile` supplies an editable five-tier
-baseline and accepts namespaced custom capabilities/participants through an
-explicit AOT-safe catalog. A demand owner retains a `RegionDemandLease` with
-`All` or explicit Chunk Coverage; Region-global nodes merge every live demand,
-while each Chunk merges only the demands that cover it.
+optimization partition. Schema-v1 `CoCoRegionProfile` has a stable asset
+identity, fixed `off / represented / background / enterable / full` Tier IDs,
+and an editable Participant-by-Tier Enabled/Mode/configuration matrix. It accepts
+namespaced custom capabilities and participants through an explicit AOT-safe
+catalog. A demand owner retains a `RegionDemandLease` with `All` or explicit
+Chunk Coverage; Region-global nodes merge every live demand, while each Chunk
+merges only the demands that cover it.
 
 Transitions reuse unchanged `(Region, optional Chunk, participant slot)` nodes
 and prepare only changed candidates. Residency, Services, Simulation, and
 Presentation commit in deterministic order and clean up in reverse. Required
 failure keeps the transition atomic; optional failure is visible as
 `OptionalDegraded`; commit faults and blocked cleanup remain explicit.
+Capability-triggered cross-Region dependency rules acquire independent target
+Leases and make the target Ready before the source transition commits.
 
 Content is the only Additive Scene lease authority for built-in Map
 participants. A managed Chunk Scene cold-starts with one metadata-only anchor
 root and inactive managed roots. A committed Map node may own a Pool Scope, and
 the Temporal decorator chain is
 `Map -> optional Pool -> project restore binding`; Preview never loads a Scene,
-prepares a Pool, or commits a fidelity tier. See
+prepares a Pool, or commits a fidelity tier. Its barrier queues only the final
+demand resolution for `LateUpdate`, and startup rejects decorator cycles. Map
+Disable/Destroy/explicit shutdown converge on one transactional terminal task.
+The Editor monitor reads an internal immutable ownership snapshot without
+exposing raw Content or Pool authority. See
 [Map Region Fidelity](Docs/Module-Map.md) for the complete contract and breaking
 migration from `MapResourceManager`/`MapStreamTrigger`.
 

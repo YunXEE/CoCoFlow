@@ -29,10 +29,10 @@ namespace CoCoFlow.Editor.Modules.Map
                 return;
             }
 
-            RegionRuntimeSnapshot snapshot;
+            RegionMapMonitorSnapshot monitor;
             try
             {
-                snapshot = host.CaptureSnapshot();
+                monitor = host.CaptureMonitorSnapshot();
             }
             catch (Exception exception)
             {
@@ -43,18 +43,21 @@ namespace CoCoFlow.Editor.Modules.Map
                 return;
             }
 
-            DrawSummary(snapshot);
+            RegionRuntimeSnapshot snapshot = monitor.Runtime;
+            DrawSummary(monitor);
             scroll = EditorGUILayout.BeginScrollView(
                 scroll,
                 GUILayout.MinHeight(180f));
             DrawDemands(snapshot);
-            DrawRegions(snapshot);
+            DrawTemporalRetention(monitor);
+            DrawRegions(monitor);
             EditorGUILayout.EndScrollView();
         }
 
         private static void DrawSummary(
-            RegionRuntimeSnapshot snapshot)
+            RegionMapMonitorSnapshot monitor)
         {
+            RegionRuntimeSnapshot snapshot = monitor.Runtime;
             using (new EditorGUILayout.VerticalScope(
                        EditorStyles.helpBox))
             {
@@ -70,6 +73,15 @@ namespace CoCoFlow.Editor.Modules.Map
                     "Demands / Regions",
                     snapshot.Demands.Count + " / " +
                     snapshot.Regions.Count);
+                EditorGUILayout.LabelField(
+                    "Temporal Barrier",
+                    (monitor.TemporalDispatchDeferred
+                        ? "deferred"
+                        : "open") +
+                    " · dirty Regions " +
+                    monitor.DeferredTransitionCount +
+                    " · retention Leases " +
+                    monitor.TemporalRetentionDemands.Count);
                 DrawDiagnostic(
                     "Runtime",
                     snapshot.LastDiagnostic);
@@ -130,9 +142,49 @@ namespace CoCoFlow.Editor.Modules.Map
             }
         }
 
-        private void DrawRegions(
-            RegionRuntimeSnapshot snapshot)
+        private static void DrawTemporalRetention(
+            RegionMapMonitorSnapshot monitor)
         {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                "Temporal Retention (" +
+                monitor.TemporalRetentionDemands.Count +
+                ")",
+                EditorStyles.miniBoldLabel);
+            if (monitor.TemporalRetentionDemands.Count == 0)
+            {
+                EditorGUILayout.LabelField(
+                    "No live Map Temporal retention.",
+                    EditorStyles.miniLabel);
+                return;
+            }
+
+            for (int index = 0;
+                 index <
+                 monitor.TemporalRetentionDemands.Count;
+                 index++)
+            {
+                RegionDemandRuntimeSnapshot demand =
+                    monitor.TemporalRetentionDemands[index];
+                EditorGUILayout.LabelField(
+                    "  " + demand.RegionId.Value,
+                    "lease " +
+                    demand.LeaseSequence +
+                    " · revision " +
+                    demand.Revision.Value +
+                    " · " +
+                    FormatCapabilities(
+                        demand.Capabilities) +
+                    " · " +
+                    FormatCoverage(demand.Coverage),
+                    EditorStyles.wordWrappedMiniLabel);
+            }
+        }
+
+        private void DrawRegions(
+            RegionMapMonitorSnapshot monitor)
+        {
+            RegionRuntimeSnapshot snapshot = monitor.Runtime;
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(
                 "Resolved Regions (" +
@@ -152,12 +204,17 @@ namespace CoCoFlow.Editor.Modules.Map
             {
                 RegionRuntimeRegionSnapshot region =
                     snapshot.Regions[index];
-                DrawRegion(region);
+                DrawRegion(
+                    region,
+                    FindTransitionRegion(
+                        monitor,
+                        region.RegionId));
             }
         }
 
         private void DrawRegion(
-            RegionRuntimeRegionSnapshot region)
+            RegionRuntimeRegionSnapshot region,
+            RegionTransitionMonitorRegionSnapshot transition)
         {
             string key = region.RegionId.Value;
             bool expanded =
@@ -188,19 +245,33 @@ namespace CoCoFlow.Editor.Modules.Map
                     " · committed " +
                     region.CommittedGeneration);
                 EditorGUILayout.LabelField(
-                    "Desired",
+                    "Desired Requirement",
                     FormatCapabilities(
                         region.DesiredCapabilities) +
                     " · " +
                     FormatCoverage(
                         region.DesiredCoverage));
                 EditorGUILayout.LabelField(
-                    "Committed",
+                    "Committed Requirement",
                     FormatCapabilities(
                         region.CommittedCapabilities) +
                     " · " +
                     FormatCoverage(
                         region.CommittedCoverage));
+                EditorGUILayout.LabelField(
+                    "Resolved Tier",
+                    "desired " +
+                    FormatTier(region.DesiredTierId) +
+                    " · committed " +
+                    FormatTier(region.CommittedTierId));
+                EditorGUILayout.LabelField(
+                    "Effective Capability",
+                    "desired " +
+                    FormatCapabilities(
+                        region.DesiredEffectiveCapabilities) +
+                    " · committed " +
+                    FormatCapabilities(
+                        region.CommittedEffectiveCapabilities));
                 EditorGUILayout.LabelField(
                     "Plan Diff",
                     "reused " +
@@ -219,35 +290,182 @@ namespace CoCoFlow.Editor.Modules.Map
                     "Region",
                     region.Diagnostic);
 
-                if (region.Chunks.Count == 0)
+                if (region.Chunks.Count != 0)
                 {
                     EditorGUILayout.LabelField(
                         "Per-Chunk Capability",
-                        "<none>");
-                    return;
+                        EditorStyles.miniBoldLabel);
+                    for (int index = 0;
+                         index < region.Chunks.Count;
+                         index++)
+                    {
+                        RegionChunkRuntimeSnapshot chunk =
+                            region.Chunks[index];
+                        EditorGUILayout.LabelField(
+                            "  " + chunk.ChunkId.Value,
+                            "requirement desired " +
+                            FormatCapabilities(
+                                chunk.DesiredCapabilities) +
+                            " · committed " +
+                            FormatCapabilities(chunk.CommittedCapabilities) +
+                            "\ntier desired " +
+                            FormatTier(chunk.DesiredTierId) +
+                            " · committed " +
+                            FormatTier(chunk.CommittedTierId) +
+                            "\neffective desired " +
+                            FormatCapabilities(
+                                chunk.DesiredEffectiveCapabilities) +
+                            " · committed " +
+                            FormatCapabilities(
+                                chunk.CommittedEffectiveCapabilities),
+                            EditorStyles.wordWrappedMiniLabel);
+                    }
                 }
 
-                EditorGUILayout.LabelField(
-                    "Per-Chunk Capability",
-                    EditorStyles.miniBoldLabel);
-                for (int index = 0;
-                     index < region.Chunks.Count;
-                     index++)
+                if (transition != null)
                 {
-                    RegionChunkRuntimeSnapshot chunk =
-                        region.Chunks[index];
                     EditorGUILayout.LabelField(
-                        "  " + chunk.ChunkId.Value,
-                        "desired " +
-                        FormatCapabilities(
-                            chunk.DesiredCapabilities) +
-                        " · committed " +
-                        FormatCapabilities(
-                            chunk.CommittedCapabilities),
-                        EditorStyles.wordWrappedMiniLabel);
+                        "Old + Candidate Peak",
+                        "generation " +
+                        transition.PeakGeneration +
+                        " · old " +
+                        transition.OldNodeCountAtAttemptStart +
+                        " · peak " +
+                        transition.OldPlusCandidatePeak);
+                    DrawParticipants(transition);
+                    DrawDependencies(transition);
                 }
             }
         }
+
+        private static void DrawParticipants(
+            RegionTransitionMonitorRegionSnapshot region)
+        {
+            EditorGUILayout.LabelField(
+                "Participants (" +
+                region.Participants.Count +
+                ")",
+                EditorStyles.miniBoldLabel);
+            for (int index = 0;
+                 index < region.Participants.Count;
+                 index++)
+            {
+                RegionParticipantMonitorSnapshot participant =
+                    region.Participants[index];
+                string content = participant.ContentId.IsValid
+                    ? "\ncontent " +
+                      participant.ContentId.Value +
+                      " · scope/lease " +
+                      participant.ContentScopeSequence +
+                      "/" +
+                      participant.ContentLeaseSequence
+                    : string.Empty;
+                string cleanup =
+                    participant.CleanupReason.HasValue
+                        ? " · " +
+                          participant.CleanupReason.Value
+                        : string.Empty;
+                EditorGUILayout.LabelField(
+                    "  " + FormatNode(participant.NodeId),
+                    participant.Role +
+                    cleanup +
+                    " · ownership " +
+                    participant.OwnershipSequence +
+                    "\n" +
+                    participant.ParticipantTypeId.Value +
+                    " · " +
+                    participant.Phase +
+                    "/" +
+                    participant.ExplicitOrder +
+                    " · " +
+                    participant.Requirement +
+                    "\ntier " +
+                    FormatTier(participant.TierId) +
+                    " · mode " +
+                    participant.ModeId.Value +
+                    " · " +
+                    FormatCapabilities(
+                        participant.EffectiveCapabilities) +
+                    content,
+                    EditorStyles.wordWrappedMiniLabel);
+            }
+        }
+
+        private static void DrawDependencies(
+            RegionTransitionMonitorRegionSnapshot region)
+        {
+            EditorGUILayout.LabelField(
+                "Cross-Region Dependencies (" +
+                region.Dependencies.Count +
+                ")",
+                EditorStyles.miniBoldLabel);
+            for (int index = 0;
+                 index < region.Dependencies.Count;
+                 index++)
+            {
+                RegionDependencyMonitorSnapshot dependency =
+                    region.Dependencies[index];
+                EditorGUILayout.LabelField(
+                    "  " +
+                    dependency.SourceCapability.Value +
+                    " → " +
+                    dependency.TargetRegionId.Value,
+                    dependency.Role +
+                    (dependency.IsBlocker
+                        ? " · BLOCKER"
+                        : string.Empty) +
+                    " · rule " +
+                    dependency.RuleFingerprint +
+                    "\nlease/revision " +
+                    dependency.LeaseSequence +
+                    "/" +
+                    dependency.Revision.Value +
+                    " · " +
+                    (dependency.Readiness.HasValue
+                        ? dependency.Readiness.Value.ToString()
+                        : "Pending") +
+                    "\n" +
+                    FormatCapabilities(
+                        dependency.TargetCapabilities) +
+                    " · " +
+                    FormatCoverage(
+                        dependency.TargetCoverage),
+                    EditorStyles.wordWrappedMiniLabel);
+                DrawDiagnostic(
+                    "Dependency",
+                    dependency.Diagnostic);
+            }
+        }
+
+        private static RegionTransitionMonitorRegionSnapshot
+            FindTransitionRegion(
+                RegionMapMonitorSnapshot monitor,
+                RegionId regionId)
+        {
+            for (int index = 0;
+                 index < monitor.TransitionRegions.Count;
+                 index++)
+            {
+                if (monitor.TransitionRegions[index].RegionId ==
+                    regionId)
+                {
+                    return monitor.TransitionRegions[index];
+                }
+            }
+
+            return null;
+        }
+
+        private static string FormatNode(RegionPlanNodeId nodeId) =>
+            nodeId.HasChunkId
+                ? nodeId.RegionId.Value +
+                  " · chunk " +
+                  nodeId.ChunkId.Value +
+                  " · slot " +
+                  nodeId.SlotId.Value
+                : nodeId.RegionId.Value +
+                  " · global · slot " +
+                  nodeId.SlotId.Value;
 
         private static string RegionHeading(
             RegionRuntimeRegionSnapshot region)
@@ -307,6 +525,9 @@ namespace CoCoFlow.Editor.Modules.Map
                    string.Join(", ", values) +
                    "]";
         }
+
+        private static string FormatTier(RegionTierId tierId) =>
+            tierId.IsValid ? tierId.Value : "<unresolved>";
 
         private static string YesNo(bool value) =>
             value ? "yes" : "no";

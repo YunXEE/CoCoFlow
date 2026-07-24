@@ -15,10 +15,12 @@ projects and does not include a migration runtime for 0.3.9 projects.
   project/TA-owned namespaced custom capabilities without reducing the model to
   a fixed enum.
 - Editable `CoCoRegionProfile` tier ladders with a built-in five-tier baseline,
-  strict-superset validation, `[SerializeReference]` participant
-  configuration, explicit catalog/provider registration, exact snapshotted AOT
-  types, immutable compiled plans, copied `RegionImmutableArray<T>` extension
-  data, and deterministic compilation caching suitable for Player/AOT builds.
+  stable serialized Profile/Tier identities, schema version `1`,
+  Participant-by-Tier Enabled/Mode/`[SerializeReference]` configuration,
+  strict-superset and complete-matrix validation, explicit catalog/provider
+  registration, exact snapshotted AOT types, immutable per-tier variants,
+  copied `RegionImmutableArray<T>` extension data, and deterministic compilation
+  caching suitable for Player/AOT builds.
 - `CoCoRegionBinding`, serialized `RegionChunkBinding`, and
   `CoCoRegionChunkAnchor` authoring contracts for Region-global and
   Chunk-scoped participant slots, dependency validation, canonical Direct or
@@ -32,6 +34,9 @@ projects and does not include a migration runtime for 0.3.9 projects.
   each Chunk merges only the demands that cover it, so a high-fidelity demand
   for one Chunk cannot raise sibling Chunks. Unknown Chunk IDs fail the complete
   create or update operation instead of being ignored.
+- Capability-triggered cross-Region dependency rules with normalized tuple
+  identity, global target/Chunk/DAG validation, independent target Leases,
+  target-ready blocking, transitive expansion, and make-before-break release.
 - Transactional participant transitions with stable plan-node identity,
   fingerprint-based reuse, ordered Residency/Services/Simulation/Presentation
   phases, reverse cleanup, optional-degraded snapshots, retryable preparation
@@ -42,8 +47,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
   contracts for project and world-response TA implementations.
 - Map authoring and runtime inspection surfaces for profile templates,
   Participant-by-Tier configuration, Coverage, dependencies, compiler
-  diagnostics, live demand/revision state, per-Chunk desired and committed
-  capability, plan reuse, candidates, degradation, faults, and blocked cleanup.
+  diagnostics, and an internal immutable monitor snapshot covering live demand
+  and revision state, desired/committed Tier and effective capability per Chunk,
+  participant/dependency ownership, Content sequences, Temporal retention,
+  reuse/candidates/retirement, degradation, faults, blocked cleanup, and
+  old-plus-candidate peak ownership without exposing raw runtime authority.
 
 ### Changed
 
@@ -60,7 +68,14 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Added a Map Temporal decorator ahead of optional Pool and project bindings.
   It records committed capability/Coverage for availability barriers and
   retention only; it neither serializes nor replays Map state, and Preview
-  performs no scene load, Pool preparation, or fidelity-tier commit.
+  performs no scene load, Pool preparation, or fidelity-tier commit. Logical
+  demand mutations coalesce behind one callback-spanning barrier and dispatch
+  only their final resolutions from `LateUpdate`; startup rejects direct and
+  indirect decorator cycles.
+- Made retry acceptance transactional and unified explicit shutdown,
+  `OnDisable`, `OnDestroy`, and Content-first fallback behind one idempotent
+  terminal task that freezes operations, disposes Scope/Lease ownership, cleans
+  transitions, and unregisters from Content in order.
 - Updated the package and the two existing Unity Package Validation Suite
   exception scopes to `0.4.0-pre.10`; the Unity minimum and package dependency
   list are unchanged.

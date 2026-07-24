@@ -1,6 +1,6 @@
 # CoCoFlow Temporal Rewind
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-24
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
 >
 > Pre10 Map decorator verification: `UNVERIFIED` until the Unity-host,
 > package, Player-build, and Package Validation Suite evidence is recorded.
@@ -300,12 +300,23 @@ that identity for retention and an availability barrier only; it does not put
 Map state into the Temporal ring, restore a fidelity tier, or replay Map
 transitions.
 
-Temporal Preview cannot load a Scene, prepare a Pool, or commit a Region tier.
-If the requested historical presentation is not already available through
-retained committed ownership, the callback fails through the existing
-world-correction contract rather than causing hidden streaming. When Confirm
-truncates the branch and lowers retention, Map queues that reduction until the
-Temporal callback returns so cleanup cannot invalidate a live decorator chain.
+Map holds one internal barrier across Preview, Confirm, and Cancel; an
+independent Correction holds it from Prepare through Finish. Barrier entry is
+atomic and rejects a real transition already in flight, a Map fault, blocked
+cleanup, or an existing deferred flush.
+
+While held, demand Create, Update, and Dispose still advance logical demand,
+revision, and final resolution. They only update a deterministic dirty set:
+Temporal Preview cannot load a Scene, prepare a Pool, Prepare/Commit a
+participant, or retry a Region. If historical presentation is not already
+available through retained committed ownership, the callback fails through the
+existing world-correction contract rather than causing hidden streaming.
+
+Barrier release schedules, but does not synchronously run, transition work.
+`CoCoMapHost.LateUpdate` dispatches only the final resolution for each dirty
+Region after the callback stack returns, and nested dependency recomputation is
+coalesced into that same flush. Confirm branch truncation therefore queues
+retention decreases until they cannot invalidate a live decorator chain.
 
 The optional Pool decorator projects whether an adopted
 `CoCoTemporalEntityId` is physically present; the Context projection remains
@@ -320,6 +331,11 @@ moved, rejecting, throwing, or re-entering downstream cannot silently degrade
 to “not configured” or continue after-restore activation. Once a downstream
 callback has started, failure uses the Host's existing world-correction path;
 CoCoFlow does not fabricate a transactional Unity rollback.
+
+Before startup, StateGraph Host internal introspection follows these frozen
+decorator references and rejects direct or indirect cycles, including
+`Map -> Pool -> Map`. Map and Pool provide the introspection seam independently;
+neither product module gains a reverse dependency on the other.
 
 The identity and storage boundaries stay separate:
 

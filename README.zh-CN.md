@@ -401,7 +401,9 @@ Addressables 路径。
 rollback。现有 UI 与 Enemy consumer 不会被自动迁移。
 
 Map 现在把 Region 定义为逻辑 Fidelity 单元，把 Chunk 定义为 Region 所拥有的优化
-分区。`CoCoRegionProfile` 提供可编辑的默认五档，并通过显式、AOT-safe Catalog
+分区。schema-v1 `CoCoRegionProfile` 具有稳定资产身份、固定的
+`off / represented / background / enterable / full` Tier ID，以及可编辑的
+Participant-by-Tier Enabled/Mode/configuration 矩阵；并通过显式、AOT-safe Catalog
 接纳命名空间化自定义 Capability 与 Participant。Demand Owner 持有
 `RegionDemandLease`，Coverage 可以是 `All` 或显式 Chunk 集合；Region-global Node
 合并全部 live demand，每个 Chunk 只合并覆盖自己的 demand。
@@ -410,12 +412,17 @@ Transition 会复用未改变的 `(Region, optional Chunk, participant slot)` No
 fingerprint 变化的 Node Prepare Candidate。Residency、Services、Simulation、
 Presentation 按确定顺序提交并逆序清理。Required 失败保持事务原子性，Optional
 失败显示为 `OptionalDegraded`，Commit Fault 与 Blocked Cleanup 都保持显式。
+由 Capability 触发的跨 Region Dependency Rule 会持有独立 Target Lease，并在 Source
+Transition 提交前等待 Target Ready。
 
 内置 Map Participant 的 Additive Scene Lease 只能由 Content 持有。受管理 Chunk
 Scene cold-start 时只有一个 metadata-only Anchor Root，其余 managed Root 初始
 inactive。已提交 Map Node 可以拥有 Pool Scope；Temporal decorator 链固定为
 `Map -> optional Pool -> project restore binding`，Preview 不会加载 Scene、Prepare
-Pool 或提交 Fidelity Tier。完整契约以及从 `MapResourceManager`/
+Pool 或提交 Fidelity Tier。Barrier 只把每个 Region 的最终 Demand Resolution 排队到
+`LateUpdate`，启动前会拒绝 Decorator Cycle；Disable、Destroy 与显式 Shutdown
+收束到同一个事务式终止任务。Editor Monitor 只读取内部不可变 Ownership Snapshot，
+不会暴露原始 Content 或 Pool 权威。完整契约以及从 `MapResourceManager`/
 `MapStreamTrigger` 迁移的 breaking 说明见
 [Map Region Fidelity](Docs/Module-Map.md)。
 

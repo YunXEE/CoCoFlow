@@ -1,6 +1,6 @@
 # Module: Map Region Fidelity
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-24
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
 >
 > Verification status: `UNVERIFIED` until the Pre10 Unity-host, package,
 > Player-build, and Package Validation Suite evidence is recorded.
@@ -50,17 +50,34 @@ reflection.
 capabilities return `UnsupportedCapability`; Map never silently selects a lower
 tier.
 
-`CoCoRegionProfile` defines the tier ladder and participant configuration.
-The package supplies an editable five-tier baseline:
+`CoCoRegionProfile.CurrentSchemaVersion` is `1`. Every Profile serializes a
+stable `RegionProfileId`; Editor authoring derives it from the asset GUID, so
+copying an asset creates a new identity while moving or renaming it preserves
+identity. Player code never uses `AssetDatabase` to recover or rewrite it.
 
-- tier 0 has no capability and removes its nodes;
+The package supplies an editable five-tier baseline with fixed `RegionTierId`
+values:
+
+- `off` has no capability and disables every participant;
+- `represented`, `background`, `enterable`, and `full` are the remaining
+  default identities;
 - each later tier adds fidelity through a strict capability superset;
-- standard capabilities keep their fixed order;
+- standard capabilities keep their fixed order, but may be added together in
+  one tier;
+- the final tier contains all four standard capabilities;
 - custom capabilities may be inserted where the project requires them.
 
-Profiles store extension configuration with `[SerializeReference]`. A catalog
-must register its configuration freezer, exact sealed immutable plan type,
-concrete candidate type, participant mode, and participant type explicitly.
+Each participant defines Slot, Type, Required/Optional, phase, order, and
+dependencies once. Its Participant-by-Tier matrix then stores exactly one
+`RegionParticipantTierSetting` per tier: Enabled, Mode, and
+`[SerializeReference]` configuration. Compilation fails closed when a cell is
+missing or duplicated, an enabled cell lacks an exact Type/Mode/config
+registration, a same-tier dependency is disabled, or a required participant
+depends on an optional participant.
+
+A catalog must register its configuration freezer, exact sealed immutable plan
+type, concrete candidate type, participant mode, and participant type
+explicitly.
 Registration snapshots those types. TA plans use pure readonly fields and
 `RegionImmutableArray<T>` for copied collections; raw arrays, collection
 wrappers over mutable backing stores, Unity Objects, runtime authority, tasks,
@@ -150,6 +167,25 @@ Another owner changing demand may start a new generation but does not supersede
 this lease's revision. Only updating or releasing the same lease supersedes its
 older revision.
 
+## Cross-Region dependencies
+
+`RegionDependencyRule` declares one source Capability trigger and one target
+Region demand with non-empty target Capabilities and `All` or explicit target
+Coverage. It has no hand-authored ID; the normalized source/target/capability/
+Coverage tuple is its stable fingerprint.
+
+`CompileAll` validates every target Region, target Profile capability, target
+Chunk, duplicate rule, self-edge, and cycle in the global Region DAG. It also
+enforces globally unique `RegionChunkId` ownership across all Regions.
+
+The Host owns a reserved dependency demand Scope and a distinct Lease for each
+active rule. A target must become `Ready` before its source can Prepare or
+Commit. Replacements are make-before-break: the prior dependency Lease remains
+owned until the source's old-node cleanup completes. Independent Leases preserve
+multi-source sharing, and the compiled DAG expands transitive dependencies.
+Failure, cancellation, supersede, blocked cleanup, commit fault, and shutdown
+release only the dependency ownership permitted by that exact transition state.
+
 ## Compiled nodes and transactional transitions
 
 A plan-node identity is:
@@ -158,9 +194,13 @@ A plan-node identity is:
 (RegionId, optional RegionChunkId, ParticipantSlotId)
 ```
 
-Only a fingerprint change creates a candidate. An unchanged node is reused
-across transition generations, including its stable committed resources such as
-a Pool Scope.
+Runtime resolves the first Profile tier whose cumulative capabilities cover the
+demand, independently for Region-global nodes and each Chunk. Compiled nodes
+store immutable per-tier variants. Only a Mode/config/plan fingerprint change
+creates a candidate; a Tier ID rename alone does not. A capability-sensitive
+plan additionally fingerprints the resolved effective capabilities. An
+unchanged node is reused across transition generations, including its stable
+committed resources such as a Pool Scope.
 
 Participants execute in deterministic phase order:
 
@@ -247,11 +287,23 @@ If Pool projection is used, assign `CoCoPoolTemporalBinding` as Map's
 downstream; otherwise assign the project restore component directly. Pool's
 downstream remains the project restore component.
 
-Map captures committed capability and Coverage for retention and availability
-barriers. It does not encode, restore, or replay Map state. Temporal Preview
-cannot load a Scene, prepare a Pool, or commit a fidelity tier. After branch
-truncation, a retention decrease is queued until the Temporal callback returns,
-preventing cleanup from invalidating the active restore chain.
+Map captures committed effective capability and Coverage for retention and
+availability barriers. It does not encode, restore, or replay Map state or Tier
+identity. One internal barrier spans Preview, Confirm, and Cancel; Correction
+holds the same barrier from Prepare through Finish. Entry rejects an active
+real transition, fault, blocked cleanup, or an already pending flush.
+
+While the barrier is held, demand Create, Update, and Dispose still update
+logical demand, revision, and final resolution, but only mark Regions dirty.
+They cannot load Content, prepare Pooling, or Prepare/Commit participants, and
+Retry is rejected without side effects. When the callback stack has returned,
+`CoCoMapHost.LateUpdate` deterministically dispatches only the final resolution
+for each dirty Region and coalesces dependency recomputation. Branch-truncation
+retention decreases therefore cannot invalidate the active restore chain.
+
+The StateGraph Host inspects the internal decorator reference chain before
+startup and rejects direct or indirect cycles such as `Map -> Pool -> Map`
+without adding a Map-to-Pool product dependency.
 
 ## Host composition and shutdown
 
@@ -261,9 +313,34 @@ registration, or runtime Profile write-back. Unloaded Chunk definitions come
 from the bootstrap binding; Scene anchors only resolve fragments after a lease
 exists.
 
-Normal terminal order is Map, then Pool, then Content. Content-first shutdown is
-an idempotent terminal fallback that coordinates outstanding ownership; it is
-not the normal composition path.
+Retry first performs a synchronous acceptance check and only then starts an
+unrejectable retry operation. A rejected retry cannot mark a waiter Pending or
+publish a transition failure.
+
+`OnDisable` begins one idempotent graceful shutdown. `OnDestroy` invokes
+terminal fallback only when that shared shutdown task has not completed, and a
+disabled Host cannot initialize itself again. Both paths first freeze new
+operations, then dispose every demand Scope/Lease, terminal-clean transitions,
+clear runtime dictionaries, and finally unregister the Content shutdown
+participant. Pending released revisions settle as `Superseded`; subsequent
+waits observe `Disposed`, and a previously Ready lease cannot return stale Ready
+after shutdown.
+
+Normal terminal order is source-first across the Region dependency DAG, then
+Pool, then Content. Content-first shutdown remains an idempotent terminal
+fallback that coordinates outstanding ownership; it is not the normal
+composition path.
+
+## Internal runtime monitor
+
+The Editor monitor consumes one Map-internal immutable snapshot rather than
+exposing mutable runtime ownership. It combines logical demand and revision
+state with desired/committed Tier and effective capabilities per Region and
+Chunk, participant phase and ownership role (`reused`, `candidate`, `retiring`,
+blocked, or fault-retained), dependency blockers, Content ID and Scope/Lease
+sequences, Temporal retention/dirty-flush state, degradation and faults, and
+old-plus-candidate peak ownership. The snapshot never exposes a raw
+`ContentScope`, `ContentLease`, candidate object, or Pool handle.
 
 ## Breaking migration
 
