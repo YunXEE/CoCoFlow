@@ -20,6 +20,19 @@ namespace CoCoFlow.Runtime.Modules.Map
         string Fingerprint { get; }
     }
 
+    /// <summary>
+    /// Marks a frozen participant plan whose candidate behavior depends on the
+    /// effective capability set supplied by the runtime.
+    /// </summary>
+    /// <remarks>
+    /// Unmarked plans are reused while their structural fingerprint is stable.
+    /// Marked plans are replaced when their effective capability set changes.
+    /// </remarks>
+    public interface IRegionCapabilitySensitivePlan :
+        IRegionParticipantPlan
+    {
+    }
+
     public interface IRegionParticipantConfigFreezer
     {
         Type ConfigurationType { get; }
