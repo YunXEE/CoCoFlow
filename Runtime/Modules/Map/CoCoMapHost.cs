@@ -268,6 +268,42 @@ namespace CoCoFlow.Runtime.Modules.Map
             return Runtime.CaptureSnapshot();
         }
 
+        internal RegionMapMonitorSnapshot CaptureMonitorSnapshot()
+        {
+            RegionRuntimeSnapshot runtimeSnapshot =
+                CaptureSnapshot();
+            var temporalRetention =
+                new List<RegionDemandRuntimeSnapshot>();
+            for (int index = 0;
+                 index < runtimeSnapshot.Demands.Count;
+                 index++)
+            {
+                RegionDemandRuntimeSnapshot demand =
+                    runtimeSnapshot.Demands[index];
+                if (demand.OwnerId.Value.StartsWith(
+                        "cocoflow.map.temporal.",
+                        StringComparison.Ordinal))
+                {
+                    temporalRetention.Add(demand);
+                }
+            }
+
+            var transitionRegions =
+                new List<RegionTransitionMonitorRegionSnapshot>();
+            if (transitionRuntime != null)
+            {
+                transitionRegions.AddRange(
+                    transitionRuntime.CaptureMonitorRegions());
+            }
+
+            return new RegionMapMonitorSnapshot(
+                runtimeSnapshot,
+                Runtime.IsTemporalDispatchDeferred,
+                Runtime.DeferredTransitionCount,
+                transitionRegions,
+                temporalRetention);
+        }
+
         public async UniTask<CoCoDiagnostic> ShutdownAsync()
         {
             if (Runtime == null) return CoCoDiagnostic.None;
@@ -276,10 +312,47 @@ namespace CoCoFlow.Runtime.Modules.Map
             return LastDiagnostic;
         }
 
+        private void LateUpdate()
+        {
+            Runtime?.FlushDeferredTransitionsNoThrow();
+        }
+
+        private void OnDisable()
+        {
+            ShutdownOnDisableNoThrowAsync().Forget();
+        }
+
         private void OnDestroy()
         {
-            Runtime?.ForceShutdown();
+            if (Runtime != null && !Runtime.IsDisposed)
+            {
+                Runtime.ForceShutdown(
+                    RegionErrors.CleanupBlocked(
+                        "CoCoMapHost destruction required terminal shutdown fallback."));
+            }
+
             transitionRuntime = null;
+        }
+
+        private async UniTaskVoid ShutdownOnDisableNoThrowAsync()
+        {
+            RegionRuntime runtime = Runtime;
+            if (runtime == null || runtime.IsDisposed)
+            {
+                return;
+            }
+
+            try
+            {
+                LastDiagnostic = await runtime.ShutdownAsync();
+            }
+            catch (Exception exception)
+            {
+                LastDiagnostic = RegionErrors.CleanupBlocked(
+                    "CoCoMapHost disable shutdown threw: " +
+                    exception.Message);
+                runtime.ForceShutdown(LastDiagnostic);
+            }
         }
 
         private void OnValidate()
