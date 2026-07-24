@@ -6,6 +6,101 @@ using UnityEngine;
 namespace CoCoFlow.Runtime.Modules.Map
 {
     [Serializable]
+    public struct RegionProfileId : IEquatable<RegionProfileId>
+    {
+        [SerializeField] private string value;
+
+        private RegionProfileId(string value) => this.value = value;
+
+        public string Value => value ?? string.Empty;
+        public bool IsValid => RegionIdentifierRules.IsStableId(Value);
+
+        public static bool TryCreate(string value, out RegionProfileId id)
+        {
+            string normalized = RegionIdentifierRules.Normalize(value);
+            if (!RegionIdentifierRules.IsStableId(normalized))
+            {
+                id = default;
+                return false;
+            }
+
+            id = new RegionProfileId(normalized);
+            return true;
+        }
+
+        public bool Equals(RegionProfileId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        public override bool Equals(object obj) =>
+            obj is RegionProfileId other && Equals(other);
+
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value);
+
+        public override string ToString() => Value;
+
+        public static bool operator ==(
+            RegionProfileId left,
+            RegionProfileId right) => left.Equals(right);
+
+        public static bool operator !=(
+            RegionProfileId left,
+            RegionProfileId right) => !left.Equals(right);
+    }
+
+    [Serializable]
+    public struct RegionTierId : IEquatable<RegionTierId>
+    {
+        [SerializeField] private string value;
+
+        private RegionTierId(string value) => this.value = value;
+
+        public static RegionTierId Off => CreateBuiltIn("off");
+        public static RegionTierId Represented => CreateBuiltIn("represented");
+        public static RegionTierId Background => CreateBuiltIn("background");
+        public static RegionTierId Enterable => CreateBuiltIn("enterable");
+        public static RegionTierId Full => CreateBuiltIn("full");
+
+        public string Value => value ?? string.Empty;
+        public bool IsValid => RegionIdentifierRules.IsStableId(Value);
+
+        public static bool TryCreate(string value, out RegionTierId id)
+        {
+            string normalized = RegionIdentifierRules.Normalize(value);
+            if (!RegionIdentifierRules.IsStableId(normalized))
+            {
+                id = default;
+                return false;
+            }
+
+            id = new RegionTierId(normalized);
+            return true;
+        }
+
+        public bool Equals(RegionTierId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        public override bool Equals(object obj) =>
+            obj is RegionTierId other && Equals(other);
+
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value);
+
+        public override string ToString() => Value;
+
+        public static bool operator ==(
+            RegionTierId left,
+            RegionTierId right) => left.Equals(right);
+
+        public static bool operator !=(
+            RegionTierId left,
+            RegionTierId right) => !left.Equals(right);
+
+        private static RegionTierId CreateBuiltIn(string value) =>
+            new RegionTierId(value);
+    }
+
+    [Serializable]
     public struct RegionId : IEquatable<RegionId>
     {
         [SerializeField] private string value;

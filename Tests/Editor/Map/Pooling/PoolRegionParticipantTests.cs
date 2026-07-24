@@ -164,12 +164,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Pooling.Tests
             internal RegionParticipantPrepareContext PrepareContext =>
                 new RegionParticipantPrepareContext(
                     NodeId,
+                    RegionTierId.Full,
                     Capabilities(),
                     1,
                     null);
             internal RegionParticipantCommitContext CommitContext =>
                 new RegionParticipantCommitContext(
                     NodeId,
+                    RegionTierId.Full,
                     Capabilities(),
                     1);
 

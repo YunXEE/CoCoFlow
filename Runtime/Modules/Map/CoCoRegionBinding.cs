@@ -45,6 +45,8 @@ namespace CoCoFlow.Runtime.Modules.Map
             regionParticipants = new List<RegionParticipantSlotBinding>();
         [SerializeField] private List<RegionChunkBinding> chunks =
             new List<RegionChunkBinding>();
+        [SerializeField] private List<RegionDependencyRule> dependencyRules =
+            new List<RegionDependencyRule>();
 
         public RegionId RegionId => regionId;
         public CoCoRegionProfile Profile => profile;
@@ -55,5 +57,9 @@ namespace CoCoFlow.Runtime.Modules.Map
         public IReadOnlyList<RegionChunkBinding> Chunks =>
             chunks ??
             (IReadOnlyList<RegionChunkBinding>)Array.Empty<RegionChunkBinding>();
+        public IReadOnlyList<RegionDependencyRule> DependencyRules =>
+            dependencyRules ??
+            (IReadOnlyList<RegionDependencyRule>)
+            Array.Empty<RegionDependencyRule>();
     }
 }

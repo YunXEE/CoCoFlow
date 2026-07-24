@@ -9,12 +9,19 @@ namespace CoCoFlow.Runtime.Modules.Map
         menuName = "CoCoFlow/Map/Region Profile")]
     public sealed class CoCoRegionProfile : ScriptableObject
     {
+        public const int CurrentSchemaVersion = 1;
         public const int DefaultTierCount = 5;
 
+        [SerializeField, HideInInspector] private int schemaVersion =
+            CurrentSchemaVersion;
+        [SerializeField, HideInInspector] private RegionProfileId profileId;
         [SerializeField] private List<RegionTierDefinition> tiers =
             CreateDefaultTiers();
         [SerializeField] private List<RegionParticipantDefinition> participants =
             new List<RegionParticipantDefinition>();
+
+        public int SchemaVersion => schemaVersion;
+        public RegionProfileId ProfileId => profileId;
 
         public IReadOnlyList<RegionTierDefinition> Tiers =>
             tiers ??
@@ -24,6 +31,27 @@ namespace CoCoFlow.Runtime.Modules.Map
             participants ??
             (IReadOnlyList<RegionParticipantDefinition>)
             Array.Empty<RegionParticipantDefinition>();
+
+        internal bool SetEditorIdentity(RegionProfileId identity)
+        {
+            if (!identity.IsValid || profileId == identity)
+            {
+                return false;
+            }
+
+            profileId = identity;
+            return true;
+        }
+
+        internal void SynchronizeParticipantTierSettings()
+        {
+            if (participants == null) return;
+
+            for (int index = 0; index < participants.Count; index++)
+            {
+                participants[index]?.SynchronizeTierSettings(Tiers);
+            }
+        }
 
         private static List<RegionTierDefinition> CreateDefaultTiers()
         {
@@ -40,6 +68,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             for (int index = 0; index < RegionDefaultTiers.Capabilities.Length; index++)
             {
                 defaults.Add(new RegionTierDefinition(
+                    RegionDefaultTiers.Ids[index],
                     names[index],
                     RegionDefaultTiers.Capabilities[index]));
             }

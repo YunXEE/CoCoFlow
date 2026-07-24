@@ -17,6 +17,17 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
     {
         private const string TemplateGuid =
             "7a04045d8302471a8dd3bb4b57041104";
+        private const string IdentityTestFolder =
+            "Assets/__CoCoFlowRegionProfileIdentityTests";
+
+        [TearDown]
+        public void TearDown()
+        {
+            if (AssetDatabase.IsValidFolder(IdentityTestFolder))
+            {
+                AssetDatabase.DeleteAsset(IdentityTestFolder);
+            }
+        }
 
         [Test]
         public void DefaultTemplateCopiesTheFrozenFiveTierBaseline()
@@ -34,7 +45,21 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
                     template.text,
                     profile);
 
+                Assert.That(
+                    profile.SchemaVersion,
+                    Is.EqualTo(
+                        CoCoRegionProfile.CurrentSchemaVersion));
                 Assert.That(profile.Tiers.Count, Is.EqualTo(5));
+                Assert.That(
+                    profile.Tiers.Select(tier => tier.TierId),
+                    Is.EqualTo(new[]
+                    {
+                        RegionTierId.Off,
+                        RegionTierId.Represented,
+                        RegionTierId.Background,
+                        RegionTierId.Enterable,
+                        RegionTierId.Full
+                    }));
                 Assert.That(
                     profile.Tiers[0].Capabilities,
                     Is.Empty);
@@ -58,6 +83,68 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
             {
                 UnityEngine.Object.DestroyImmediate(profile);
             }
+        }
+
+        [Test]
+        public void ProfileIdentityFollowsAssetGuidAcrossCopyAndMove()
+        {
+            AssetDatabase.CreateFolder(
+                "Assets",
+                "__CoCoFlowRegionProfileIdentityTests");
+            const string originalPath =
+                IdentityTestFolder + "/Original.asset";
+            const string movedPath =
+                IdentityTestFolder + "/Moved.asset";
+            const string copiedPath =
+                IdentityTestFolder + "/Copied.asset";
+            var original =
+                ScriptableObject.CreateInstance<CoCoRegionProfile>();
+            AssetDatabase.CreateAsset(original, originalPath);
+
+            Assert.That(
+                CoCoRegionProfileIdentity.Synchronize(original),
+                Is.True);
+            string originalGuid =
+                AssetDatabase.AssetPathToGUID(originalPath)
+                    .ToLowerInvariant();
+            Assert.That(
+                original.ProfileId.Value,
+                Is.EqualTo(originalGuid));
+
+            Assert.That(
+                AssetDatabase.MoveAsset(
+                    originalPath,
+                    movedPath),
+                Is.Empty);
+            var moved =
+                AssetDatabase.LoadAssetAtPath<CoCoRegionProfile>(
+                    movedPath);
+            Assert.That(
+                CoCoRegionProfileIdentity.Synchronize(moved),
+                Is.True);
+            Assert.That(
+                moved.ProfileId.Value,
+                Is.EqualTo(originalGuid));
+
+            Assert.That(
+                AssetDatabase.CopyAsset(
+                    movedPath,
+                    copiedPath),
+                Is.True);
+            var copied =
+                AssetDatabase.LoadAssetAtPath<CoCoRegionProfile>(
+                    copiedPath);
+            Assert.That(
+                CoCoRegionProfileIdentity.Synchronize(copied),
+                Is.True);
+            Assert.That(
+                copied.ProfileId.Value,
+                Is.EqualTo(
+                    AssetDatabase.AssetPathToGUID(copiedPath)
+                        .ToLowerInvariant()));
+            Assert.That(
+                copied.ProfileId,
+                Is.Not.EqualTo(moved.ProfileId));
         }
 
         [Test]

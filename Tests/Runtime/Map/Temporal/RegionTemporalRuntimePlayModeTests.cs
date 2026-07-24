@@ -613,14 +613,20 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     resolution.DesiredGeneration);
             }
 
-            public bool TryRetryRegion(
+            public bool TryAcceptRetry(
                 RegionId requestedRegionId,
                 RegionDemandResolution resolution,
                 out CoCoDiagnostic diagnostic)
             {
-                RequestTransition(resolution);
                 diagnostic = CoCoDiagnostic.None;
                 return true;
+            }
+
+            public void StartAcceptedRetry(
+                RegionId requestedRegionId,
+                RegionDemandResolution resolution)
+            {
+                RequestTransition(resolution);
             }
 
             public UniTask<CoCoDiagnostic> ShutdownAsync() =>
@@ -628,6 +634,86 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
             public void ForceShutdown()
             {
+            }
+
+            private static void ResolveDefaultTier(
+                RegionCapabilitySet requirement,
+                out RegionTierId tierId,
+                out RegionCapabilitySet effective)
+            {
+                var capabilities = new List<RegionCapabilityId>();
+                if (requirement != null)
+                {
+                    for (int index = 0;
+                         index < requirement.Count;
+                         index++)
+                    {
+                        RegionCapabilityId capability =
+                            requirement.Capabilities[index];
+                        if (capability != RegionCapabilityId.Represented &&
+                            capability != RegionCapabilityId.Background &&
+                            capability != RegionCapabilityId.Enterable &&
+                            capability != RegionCapabilityId.Full)
+                        {
+                            capabilities.Add(capability);
+                        }
+                    }
+                }
+
+                int standardDepth =
+                    requirement != null &&
+                    requirement.Contains(RegionCapabilityId.Full)
+                        ? 4
+                        : requirement != null &&
+                          requirement.Contains(
+                              RegionCapabilityId.Enterable)
+                            ? 3
+                            : requirement != null &&
+                              requirement.Contains(
+                                  RegionCapabilityId.Background)
+                                ? 2
+                                : requirement != null &&
+                                  requirement.Contains(
+                                      RegionCapabilityId.Represented)
+                                    ? 1
+                                    : 0;
+                if (standardDepth >= 1)
+                {
+                    capabilities.Add(
+                        RegionCapabilityId.Represented);
+                }
+
+                if (standardDepth >= 2)
+                {
+                    capabilities.Add(
+                        RegionCapabilityId.Background);
+                }
+
+                if (standardDepth >= 3)
+                {
+                    capabilities.Add(
+                        RegionCapabilityId.Enterable);
+                }
+
+                if (standardDepth >= 4)
+                {
+                    capabilities.Add(
+                        RegionCapabilityId.Full);
+                }
+
+                Assert.That(
+                    RegionCapabilitySet.TryCreate(
+                        capabilities,
+                        out effective),
+                    Is.True);
+                tierId = standardDepth switch
+                {
+                    4 => RegionTierId.Full,
+                    3 => RegionTierId.Enterable,
+                    2 => RegionTierId.Background,
+                    1 => RegionTierId.Represented,
+                    _ => RegionTierId.Off
+                };
             }
         }
     }

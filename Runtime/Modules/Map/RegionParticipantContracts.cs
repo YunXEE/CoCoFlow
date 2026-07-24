@@ -53,6 +53,13 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
     }
 
+    internal interface IRegionContentMonitorSource
+    {
+        CoCoFlow.Runtime.Content.ContentId ContentId { get; }
+        long ContentScopeSequence { get; }
+        long ContentLeaseSequence { get; }
+    }
+
     public interface IRegionParticipantFactory
     {
         Type CandidateType { get; }
@@ -96,15 +103,21 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
         internal RegionParticipantFreezeContext(
             RegionPlanNodeId nodeId,
+            RegionTierId tierId,
+            RegionCapabilitySet capabilities,
             string fragmentId,
             RegionCompiledSceneReference sceneReference)
         {
             NodeId = nodeId;
+            TierId = tierId;
+            Capabilities = capabilities ?? RegionCapabilitySet.Empty;
             FragmentId = fragmentId ?? string.Empty;
             SceneReference = sceneReference;
         }
 
         public RegionPlanNodeId NodeId { get; }
+        public RegionTierId TierId { get; }
+        public RegionCapabilitySet Capabilities { get; }
         public string FragmentId { get; }
         public RegionCompiledSceneReference SceneReference { get; }
     }
@@ -113,15 +126,21 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
         internal RegionParticipantCreateContext(
             RegionPlanNodeId nodeId,
+            RegionTierId tierId,
+            RegionCapabilitySet capabilities,
             string fragmentId,
             IRegionFragmentResolver fragmentResolver)
         {
             NodeId = nodeId;
+            TierId = tierId;
+            Capabilities = capabilities ?? RegionCapabilitySet.Empty;
             FragmentId = fragmentId ?? string.Empty;
             FragmentResolver = fragmentResolver;
         }
 
         public RegionPlanNodeId NodeId { get; }
+        public RegionTierId TierId { get; }
+        public RegionCapabilitySet Capabilities { get; }
         public string FragmentId { get; }
         public IRegionFragmentResolver FragmentResolver { get; }
     }
@@ -130,17 +149,20 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
         internal RegionParticipantPrepareContext(
             RegionPlanNodeId nodeId,
+            RegionTierId tierId,
             RegionCapabilitySet capabilities,
             long transitionGeneration,
             IRegionFragmentResolver fragmentResolver)
         {
             NodeId = nodeId;
+            TierId = tierId;
             Capabilities = capabilities ?? RegionCapabilitySet.Empty;
             TransitionGeneration = transitionGeneration;
             FragmentResolver = fragmentResolver;
         }
 
         public RegionPlanNodeId NodeId { get; }
+        public RegionTierId TierId { get; }
         public RegionCapabilitySet Capabilities { get; }
         public long TransitionGeneration { get; }
         public IRegionFragmentResolver FragmentResolver { get; }
@@ -150,15 +172,18 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
         internal RegionParticipantCommitContext(
             RegionPlanNodeId nodeId,
+            RegionTierId tierId,
             RegionCapabilitySet capabilities,
             long transitionGeneration)
         {
             NodeId = nodeId;
+            TierId = tierId;
             Capabilities = capabilities ?? RegionCapabilitySet.Empty;
             TransitionGeneration = transitionGeneration;
         }
 
         public RegionPlanNodeId NodeId { get; }
+        public RegionTierId TierId { get; }
         public RegionCapabilitySet Capabilities { get; }
         public long TransitionGeneration { get; }
     }

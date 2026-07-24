@@ -14,6 +14,8 @@ namespace CoCoFlow.Editor.Modules.Map
         private Vector2 matrixScroll;
         private string diagnosticContext = string.Empty;
         private int matchingBindingCount;
+        private int selectedParticipantIndex;
+        private int selectedTierIndex;
 
         private void OnEnable()
         {
@@ -22,16 +24,27 @@ namespace CoCoFlow.Editor.Modules.Map
 
         public override void OnInspectorGUI()
         {
+            serializedObject.Update();
             EditorGUI.BeginChangeCheck();
-            DrawDefaultInspector();
+            DrawPropertiesExcluding(
+                serializedObject,
+                "m_Script",
+                "schemaVersion",
+                "profileId");
             if (EditorGUI.EndChangeCheck())
             {
                 serializedObject.ApplyModifiedProperties();
+                CoCoRegionProfile changedProfile =
+                    (CoCoRegionProfile)target;
+                changedProfile.SynchronizeParticipantTierSettings();
+                EditorUtility.SetDirty(changedProfile);
+                serializedObject.Update();
                 RefreshDiagnostics();
             }
 
             CoCoRegionProfile profile =
                 (CoCoRegionProfile)target;
+            DrawIdentity(profile);
             DrawManagedReferenceStatus(profile);
             DrawParticipantTierMatrix(profile);
 
@@ -120,33 +133,174 @@ namespace CoCoFlow.Editor.Modules.Map
                          tierIndex < profile.Tiers.Count;
                          tierIndex++)
                     {
-                        GUILayout.Label(
-                            MatrixCell(
-                                participant,
-                                profile.Tiers[tierIndex]),
-                            EditorStyles.centeredGreyMiniLabel,
-                            GUILayout.Width(104f));
+                        DrawMatrixCell(
+                            participantIndex,
+                            tierIndex,
+                            profile.Tiers[tierIndex]);
                     }
                 }
-
-                if (participant == null) continue;
-                EditorGUILayout.LabelField(
-                    "    Required capabilities",
-                    JoinCapabilities(
-                        participant.RequiredCapabilities),
-                    EditorStyles.wordWrappedMiniLabel);
-                EditorGUILayout.LabelField(
-                    "    Dependencies",
-                    JoinSlots(participant.Dependencies),
-                    EditorStyles.wordWrappedMiniLabel);
             }
 
             EditorGUILayout.EndScrollView();
+            DrawSelectedTierSetting(profile);
             EditorGUILayout.HelpBox(
-                "● means the tier contains every capability required by the " +
-                "participant. Capability presence does not bypass Required/Optional " +
-                "or dependency validation.",
+                "Each cell explicitly enables or disables the participant for that " +
+                "tier. Select an enabled cell to edit its registered Mode and " +
+                "SerializeReference configuration.",
                 MessageType.Info);
+        }
+
+        private void DrawMatrixCell(
+            int participantIndex,
+            int tierIndex,
+            RegionTierDefinition tier)
+        {
+            SerializedProperty setting =
+                FindTierSettingProperty(
+                    participantIndex,
+                    tier == null ? default : tier.TierId);
+            if (setting == null)
+            {
+                GUILayout.Label(
+                    "missing",
+                    EditorStyles.centeredGreyMiniLabel,
+                    GUILayout.Width(104f));
+                return;
+            }
+
+            SerializedProperty enabled =
+                setting.FindPropertyRelative("enabled");
+            bool wasEnabled = enabled.boolValue;
+            bool isSelected =
+                participantIndex == selectedParticipantIndex &&
+                tierIndex == selectedTierIndex;
+            GUIStyle style = isSelected
+                ? EditorStyles.miniButtonMid
+                : EditorStyles.miniButton;
+            bool next = GUILayout.Toggle(
+                wasEnabled,
+                wasEnabled ? "●" : "—",
+                style,
+                GUILayout.Width(104f));
+            if (next != wasEnabled)
+            {
+                enabled.boolValue = next;
+                if (!next)
+                {
+                    SerializedProperty mode =
+                        setting.FindPropertyRelative("modeId")
+                            .FindPropertyRelative("value");
+                    mode.stringValue = string.Empty;
+                    setting.FindPropertyRelative("configuration")
+                        .managedReferenceValue = null;
+                }
+
+                serializedObject.ApplyModifiedProperties();
+                RefreshDiagnostics();
+            }
+
+            if (Event.current.type == EventType.MouseDown &&
+                GUILayoutUtility.GetLastRect().Contains(
+                    Event.current.mousePosition))
+            {
+                selectedParticipantIndex = participantIndex;
+                selectedTierIndex = tierIndex;
+                Repaint();
+            }
+        }
+
+        private void DrawSelectedTierSetting(
+            CoCoRegionProfile profile)
+        {
+            if (profile.Participants.Count == 0 ||
+                profile.Tiers.Count == 0)
+            {
+                return;
+            }
+
+            selectedParticipantIndex = Mathf.Clamp(
+                selectedParticipantIndex,
+                0,
+                profile.Participants.Count - 1);
+            selectedTierIndex = Mathf.Clamp(
+                selectedTierIndex,
+                0,
+                profile.Tiers.Count - 1);
+            RegionTierDefinition tier =
+                profile.Tiers[selectedTierIndex];
+            SerializedProperty setting =
+                FindTierSettingProperty(
+                    selectedParticipantIndex,
+                    tier == null ? default : tier.TierId);
+            if (setting == null) return;
+
+            RegionParticipantDefinition participant =
+                profile.Participants[selectedParticipantIndex];
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                "Selected Cell",
+                EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(
+                ParticipantLabel(participant) +
+                " / " +
+                (tier == null ? "<null tier>" : tier.Name),
+                EditorStyles.wordWrappedMiniLabel);
+
+            SerializedProperty enabled =
+                setting.FindPropertyRelative("enabled");
+            using (new EditorGUI.DisabledScope(!enabled.boolValue))
+            {
+                EditorGUI.BeginChangeCheck();
+                EditorGUILayout.PropertyField(
+                    setting.FindPropertyRelative("modeId"),
+                    new GUIContent("Mode"));
+                EditorGUILayout.PropertyField(
+                    setting.FindPropertyRelative("configuration"),
+                    new GUIContent("Configuration"),
+                    true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    serializedObject.ApplyModifiedProperties();
+                    RefreshDiagnostics();
+                }
+            }
+        }
+
+        private SerializedProperty FindTierSettingProperty(
+            int participantIndex,
+            RegionTierId tierId)
+        {
+            SerializedProperty participants =
+                serializedObject.FindProperty("participants");
+            if (participants == null ||
+                participantIndex < 0 ||
+                participantIndex >= participants.arraySize)
+            {
+                return null;
+            }
+
+            SerializedProperty settings =
+                participants.GetArrayElementAtIndex(participantIndex)
+                    .FindPropertyRelative("tierSettings");
+            if (settings == null) return null;
+
+            for (int index = 0; index < settings.arraySize; index++)
+            {
+                SerializedProperty setting =
+                    settings.GetArrayElementAtIndex(index);
+                SerializedProperty value =
+                    setting.FindPropertyRelative("tierId")
+                        .FindPropertyRelative("value");
+                if (string.Equals(
+                        value.stringValue,
+                        tierId.Value,
+                        StringComparison.Ordinal))
+                {
+                    return setting;
+                }
+            }
+
+            return null;
         }
 
         private void RefreshDiagnostics()
@@ -266,6 +420,31 @@ namespace CoCoFlow.Editor.Modules.Map
                 MessageType.Error);
         }
 
+        private static void DrawIdentity(CoCoRegionProfile profile)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(
+                "Profile Contract",
+                EditorStyles.boldLabel);
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUILayout.IntField(
+                    "Schema Version",
+                    profile.SchemaVersion);
+                EditorGUILayout.TextField(
+                    "Profile ID",
+                    profile.ProfileId.Value);
+            }
+
+            if (!profile.ProfileId.IsValid)
+            {
+                EditorGUILayout.HelpBox(
+                    "This asset does not have a valid GUID-derived ProfileId. " +
+                    "Reimport it before compiling or building.",
+                    MessageType.Error);
+            }
+        }
+
         private static string ParticipantLabel(
             RegionParticipantDefinition participant)
         {
@@ -274,66 +453,6 @@ namespace CoCoFlow.Editor.Modules.Map
                    "  [" + participant.Requirement + "]\n" +
                    participant.Phase + " / " +
                    participant.ExplicitOrder;
-        }
-
-        private static string MatrixCell(
-            RegionParticipantDefinition participant,
-            RegionTierDefinition tier)
-        {
-            if (participant == null || tier == null)
-            {
-                return "invalid";
-            }
-
-            if (!RegionCapabilitySet.TryCreate(
-                    participant.RequiredCapabilities,
-                    out RegionCapabilitySet required) ||
-                !RegionCapabilitySet.TryCreate(
-                    tier.Capabilities,
-                    out RegionCapabilitySet available))
-            {
-                return "invalid";
-            }
-
-            return available.IsSupersetOf(required) ? "●" : "—";
-        }
-
-        private static string JoinCapabilities(
-            IReadOnlyList<RegionCapabilityId> capabilities)
-        {
-            if (capabilities == null || capabilities.Count == 0)
-            {
-                return "<none>";
-            }
-
-            var values = new string[capabilities.Count];
-            for (int index = 0;
-                 index < capabilities.Count;
-                 index++)
-            {
-                values[index] = capabilities[index].Value;
-            }
-
-            return string.Join(", ", values);
-        }
-
-        private static string JoinSlots(
-            IReadOnlyList<RegionParticipantSlotId> slots)
-        {
-            if (slots == null || slots.Count == 0)
-            {
-                return "<none>";
-            }
-
-            var values = new string[slots.Count];
-            for (int index = 0;
-                 index < slots.Count;
-                 index++)
-            {
-                values[index] = slots[index].Value;
-            }
-
-            return string.Join(", ", values);
         }
 
         private static MessageType DiagnosticMessageType(

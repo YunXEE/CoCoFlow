@@ -596,14 +596,20 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     resolution.DesiredGeneration);
             }
 
-            public bool TryRetryRegion(
+            public bool TryAcceptRetry(
                 RegionId requestedRegionId,
                 RegionDemandResolution resolution,
                 out CoCoDiagnostic diagnostic)
             {
-                RequestTransition(resolution);
                 diagnostic = CoCoDiagnostic.None;
                 return true;
+            }
+
+            public void StartAcceptedRetry(
+                RegionId requestedRegionId,
+                RegionDemandResolution resolution)
+            {
+                RequestTransition(resolution);
             }
 
             public UniTask<CoCoDiagnostic> ShutdownAsync() =>

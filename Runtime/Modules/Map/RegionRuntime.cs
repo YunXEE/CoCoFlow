@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Threading.Tasks;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
@@ -48,18 +49,34 @@ namespace CoCoFlow.Runtime.Modules.Map
         internal RegionChunkRuntimeSnapshot(
             RegionChunkId chunkId,
             RegionCapabilitySet desiredCapabilities,
-            RegionCapabilitySet committedCapabilities)
+            RegionCapabilitySet committedCapabilities,
+            RegionTierId desiredTierId,
+            RegionTierId committedTierId,
+            RegionCapabilitySet desiredEffectiveCapabilities,
+            RegionCapabilitySet committedEffectiveCapabilities)
         {
             ChunkId = chunkId;
             DesiredCapabilities =
                 desiredCapabilities ?? RegionCapabilitySet.Empty;
             CommittedCapabilities =
                 committedCapabilities ?? RegionCapabilitySet.Empty;
+            DesiredTierId = desiredTierId;
+            CommittedTierId = committedTierId;
+            DesiredEffectiveCapabilities =
+                desiredEffectiveCapabilities ??
+                RegionCapabilitySet.Empty;
+            CommittedEffectiveCapabilities =
+                committedEffectiveCapabilities ??
+                RegionCapabilitySet.Empty;
         }
 
         public RegionChunkId ChunkId { get; }
         public RegionCapabilitySet DesiredCapabilities { get; }
         public RegionCapabilitySet CommittedCapabilities { get; }
+        public RegionTierId DesiredTierId { get; }
+        public RegionTierId CommittedTierId { get; }
+        public RegionCapabilitySet DesiredEffectiveCapabilities { get; }
+        public RegionCapabilitySet CommittedEffectiveCapabilities { get; }
     }
 
     public sealed class RegionRuntimeRegionSnapshot
@@ -74,6 +91,10 @@ namespace CoCoFlow.Runtime.Modules.Map
             RegionCapabilitySet committedCapabilities,
             RegionCoverage desiredCoverage,
             RegionCoverage committedCoverage,
+            RegionTierId desiredTierId,
+            RegionTierId committedTierId,
+            RegionCapabilitySet desiredEffectiveCapabilities,
+            RegionCapabilitySet committedEffectiveCapabilities,
             int reusedNodeCount,
             int candidateNodeCount,
             bool optionalDegraded,
@@ -91,6 +112,14 @@ namespace CoCoFlow.Runtime.Modules.Map
                 committedCapabilities ?? RegionCapabilitySet.Empty;
             DesiredCoverage = desiredCoverage;
             CommittedCoverage = committedCoverage;
+            DesiredTierId = desiredTierId;
+            CommittedTierId = committedTierId;
+            DesiredEffectiveCapabilities =
+                desiredEffectiveCapabilities ??
+                RegionCapabilitySet.Empty;
+            CommittedEffectiveCapabilities =
+                committedEffectiveCapabilities ??
+                RegionCapabilitySet.Empty;
             ReusedNodeCount = reusedNodeCount;
             CandidateNodeCount = candidateNodeCount;
             OptionalDegraded = optionalDegraded;
@@ -110,6 +139,10 @@ namespace CoCoFlow.Runtime.Modules.Map
         public RegionCapabilitySet CommittedCapabilities { get; }
         public RegionCoverage DesiredCoverage { get; }
         public RegionCoverage CommittedCoverage { get; }
+        public RegionTierId DesiredTierId { get; }
+        public RegionTierId CommittedTierId { get; }
+        public RegionCapabilitySet DesiredEffectiveCapabilities { get; }
+        public RegionCapabilitySet CommittedEffectiveCapabilities { get; }
         public int ReusedNodeCount { get; }
         public int CandidateNodeCount { get; }
         public bool OptionalDegraded { get; }
@@ -236,6 +269,21 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
     }
 
+    internal readonly struct RegionResolvedChunkFidelity
+    {
+        internal RegionResolvedChunkFidelity(
+            RegionTierId tierId,
+            RegionCapabilitySet effectiveCapabilities)
+        {
+            TierId = tierId;
+            EffectiveCapabilities =
+                effectiveCapabilities ?? RegionCapabilitySet.Empty;
+        }
+
+        internal RegionTierId TierId { get; }
+        internal RegionCapabilitySet EffectiveCapabilities { get; }
+    }
+
     internal interface IRegionDemandTransitionSink
     {
         bool IsInvokingParticipantCallback { get; }
@@ -248,10 +296,14 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         void RequestTransition(RegionDemandResolution resolution);
 
-        bool TryRetryRegion(
+        bool TryAcceptRetry(
             RegionId regionId,
             RegionDemandResolution resolution,
             out CoCoDiagnostic diagnostic);
+
+        void StartAcceptedRetry(
+            RegionId regionId,
+            RegionDemandResolution resolution);
 
         UniTask<CoCoDiagnostic> ShutdownAsync();
 
@@ -300,6 +352,36 @@ namespace CoCoFlow.Runtime.Modules.Map
             internal RegionCoverage CommittedCoverage { get; set; }
             internal RegionCapabilitySet CommittedAllChunkCapabilities { get; set; } =
                 RegionCapabilitySet.Empty;
+            internal RegionTierId DesiredTierId { get; set; }
+            internal RegionTierId CommittedTierId { get; set; }
+            internal RegionCapabilitySet DesiredEffectiveCapabilities
+            {
+                get;
+                set;
+            } = RegionCapabilitySet.Empty;
+            internal RegionCapabilitySet CommittedEffectiveCapabilities
+            {
+                get;
+                set;
+            } = RegionCapabilitySet.Empty;
+            internal Dictionary<
+                RegionChunkId,
+                RegionResolvedChunkFidelity> DesiredChunkFidelity
+            {
+                get;
+            } =
+                new Dictionary<
+                    RegionChunkId,
+                    RegionResolvedChunkFidelity>();
+            internal Dictionary<
+                RegionChunkId,
+                RegionResolvedChunkFidelity> CommittedChunkFidelity
+            {
+                get;
+            } =
+                new Dictionary<
+                    RegionChunkId,
+                    RegionResolvedChunkFidelity>();
             internal int ReusedNodeCount { get; set; }
             internal int CandidateNodeCount { get; set; }
             internal bool OptionalDegraded { get; set; }
@@ -319,10 +401,15 @@ namespace CoCoFlow.Runtime.Modules.Map
         private long nextScopeSequence = 1L;
         private long nextLeaseSequence = 1L;
         private long nextDemandRevision = 1L;
-        private bool shutdownStarted;
+        private readonly HashSet<RegionId> deferredTransitionRegions =
+            new HashSet<RegionId>();
+        private long temporalBarrierToken;
+        private long nextTemporalBarrierToken = 1L;
+        private bool temporalFlushScheduled;
         private bool isShuttingDown;
         private bool isDisposed;
         private Task<CoCoDiagnostic> shutdownTask;
+        private TaskCompletionSource<CoCoDiagnostic> shutdownCompletion;
 
         private RegionRuntime(ContentRuntime contentRuntime)
         {
@@ -337,6 +424,10 @@ namespace CoCoFlow.Runtime.Modules.Map
         public CoCoDiagnostic LastDiagnostic { get; private set; }
 
         internal ContentRuntime ContentRuntime => contentRuntime;
+        internal bool IsTemporalDispatchDeferred =>
+            temporalBarrierToken != 0L || temporalFlushScheduled;
+        internal int DeferredTransitionCount =>
+            deferredTransitionRegions.Count;
 
         public RegionRuntimeSnapshot CaptureSnapshot()
         {
@@ -418,13 +509,23 @@ namespace CoCoFlow.Runtime.Modules.Map
                     RegionCapabilitySet committed =
                         state.CommittedAllChunkCapabilities.Union(
                             explicitCommitted ?? RegionCapabilitySet.Empty);
+                    state.DesiredChunkFidelity.TryGetValue(
+                        chunkId,
+                        out RegionResolvedChunkFidelity desiredFidelity);
+                    state.CommittedChunkFidelity.TryGetValue(
+                        chunkId,
+                        out RegionResolvedChunkFidelity committedFidelity);
                     chunkSnapshots.Add(
                         new RegionChunkRuntimeSnapshot(
                             chunkId,
                             resolution == null
                                 ? RegionCapabilitySet.Empty
                                 : resolution.GetChunkCapabilities(chunkId),
-                            committed));
+                            committed,
+                            desiredFidelity.TierId,
+                            committedFidelity.TierId,
+                            desiredFidelity.EffectiveCapabilities,
+                            committedFidelity.EffectiveCapabilities));
                 }
 
                 regionSnapshots.Add(
@@ -440,6 +541,10 @@ namespace CoCoFlow.Runtime.Modules.Map
                             ? default
                             : resolution.MergedCoverage,
                         state.CommittedCoverage,
+                        state.DesiredTierId,
+                        state.CommittedTierId,
+                        state.DesiredEffectiveCapabilities,
+                        state.CommittedEffectiveCapabilities,
                         state.ReusedNodeCount,
                         state.CandidateNodeCount,
                         state.OptionalDegraded,
@@ -608,6 +713,23 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return false;
             }
 
+            if (IsTemporalDispatchDeferred)
+            {
+                diagnostic = RegionErrors.TemporalConflict(
+                    "A Region cannot be retried while Temporal projection defers transition dispatch.");
+                LastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!transitionSink.TryAcceptRetry(
+                    regionId,
+                    state.Resolution,
+                    out diagnostic))
+            {
+                LastDiagnostic = diagnostic;
+                return false;
+            }
+
             foreach (RegionDemandLease lease in state.Leases.Values)
             {
                 if (!lease.IsReadyForCurrentRevision)
@@ -616,35 +738,125 @@ namespace CoCoFlow.Runtime.Modules.Map
                 }
             }
 
-            bool retried = transitionSink.TryRetryRegion(
+            transitionSink.StartAcceptedRetry(
                 regionId,
-                state.Resolution,
-                out diagnostic);
+                state.Resolution);
+            diagnostic = CoCoDiagnostic.None;
             LastDiagnostic = diagnostic;
-            if (!retried)
-            {
-                PublishTransitionFailed(
-                    regionId,
-                    state.DesiredGeneration,
-                    diagnostic);
-            }
-
-            return retried;
+            return true;
         }
 
         public UniTask<CoCoDiagnostic> ShutdownAsync()
         {
-            if (shutdownStarted) return AwaitSharedTaskAsync(shutdownTask);
+            if (shutdownTask != null)
+            {
+                return AwaitSharedTaskAsync(shutdownTask);
+            }
+
             if (!IsMainThread)
             {
                 return UniTask.FromResult(RegionErrors.MainThreadRequired());
             }
 
-            var completion = new TaskCompletionSource<CoCoDiagnostic>();
-            shutdownTask = completion.Task;
-            shutdownStarted = true;
-            CompleteShutdownAsync(completion).Forget();
+            EnsureSharedShutdownTask();
+            CompleteShutdownAsync(shutdownCompletion).Forget();
             return AwaitSharedTaskAsync(shutdownTask);
+        }
+
+        internal bool TryEnterTemporalBarrier(
+            out RegionTemporalBarrier barrier,
+            out CoCoDiagnostic diagnostic)
+        {
+            barrier = null;
+            if (!IsMainThread)
+            {
+                diagnostic = RegionErrors.MainThreadRequired();
+                return false;
+            }
+
+            if (isShuttingDown || isDisposed)
+            {
+                diagnostic = RegionErrors.RuntimeDisposed();
+                return false;
+            }
+
+            if (transitionSink == null ||
+                transitionSink.IsInvokingParticipantCallback ||
+                temporalBarrierToken != 0L ||
+                temporalFlushScheduled ||
+                deferredTransitionRegions.Count != 0)
+            {
+                diagnostic = RegionErrors.TemporalConflict(
+                    "Map Temporal requires one idle transition boundary with no deferred flush.");
+                return false;
+            }
+
+            foreach (RegionDemandState state in regions.Values)
+            {
+                if (state.Faulted ||
+                    state.BlockedCleanup ||
+                    state.CandidateNodeCount != 0 ||
+                    state.DesiredGeneration != state.CommittedGeneration)
+                {
+                    diagnostic = RegionErrors.TemporalConflict(
+                        "Region '" + state.RegionId.Value +
+                        "' is not at one stable committed transition boundary.");
+                    return false;
+                }
+            }
+
+            long token = NextTemporalBarrierToken();
+            temporalBarrierToken = token;
+            barrier = new RegionTemporalBarrier(this, token);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal void FlushDeferredTransitionsNoThrow()
+        {
+            if (!IsMainThread ||
+                isShuttingDown ||
+                isDisposed ||
+                temporalBarrierToken != 0L ||
+                !temporalFlushScheduled)
+            {
+                return;
+            }
+
+            while (!isShuttingDown &&
+                   !isDisposed &&
+                   temporalBarrierToken == 0L &&
+                   deferredTransitionRegions.Count > 0)
+            {
+                var orderedRegionIds =
+                    new List<RegionId>(deferredTransitionRegions);
+                orderedRegionIds.Sort(
+                    (left, right) => string.CompareOrdinal(
+                        left.Value,
+                        right.Value));
+                for (int index = 0;
+                     index < orderedRegionIds.Count;
+                     index++)
+                {
+                    RegionId regionId = orderedRegionIds[index];
+                    deferredTransitionRegions.Remove(regionId);
+                    if (regions.TryGetValue(
+                            regionId,
+                            out RegionDemandState state) &&
+                        state.Resolution != null)
+                    {
+                        DispatchResolution(state);
+                    }
+                }
+            }
+
+            if (!isShuttingDown &&
+                !isDisposed &&
+                temporalBarrierToken == 0L &&
+                deferredTransitionRegions.Count == 0)
+            {
+                temporalFlushScheduled = false;
+            }
         }
 
         internal bool TryCreateDemand(
@@ -805,6 +1017,9 @@ namespace CoCoFlow.Runtime.Modules.Map
             state.CommittedRegionCapabilities =
                 resolution.RegionCapabilities;
             state.CommittedCoverage = resolution.MergedCoverage;
+            state.CommittedTierId = state.DesiredTierId;
+            state.CommittedEffectiveCapabilities =
+                state.DesiredEffectiveCapabilities;
             state.CommittedAllChunkCapabilities =
                 resolution.AllChunkCapabilities;
             state.CommittedExplicitChunkCapabilities.Clear();
@@ -817,6 +1032,18 @@ namespace CoCoFlow.Runtime.Modules.Map
                     pair.Value);
             }
 
+            state.CommittedChunkFidelity.Clear();
+            foreach (
+                KeyValuePair<
+                    RegionChunkId,
+                    RegionResolvedChunkFidelity> pair
+                in state.DesiredChunkFidelity)
+            {
+                state.CommittedChunkFidelity.Add(
+                    pair.Key,
+                    pair.Value);
+            }
+
             state.CandidateNodeCount = 0;
             state.Faulted = false;
             state.Diagnostic = state.OptionalDegraded
@@ -824,6 +1051,44 @@ namespace CoCoFlow.Runtime.Modules.Map
                     "The Region committed with one or more absent optional Participants.")
                 : CoCoDiagnostic.None;
             LastDiagnostic = CoCoDiagnostic.None;
+        }
+
+        internal void PublishResolvedFidelity(
+            RegionId regionId,
+            long desiredGeneration,
+            RegionTierId regionTierId,
+            RegionCapabilitySet regionEffectiveCapabilities,
+            IReadOnlyDictionary<
+                RegionChunkId,
+                RegionResolvedChunkFidelity> chunkFidelity)
+        {
+            if (!IsMainThread ||
+                !regions.TryGetValue(
+                    regionId,
+                    out RegionDemandState state) ||
+                state.DesiredGeneration != desiredGeneration)
+            {
+                return;
+            }
+
+            state.DesiredTierId = regionTierId;
+            state.DesiredEffectiveCapabilities =
+                regionEffectiveCapabilities ??
+                RegionCapabilitySet.Empty;
+            state.DesiredChunkFidelity.Clear();
+            if (chunkFidelity == null) return;
+
+            foreach (
+                KeyValuePair<
+                    RegionChunkId,
+                    RegionResolvedChunkFidelity> pair
+                in chunkFidelity)
+            {
+                state.KnownChunks.Add(pair.Key);
+                state.DesiredChunkFidelity.Add(
+                    pair.Key,
+                    pair.Value);
+            }
         }
 
         internal void PublishTransitionFailed(
@@ -1007,6 +1272,17 @@ namespace CoCoFlow.Runtime.Modules.Map
                 state.DesiredGeneration);
             state.Resolution = BuildResolution(state);
             LastDiagnostic = CoCoDiagnostic.None;
+            if (IsTemporalDispatchDeferred)
+            {
+                deferredTransitionRegions.Add(state.RegionId);
+                return;
+            }
+
+            DispatchResolution(state);
+        }
+
+        private void DispatchResolution(RegionDemandState state)
+        {
             try
             {
                 transitionSink.RequestTransition(state.Resolution);
@@ -1171,25 +1447,18 @@ namespace CoCoFlow.Runtime.Modules.Map
             try
             {
                 isShuttingDown = true;
-                RegionDemandScope[] liveScopes =
-                    new RegionDemandScope[scopes.Count];
-                scopes.Values.CopyTo(liveScopes, 0);
-                for (int index = 0; index < liveScopes.Length; index++)
-                {
-                    liveScopes[index].Dispose();
-                }
-
-                scopes.Clear();
+                InvalidateTemporalBarrierNoDispatch();
+                DisposeLiveScopes();
                 if (transitionSink != null)
                 {
                     diagnostic = await transitionSink.ShutdownAsync();
                     await UniTask.SwitchToMainThread();
                 }
 
-                regions.Clear();
-                isDisposed = true;
-                contentRuntime.UnregisterShutdownParticipant(
-                    contentShutdownParticipant);
+                if (!isDisposed)
+                {
+                    FinalizeDisposedState();
+                }
             }
             catch (Exception exception)
             {
@@ -1197,24 +1466,101 @@ namespace CoCoFlow.Runtime.Modules.Map
                 diagnostic = RegionErrors.CleanupBlocked(
                     "Map Region shutdown required a terminal fallback. " +
                     exception.Message);
-                ForceShutdown();
+                ForceShutdown(diagnostic);
             }
 
-            LastDiagnostic = diagnostic;
-            completion.TrySetResult(diagnostic);
+            if (!completion.Task.IsCompleted)
+            {
+                LastDiagnostic = diagnostic;
+                completion.TrySetResult(diagnostic);
+            }
         }
 
         internal void ForceShutdown()
         {
-            if (isDisposed) return;
+            ForceShutdown(CoCoDiagnostic.None);
+        }
+
+        internal void ForceShutdown(CoCoDiagnostic terminalDiagnostic)
+        {
+            EnsureSharedShutdownTask();
+            if (isDisposed)
+            {
+                shutdownCompletion.TrySetResult(
+                    !LastDiagnostic.IsNone
+                        ? LastDiagnostic
+                        : terminalDiagnostic);
+                return;
+            }
 
             isShuttingDown = true;
+            InvalidateTemporalBarrierNoDispatch();
+            DisposeLiveScopes();
             transitionSink?.ForceShutdown();
+            if (!terminalDiagnostic.IsNone)
+            {
+                LastDiagnostic = terminalDiagnostic;
+            }
+
+            FinalizeDisposedState();
+            shutdownCompletion.TrySetResult(
+                !LastDiagnostic.IsNone
+                    ? LastDiagnostic
+                    : CoCoDiagnostic.None);
+        }
+
+        private void ReleaseTemporalBarrier(long token)
+        {
+            if (!IsMainThread ||
+                token == 0L ||
+                temporalBarrierToken != token)
+            {
+                return;
+            }
+
+            temporalBarrierToken = 0L;
+            if (!isShuttingDown && !isDisposed)
+            {
+                temporalFlushScheduled = true;
+            }
+        }
+
+        private void InvalidateTemporalBarrierNoDispatch()
+        {
+            temporalBarrierToken = 0L;
+            temporalFlushScheduled = false;
+            deferredTransitionRegions.Clear();
+        }
+
+        private void DisposeLiveScopes()
+        {
+            RegionDemandScope[] liveScopes =
+                new RegionDemandScope[scopes.Count];
+            scopes.Values.CopyTo(liveScopes, 0);
+            for (int index = 0; index < liveScopes.Length; index++)
+            {
+                liveScopes[index].Dispose();
+            }
+
+            scopes.Clear();
+        }
+
+        private void FinalizeDisposedState()
+        {
             scopes.Clear();
             regions.Clear();
             isDisposed = true;
             contentRuntime.UnregisterShutdownParticipant(
                 contentShutdownParticipant);
+        }
+
+        private void EnsureSharedShutdownTask()
+        {
+            if (shutdownTask != null) return;
+
+            shutdownCompletion =
+                new TaskCompletionSource<CoCoDiagnostic>();
+            shutdownTask = shutdownCompletion.Task;
         }
 
         private long NextScopeSequence()
@@ -1238,6 +1584,17 @@ namespace CoCoFlow.Runtime.Modules.Map
             return new RegionDemandRevision(revision);
         }
 
+        private long NextTemporalBarrierToken()
+        {
+            long token = nextTemporalBarrierToken++;
+            if (nextTemporalBarrierToken <= 0L)
+            {
+                nextTemporalBarrierToken = 1L;
+            }
+
+            return token;
+        }
+
         private static long NextDesiredGeneration(long current)
         {
             current++;
@@ -1247,6 +1604,27 @@ namespace CoCoFlow.Runtime.Modules.Map
         private static async UniTask<T> AwaitSharedTaskAsync<T>(Task<T> task)
         {
             return await task;
+        }
+
+        internal sealed class RegionTemporalBarrier : IDisposable
+        {
+            private RegionRuntime runtime;
+            private readonly long token;
+
+            internal RegionTemporalBarrier(
+                RegionRuntime runtime,
+                long token)
+            {
+                this.runtime = runtime;
+                this.token = token;
+            }
+
+            public void Dispose()
+            {
+                RegionRuntime owner =
+                    Interlocked.Exchange(ref runtime, null);
+                owner?.ReleaseTemporalBarrier(token);
+            }
         }
     }
 }

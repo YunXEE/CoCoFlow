@@ -54,6 +54,12 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return new RegionCompileResult(null, diagnostics);
             }
 
+            RegionDependencyCompiler.TryCompile(
+                binding,
+                profile.Tiers,
+                diagnostics,
+                out List<RegionCompiledDependencyRule> dependencyRules);
+
             var definitions =
                 new Dictionary<
                     RegionParticipantSlotId,
@@ -139,8 +145,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                         RegionErrors.InvalidProfile(
                             "The owning Content slot must be bound in the same Chunk."));
                 }
-                else if (!owningContentSeed.Definition.Registration
-                             .CanOwnChunkScene)
+                else if (!owningContentSeed.Definition.CanOwnChunkScene)
                 {
                     AddError(
                         diagnostics,
@@ -190,14 +195,20 @@ namespace CoCoFlow.Runtime.Modules.Map
             nodes.Sort(CompareNodes);
             string fingerprint = BuildPlanFingerprint(
                 binding.RegionId,
+                profile.ProfileId,
+                profile.SchemaVersion,
                 profile.Tiers,
                 chunks,
-                nodes);
+                nodes,
+                dependencyRules);
             var plan = new RegionCompiledPlan(
                 binding.RegionId,
+                profile.ProfileId,
+                profile.SchemaVersion,
                 new List<RegionCompiledTier>(profile.Tiers),
                 chunks,
                 nodes,
+                dependencyRules,
                 fingerprint);
             return new RegionCompileResult(plan, diagnostics);
         }
@@ -209,9 +220,11 @@ namespace CoCoFlow.Runtime.Modules.Map
         {
             if (bindings == null) throw new ArgumentNullException(nameof(bindings));
 
+            var sourceBindings = new List<CoCoRegionBinding>();
             var results = new List<RegionCompileResult>();
             foreach (CoCoRegionBinding binding in bindings)
             {
+                sourceBindings.Add(binding);
                 results.Add(Compile(binding, catalog, addressableSceneResolver));
             }
 
@@ -229,19 +242,55 @@ namespace CoCoFlow.Runtime.Modules.Map
                  resultIndex++)
             {
                 RegionCompileResult result = results[resultIndex];
-                if (!result.Succeeded) continue;
-
-                if (!ownersByRegionId.TryGetValue(
-                        result.Plan.RegionId,
-                        out List<int> regionOwners))
+                CoCoRegionBinding sourceBinding =
+                    sourceBindings[resultIndex];
+                if (sourceBinding != null &&
+                    sourceBinding.RegionId.IsValid)
                 {
-                    regionOwners = new List<int>();
-                    ownersByRegionId.Add(
-                        result.Plan.RegionId,
-                        regionOwners);
+                    if (!ownersByRegionId.TryGetValue(
+                            sourceBinding.RegionId,
+                            out List<int> regionOwners))
+                    {
+                        regionOwners = new List<int>();
+                        ownersByRegionId.Add(
+                            sourceBinding.RegionId,
+                            regionOwners);
+                    }
+
+                    regionOwners.Add(resultIndex);
+                    for (int chunkIndex = 0;
+                         chunkIndex < sourceBinding.Chunks.Count;
+                         chunkIndex++)
+                    {
+                        RegionChunkBinding sourceChunk =
+                            sourceBinding.Chunks[chunkIndex];
+                        if (sourceChunk == null ||
+                            !sourceChunk.ChunkId.IsValid)
+                        {
+                            continue;
+                        }
+
+                        if (!ownersByChunkId.TryGetValue(
+                                sourceChunk.ChunkId,
+                                out List<SceneOwner> chunkOwners))
+                        {
+                            chunkOwners = new List<SceneOwner>();
+                            ownersByChunkId.Add(
+                                sourceChunk.ChunkId,
+                                chunkOwners);
+                        }
+
+                        chunkOwners.Add(
+                            new SceneOwner(
+                                resultIndex,
+                                sourceBinding.RegionId,
+                                sourceChunk.ChunkId,
+                                sourceChunk.OwningContentSlotId));
+                    }
                 }
 
-                regionOwners.Add(resultIndex);
+                if (!result.Succeeded) continue;
+
                 for (int chunkIndex = 0;
                      chunkIndex < result.Plan.Chunks.Count;
                      chunkIndex++)
@@ -261,17 +310,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                         chunk.ChunkId,
                         chunk.OwningContentSlotId);
                     owners.Add(owner);
-                    if (!ownersByChunkId.TryGetValue(
-                            chunk.ChunkId,
-                            out List<SceneOwner> chunkOwners))
-                    {
-                        chunkOwners = new List<SceneOwner>();
-                        ownersByChunkId.Add(
-                            chunk.ChunkId,
-                            chunkOwners);
-                    }
-
-                    chunkOwners.Add(owner);
                     if (!ownersByContentId.TryGetValue(
                             chunk.SceneReference.ContentId,
                             out List<SceneOwner> contentOwners))
@@ -308,11 +346,18 @@ namespace CoCoFlow.Runtime.Modules.Map
                 KeyValuePair<RegionChunkId, List<SceneOwner>> pair
                 in ownersByChunkId)
             {
-                if (pair.Value.Count < 2) continue;
+                if (!HasOwnersFromDifferentRegions(pair.Value)) continue;
 
                 string owners = FormatOwners(pair.Value);
+                var diagnosedResults = new HashSet<int>();
                 for (int index = 0; index < pair.Value.Count; index++)
                 {
+                    if (!diagnosedResults.Add(
+                            pair.Value[index].ResultIndex))
+                    {
+                        continue;
+                    }
+
                     AddDuplicateDiagnostic(
                         duplicateDiagnostics,
                         pair.Value[index].ResultIndex,
@@ -374,7 +419,37 @@ namespace CoCoFlow.Runtime.Modules.Map
                     new RegionCompileResult(null, diagnostics);
             }
 
+            var dependencyDiagnostics =
+                new Dictionary<int, List<RegionCompileDiagnostic>>();
+            RegionDependencyCompiler.ValidateGlobal(
+                results,
+                dependencyDiagnostics);
+            foreach (
+                KeyValuePair<int, List<RegionCompileDiagnostic>> pair
+                in dependencyDiagnostics)
+            {
+                var diagnostics = new List<RegionCompileDiagnostic>(
+                    results[pair.Key].Diagnostics);
+                diagnostics.AddRange(pair.Value);
+                results[pair.Key] =
+                    new RegionCompileResult(null, diagnostics);
+            }
+
             return results.AsReadOnly();
+        }
+
+        private static bool HasOwnersFromDifferentRegions(
+            IReadOnlyList<SceneOwner> owners)
+        {
+            if (owners.Count < 2) return false;
+
+            RegionId first = owners[0].RegionId;
+            for (int index = 1; index < owners.Count; index++)
+            {
+                if (owners[index].RegionId != first) return true;
+            }
+
+            return false;
         }
 
         private static void AddDuplicateDiagnostic(
@@ -860,8 +935,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             {
                 NodeSeed seed = seeds[index];
                 if (!seed.Id.HasChunkId ||
-                    !(seed.Definition.Registration.ConfigFreezer is
-                        IRegionRequiresOwningContentDependency))
+                    !seed.Definition.RequiresOwningContentDependency)
                 {
                     continue;
                 }
@@ -875,8 +949,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                     !localSeeds.TryGetValue(
                         seed.OwningContentSlotId,
                         out NodeSeed owningContentSeed) ||
-                    !owningContentSeed.Definition.Registration
-                        .CanOwnChunkScene ||
+                    !owningContentSeed.Definition.CanOwnChunkScene ||
                     !seed.Dependencies.Contains(owningContentSeed.Id))
                 {
                     AddError(
@@ -892,136 +965,163 @@ namespace CoCoFlow.Runtime.Modules.Map
             NodeSeed seed,
             IList<RegionCompileDiagnostic> diagnostics)
         {
-            IRegionParticipantPlan participantPlan;
-            CoCoDiagnostic diagnostic;
-            try
+            var variants =
+                new List<RegionCompiledParticipantVariant>();
+            for (int index = 0;
+                 index < seed.Definition.TierSettings.Count;
+                 index++)
             {
-                var context = new RegionParticipantFreezeContext(
-                    seed.Id,
-                    seed.Binding.FragmentId,
-                    seed.SceneReference);
-                if (!seed.Definition.Registration.ConfigFreezer.TryFreeze(
-                        context,
-                        seed.Definition.Source.Configuration,
-                        out participantPlan,
-                        out diagnostic))
-                {
-                    if (diagnostic.IsNone)
-                    {
-                        diagnostic = RegionErrors.CompilationFailed(
-                            "Participant config freezing failed without a diagnostic.");
-                    }
+                RegionCompiledParticipantTierDefinition setting =
+                    seed.Definition.TierSettings[index];
+                if (!setting.Enabled) continue;
 
+                IRegionParticipantPlan participantPlan;
+                CoCoDiagnostic diagnostic;
+                string path =
+                    "binding.nodes." + seed.Id +
+                    ".tiers." + setting.TierId.Value +
+                    ".configuration";
+                try
+                {
+                    var context = new RegionParticipantFreezeContext(
+                        seed.Id,
+                        setting.TierId,
+                        setting.EffectiveCapabilities,
+                        seed.Binding.FragmentId,
+                        seed.SceneReference);
+                    if (!setting.Registration.ConfigFreezer.TryFreeze(
+                            context,
+                            setting.Configuration,
+                            out participantPlan,
+                            out diagnostic))
+                    {
+                        if (diagnostic.IsNone)
+                        {
+                            diagnostic = RegionErrors.CompilationFailed(
+                                "Participant config freezing failed without a diagnostic.");
+                        }
+
+                        AddError(
+                            diagnostics,
+                            path,
+                            diagnostic);
+                        continue;
+                    }
+                }
+                catch (Exception exception)
+                {
                     AddError(
                         diagnostics,
-                        "binding.nodes." + seed.Id + ".configuration",
-                        diagnostic);
-                    return null;
+                        path,
+                        RegionErrors.CompilationFailed(
+                            "Participant config freezing threw: " +
+                            exception.Message));
+                    continue;
                 }
-            }
-            catch (Exception exception)
-            {
-                AddError(
-                    diagnostics,
-                    "binding.nodes." + seed.Id + ".configuration",
-                    RegionErrors.CompilationFailed(
-                        "Participant config freezing threw: " +
-                        exception.Message));
-                return null;
+
+                Type expectedPlanType =
+                    setting.Registration.PlanType;
+                if (participantPlan == null ||
+                    participantPlan.GetType() != expectedPlanType)
+                {
+                    AddError(
+                        diagnostics,
+                        path,
+                        RegionErrors.CompilationFailed(
+                            "The config freezer must return exactly its registered immutable plan type."));
+                    continue;
+                }
+
+                string participantFingerprint;
+                try
+                {
+                    participantFingerprint =
+                        participantPlan.Fingerprint;
+                }
+                catch (Exception exception)
+                {
+                    AddError(
+                        diagnostics,
+                        path,
+                        RegionErrors.CompilationFailed(
+                            "The frozen participant plan fingerprint threw: " +
+                            exception.Message));
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(
+                        participantFingerprint))
+                {
+                    AddError(
+                        diagnostics,
+                        path,
+                        RegionErrors.CompilationFailed(
+                            "The frozen participant plan requires a deterministic non-empty fingerprint."));
+                    continue;
+                }
+
+                if (!RegionPlanPurityValidator.TryValidate(
+                        participantPlan,
+                        out string purityFailure))
+                {
+                    AddError(
+                        diagnostics,
+                        path,
+                        RegionErrors.CompilationFailed(
+                            "The frozen participant plan is not immutable pure data: " +
+                            purityFailure));
+                    continue;
+                }
+
+                string variantFingerprint =
+                    BuildVariantFingerprint(
+                        seed,
+                        setting,
+                        participantPlan,
+                        participantFingerprint);
+                variants.Add(
+                    new RegionCompiledParticipantVariant(
+                        setting.TierId,
+                        setting.ModeId,
+                        setting.EffectiveCapabilities,
+                        participantPlan,
+                        variantFingerprint));
             }
 
-            Type expectedPlanType =
-                seed.Definition.Registration.PlanType;
-            if (participantPlan == null ||
-                participantPlan.GetType() != expectedPlanType)
+            if (HasErrors(diagnostics))
             {
-                AddError(
-                    diagnostics,
-                    "binding.nodes." + seed.Id + ".configuration",
-                    RegionErrors.CompilationFailed(
-                        "The config freezer must return exactly its registered immutable plan type."));
-                return null;
-            }
-
-            string participantFingerprint;
-            try
-            {
-                participantFingerprint = participantPlan.Fingerprint;
-            }
-            catch (Exception exception)
-            {
-                AddError(
-                    diagnostics,
-                    "binding.nodes." + seed.Id + ".configuration",
-                    RegionErrors.CompilationFailed(
-                        "The frozen participant plan fingerprint threw: " +
-                        exception.Message));
-                return null;
-            }
-
-            if (string.IsNullOrWhiteSpace(participantFingerprint))
-            {
-                AddError(
-                    diagnostics,
-                    "binding.nodes." + seed.Id + ".configuration",
-                    RegionErrors.CompilationFailed(
-                        "The frozen participant plan requires a deterministic non-empty fingerprint."));
-                return null;
-            }
-
-            if (!RegionPlanPurityValidator.TryValidate(
-                    participantPlan,
-                    out string purityFailure))
-            {
-                AddError(
-                    diagnostics,
-                    "binding.nodes." + seed.Id + ".configuration",
-                    RegionErrors.CompilationFailed(
-                        "The frozen participant plan is not immutable pure data: " +
-                        purityFailure));
                 return null;
             }
 
             string fingerprint = BuildNodeFingerprint(
                 seed,
-                participantPlan,
-                participantFingerprint);
+                variants);
             return new RegionCompiledParticipantNode(
                 seed.Id,
                 seed.Definition.Source.ParticipantTypeId,
-                seed.Definition.Source.ModeId,
                 seed.Definition.Source.Phase,
                 seed.Definition.Source.ExplicitOrder,
                 seed.Definition.Source.Requirement,
-                seed.Definition.RequiredCapabilities,
                 seed.Dependencies,
-                participantPlan,
+                variants,
                 seed.Binding.FragmentId,
                 seed.SceneReference,
                 fingerprint);
         }
 
-        private static string BuildNodeFingerprint(
+        private static string BuildVariantFingerprint(
             NodeSeed seed,
+            RegionCompiledParticipantTierDefinition setting,
             IRegionParticipantPlan participantPlan,
             string participantFingerprint)
         {
             var builder = new FingerprintBuilder();
             builder.Append(BuildCanonicalNodeIdentity(seed.Id));
             builder.Append(seed.Definition.Source.ParticipantTypeId.Value);
-            builder.Append(seed.Definition.Source.ModeId.Value);
+            builder.Append(setting.ModeId.Value);
             builder.Append((int)seed.Definition.Source.Phase);
             builder.Append(seed.Definition.Source.ExplicitOrder);
             builder.Append((int)seed.Definition.Source.Requirement);
-            for (int index = 0;
-                 index < seed.Definition.RequiredCapabilities.Count;
-                 index++)
-            {
-                builder.Append(
-                    seed.Definition.RequiredCapabilities
-                        .Capabilities[index].Value);
-            }
-
             for (int index = 0; index < seed.Dependencies.Count; index++)
             {
                 builder.Append(
@@ -1034,29 +1134,69 @@ namespace CoCoFlow.Runtime.Modules.Map
             builder.Append(
                 participantPlan.GetType().AssemblyQualifiedName);
             builder.Append(participantFingerprint);
+            bool capabilitySensitive =
+                participantPlan is IRegionCapabilitySensitivePlan;
+            builder.Append(capabilitySensitive ? 1 : 0);
+            if (capabilitySensitive)
+            {
+                AppendCapabilities(
+                    ref builder,
+                    setting.EffectiveCapabilities);
+            }
+
+            return builder.Complete();
+        }
+
+        private static string BuildNodeFingerprint(
+            NodeSeed seed,
+            IReadOnlyList<RegionCompiledParticipantVariant> variants)
+        {
+            var builder = new FingerprintBuilder();
+            builder.Append(BuildCanonicalNodeIdentity(seed.Id));
+            builder.Append(seed.Definition.Source.ParticipantTypeId.Value);
+            builder.Append((int)seed.Definition.Source.Phase);
+            builder.Append(seed.Definition.Source.ExplicitOrder);
+            builder.Append((int)seed.Definition.Source.Requirement);
+            for (int index = 0; index < seed.Dependencies.Count; index++)
+            {
+                builder.Append(
+                    BuildCanonicalNodeIdentity(
+                        seed.Dependencies[index]));
+            }
+
+            builder.Append(seed.Binding.FragmentId);
+            AppendScene(ref builder, seed.SceneReference);
+            for (int index = 0; index < variants.Count; index++)
+            {
+                builder.Append(variants[index].TierId.Value);
+                builder.Append(variants[index].Fingerprint);
+            }
+
             return builder.Complete();
         }
 
         private static string BuildPlanFingerprint(
             RegionId regionId,
+            RegionProfileId profileId,
+            int profileSchemaVersion,
             IReadOnlyList<RegionCompiledTier> tiers,
             IReadOnlyList<RegionCompiledChunk> chunks,
-            IReadOnlyList<RegionCompiledParticipantNode> nodes)
+            IReadOnlyList<RegionCompiledParticipantNode> nodes,
+            IReadOnlyList<RegionCompiledDependencyRule> dependencyRules)
         {
             var builder = new FingerprintBuilder();
             builder.Append(regionId.Value);
+            builder.Append(profileId.Value);
+            builder.Append(profileSchemaVersion);
             for (int tierIndex = 0; tierIndex < tiers.Count; tierIndex++)
             {
                 RegionCompiledTier tier = tiers[tierIndex];
                 builder.Append(tier.Index);
+                builder.Append(tier.TierId.Value);
                 builder.Append(tier.Name);
-                for (int capabilityIndex = 0;
-                     capabilityIndex < tier.Capabilities.Count;
-                     capabilityIndex++)
-                {
-                    builder.Append(
-                        tier.Capabilities.Capabilities[capabilityIndex].Value);
-                }
+                AppendCapabilities(
+                    ref builder,
+                    tier.Capabilities);
             }
 
             for (int chunkIndex = 0; chunkIndex < chunks.Count; chunkIndex++)
@@ -1075,7 +1215,30 @@ namespace CoCoFlow.Runtime.Modules.Map
                 builder.Append(nodes[nodeIndex].Fingerprint);
             }
 
+            for (int ruleIndex = 0;
+                 ruleIndex < dependencyRules.Count;
+                 ruleIndex++)
+            {
+                builder.Append(
+                    dependencyRules[ruleIndex].Fingerprint);
+            }
+
             return builder.Complete();
+        }
+
+        private static void AppendCapabilities(
+            ref FingerprintBuilder builder,
+            RegionCapabilitySet capabilities)
+        {
+            int count = capabilities == null
+                ? 0
+                : capabilities.Count;
+            builder.Append(count);
+            for (int index = 0; index < count; index++)
+            {
+                builder.Append(
+                    capabilities.Capabilities[index].Value);
+            }
         }
 
         private static void AppendScene(
@@ -1208,7 +1371,7 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
 
         private static bool HasErrors(
-            IReadOnlyList<RegionCompileDiagnostic> diagnostics)
+            IList<RegionCompileDiagnostic> diagnostics)
         {
             for (int index = 0; index < diagnostics.Count; index++)
             {

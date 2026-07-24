@@ -9,6 +9,27 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
     public sealed class RegionContractTests
     {
         [Test]
+        public void ProfileAndTierIdsAreStableValueObjects()
+        {
+            Assert.IsTrue(
+                RegionProfileId.TryCreate(
+                    "0123456789abcdef0123456789abcdef",
+                    out RegionProfileId profileId));
+            Assert.AreEqual(
+                "0123456789abcdef0123456789abcdef",
+                profileId.Value);
+            Assert.AreEqual(RegionTierId.Off, RegionTierId.Off);
+            Assert.AreEqual(
+                "full",
+                RegionTierId.Full.Value);
+            Assert.IsTrue(
+                RegionTierId.TryCreate(
+                    "project.cinematic",
+                    out RegionTierId customTier));
+            Assert.IsTrue(customTier.IsValid);
+        }
+
+        [Test]
         public void CapabilityIdAllowsNamespacedExtensionsAndReservesCoCoFlow()
         {
             Assert.IsTrue(RegionCapabilityId.TryCreate(

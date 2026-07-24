@@ -66,6 +66,187 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator FullOnlyDemandResolvesCumulativeFullTierContexts() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                var controller = new CandidateController();
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(1),
+                           Node(
+                               "full-context",
+                               new StableTestPlan("full-context"))))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Full),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(revision))
+                        .Status);
+
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        controller.CreateTier("full-context"));
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        controller.PrepareTier("full-context"));
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        controller.CommitTier("full-context"));
+                    Assert.AreEqual(
+                        4,
+                        controller.CreateCapabilities(
+                            "full-context").Count);
+                    Assert.AreEqual(
+                        4,
+                        controller.PrepareCapabilities(
+                            "full-context").Count);
+                    RegionCapabilitySet effective =
+                        controller.CommitCapabilities(
+                            "full-context");
+                    Assert.AreEqual(4, effective.Count);
+                    Assert.IsTrue(
+                        effective.Contains(
+                            RegionCapabilityId.Represented));
+                    Assert.IsTrue(
+                        effective.Contains(
+                            RegionCapabilityId.Full));
+                    RegionRuntimeRegionSnapshot snapshot =
+                        harness.OnlyRegionSnapshot();
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        snapshot.DesiredTierId);
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        snapshot.CommittedTierId);
+                    Assert.AreEqual(
+                        4,
+                        snapshot.CommittedEffectiveCapabilities
+                            .Count);
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator ChunkCoverageResolvesTiersIndependently() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                Assert.IsTrue(
+                    RegionId.TryCreate(
+                        "world.wilderness",
+                        out RegionId regionId));
+                RegionChunkId west = ChunkId("west");
+                RegionChunkId east = ChunkId("east");
+                var plan = new RegionCompiledPlan(
+                    regionId,
+                    ProfileId("tests.profile.chunks"),
+                    CoCoRegionProfile.CurrentSchemaVersion,
+                    TestTiers(),
+                    new[]
+                    {
+                        new RegionCompiledChunk(
+                            west,
+                            default,
+                            default),
+                        new RegionCompiledChunk(
+                            east,
+                            default,
+                            default)
+                    },
+                    new[]
+                    {
+                        ChunkNode(
+                            regionId,
+                            west,
+                            "west",
+                            new StableTestPlan("west")),
+                        ChunkNode(
+                            regionId,
+                            east,
+                            "east",
+                            new StableTestPlan("east"))
+                    },
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    "tests.chunk-plan");
+                var controller = new CandidateController();
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(1),
+                           regionId,
+                           plan))
+                {
+                    Assert.IsTrue(
+                        RegionCoverage.TryCreateChunks(
+                            new[] { west },
+                            out RegionCoverage westCoverage));
+                    RegionDemandScope westScope =
+                        harness.CreateScope("west-player");
+                    Assert.IsTrue(westScope.TryDemand(
+                        regionId,
+                        Capabilities(RegionCapabilityId.Full),
+                        westCoverage,
+                        out RegionDemandLease westLease,
+                        out RegionDemandRevision westRevision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await westLease.WaitUntilReadyAsync(
+                            westRevision)).Status);
+                    Assert.AreEqual(1, controller.CreateCount("west"));
+                    Assert.AreEqual(0, controller.CreateCount("east"));
+
+                    Assert.IsTrue(
+                        RegionCoverage.TryCreateChunks(
+                            new[] { east },
+                            out RegionCoverage eastCoverage));
+                    RegionDemandScope eastScope =
+                        harness.CreateScope("east-player");
+                    Assert.IsTrue(eastScope.TryDemand(
+                        regionId,
+                        Capabilities(
+                            RegionCapabilityId.Background),
+                        eastCoverage,
+                        out RegionDemandLease eastLease,
+                        out RegionDemandRevision eastRevision,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await eastLease.WaitUntilReadyAsync(
+                            eastRevision)).Status);
+
+                    Assert.AreEqual(1, controller.CreateCount("west"));
+                    Assert.AreEqual(1, controller.CreateCount("east"));
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        controller.CommitTier("west"));
+                    Assert.AreEqual(
+                        RegionTierId.Background,
+                        controller.CommitTier("east"));
+                    RegionRuntimeRegionSnapshot snapshot =
+                        harness.OnlyRegionSnapshot();
+                    RegionChunkRuntimeSnapshot westSnapshot =
+                        FindChunkSnapshot(snapshot, west);
+                    RegionChunkRuntimeSnapshot eastSnapshot =
+                        FindChunkSnapshot(snapshot, east);
+                    Assert.AreEqual(
+                        RegionTierId.Full,
+                        westSnapshot.CommittedTierId);
+                    Assert.AreEqual(
+                        RegionTierId.Background,
+                        eastSnapshot.CommittedTierId);
+                }
+            });
+
+        [UnityTest]
         public IEnumerator OptionalPrepareFailureCommitsAbsentAndReportsDegraded() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -142,6 +323,46 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         RegionReadinessStatus.Ready,
                         (await lease.WaitUntilReadyAsync(revision)).Status);
                     Assert.AreEqual(2, controller.CreateCount("required"));
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator RejectedRetryDoesNotFailTheActiveRevision() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                var controller = new CandidateController();
+                controller.BlockPrepare("active");
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(1),
+                           Node(
+                               "active",
+                               new StableTestPlan("active"))))
+                {
+                    RegionDemandScope scope = harness.CreateScope("player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    UniTask<RegionReadinessResult> readiness =
+                        lease.WaitUntilReadyAsync(revision);
+
+                    Assert.IsFalse(harness.Runtime.TryRetryRegion(
+                        harness.RegionId,
+                        out diagnostic));
+                    Assert.AreEqual(
+                        CoCoDiagnosticCode.RegionDemandConflict,
+                        diagnostic.Code);
+
+                    controller.CompleteBlockedPrepare();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await readiness).Status,
+                        "A rejected retry must not publish failure into the already-running revision.");
                 }
             });
 
@@ -461,7 +682,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     out RegionId castleId));
                 var wildernessPlan = new RegionCompiledPlan(
                     wildernessId,
-                    Array.Empty<RegionCompiledTier>(),
+                    ProfileId("tests.profile.wilderness"),
+                    CoCoRegionProfile.CurrentSchemaVersion,
+                    TestTiers(),
                     Array.Empty<RegionCompiledChunk>(),
                     new[]
                     {
@@ -470,10 +693,13 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                             "shared",
                             new StableTestPlan("shared"))
                     },
+                    Array.Empty<RegionCompiledDependencyRule>(),
                     "tests.wilderness");
                 var castlePlan = new RegionCompiledPlan(
                     castleId,
-                    Array.Empty<RegionCompiledTier>(),
+                    ProfileId("tests.profile.castle"),
+                    CoCoRegionProfile.CurrentSchemaVersion,
+                    TestTiers(),
                     Array.Empty<RegionCompiledChunk>(),
                     new[]
                     {
@@ -482,6 +708,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                             "shared",
                             new StableTestPlan("shared"))
                     },
+                    Array.Empty<RegionCompiledDependencyRule>(),
                     "tests.castle");
 
                 var controller = new CandidateController();
@@ -551,6 +778,556 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator CrossRegionDependencyWaitsAndReleasesAfterSourceCleanup() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan("wilderness")));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Background)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new StableTestPlan("castle")));
+                var controller = new CandidateController();
+                controller.BlockPrepare("wilderness");
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(5),
+                    castleId,
+                    wildernessPlan,
+                    castlePlan);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount("wilderness") == 1,
+                        "The target Region did not begin dependency preparation.");
+                    Assert.AreEqual(
+                        0,
+                        controller.PrepareCount("castle"),
+                        "The source must not prepare before its target dependency is Ready.");
+
+                    controller.CompleteBlockedPrepare();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await castleLease.WaitUntilReadyAsync(revision))
+                        .Status);
+                    Assert.AreEqual(
+                        1,
+                        CountDependencyDemands(
+                            harness.Runtime.CaptureSnapshot(),
+                            wildernessId));
+
+                    controller.BlockFirstCleanup("castle");
+                    castleLease.Dispose();
+                    await WaitUntilAsync(
+                        () => controller.CleanupAsyncInvocationCount(
+                                  "castle",
+                                  1) == 1,
+                        "The source Region did not begin retirement cleanup.");
+                    Assert.AreEqual(
+                        1,
+                        CountDependencyDemands(
+                            harness.Runtime.CaptureSnapshot(),
+                            wildernessId),
+                        "The old target dependency must remain owned while source cleanup is blocked.");
+
+                    controller.CompleteBlockedCleanup();
+                    await WaitUntilAsync(
+                        () => CountDependencyDemands(
+                                  harness.Runtime.CaptureSnapshot(),
+                                  wildernessId) == 0,
+                        "The target dependency was not released after source cleanup completed.");
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator CrossRegionTargetFailureFailsSourceBeforePrepare() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan(
+                            "wilderness",
+                            true)));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new StableTestPlan("castle")));
+                var controller = new CandidateController();
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(1),
+                           castleId,
+                           wildernessPlan,
+                           castlePlan))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+
+                    RegionReadinessResult result =
+                        await castleLease.WaitUntilReadyAsync(revision);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Failed,
+                        result.Status);
+                    Assert.AreEqual(
+                        0,
+                        controller.PrepareCount("castle"),
+                        "A failed target must prevent source preparation.");
+                    Assert.AreEqual(
+                        0,
+                        CountDependencyDemands(
+                            harness.Runtime.CaptureSnapshot(),
+                            wildernessId),
+                        "A failed candidate dependency must not leak its Lease.");
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator SupersededSourceReleasesOnlyItsCandidateDependency() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan("wilderness")));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Full,
+                            wildernessId,
+                            RegionCapabilityId.Background)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new StableTestPlan("castle")));
+                var controller = new CandidateController();
+                controller.BlockPrepare("wilderness");
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(5),
+                    castleId,
+                    wildernessPlan,
+                    castlePlan);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Full),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount("wilderness") == 1,
+                        "The candidate dependency did not begin preparation.");
+
+                    Assert.IsTrue(castleLease.TryUpdate(
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandRevision second,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Superseded,
+                        (await castleLease.WaitUntilReadyAsync(first))
+                        .Status);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await castleLease.WaitUntilReadyAsync(second))
+                        .Status);
+                    await WaitUntilAsync(
+                        () => CountDependencyDemands(
+                                  harness.Runtime.CaptureSnapshot(),
+                                  wildernessId) == 0,
+                        "The superseded source generation leaked its dependency Lease.");
+
+                    controller.CompleteBlockedPrepare();
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator SharedAndTransitiveDependenciesKeepIndependentLeasesAndShutdownSourceFirst() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                RegionId chapelId = Region("world.chapel");
+                RegionId mineId = Region("world.mine");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan("wilderness")));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new StableTestPlan("castle")));
+                var chapelPlan = Plan(
+                    chapelId,
+                    "tests.chapel",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        chapelId,
+                        "chapel",
+                        new StableTestPlan("chapel")));
+                var minePlan = Plan(
+                    mineId,
+                    "tests.mine",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            castleId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        mineId,
+                        "mine",
+                        new StableTestPlan("mine")));
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(1),
+                    mineId,
+                    wildernessPlan,
+                    castlePlan,
+                    chapelPlan,
+                    minePlan);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("world-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        mineId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease mineLease,
+                        out RegionDemandRevision mineRevision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.IsTrue(scope.TryDemand(
+                        chapelId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease chapelLease,
+                        out RegionDemandRevision chapelRevision,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await mineLease.WaitUntilReadyAsync(
+                            mineRevision)).Status);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await chapelLease.WaitUntilReadyAsync(
+                            chapelRevision)).Status);
+
+                    RegionRuntimeSnapshot snapshot =
+                        harness.Runtime.CaptureSnapshot();
+                    Assert.AreEqual(
+                        2,
+                        CountDependencyDemands(
+                            snapshot,
+                            wildernessId),
+                        "Castle and Chapel must retain independent target Leases.");
+                    Assert.AreEqual(
+                        1,
+                        CountDependencyDemands(
+                            snapshot,
+                            castleId),
+                        "Mine must retain its own transitive Castle Lease.");
+
+                    await harness.ShutdownAsync();
+                    CollectionAssert.AreEqual(
+                        new[]
+                        {
+                            "chapel|1",
+                            "mine|1",
+                            "castle|1",
+                            "wilderness|1"
+                        },
+                        controller.HostShutdownOrder);
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator ShutdownWaitsForActiveSourceBeforeCleaningTarget() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan("wilderness")));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new SensitiveTestPlan("castle")));
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(5),
+                    castleId,
+                    wildernessPlan,
+                    castlePlan);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await castleLease.WaitUntilReadyAsync(first))
+                        .Status);
+
+                    controller.BlockPrepare("castle");
+                    Assert.IsTrue(castleLease.TryUpdate(
+                        Capabilities(
+                            RegionCapabilityId.Represented,
+                            RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out _,
+                        out diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount("castle") == 2,
+                        "The replacement source candidate did not enter Prepare.");
+
+                    UniTask shutdown =
+                        harness.ShutdownAsync().Preserve();
+                    await UniTask.Yield();
+                    Assert.AreEqual(
+                        0,
+                        controller.HostShutdownOrder.Count,
+                        "A target cannot be terminal-cleaned while its active source runner is still retained.");
+
+                    controller.CompleteBlockedPrepare();
+                    await shutdown;
+                    CollectionAssert.AreEqual(
+                        new[]
+                        {
+                            "castle|1",
+                            "wilderness|1"
+                        },
+                        controller.HostShutdownOrder);
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator ForceFallbackKeepsLateSourceAheadOfTargetCleanup() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "wilderness",
+                        new StableTestPlan("wilderness")));
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.castle",
+                    new[]
+                    {
+                        Dependency(
+                            RegionCapabilityId.Represented,
+                            wildernessId,
+                            RegionCapabilityId.Represented)
+                    },
+                    Node(
+                        castleId,
+                        "castle",
+                        new SensitiveTestPlan("castle")));
+                var controller = new CandidateController();
+                TransitionHarness harness = CreateHarness(
+                    controller,
+                    TimeSpan.FromSeconds(5),
+                    castleId,
+                    wildernessPlan,
+                    castlePlan);
+                try
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("castle-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await castleLease.WaitUntilReadyAsync(first))
+                        .Status);
+
+                    controller.BlockPrepare("castle");
+                    Assert.IsTrue(castleLease.TryUpdate(
+                        Capabilities(
+                            RegionCapabilityId.Represented,
+                            RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out _,
+                        out diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount("castle") == 2,
+                        "The replacement source candidate did not enter Prepare.");
+
+                    harness.Runtime.ForceShutdown();
+                    await UniTask.Yield();
+                    Assert.AreEqual(
+                        0,
+                        controller.HostShutdownOrder.Count,
+                        "Force fallback cannot overtake an active source runner to clean its target.");
+
+                    controller.CompleteBlockedPrepare();
+                    await WaitUntilAsync(
+                        () => controller.HostShutdownOrder.Count == 2,
+                        "Ordered terminal fallback did not finish source and target cleanup.");
+                    CollectionAssert.AreEqual(
+                        new[]
+                        {
+                            "castle|1",
+                            "wilderness|1"
+                        },
+                        controller.HostShutdownOrder);
+                    await harness.ShutdownAsync();
+                }
+                finally
+                {
+                    harness.Dispose();
+                }
+            });
+
+        [UnityTest]
         public IEnumerator FailedBehaviourCommitRestoresAlreadyChangedComponents() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -592,6 +1369,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     var freezeContext =
                         new RegionParticipantFreezeContext(
                             nodeId,
+                            RegionTierId.Represented,
+                            Capabilities(
+                                RegionCapabilityId.Represented),
                             "target",
                             default);
                     Assert.IsTrue(
@@ -606,6 +1386,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     var createContext =
                         new RegionParticipantCreateContext(
                             nodeId,
+                            RegionTierId.Represented,
+                            Capabilities(
+                                RegionCapabilityId.Represented),
                             "target",
                             resolver);
                     Assert.IsTrue(
@@ -621,6 +1404,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     var prepareContext =
                         new RegionParticipantPrepareContext(
                             nodeId,
+                            RegionTierId.Represented,
                             capabilities,
                             1,
                             resolver);
@@ -631,6 +1415,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     var commitContext =
                         new RegionParticipantCommitContext(
                             nodeId,
+                            RegionTierId.Represented,
                             capabilities,
                             1);
                     Assert.IsFalse(candidate.TryCommit(
@@ -1114,6 +1899,271 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 }
             });
 
+        [UnityTest]
+        public IEnumerator DependencyMonitorSnapshotMapsRuleLeaseAndBlocker() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                RegionId wildernessId = Region("world.wilderness");
+                RegionId castleId = Region("world.castle");
+                var wildernessPlan = Plan(
+                    wildernessId,
+                    "tests.monitor.wilderness",
+                    Array.Empty<RegionCompiledDependencyRule>(),
+                    Node(
+                        wildernessId,
+                        "monitor-target",
+                        new StableTestPlan("monitor-target")));
+                RegionCompiledDependencyRule rule = Dependency(
+                    RegionCapabilityId.Represented,
+                    wildernessId,
+                    RegionCapabilityId.Background);
+                var castlePlan = Plan(
+                    castleId,
+                    "tests.monitor.castle",
+                    new[] { rule },
+                    Node(
+                        castleId,
+                        "monitor-source",
+                        new StableTestPlan("monitor-source")));
+                var controller = new CandidateController();
+                controller.BlockPrepare("monitor-target");
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromSeconds(5),
+                           castleId,
+                           wildernessPlan,
+                           castlePlan))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("monitor-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        castleId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease castleLease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.PrepareCount(
+                                  "monitor-target") == 1,
+                        "The target Region did not begin dependency preparation.");
+                    Assert.AreEqual(
+                        0,
+                        controller.PrepareCount("monitor-source"));
+
+                    RegionTransitionMonitorRegionSnapshot waitingRegion =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            castleId);
+                    Assert.AreEqual(1, waitingRegion.Dependencies.Count);
+                    RegionDependencyMonitorSnapshot waiting =
+                        waitingRegion.Dependencies[0];
+                    Assert.AreEqual(castleId, waiting.SourceRegionId);
+                    Assert.AreEqual(
+                        rule.Fingerprint,
+                        waiting.RuleFingerprint);
+                    Assert.AreEqual(
+                        RegionCapabilityId.Represented,
+                        waiting.SourceCapability);
+                    Assert.AreEqual(
+                        wildernessId,
+                        waiting.TargetRegionId);
+                    Assert.IsTrue(
+                        waiting.TargetCapabilities.Contains(
+                            RegionCapabilityId.Background));
+                    Assert.AreEqual(
+                        RegionCoverage.All,
+                        waiting.TargetCoverage);
+                    Assert.Greater(waiting.LeaseSequence, 0L);
+                    Assert.IsTrue(waiting.Revision.IsValid);
+                    Assert.IsFalse(waiting.Readiness.HasValue);
+                    Assert.IsTrue(waiting.Diagnostic.IsNone);
+                    Assert.AreEqual(
+                        RegionMonitorDependencyRole.CandidateWaiting,
+                        waiting.Role);
+                    Assert.IsTrue(waiting.IsBlocker);
+
+                    RegionDemandRuntimeSnapshot dependencyDemand =
+                        FindDemandByLeaseSequence(
+                            harness.Runtime.CaptureSnapshot(),
+                            waiting.LeaseSequence);
+                    Assert.AreEqual(
+                        "cocoflow.map.dependencies",
+                        dependencyDemand.OwnerId.Value);
+                    Assert.AreEqual(
+                        wildernessId,
+                        dependencyDemand.RegionId);
+                    Assert.AreEqual(
+                        waiting.Revision,
+                        dependencyDemand.Revision);
+
+                    controller.CompleteBlockedPrepare();
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await castleLease.WaitUntilReadyAsync(
+                            revision)).Status);
+
+                    RegionTransitionMonitorRegionSnapshot readyRegion =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            castleId);
+                    Assert.AreEqual(1, readyRegion.Dependencies.Count);
+                    RegionDependencyMonitorSnapshot committed =
+                        readyRegion.Dependencies[0];
+                    Assert.AreEqual(
+                        waiting.LeaseSequence,
+                        committed.LeaseSequence);
+                    Assert.AreEqual(
+                        rule.Fingerprint,
+                        committed.RuleFingerprint);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        committed.Readiness);
+                    Assert.AreEqual(
+                        RegionMonitorDependencyRole.Committed,
+                        committed.Role);
+                    Assert.IsFalse(committed.IsBlocker);
+
+                    Assert.AreEqual(
+                        RegionMonitorDependencyRole.CandidateWaiting,
+                        waiting.Role,
+                        "A captured monitor snapshot must not be mutated when the dependency becomes Ready.");
+                    Assert.IsFalse(waiting.Readiness.HasValue);
+                    Assert.IsTrue(waiting.IsBlocker);
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator ParticipantMonitorShowsRetiringBlockedCleanupAndPeak() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                const string key = "monitor-sensitive";
+                var controller = new CandidateController();
+                controller.BlockFirstCleanup(key);
+                using (TransitionHarness harness = CreateHarness(
+                           controller,
+                           TimeSpan.FromMilliseconds(200),
+                           Node(
+                               key,
+                               new SensitiveTestPlan(key))))
+                {
+                    RegionDemandScope scope =
+                        harness.CreateScope("monitor-player");
+                    Assert.IsTrue(scope.TryDemand(
+                        harness.RegionId,
+                        Capabilities(RegionCapabilityId.Represented),
+                        RegionCoverage.All,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision first,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(first)).Status);
+
+                    Assert.IsTrue(lease.TryUpdate(
+                        Capabilities(
+                            RegionCapabilityId.Represented,
+                            RegionCapabilityId.Background),
+                        RegionCoverage.All,
+                        out RegionDemandRevision second,
+                        out diagnostic),
+                        diagnostic.Message);
+                    await WaitUntilAsync(
+                        () => controller.CleanupAsyncInvocationCount(
+                                  key,
+                                  1) == 1,
+                        "The replaced participant did not begin retiring cleanup.");
+
+                    RegionTransitionMonitorRegionSnapshot retiringRegion =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            harness.RegionId);
+                    Assert.AreEqual(
+                        harness.OnlyRegionSnapshot().DesiredGeneration,
+                        retiringRegion.PeakGeneration);
+                    Assert.AreEqual(
+                        1,
+                        retiringRegion.OldNodeCountAtAttemptStart);
+                    Assert.AreEqual(
+                        2,
+                        retiringRegion.OldPlusCandidatePeak);
+                    Assert.AreEqual(2, retiringRegion.Participants.Count);
+                    RegionParticipantMonitorSnapshot retiring =
+                        FindParticipantByRole(
+                            retiringRegion,
+                            RegionMonitorParticipantRole.Retiring);
+                    RegionParticipantMonitorSnapshot committed =
+                        FindParticipantByRole(
+                            retiringRegion,
+                            RegionMonitorParticipantRole.Committed);
+                    Assert.AreEqual(
+                        RegionParticipantCleanupReason.Replaced,
+                        retiring.CleanupReason);
+                    Assert.AreNotEqual(
+                        retiring.OwnershipSequence,
+                        committed.OwnershipSequence);
+
+                    RegionReadinessResult blocked =
+                        await lease.WaitUntilReadyAsync(second);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Failed,
+                        blocked.Status);
+                    Assert.AreEqual(
+                        CoCoDiagnosticCode.RegionCleanupBlocked,
+                        blocked.Diagnostic.Code);
+                    RegionTransitionMonitorRegionSnapshot blockedRegion =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            harness.RegionId);
+                    Assert.AreEqual(
+                        2,
+                        blockedRegion.OldPlusCandidatePeak);
+                    Assert.AreEqual(2, blockedRegion.Participants.Count);
+                    RegionParticipantMonitorSnapshot blockedParticipant =
+                        FindParticipantByRole(
+                            blockedRegion,
+                            RegionMonitorParticipantRole.BlockedCleanup);
+                    Assert.AreEqual(
+                        retiring.OwnershipSequence,
+                        blockedParticipant.OwnershipSequence);
+                    Assert.AreEqual(
+                        RegionParticipantCleanupReason.Replaced,
+                        blockedParticipant.CleanupReason);
+
+                    Assert.AreEqual(
+                        RegionMonitorParticipantRole.Retiring,
+                        retiring.Role,
+                        "The earlier monitor snapshot must remain immutable after cleanup becomes blocked.");
+                    Assert.AreEqual(
+                        RegionParticipantCleanupReason.Replaced,
+                        retiring.CleanupReason);
+
+                    controller.CompleteBlockedCleanup();
+                    Assert.IsTrue(harness.Runtime.TryRetryRegion(
+                        harness.RegionId,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.AreEqual(
+                        RegionReadinessStatus.Ready,
+                        (await lease.WaitUntilReadyAsync(second)).Status);
+                    RegionTransitionMonitorRegionSnapshot recoveredRegion =
+                        FindMonitorRegion(
+                            harness.TransitionRuntime
+                                .CaptureMonitorRegions(),
+                            harness.RegionId);
+                    Assert.AreEqual(1, recoveredRegion.Participants.Count);
+                    Assert.AreEqual(
+                        RegionMonitorParticipantRole.Committed,
+                        recoveredRegion.Participants[0].Role);
+                }
+            });
+
         private static async UniTask
             VerifyTerminalCleanupIsNotInvokedAgainAsync(
                 string key,
@@ -1211,9 +2261,12 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 out RegionId regionId));
             var plan = new RegionCompiledPlan(
                 regionId,
-                Array.Empty<RegionCompiledTier>(),
+                ProfileId("tests.profile.default"),
+                CoCoRegionProfile.CurrentSchemaVersion,
+                TestTiers(),
                 Array.Empty<RegionCompiledChunk>(),
                 nodes,
+                Array.Empty<RegionCompiledDependencyRule>(),
                 "tests.plan");
             return CreateHarness(
                 controller,
@@ -1306,19 +2359,294 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 regionId,
                 slotId,
                 out RegionPlanNodeId nodeId));
+            return Node(
+                nodeId,
+                plan,
+                requirement,
+                phase);
+        }
+
+        private static RegionCompiledParticipantNode ChunkNode(
+            RegionId regionId,
+            RegionChunkId chunkId,
+            string slotValue,
+            TestPlanBase plan)
+        {
+            Assert.IsTrue(
+                RegionParticipantSlotId.TryCreate(
+                    slotValue,
+                    out RegionParticipantSlotId slotId));
+            Assert.IsTrue(
+                RegionPlanNodeId.TryCreateChunk(
+                    regionId,
+                    chunkId,
+                    slotId,
+                    out RegionPlanNodeId nodeId));
+            return Node(
+                nodeId,
+                plan,
+                RegionParticipantRequirement.Required,
+                RegionParticipantPhase.Simulation);
+        }
+
+        private static RegionCompiledParticipantNode Node(
+            RegionPlanNodeId nodeId,
+            TestPlanBase plan,
+            RegionParticipantRequirement requirement,
+            RegionParticipantPhase phase)
+        {
+            IList<RegionCompiledTier> tiers =
+                TestTiers();
+            var variants =
+                new List<RegionCompiledParticipantVariant>(
+                    tiers.Count - 1);
+            for (int tierIndex = 1;
+                 tierIndex < tiers.Count;
+                 tierIndex++)
+            {
+                RegionCompiledTier tier = tiers[tierIndex];
+                string variantFingerprint = plan.Fingerprint;
+                if (plan is IRegionCapabilitySensitivePlan)
+                {
+                    for (int capabilityIndex = 0;
+                         capabilityIndex < tier.Capabilities.Count;
+                         capabilityIndex++)
+                    {
+                        variantFingerprint += "|" +
+                            tier.Capabilities.Capabilities[
+                                capabilityIndex].Value;
+                    }
+                }
+                variants.Add(
+                    new RegionCompiledParticipantVariant(
+                        tier.TierId,
+                        TestIds.ModeId,
+                        tier.Capabilities,
+                        plan,
+                        variantFingerprint));
+            }
+
             return new RegionCompiledParticipantNode(
                 nodeId,
                 TestIds.TypeId,
-                TestIds.ModeId,
                 phase,
                 0,
                 requirement,
-                Capabilities(RegionCapabilityId.Represented),
                 Array.Empty<RegionPlanNodeId>(),
-                plan,
+                variants,
                 string.Empty,
                 default,
-                plan.Fingerprint);
+                "node|" + plan.Fingerprint);
+        }
+
+        private static RegionChunkId ChunkId(string value)
+        {
+            Assert.IsTrue(
+                RegionChunkId.TryCreate(
+                    value,
+                    out RegionChunkId chunkId));
+            return chunkId;
+        }
+
+        private static RegionId Region(string value)
+        {
+            Assert.IsTrue(
+                RegionId.TryCreate(
+                    value,
+                    out RegionId regionId));
+            return regionId;
+        }
+
+        private static RegionCompiledPlan Plan(
+            RegionId regionId,
+            string fingerprint,
+            IList<RegionCompiledDependencyRule> dependencyRules,
+            params RegionCompiledParticipantNode[] nodes) =>
+            new RegionCompiledPlan(
+                regionId,
+                ProfileId("profile." + fingerprint),
+                CoCoRegionProfile.CurrentSchemaVersion,
+                TestTiers(),
+                Array.Empty<RegionCompiledChunk>(),
+                nodes,
+                dependencyRules,
+                fingerprint);
+
+        private static RegionCompiledDependencyRule Dependency(
+            RegionCapabilityId sourceCapability,
+            RegionId targetRegionId,
+            params RegionCapabilityId[] targetCapabilities)
+        {
+            RegionCapabilitySet capabilities =
+                Capabilities(targetCapabilities);
+            string fingerprint =
+                RegionDependencyCompiler.BuildFingerprint(
+                    sourceCapability,
+                    targetRegionId,
+                    capabilities,
+                    RegionCoverage.All);
+            return new RegionCompiledDependencyRule(
+                sourceCapability,
+                targetRegionId,
+                capabilities,
+                RegionCoverage.All,
+                fingerprint);
+        }
+
+        private static int CountDependencyDemands(
+            RegionRuntimeSnapshot snapshot,
+            RegionId targetRegionId)
+        {
+            int count = 0;
+            for (int index = 0;
+                 index < snapshot.Demands.Count;
+                 index++)
+            {
+                RegionDemandRuntimeSnapshot demand =
+                    snapshot.Demands[index];
+                if (demand.RegionId == targetRegionId &&
+                    string.Equals(
+                        demand.OwnerId.Value,
+                        "cocoflow.map.dependencies",
+                        StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static RegionChunkRuntimeSnapshot FindChunkSnapshot(
+            RegionRuntimeRegionSnapshot region,
+            RegionChunkId chunkId)
+        {
+            for (int index = 0;
+                 index < region.Chunks.Count;
+                 index++)
+            {
+                if (region.Chunks[index].ChunkId == chunkId)
+                {
+                    return region.Chunks[index];
+                }
+            }
+
+            Assert.Fail(
+                "Missing Chunk snapshot for '" +
+                chunkId.Value + "'.");
+            return default;
+        }
+
+        private static RegionTransitionMonitorRegionSnapshot
+            FindMonitorRegion(
+                IReadOnlyList<RegionTransitionMonitorRegionSnapshot>
+                    regions,
+                RegionId regionId)
+        {
+            for (int index = 0; index < regions.Count; index++)
+            {
+                if (regions[index].RegionId == regionId)
+                {
+                    return regions[index];
+                }
+            }
+
+            Assert.Fail(
+                "Missing transition monitor snapshot for Region '" +
+                regionId.Value + "'.");
+            return null;
+        }
+
+        private static RegionParticipantMonitorSnapshot
+            FindParticipantByRole(
+                RegionTransitionMonitorRegionSnapshot region,
+                RegionMonitorParticipantRole role)
+        {
+            for (int index = 0;
+                 index < region.Participants.Count;
+                 index++)
+            {
+                if (region.Participants[index].Role == role)
+                {
+                    return region.Participants[index];
+                }
+            }
+
+            Assert.Fail(
+                "Missing participant monitor role '" +
+                role + "' for Region '" +
+                region.RegionId.Value + "'.");
+            return default;
+        }
+
+        private static RegionDemandRuntimeSnapshot
+            FindDemandByLeaseSequence(
+                RegionRuntimeSnapshot snapshot,
+                long leaseSequence)
+        {
+            for (int index = 0;
+                 index < snapshot.Demands.Count;
+                 index++)
+            {
+                if (snapshot.Demands[index].LeaseSequence ==
+                    leaseSequence)
+                {
+                    return snapshot.Demands[index];
+                }
+            }
+
+            Assert.Fail(
+                "Missing Region Demand snapshot for Lease sequence '" +
+                leaseSequence + "'.");
+            return default;
+        }
+
+        private static RegionProfileId ProfileId(string value)
+        {
+            Assert.IsTrue(
+                RegionProfileId.TryCreate(
+                    value,
+                    out RegionProfileId profileId));
+            return profileId;
+        }
+
+        private static IList<RegionCompiledTier>
+            TestTiers()
+        {
+            return new[]
+            {
+                new RegionCompiledTier(
+                    0,
+                    RegionTierId.Off,
+                    "Off",
+                    RegionCapabilitySet.Empty),
+                new RegionCompiledTier(
+                    1,
+                    RegionTierId.Represented,
+                    "Represented",
+                    Capabilities(
+                        RegionCapabilityId.Represented)),
+                new RegionCompiledTier(
+                    2,
+                    RegionTierId.Background,
+                    "Background",
+                    Capabilities(
+                        RegionCapabilityId.Represented,
+                        RegionCapabilityId.Background)),
+                new RegionCompiledTier(
+                    3,
+                    RegionTierId.Enterable,
+                    "Enterable",
+                    Capabilities(
+                        RegionCapabilityId.Represented,
+                        RegionCapabilityId.Background,
+                        RegionCapabilityId.Enterable)),
+                new RegionCompiledTier(
+                    4,
+                    RegionTierId.Full,
+                    "Full",
+                    StandardCapabilities())
+            };
         }
 
         private static RegionCapabilitySet StandardCapabilities() =>
@@ -1493,6 +2821,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
                 CandidateController controller =
                     CandidateController.Active;
+                controller.RecordCreateContext(
+                    typed.Key,
+                    context.TierId,
+                    context.Capabilities);
                 candidate = controller.Create(
                     context.NodeId,
                     typed);
@@ -1564,7 +2896,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 in RegionParticipantPrepareContext context,
                 CancellationToken cancellationToken)
             {
-                controller.RecordPrepare(plan.Key);
+                controller.RecordPrepare(
+                    plan.Key,
+                    context.TierId,
+                    context.Capabilities);
                 if (controller.ShouldBlockPrepare(
                         plan.Key,
                         out UniTask<RegionParticipantPrepareResult> pending))
@@ -1587,7 +2922,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 in RegionParticipantCommitContext context,
                 out CoCoDiagnostic diagnostic)
             {
-                controller.RecordCommit(plan.Key);
+                controller.RecordCommit(
+                    plan.Key,
+                    context.TierId,
+                    context.Capabilities);
                 controller.TryReenterMutation();
                 if (controller.ShouldCommitFail(plan.Key))
                 {
@@ -1685,6 +3023,21 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 new Dictionary<string, int>();
             private readonly Dictionary<string, int> commits =
                 new Dictionary<string, int>();
+            private readonly Dictionary<string, RegionTierId> createTiers =
+                new Dictionary<string, RegionTierId>();
+            private readonly Dictionary<string, RegionTierId> prepareTiers =
+                new Dictionary<string, RegionTierId>();
+            private readonly Dictionary<string, RegionTierId> commitTiers =
+                new Dictionary<string, RegionTierId>();
+            private readonly Dictionary<string, RegionCapabilitySet>
+                createCapabilities =
+                    new Dictionary<string, RegionCapabilitySet>();
+            private readonly Dictionary<string, RegionCapabilitySet>
+                prepareCapabilities =
+                    new Dictionary<string, RegionCapabilitySet>();
+            private readonly Dictionary<string, RegionCapabilitySet>
+                commitCapabilities =
+                    new Dictionary<string, RegionCapabilitySet>();
             private readonly Dictionary<string, int> cleanups =
                 new Dictionary<string, int>();
             private readonly Dictionary<string, int> cleanupAsyncInvocations =
@@ -1760,11 +3113,34 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 return candidate;
             }
 
-            internal void RecordPrepare(string key) =>
-                Increment(prepares, key);
+            internal void RecordCreateContext(
+                string key,
+                RegionTierId tierId,
+                RegionCapabilitySet capabilities)
+            {
+                createTiers[key] = tierId;
+                createCapabilities[key] = capabilities;
+            }
 
-            internal void RecordCommit(string key) =>
+            internal void RecordPrepare(
+                string key,
+                RegionTierId tierId,
+                RegionCapabilitySet capabilities)
+            {
+                Increment(prepares, key);
+                prepareTiers[key] = tierId;
+                prepareCapabilities[key] = capabilities;
+            }
+
+            internal void RecordCommit(
+                string key,
+                RegionTierId tierId,
+                RegionCapabilitySet capabilities)
+            {
                 Increment(commits, key);
+                commitTiers[key] = tierId;
+                commitCapabilities[key] = capabilities;
+            }
 
             internal void RecordCleanupAsyncInvocation(
                 string key,
@@ -1960,6 +3336,27 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             internal int CommitCount(string key) =>
                 Get(commits, key);
+
+            internal RegionTierId CreateTier(string key) =>
+                createTiers[key];
+
+            internal RegionTierId PrepareTier(string key) =>
+                prepareTiers[key];
+
+            internal RegionTierId CommitTier(string key) =>
+                commitTiers[key];
+
+            internal RegionCapabilitySet CreateCapabilities(
+                string key) =>
+                createCapabilities[key];
+
+            internal RegionCapabilitySet PrepareCapabilities(
+                string key) =>
+                prepareCapabilities[key];
+
+            internal RegionCapabilitySet CommitCapabilities(
+                string key) =>
+                commitCapabilities[key];
 
             internal int CleanupAsyncInvocationCount(
                 string key,

@@ -1,10 +1,17 @@
 {
+  "schemaVersion": 1,
   "tiers": [
     {
+      "tierId": {
+        "value": "off"
+      },
       "name": "0 - Unloaded",
       "capabilities": []
     },
     {
+      "tierId": {
+        "value": "represented"
+      },
       "name": "1 - Represented",
       "capabilities": [
         {
@@ -13,6 +20,9 @@
       ]
     },
     {
+      "tierId": {
+        "value": "background"
+      },
       "name": "2 - Background",
       "capabilities": [
         {
@@ -24,6 +34,9 @@
       ]
     },
     {
+      "tierId": {
+        "value": "enterable"
+      },
       "name": "3 - Enterable",
       "capabilities": [
         {
@@ -38,6 +51,9 @@
       ]
     },
     {
+      "tierId": {
+        "value": "full"
+      },
       "name": "4 - Full",
       "capabilities": [
         {

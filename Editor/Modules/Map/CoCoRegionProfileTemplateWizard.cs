@@ -118,6 +118,12 @@ namespace CoCoFlow.Editor.Modules.Map
                     template.text,
                     created);
                 AssetDatabase.CreateAsset(created, uniquePath);
+                if (!CoCoRegionProfileIdentity.Synchronize(created))
+                {
+                    throw new InvalidOperationException(
+                        "The copied Profile could not derive its stable ProfileId from the asset GUID.");
+                }
+
                 EditorUtility.SetDirty(created);
                 AssetDatabase.SaveAssetIfDirty(created);
                 profile = created;

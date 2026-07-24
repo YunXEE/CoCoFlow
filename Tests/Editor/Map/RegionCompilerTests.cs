@@ -16,6 +16,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
     {
         private readonly List<UnityEngine.Object> assets =
             new List<UnityEngine.Object>();
+        private int profileSequence;
 
         [TearDown]
         public void TearDown()
@@ -56,6 +57,29 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             Assert.AreEqual(
                 "Assets/World/Terrain.unity",
                 result.Plan.Chunks[0].CanonicalScenePath);
+            Assert.IsTrue(
+                RegionCapabilitySet.TryCreate(
+                    new[] { RegionCapabilityId.Full },
+                    out RegionCapabilitySet fullRequirement));
+            Assert.IsTrue(
+                result.Plan.TryResolveTier(
+                    fullRequirement,
+                    out RegionCompiledTier resolvedTier));
+            Assert.AreEqual(RegionTierId.Full, resolvedTier.TierId);
+            Assert.AreEqual(4, resolvedTier.Capabilities.Count);
+            Assert.AreEqual(
+                4,
+                result.Plan.Nodes[0].TierVariants.Count);
+            for (int index = 1;
+                 index <
+                 result.Plan.Nodes[0].TierVariants.Count;
+                 index++)
+            {
+                Assert.AreEqual(
+                    result.Plan.Nodes[0].TierVariants[0].Fingerprint,
+                    result.Plan.Nodes[0].TierVariants[index].Fingerprint);
+            }
+
             Assert.IsFalse(string.IsNullOrEmpty(result.Plan.Fingerprint));
             AssertPlanFieldsArePureValues(result.Plan);
         }
@@ -95,6 +119,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         RegionCapabilityId.Enterable,
                         RegionCapabilityId.Full)
                 });
+            profile.SynchronizeParticipantTierSettings();
             CoCoRegionBinding binding = CreateBinding(
                 "world.castle",
                 profile,
@@ -107,6 +132,123 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             Assert.IsTrue(result.Succeeded, FirstDiagnostic(result));
             Assert.AreEqual(6, result.Plan.Tiers.Count);
             Assert.IsTrue(result.Plan.Tiers[2].Capabilities.Contains(custom));
+        }
+
+        [Test]
+        public void ProfileCanMergeAllStandardCapabilitiesIntoOneActiveTier()
+        {
+            CoCoRegionProfile profile = CreateProfile();
+            SetField(
+                profile,
+                "tiers",
+                new List<RegionTierDefinition>
+                {
+                    Tier("0", Array.Empty<RegionCapabilityId>()),
+                    Tier(
+                        "4",
+                        RegionCapabilityId.Represented,
+                        RegionCapabilityId.Background,
+                        RegionCapabilityId.Enterable,
+                        RegionCapabilityId.Full)
+                });
+            profile.SynchronizeParticipantTierSettings();
+            CoCoRegionBinding binding = CreateBinding(
+                "world.merged",
+                profile,
+                "terrain",
+                CreateDirectScene(
+                    "world.merged.terrain",
+                    "Assets/World/MergedTerrain.unity"));
+
+            RegionCompileResult result =
+                new RegionBindingCompiler().Compile(
+                    binding,
+                    CreateCatalog());
+
+            Assert.IsTrue(result.Succeeded, FirstDiagnostic(result));
+            Assert.AreEqual(2, result.Plan.Tiers.Count);
+            Assert.AreEqual(
+                RegionTierId.Full,
+                result.Plan.Tiers[1].TierId);
+            Assert.AreEqual(
+                1,
+                result.Plan.Nodes[0].TierVariants.Count);
+        }
+
+        [Test]
+        public void ParticipantRequiresExactlyOneCellForEveryTier()
+        {
+            CoCoRegionProfile profile = CreateProfile();
+            var settings =
+                new List<RegionParticipantTierSetting>(
+                    profile.Participants[0].TierSettings);
+            settings.RemoveAt(settings.Count - 1);
+            SetField(
+                profile.Participants[0],
+                "tierSettings",
+                settings);
+            CoCoRegionBinding binding = CreateBinding(
+                "world.missing-cell",
+                profile,
+                "terrain",
+                CreateDirectScene(
+                    "world.missing-cell.terrain",
+                    "Assets/World/MissingCell.unity"));
+
+            RegionCompileResult result =
+                new RegionBindingCompiler().Compile(
+                    binding,
+                    CreateCatalog());
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(
+                CoCoDiagnosticCode.InvalidRegionProfile,
+                FirstError(result).Code);
+            StringAssert.Contains(
+                "exactly one setting",
+                FirstError(result).Message);
+        }
+
+        [Test]
+        public void EnabledParticipantRequiresDependencyInSameTier()
+        {
+            CoCoRegionProfile profile =
+                CreateMarkerProfile(true);
+            var ownerSettings =
+                new List<RegionParticipantTierSetting>(
+                    profile.Participants[0].TierSettings);
+            ownerSettings[ownerSettings.Count - 1] =
+                new RegionParticipantTierSetting(
+                    RegionTierId.Full);
+            SetField(
+                profile.Participants[0],
+                "tierSettings",
+                ownerSettings);
+            CoCoRegionBinding binding = CreateBinding(
+                "world.tier-dependency",
+                profile,
+                "terrain",
+                CreateDirectScene(
+                    "world.tier-dependency.terrain",
+                    "Assets/World/TierDependency.unity"));
+            SetField(
+                binding.Chunks[0],
+                "participants",
+                new List<RegionParticipantSlotBinding>
+                {
+                    SlotBinding(SlotId()),
+                    SlotBinding(MarkerSlotId())
+                });
+
+            RegionCompileResult result =
+                new RegionBindingCompiler().Compile(
+                    binding,
+                    CreateOwnerAndMarkerCatalog());
+
+            Assert.IsFalse(result.Succeeded);
+            StringAssert.Contains(
+                "same tier",
+                FirstError(result).Message);
         }
 
         [Test]
@@ -282,6 +424,45 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             StringAssert.Contains(
                 "world.chapel/shared-interior/scene",
                 FirstError(results[0]).Message);
+        }
+
+        [Test]
+        public void CompileAllReportsChunkConflictForEveryOwnerWhenOneBindingIsInvalid()
+        {
+            CoCoRegionBinding valid = CreateBinding(
+                "world.castle",
+                CreateProfile(),
+                "shared-interior",
+                CreateDirectScene(
+                    "world.castle.shared-interior",
+                    "Assets/World/CastleSharedInterior.unity"));
+            CoCoRegionBinding locallyInvalid = CreateBinding(
+                "world.chapel",
+                CreateProfile(),
+                "shared-interior",
+                CreateDirectScene(
+                    "world.chapel.shared-interior",
+                    "Assets/World/ChapelSharedInterior.unity"));
+            SetField<CoCoRegionBinding, CoCoRegionProfile>(
+                locallyInvalid,
+                "profile",
+                null);
+
+            IReadOnlyList<RegionCompileResult> results =
+                new RegionBindingCompiler().CompileAll(
+                    new[] { valid, locallyInvalid },
+                    CreateCatalog());
+
+            Assert.IsFalse(results[0].Succeeded);
+            Assert.IsFalse(results[1].Succeeded);
+            Assert.IsTrue(
+                HasErrorCode(
+                    results[0],
+                    CoCoDiagnosticCode.InvalidRegionIdentifier));
+            Assert.IsTrue(
+                HasErrorCode(
+                    results[1],
+                    CoCoDiagnosticCode.InvalidRegionIdentifier));
         }
 
         [Test]
@@ -692,10 +873,21 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         public void CompilerRejectsUnregisteredDerivedConfigurationType()
         {
             CoCoRegionProfile profile = CreateProfile();
-            SetField(
-                profile.Participants[0],
-                "configuration",
-                new DerivedTestConfig());
+            for (int tierIndex = 0;
+                 tierIndex <
+                 profile.Participants[0].TierSettings.Count;
+                 tierIndex++)
+            {
+                RegionParticipantTierSetting setting =
+                    profile.Participants[0].TierSettings[tierIndex];
+                if (setting.Enabled)
+                {
+                    SetField(
+                        setting,
+                        "configuration",
+                        new DerivedTestConfig());
+                }
+            }
             CoCoRegionBinding binding = CreateBinding(
                 "world.chapel",
                 profile,
@@ -722,6 +914,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             CoCoRegionProfile profile =
                 ScriptableObject.CreateInstance<CoCoRegionProfile>();
             assets.Add(profile);
+            AssignProfileId(profile);
             SetField(
                 profile,
                 "participants",
@@ -730,13 +923,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     new RegionParticipantDefinition(
                         SlotId(),
                         TypeId(),
-                        ModeId(),
                         RegionParticipantPhase.Residency,
                         0,
                         RegionParticipantRequirement.Required,
-                        new[] { RegionCapabilityId.Represented },
                         Array.Empty<RegionParticipantSlotId>(),
-                        new TestConfig())
+                        DefaultTierSettings())
                 });
             return profile;
         }
@@ -747,6 +938,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             CoCoRegionProfile profile =
                 ScriptableObject.CreateInstance<CoCoRegionProfile>();
             assets.Add(profile);
+            AssignProfileId(profile);
             SetField(
                 profile,
                 "participants",
@@ -755,27 +947,58 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     new RegionParticipantDefinition(
                         SlotId(),
                         TypeId(),
-                        ModeId(),
                         RegionParticipantPhase.Residency,
                         0,
                         RegionParticipantRequirement.Required,
-                        new[] { RegionCapabilityId.Represented },
                         Array.Empty<RegionParticipantSlotId>(),
-                        new TestConfig()),
+                        DefaultTierSettings()),
                     new RegionParticipantDefinition(
                         MarkerSlotId(),
                         MarkerTypeId(),
-                        ModeId(),
                         RegionParticipantPhase.Services,
                         0,
                         RegionParticipantRequirement.Required,
-                        new[] { RegionCapabilityId.Represented },
                         markerDependsOnOwner
                             ? new[] { SlotId() }
                             : Array.Empty<RegionParticipantSlotId>(),
-                        new TestConfig())
+                        DefaultTierSettings())
                 });
             return profile;
+        }
+
+        private void AssignProfileId(CoCoRegionProfile profile)
+        {
+            profileSequence++;
+            Assert.IsTrue(
+                RegionProfileId.TryCreate(
+                    "tests.profile." + profileSequence,
+                    out RegionProfileId profileId));
+            Assert.IsTrue(profile.SetEditorIdentity(profileId));
+        }
+
+        private static IReadOnlyList<RegionParticipantTierSetting>
+            DefaultTierSettings()
+        {
+            return new[]
+            {
+                new RegionParticipantTierSetting(RegionTierId.Off),
+                new RegionParticipantTierSetting(
+                    RegionTierId.Represented,
+                    ModeId(),
+                    new TestConfig()),
+                new RegionParticipantTierSetting(
+                    RegionTierId.Background,
+                    ModeId(),
+                    new TestConfig()),
+                new RegionParticipantTierSetting(
+                    RegionTierId.Enterable,
+                    ModeId(),
+                    new TestConfig()),
+                new RegionParticipantTierSetting(
+                    RegionTierId.Full,
+                    ModeId(),
+                    new TestConfig())
+            };
         }
 
         private CoCoRegionBinding CreateBinding(
@@ -977,8 +1200,39 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
         private static RegionTierDefinition Tier(
             string name,
-            params RegionCapabilityId[] capabilities) =>
-            new RegionTierDefinition(name, capabilities);
+            params RegionCapabilityId[] capabilities)
+        {
+            RegionTierId tierId;
+            switch (name)
+            {
+                case "0":
+                    tierId = RegionTierId.Off;
+                    break;
+                case "1":
+                    tierId = RegionTierId.Represented;
+                    break;
+                case "2":
+                    tierId = RegionTierId.Background;
+                    break;
+                case "3":
+                    tierId = RegionTierId.Enterable;
+                    break;
+                case "4":
+                    tierId = RegionTierId.Full;
+                    break;
+                default:
+                    Assert.IsTrue(
+                        RegionTierId.TryCreate(
+                            name,
+                            out tierId));
+                    break;
+            }
+
+            return new RegionTierDefinition(
+                tierId,
+                name,
+                capabilities);
+        }
 
         private static RegionParticipantSlotId SlotId()
         {
@@ -1052,6 +1306,23 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             return default;
         }
 
+        private static bool HasErrorCode(
+            RegionCompileResult result,
+            CoCoDiagnosticCode code)
+        {
+            for (int index = 0; index < result.Diagnostics.Count; index++)
+            {
+                CoCoDiagnostic diagnostic =
+                    result.Diagnostics[index].Diagnostic;
+                if (diagnostic.IsError && diagnostic.Code == code)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static void AssertPlanFieldsArePureValues(RegionCompiledPlan plan)
         {
             var forbidden = new[]
@@ -1066,6 +1337,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 typeof(RegionCompiledTier),
                 typeof(RegionCompiledChunk),
                 typeof(RegionCompiledParticipantNode),
+                typeof(RegionCompiledParticipantVariant),
                 typeof(RegionCompiledSceneReference),
                 typeof(RegionPlanNodeId)
             };

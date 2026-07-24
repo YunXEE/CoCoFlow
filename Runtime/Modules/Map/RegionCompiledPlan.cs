@@ -174,15 +174,18 @@ namespace CoCoFlow.Runtime.Modules.Map
     {
         internal RegionCompiledTier(
             int index,
+            RegionTierId tierId,
             string name,
             RegionCapabilitySet capabilities)
         {
             Index = index;
+            TierId = tierId;
             Name = name ?? string.Empty;
             Capabilities = capabilities ?? RegionCapabilitySet.Empty;
         }
 
         public int Index { get; }
+        public RegionTierId TierId { get; }
         public string Name { get; }
         public RegionCapabilitySet Capabilities { get; }
     }
@@ -206,37 +209,81 @@ namespace CoCoFlow.Runtime.Modules.Map
         public bool HasScene => SceneReference.IsValid;
     }
 
+    public sealed class RegionCompiledParticipantVariant
+    {
+        internal RegionCompiledParticipantVariant(
+            RegionTierId tierId,
+            RegionParticipantModeId modeId,
+            RegionCapabilitySet effectiveCapabilities,
+            IRegionParticipantPlan participantPlan,
+            string fingerprint)
+        {
+            TierId = tierId;
+            ModeId = modeId;
+            EffectiveCapabilities =
+                effectiveCapabilities ?? RegionCapabilitySet.Empty;
+            ParticipantPlan = participantPlan;
+            Fingerprint = fingerprint ?? string.Empty;
+        }
+
+        public RegionTierId TierId { get; }
+        public RegionParticipantModeId ModeId { get; }
+        public RegionCapabilitySet EffectiveCapabilities { get; }
+        public IRegionParticipantPlan ParticipantPlan { get; }
+        public string Fingerprint { get; }
+        public bool IsCapabilitySensitive =>
+            ParticipantPlan is IRegionCapabilitySensitivePlan;
+    }
+
     public sealed class RegionCompiledParticipantNode
     {
         private readonly ReadOnlyCollection<RegionPlanNodeId> dependencies;
+        private readonly ReadOnlyCollection<RegionCompiledParticipantVariant>
+            tierVariants;
+        private readonly Dictionary<RegionTierId, RegionCompiledParticipantVariant>
+            variantByTierId;
 
         internal RegionCompiledParticipantNode(
             RegionPlanNodeId id,
             RegionParticipantTypeId participantTypeId,
-            RegionParticipantModeId modeId,
             RegionParticipantPhase phase,
             int explicitOrder,
             RegionParticipantRequirement requirement,
-            RegionCapabilitySet requiredCapabilities,
             IList<RegionPlanNodeId> dependencies,
-            IRegionParticipantPlan participantPlan,
+            IList<RegionCompiledParticipantVariant> tierVariants,
             string fragmentId,
             RegionCompiledSceneReference sceneReference,
             string fingerprint)
         {
             Id = id;
             ParticipantTypeId = participantTypeId;
-            ModeId = modeId;
             Phase = phase;
             ExplicitOrder = explicitOrder;
             Requirement = requirement;
-            RequiredCapabilities =
-                requiredCapabilities ?? RegionCapabilitySet.Empty;
             this.dependencies = new ReadOnlyCollection<RegionPlanNodeId>(
                 dependencies == null
                     ? new List<RegionPlanNodeId>()
                     : new List<RegionPlanNodeId>(dependencies));
-            ParticipantPlan = participantPlan;
+            this.tierVariants =
+                new ReadOnlyCollection<RegionCompiledParticipantVariant>(
+                    tierVariants == null
+                        ? new List<RegionCompiledParticipantVariant>()
+                        : new List<RegionCompiledParticipantVariant>(
+                            tierVariants));
+            variantByTierId =
+                new Dictionary<
+                    RegionTierId,
+                    RegionCompiledParticipantVariant>();
+            for (int index = 0; index < this.tierVariants.Count; index++)
+            {
+                RegionCompiledParticipantVariant variant =
+                    this.tierVariants[index];
+                if (variant != null)
+                {
+                    variantByTierId.Add(variant.TierId, variant);
+                }
+            }
+
             FragmentId = fragmentId ?? string.Empty;
             SceneReference = sceneReference;
             Fingerprint = fingerprint ?? string.Empty;
@@ -244,20 +291,23 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         public RegionPlanNodeId Id { get; }
         public RegionParticipantTypeId ParticipantTypeId { get; }
-        public RegionParticipantModeId ModeId { get; }
         public RegionParticipantPhase Phase { get; }
         public int ExplicitOrder { get; }
         public RegionParticipantRequirement Requirement { get; }
-        public RegionCapabilitySet RequiredCapabilities { get; }
         public IReadOnlyList<RegionPlanNodeId> Dependencies => dependencies;
-        public IRegionParticipantPlan ParticipantPlan { get; }
+        public IReadOnlyList<RegionCompiledParticipantVariant> TierVariants =>
+            tierVariants;
         public string FragmentId { get; }
         public RegionCompiledSceneReference SceneReference { get; }
         public string Fingerprint { get; }
 
-        public bool IsActiveFor(RegionCapabilitySet capabilities) =>
-            capabilities != null &&
-            capabilities.IsSupersetOf(RequiredCapabilities);
+        public bool TryGetVariant(
+            RegionTierId tierId,
+            out RegionCompiledParticipantVariant variant) =>
+            variantByTierId.TryGetValue(tierId, out variant);
+
+        public bool IsEnabledAt(RegionTierId tierId) =>
+            variantByTierId.ContainsKey(tierId);
     }
 
     public sealed class RegionCompiledPlan
@@ -265,18 +315,25 @@ namespace CoCoFlow.Runtime.Modules.Map
         private readonly ReadOnlyCollection<RegionCompiledTier> tiers;
         private readonly ReadOnlyCollection<RegionCompiledChunk> chunks;
         private readonly ReadOnlyCollection<RegionCompiledParticipantNode> nodes;
+        private readonly ReadOnlyCollection<RegionCompiledDependencyRule>
+            dependencyRules;
         private readonly Dictionary<RegionChunkId, RegionCompiledChunk> chunkById;
         private readonly Dictionary<RegionPlanNodeId, RegionCompiledParticipantNode>
             nodeById;
 
         internal RegionCompiledPlan(
             RegionId regionId,
+            RegionProfileId profileId,
+            int profileSchemaVersion,
             IList<RegionCompiledTier> tiers,
             IList<RegionCompiledChunk> chunks,
             IList<RegionCompiledParticipantNode> nodes,
+            IList<RegionCompiledDependencyRule> dependencyRules,
             string fingerprint)
         {
             RegionId = regionId;
+            ProfileId = profileId;
+            ProfileSchemaVersion = profileSchemaVersion;
             this.tiers = new ReadOnlyCollection<RegionCompiledTier>(
                 tiers == null
                     ? new List<RegionCompiledTier>()
@@ -289,6 +346,12 @@ namespace CoCoFlow.Runtime.Modules.Map
                 nodes == null
                     ? new List<RegionCompiledParticipantNode>()
                     : new List<RegionCompiledParticipantNode>(nodes));
+            this.dependencyRules =
+                new ReadOnlyCollection<RegionCompiledDependencyRule>(
+                    dependencyRules == null
+                        ? new List<RegionCompiledDependencyRule>()
+                        : new List<RegionCompiledDependencyRule>(
+                            dependencyRules));
             Fingerprint = fingerprint ?? string.Empty;
 
             chunkById = new Dictionary<RegionChunkId, RegionCompiledChunk>();
@@ -306,9 +369,13 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
 
         public RegionId RegionId { get; }
+        public RegionProfileId ProfileId { get; }
+        public int ProfileSchemaVersion { get; }
         public IReadOnlyList<RegionCompiledTier> Tiers => tiers;
         public IReadOnlyList<RegionCompiledChunk> Chunks => chunks;
         public IReadOnlyList<RegionCompiledParticipantNode> Nodes => nodes;
+        public IReadOnlyList<RegionCompiledDependencyRule> DependencyRules =>
+            dependencyRules;
         public string Fingerprint { get; }
 
         public bool TryGetChunk(
@@ -320,14 +387,40 @@ namespace CoCoFlow.Runtime.Modules.Map
             RegionPlanNodeId nodeId,
             out RegionCompiledParticipantNode node) =>
             nodeById.TryGetValue(nodeId, out node);
+
+        public bool TryResolveTier(
+            RegionCapabilitySet requiredCapabilities,
+            out RegionCompiledTier tier)
+        {
+            if (requiredCapabilities != null)
+            {
+                for (int index = 0; index < tiers.Count; index++)
+                {
+                    RegionCompiledTier candidate = tiers[index];
+                    if (candidate.Capabilities.IsSupersetOf(
+                            requiredCapabilities))
+                    {
+                        tier = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            tier = null;
+            return false;
+        }
     }
 
     internal sealed class RegionCompiledProfileBlueprint
     {
         internal RegionCompiledProfileBlueprint(
+            RegionProfileId profileId,
+            int schemaVersion,
             IList<RegionCompiledTier> tiers,
             IList<RegionCompiledParticipantDefinition> participants)
         {
+            ProfileId = profileId;
+            SchemaVersion = schemaVersion;
             Tiers = new ReadOnlyCollection<RegionCompiledTier>(
                 new List<RegionCompiledTier>(tiers));
             Participants =
@@ -335,6 +428,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                     new List<RegionCompiledParticipantDefinition>(participants));
         }
 
+        internal RegionProfileId ProfileId { get; }
+        internal int SchemaVersion { get; }
         internal IReadOnlyList<RegionCompiledTier> Tiers { get; }
         internal IReadOnlyList<RegionCompiledParticipantDefinition> Participants
         {
@@ -344,18 +439,115 @@ namespace CoCoFlow.Runtime.Modules.Map
 
     internal sealed class RegionCompiledParticipantDefinition
     {
+        private readonly ReadOnlyCollection<
+            RegionCompiledParticipantTierDefinition> tierSettings;
+        private readonly Dictionary<
+            RegionTierId,
+            RegionCompiledParticipantTierDefinition> settingByTierId;
+
         internal RegionCompiledParticipantDefinition(
             RegionParticipantDefinition source,
-            RegionCapabilitySet requiredCapabilities,
-            RegionParticipantRegistration registration)
+            IList<RegionCompiledParticipantTierDefinition> tierSettings)
         {
             Source = source;
-            RequiredCapabilities = requiredCapabilities;
-            Registration = registration;
+            this.tierSettings =
+                new ReadOnlyCollection<
+                    RegionCompiledParticipantTierDefinition>(
+                    new List<RegionCompiledParticipantTierDefinition>(
+                        tierSettings));
+            settingByTierId =
+                new Dictionary<
+                    RegionTierId,
+                    RegionCompiledParticipantTierDefinition>();
+            for (int index = 0; index < this.tierSettings.Count; index++)
+            {
+                RegionCompiledParticipantTierDefinition setting =
+                    this.tierSettings[index];
+                settingByTierId.Add(setting.TierId, setting);
+            }
         }
 
         internal RegionParticipantDefinition Source { get; }
-        internal RegionCapabilitySet RequiredCapabilities { get; }
+        internal IReadOnlyList<RegionCompiledParticipantTierDefinition>
+            TierSettings => tierSettings;
+
+        internal bool TryGetTierSetting(
+            RegionTierId tierId,
+            out RegionCompiledParticipantTierDefinition setting) =>
+            settingByTierId.TryGetValue(tierId, out setting);
+
+        internal bool CanOwnChunkScene
+        {
+            get
+            {
+                bool hasEnabledSetting = false;
+                for (int index = 0; index < tierSettings.Count; index++)
+                {
+                    RegionCompiledParticipantTierDefinition setting =
+                        tierSettings[index];
+                    if (!setting.Enabled) continue;
+
+                    hasEnabledSetting = true;
+                    if (!setting.Registration.CanOwnChunkScene) return false;
+                }
+
+                return hasEnabledSetting;
+            }
+        }
+
+        internal bool RequiresOwningContentDependency
+        {
+            get
+            {
+                for (int index = 0; index < tierSettings.Count; index++)
+                {
+                    RegionCompiledParticipantTierDefinition setting =
+                        tierSettings[index];
+                    if (setting.Enabled &&
+                        setting.Registration.ConfigFreezer is
+                            IRegionRequiresOwningContentDependency)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+    }
+
+    internal sealed class RegionCompiledParticipantTierDefinition
+    {
+        internal RegionCompiledParticipantTierDefinition(
+            RegionTierId tierId,
+            RegionCapabilitySet effectiveCapabilities)
+        {
+            TierId = tierId;
+            EffectiveCapabilities =
+                effectiveCapabilities ?? RegionCapabilitySet.Empty;
+        }
+
+        internal RegionCompiledParticipantTierDefinition(
+            RegionTierId tierId,
+            RegionParticipantModeId modeId,
+            RegionParticipantConfig configuration,
+            RegionCapabilitySet effectiveCapabilities,
+            RegionParticipantRegistration registration)
+        {
+            TierId = tierId;
+            Enabled = true;
+            ModeId = modeId;
+            Configuration = configuration;
+            EffectiveCapabilities =
+                effectiveCapabilities ?? RegionCapabilitySet.Empty;
+            Registration = registration;
+        }
+
+        internal RegionTierId TierId { get; }
+        internal bool Enabled { get; }
+        internal RegionParticipantModeId ModeId { get; }
+        internal RegionParticipantConfig Configuration { get; }
+        internal RegionCapabilitySet EffectiveCapabilities { get; }
         internal RegionParticipantRegistration Registration { get; }
     }
 }
