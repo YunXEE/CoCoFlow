@@ -105,6 +105,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual(16, (int)CoCoDiagnosticDomain.EventOutbox);
             Assert.AreEqual(17, (int)CoCoDiagnosticDomain.Content);
             Assert.AreEqual(18, (int)CoCoDiagnosticDomain.Pooling);
+            Assert.AreEqual(19, (int)CoCoDiagnosticDomain.Map);
 
             Assert.AreEqual(11, (int)CoCoDiagnosticCode.InvalidTimelinePosition);
             CoCoDiagnosticCode[] appendedCodes =
@@ -241,6 +242,33 @@ namespace CoCoFlow.Runtime.Core.Tests
             for (int index = 0; index < poolingCodes.Length; index++)
             {
                 Assert.AreEqual(81 + index, (int)poolingCodes[index]);
+            }
+
+            CoCoDiagnosticCode[] mapCodes =
+            {
+                CoCoDiagnosticCode.InvalidRegionIdentifier,
+                CoCoDiagnosticCode.InvalidRegionCapability,
+                CoCoDiagnosticCode.UnsupportedRegionCapability,
+                CoCoDiagnosticCode.InvalidRegionCoverage,
+                CoCoDiagnosticCode.InvalidRegionProfile,
+                CoCoDiagnosticCode.RegionCompilationFailed,
+                CoCoDiagnosticCode.RegionCatalogConflict,
+                CoCoDiagnosticCode.RegionRuntimeDisposed,
+                CoCoDiagnosticCode.RegionMainThreadRequired,
+                CoCoDiagnosticCode.RegionDemandConflict,
+                CoCoDiagnosticCode.RegionDemandSuperseded,
+                CoCoDiagnosticCode.RegionTransitionFailed,
+                CoCoDiagnosticCode.RegionCommitFaulted,
+                CoCoDiagnosticCode.RegionCleanupBlocked,
+                CoCoDiagnosticCode.RegionOptionalDegraded,
+                CoCoDiagnosticCode.RegionSceneContractViolation,
+                CoCoDiagnosticCode.RegionTemporalConflict,
+                CoCoDiagnosticCode.RegionTemporalProjectionFailed,
+                CoCoDiagnosticCode.RegionTemporalCleanupFailed
+            };
+            for (int index = 0; index < mapCodes.Length; index++)
+            {
+                Assert.AreEqual(106 + index, (int)mapCodes[index]);
             }
         }
 
