@@ -19,13 +19,21 @@ namespace CoCoFlow.Runtime.Modules.Map
             RegionParticipantModeId modeId,
             RegionCapabilitySet supportedCapabilities,
             IRegionParticipantConfigFreezer configFreezer,
-            IRegionParticipantFactory factory)
+            IRegionParticipantFactory factory,
+            Type configurationType,
+            Type planType,
+            Type candidateType,
+            bool canOwnChunkScene)
         {
             ParticipantTypeId = participantTypeId;
             ModeId = modeId;
             SupportedCapabilities = supportedCapabilities;
             ConfigFreezer = configFreezer;
             Factory = factory;
+            ConfigurationType = configurationType;
+            PlanType = planType;
+            CandidateType = candidateType;
+            CanOwnChunkScene = canOwnChunkScene;
         }
 
         public RegionParticipantTypeId ParticipantTypeId { get; }
@@ -33,6 +41,10 @@ namespace CoCoFlow.Runtime.Modules.Map
         public RegionCapabilitySet SupportedCapabilities { get; }
         public IRegionParticipantConfigFreezer ConfigFreezer { get; }
         public IRegionParticipantFactory Factory { get; }
+        public Type ConfigurationType { get; }
+        public Type PlanType { get; }
+        public Type CandidateType { get; }
+        internal bool CanOwnChunkScene { get; }
 
         public static bool TryCreate(
             RegionParticipantTypeId participantTypeId,
@@ -40,6 +52,47 @@ namespace CoCoFlow.Runtime.Modules.Map
             RegionCapabilitySet supportedCapabilities,
             IRegionParticipantConfigFreezer configFreezer,
             IRegionParticipantFactory factory,
+            out RegionParticipantRegistration registration,
+            out CoCoDiagnostic diagnostic)
+        {
+            return TryCreateCore(
+                participantTypeId,
+                modeId,
+                supportedCapabilities,
+                configFreezer,
+                factory,
+                false,
+                out registration,
+                out diagnostic);
+        }
+
+        internal static bool TryCreateOwningContent(
+            RegionParticipantTypeId participantTypeId,
+            RegionParticipantModeId modeId,
+            RegionCapabilitySet supportedCapabilities,
+            IRegionParticipantConfigFreezer configFreezer,
+            IRegionParticipantFactory factory,
+            out RegionParticipantRegistration registration,
+            out CoCoDiagnostic diagnostic)
+        {
+            return TryCreateCore(
+                participantTypeId,
+                modeId,
+                supportedCapabilities,
+                configFreezer,
+                factory,
+                true,
+                out registration,
+                out diagnostic);
+        }
+
+        private static bool TryCreateCore(
+            RegionParticipantTypeId participantTypeId,
+            RegionParticipantModeId modeId,
+            RegionCapabilitySet supportedCapabilities,
+            IRegionParticipantConfigFreezer configFreezer,
+            IRegionParticipantFactory factory,
+            bool canOwnChunkScene,
             out RegionParticipantRegistration registration,
             out CoCoDiagnostic diagnostic)
         {
@@ -59,26 +112,61 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return false;
             }
 
-            if (configFreezer == null ||
-                configFreezer.ConfigurationType == null ||
-                !typeof(RegionParticipantConfig).IsAssignableFrom(
-                    configFreezer.ConfigurationType) ||
-                configFreezer.PlanType == null ||
-                !typeof(IRegionParticipantPlan).IsAssignableFrom(
-                    configFreezer.PlanType))
+            Type configurationType = null;
+            Type planType = null;
+            Type candidateType = null;
+            try
+            {
+                if (configFreezer != null)
+                {
+                    configurationType = configFreezer.ConfigurationType;
+                    planType = configFreezer.PlanType;
+                }
+
+                if (factory != null)
+                {
+                    candidateType = factory.CandidateType;
+                }
+            }
+            catch (Exception exception)
             {
                 diagnostic = RegionErrors.CatalogConflict(
-                    "Participant registrations require explicit config and immutable plan types.");
+                    "Participant registration type metadata threw: " +
+                    exception.Message);
+                return false;
+            }
+
+            if (configFreezer == null ||
+                configurationType == null ||
+                !typeof(RegionParticipantConfig).IsAssignableFrom(
+                    configurationType) ||
+                configurationType.IsInterface ||
+                configurationType.IsAbstract ||
+                configurationType.ContainsGenericParameters ||
+                planType == null ||
+                !typeof(IRegionParticipantPlan).IsAssignableFrom(
+                    planType) ||
+                planType.IsValueType ||
+                planType.IsInterface ||
+                planType.IsAbstract ||
+                planType.ContainsGenericParameters ||
+                !planType.IsSealed)
+            {
+                diagnostic = RegionErrors.CatalogConflict(
+                    "Participant registrations require explicit config and exact sealed immutable plan types.");
                 return false;
             }
 
             if (factory == null ||
-                factory.CandidateType == null ||
+                candidateType == null ||
                 !typeof(IRegionParticipantCandidate).IsAssignableFrom(
-                    factory.CandidateType))
+                    candidateType) ||
+                candidateType.IsInterface ||
+                candidateType.IsAbstract ||
+                candidateType.ContainsGenericParameters)
             {
                 diagnostic = RegionErrors.CatalogConflict(
-                    "Participant registrations require an explicit candidate type and factory.");
+                    "Participant registrations require an explicit concrete candidate type and factory.");
                 return false;
             }
 
@@ -87,7 +175,11 @@ namespace CoCoFlow.Runtime.Modules.Map
                 modeId,
                 supportedCapabilities,
                 configFreezer,
-                factory);
+                factory,
+                configurationType,
+                planType,
+                candidateType,
+                canOwnChunkScene);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -250,10 +342,10 @@ namespace CoCoFlow.Runtime.Modules.Map
                      in registrations.Values)
             {
                 unique.Add(registration.ConfigFreezer.GetType());
-                unique.Add(registration.ConfigFreezer.ConfigurationType);
-                unique.Add(registration.ConfigFreezer.PlanType);
+                unique.Add(registration.ConfigurationType);
+                unique.Add(registration.PlanType);
                 unique.Add(registration.Factory.GetType());
-                unique.Add(registration.Factory.CandidateType);
+                unique.Add(registration.CandidateType);
             }
 
             var ordered = new List<Type>(unique);

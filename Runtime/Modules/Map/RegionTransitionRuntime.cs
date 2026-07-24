@@ -81,7 +81,9 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             internal OwnedNode Node { get; }
             internal RegionParticipantCleanupReason Reason { get; }
+            internal bool InvocationAttempted { get; set; }
             internal Task<RegionParticipantCleanupResult> InFlight { get; set; }
+            internal CoCoDiagnostic FailureDiagnostic { get; set; }
             internal bool Completed { get; set; }
         }
 
@@ -407,6 +409,10 @@ namespace CoCoFlow.Runtime.Modules.Map
         private readonly RegionParticipantCatalog catalog;
         private readonly Dictionary<RegionId, RegionState> states =
             new Dictionary<RegionId, RegionState>();
+        private readonly HashSet<IRegionParticipantCandidate>
+            ownedCandidates =
+                new HashSet<IRegionParticipantCandidate>(
+                    ReferenceCandidateComparer.Instance);
         private readonly TimeSpan cleanupTimeout;
         private int callbackDepth;
         private bool shuttingDown;
@@ -679,13 +685,67 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         public void ForceShutdown()
         {
+            ForceShutdown(null, null);
+        }
+
+        private void ForceShutdown(
+            ISet<IRegionParticipantCandidate> excluded,
+            IReadOnlyDictionary<
+                IRegionParticipantCandidate,
+                Task<RegionParticipantCleanupResult>> lateCleanups)
+        {
             if (disposed) return;
 
             shuttingDown = true;
+            var exclusionSnapshot =
+                new HashSet<IRegionParticipantCandidate>(
+                    ReferenceCandidateComparer.Instance);
+            if (excluded != null)
+            {
+                foreach (IRegionParticipantCandidate candidate in excluded)
+                {
+                    if (candidate != null)
+                    {
+                        exclusionSnapshot.Add(candidate);
+                    }
+                }
+            }
+
+            if (lateCleanups != null)
+            {
+                foreach (KeyValuePair<
+                             IRegionParticipantCandidate,
+                             Task<RegionParticipantCleanupResult>> pair in
+                         lateCleanups)
+                {
+                    if (pair.Key == null || pair.Value == null) continue;
+                    exclusionSnapshot.Add(pair.Key);
+                    ObserveLateCleanupNoThrowAsync(
+                        pair.Key,
+                        pair.Value).Forget();
+                }
+            }
+
             foreach (RegionState state in states.Values)
             {
                 state.ActiveCancellation?.Cancel();
-                ForceCleanupState(state);
+                if (state.RunnerTask != null &&
+                    !state.RunnerTask.IsCompleted)
+                {
+                    ObserveLateRunnerAndForceStateNoThrowAsync(
+                        state,
+                        state.RunnerTask,
+                        exclusionSnapshot.Count == 0
+                            ? null
+                            : exclusionSnapshot).Forget();
+                    continue;
+                }
+
+                ForceCleanupState(
+                    state,
+                    exclusionSnapshot.Count == 0
+                        ? null
+                        : exclusionSnapshot);
             }
 
             states.Clear();
@@ -901,8 +961,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                         cancellationToken);
                 }
 
-                IRegionParticipantCandidate candidate;
-                CoCoDiagnostic createDiagnostic;
+                IRegionParticipantCandidate candidate = null;
+                CoCoDiagnostic createDiagnostic = CoCoDiagnostic.None;
                 bool created;
                 var createContext = new RegionParticipantCreateContext(
                     definition.Id,
@@ -919,7 +979,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                 }
                 catch (Exception exception)
                 {
-                    candidate = null;
                     created = false;
                     createDiagnostic = RegionErrors.TransitionFailed(
                         "Participant candidate creation threw: " +
@@ -930,16 +989,85 @@ namespace CoCoFlow.Runtime.Modules.Map
                     ExitParticipantCallback();
                 }
 
-                if (!created || candidate == null)
+                if (candidate != null &&
+                    !ownedCandidates.Add(candidate))
                 {
-                    CoCoDiagnostic failure = createDiagnostic.IsNone
-                        ? RegionErrors.TransitionFailed(
-                            "Participant candidate creation failed without a diagnostic.")
-                        : createDiagnostic;
                     if (definition.Requirement ==
                         RegionParticipantRequirement.Optional)
                     {
                         optionalDegraded = true;
+                        continue;
+                    }
+
+                    CoCoDiagnostic aliasFailure =
+                        RegionErrors.CatalogConflict(
+                            "Participant factory returned a candidate instance already owned by the Map runtime. Candidate instances must be unique per node generation.");
+                    return await CleanupAttemptAfterFailureAsync(
+                        state,
+                        resolution,
+                        candidates,
+                        aliasFailure,
+                        optionalDegraded,
+                        cancellationToken);
+                }
+
+                OwnedNode owned = null;
+                if (candidate != null)
+                {
+                    owned = new OwnedNode(
+                        definition,
+                        desiredNode.Capabilities,
+                        desiredNode.EffectiveFingerprint,
+                        candidate);
+                    candidates.Add(owned);
+                    state.ActiveOwned.Add(owned);
+                    PublishProgress(
+                        state,
+                        resolution.DesiredGeneration,
+                        reusedCount,
+                        state.ActiveOwned.Count,
+                        optionalDegraded,
+                        false,
+                        false,
+                        CoCoDiagnostic.None);
+                }
+
+                bool exactCandidateType =
+                    candidate != null &&
+                    candidate.GetType() ==
+                    registration.CandidateType;
+                if (!created ||
+                    candidate == null ||
+                    !exactCandidateType)
+                {
+                    CoCoDiagnostic failure = candidate != null &&
+                                             !exactCandidateType
+                        ? RegionErrors.CatalogConflict(
+                            "Participant factory returned candidate type '" +
+                            candidate.GetType().AssemblyQualifiedName +
+                            "' instead of its exact registered type '" +
+                            registration.CandidateType
+                                .AssemblyQualifiedName + "'.")
+                        : createDiagnostic.IsNone
+                            ? RegionErrors.TransitionFailed(
+                                "Participant candidate creation failed without a diagnostic.")
+                            : createDiagnostic;
+                    if (definition.Requirement ==
+                        RegionParticipantRequirement.Optional)
+                    {
+                        optionalDegraded = true;
+                        AttemptOutcome? optionalOutcome =
+                            await CleanupOptionalCandidateAfterFailureAsync(
+                                state,
+                                resolution,
+                                candidates,
+                                owned,
+                                optionalDegraded);
+                        if (optionalOutcome.HasValue)
+                        {
+                            return optionalOutcome.Value;
+                        }
+
                         continue;
                     }
 
@@ -951,23 +1079,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                         optionalDegraded,
                         cancellationToken);
                 }
-
-                var owned = new OwnedNode(
-                    definition,
-                    desiredNode.Capabilities,
-                    desiredNode.EffectiveFingerprint,
-                    candidate);
-                candidates.Add(owned);
-                state.ActiveOwned.Add(owned);
-                PublishProgress(
-                    state,
-                    resolution.DesiredGeneration,
-                    reusedCount,
-                    state.ActiveOwned.Count,
-                    optionalDegraded,
-                    false,
-                    false,
-                    CoCoDiagnostic.None);
 
                 RegionParticipantPrepareResult prepareResult;
                 try
@@ -1027,47 +1138,18 @@ namespace CoCoFlow.Runtime.Modules.Map
                         RegionParticipantRequirement.Optional)
                     {
                         optionalDegraded = true;
-                        CleanupBatch optionalBatch = new CleanupBatch(
-                            new[]
-                            {
-                                new CleanupWork(
-                                    owned,
-                                    RegionParticipantCleanupReason
-                                        .CandidateFailed)
-                            });
-                        CleanupBatchResult cleanupResult =
-                            await ProcessCleanupBatchAsync(
-                                state,
-                                optionalBatch);
-                        if (!cleanupResult.Succeeded)
-                        {
-                            await UniTask.SwitchToMainThread();
-                            CleanupBatch allCandidates =
-                                CreateCandidateCleanupBatch(
-                                    candidates,
-                                    RegionParticipantCleanupReason
-                                        .CandidateFailed);
-                            if (allCandidates.Works.Count > 0)
-                            {
-                                // Preserve the exact in-flight cleanup operation
-                                // that timed out. A retry must continue observing
-                                // that operation instead of invoking Cleanup twice.
-                                allCandidates.Works[0] =
-                                    optionalBatch.Works[
-                                        optionalBatch.Index];
-                            }
-                            BlockCleanup(
+                        AttemptOutcome? optionalOutcome =
+                            await CleanupOptionalCandidateAfterFailureAsync(
                                 state,
                                 resolution,
-                                allCandidates,
-                                BlockedContinuation.Rerun,
-                                optionalDegraded,
-                                cleanupResult.Diagnostic);
-                            return AttemptOutcome.BlockedCleanup;
+                                candidates,
+                                owned,
+                                optionalDegraded);
+                        if (optionalOutcome.HasValue)
+                        {
+                            return optionalOutcome.Value;
                         }
 
-                        await UniTask.SwitchToMainThread();
-                        candidates.Remove(owned);
                         continue;
                     }
 
@@ -1299,6 +1381,66 @@ namespace CoCoFlow.Runtime.Modules.Map
             return AttemptOutcome.Cancelled;
         }
 
+        private async UniTask<AttemptOutcome?>
+            CleanupOptionalCandidateAfterFailureAsync(
+                RegionState state,
+                RegionDemandResolution resolution,
+                IList<OwnedNode> candidates,
+                OwnedNode owned,
+                bool optionalDegraded)
+        {
+            if (owned == null) return null;
+
+            CleanupBatch optionalBatch = new CleanupBatch(
+                new[]
+                {
+                    new CleanupWork(
+                        owned,
+                        RegionParticipantCleanupReason.CandidateFailed)
+                });
+            CleanupBatchResult cleanupResult =
+                await ProcessCleanupBatchAsync(state, optionalBatch);
+            if (!cleanupResult.Succeeded)
+            {
+                await UniTask.SwitchToMainThread();
+                CleanupBatch allCandidates =
+                    CreateCandidateCleanupBatch(
+                        candidates,
+                        RegionParticipantCleanupReason.CandidateFailed);
+                CleanupWork exactWork =
+                    optionalBatch.Works[optionalBatch.Index];
+                for (int index = allCandidates.Index;
+                     index < allCandidates.Works.Count;
+                     index++)
+                {
+                    if (!ReferenceEquals(
+                            allCandidates.Works[index].Node,
+                            owned))
+                    {
+                        continue;
+                    }
+
+                    // Continue observing the exact cleanup invocation that
+                    // timed out instead of invoking Cleanup twice.
+                    allCandidates.Works[index] = exactWork;
+                    break;
+                }
+
+                BlockCleanup(
+                    state,
+                    resolution,
+                    allCandidates,
+                    BlockedContinuation.Rerun,
+                    optionalDegraded,
+                    cleanupResult.Diagnostic);
+                return AttemptOutcome.BlockedCleanup;
+            }
+
+            await UniTask.SwitchToMainThread();
+            candidates.Remove(owned);
+            return null;
+        }
+
         private void EnterCommitFault(
             RegionState state,
             RegionDemandResolution resolution,
@@ -1344,8 +1486,16 @@ namespace CoCoFlow.Runtime.Modules.Map
                     continue;
                 }
 
-                if (work.InFlight == null)
+                if (!work.FailureDiagnostic.IsNone)
                 {
+                    return new CleanupBatchResult(
+                        false,
+                        work.FailureDiagnostic);
+                }
+
+                if (!work.InvocationAttempted)
+                {
+                    work.InvocationAttempted = true;
                     try
                     {
                         UniTask<RegionParticipantCleanupResult> cleanup;
@@ -1365,12 +1515,24 @@ namespace CoCoFlow.Runtime.Modules.Map
                     }
                     catch (Exception exception)
                     {
-                        return new CleanupBatchResult(
-                            false,
+                        work.FailureDiagnostic =
                             RegionErrors.CleanupBlocked(
                                 "Participant cleanup invocation threw: " +
-                                exception.Message));
+                                exception.Message);
+                        return new CleanupBatchResult(
+                            false,
+                            work.FailureDiagnostic);
                     }
+                }
+
+                if (work.InFlight == null)
+                {
+                    work.FailureDiagnostic =
+                        RegionErrors.CleanupBlocked(
+                            "Participant cleanup did not return an observable operation.");
+                    return new CleanupBatchResult(
+                        false,
+                        work.FailureDiagnostic);
                 }
 
                 Task timeoutTask = Task.Delay(cleanupTimeout);
@@ -1397,18 +1559,18 @@ namespace CoCoFlow.Runtime.Modules.Map
                 catch (Exception exception)
                 {
                     await UniTask.SwitchToMainThread();
-                    work.InFlight = null;
-                    return new CleanupBatchResult(
-                        false,
+                    work.FailureDiagnostic =
                         RegionErrors.CleanupBlocked(
                             "Participant cleanup threw: " +
-                            exception.Message));
+                            exception.Message);
+                    return new CleanupBatchResult(
+                        false,
+                        work.FailureDiagnostic);
                 }
 
                 if (!result.Succeeded)
                 {
-                    work.InFlight = null;
-                    CoCoDiagnostic diagnostic =
+                    work.FailureDiagnostic =
                         result.Diagnostic.IsNone
                             ? RegionErrors.CleanupBlocked(
                                 "Participant cleanup failed without a diagnostic.")
@@ -1417,11 +1579,23 @@ namespace CoCoFlow.Runtime.Modules.Map
                                 ? result.Diagnostic
                                 : RegionErrors.CleanupBlocked(
                                     result.Diagnostic.Message);
-                    return new CleanupBatchResult(false, diagnostic);
+                    return new CleanupBatchResult(
+                        false,
+                        work.FailureDiagnostic);
                 }
 
                 work.Completed = true;
+                ownedCandidates.Remove(work.Node.Candidate);
                 state.ActiveOwned.Remove(work.Node);
+                state.FaultOwned.Remove(work.Node);
+                if (state.Committed.TryGetValue(
+                        work.Node.Definition.Id,
+                        out OwnedNode committed) &&
+                    ReferenceEquals(committed, work.Node))
+                {
+                    state.Committed.Remove(work.Node.Definition.Id);
+                }
+
                 batch.Index++;
             }
 
@@ -1580,14 +1754,27 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
 
             CoCoDiagnostic firstFailure = CoCoDiagnostic.None;
+            var terminalCleanupExclusions =
+                new HashSet<IRegionParticipantCandidate>(
+                    ReferenceCandidateComparer.Instance);
+            var lateShutdownCleanups =
+                new Dictionary<
+                    IRegionParticipantCandidate,
+                    Task<RegionParticipantCleanupResult>>(
+                    ReferenceCandidateComparer.Instance);
             foreach (RegionState state in states.Values)
             {
+                HashSet<IRegionParticipantCandidate>
+                    blockedCleanupCandidates = null;
                 if (state.Blocked != null)
                 {
                     CleanupBatchResult blockedResult =
                         await ProcessCleanupBatchAsync(
                             state,
                             state.Blocked.Batch);
+                    AddCompletedCleanupCandidates(
+                        state.Blocked.Batch,
+                        terminalCleanupExclusions);
                     if (!blockedResult.Succeeded &&
                         firstFailure.IsNone)
                     {
@@ -1596,18 +1783,32 @@ namespace CoCoFlow.Runtime.Modules.Map
                     }
 
                     await UniTask.SwitchToMainThread();
+                    if (!blockedResult.Succeeded)
+                    {
+                        blockedCleanupCandidates =
+                            CollectRemainingCleanupCandidates(
+                                state.Blocked.Batch);
+                    }
                 }
 
                 CleanupBatch shutdownBatch =
-                    CreateShutdownCleanupBatch(state);
+                    CreateShutdownCleanupBatch(
+                        state,
+                        blockedCleanupCandidates);
                 CleanupBatchResult shutdownResult =
                     shutdownBatch.IsComplete
                         ? new CleanupBatchResult(
                             true,
                             CoCoDiagnostic.None)
-                        : await ProcessCleanupBatchAsync(
-                            state,
-                            shutdownBatch);
+                    : await ProcessCleanupBatchAsync(
+                        state,
+                        shutdownBatch);
+                AddCompletedCleanupCandidates(
+                    shutdownBatch,
+                    terminalCleanupExclusions);
+                CollectObservableCleanupTasks(
+                    shutdownBatch,
+                    lateShutdownCleanups);
                 if (!shutdownResult.Succeeded &&
                     firstFailure.IsNone)
                 {
@@ -1626,7 +1827,9 @@ namespace CoCoFlow.Runtime.Modules.Map
                         ? firstFailure
                         : RegionErrors.CleanupBlocked(
                             firstFailure.Message);
-                ForceShutdown();
+                ForceShutdown(
+                    terminalCleanupExclusions,
+                    lateShutdownCleanups);
                 return blocked;
             }
 
@@ -1635,32 +1838,80 @@ namespace CoCoFlow.Runtime.Modules.Map
             return CoCoDiagnostic.None;
         }
 
-        private void ForceCleanupState(RegionState state)
+        private void ForceCleanupState(
+            RegionState state,
+            ISet<IRegionParticipantCandidate> excluded)
         {
             var unique =
                 new HashSet<IRegionParticipantCandidate>(
                     ReferenceCandidateComparer.Instance);
-            foreach (OwnedNode node in state.Committed.Values)
+            var blockedInFlight =
+                new HashSet<IRegionParticipantCandidate>(
+                    ReferenceCandidateComparer.Instance);
+            if (excluded != null)
             {
-                ForceCleanupCandidate(node.Candidate, unique);
+                foreach (IRegionParticipantCandidate candidate in excluded)
+                {
+                    if (candidate != null)
+                    {
+                        blockedInFlight.Add(candidate);
+                    }
+                }
             }
 
-            for (int index = 0;
-                 index < state.ActiveOwned.Count;
-                 index++)
+            if (state.Blocked != null)
             {
-                ForceCleanupCandidate(
-                    state.ActiveOwned[index].Candidate,
-                    unique);
+                for (int index = state.Blocked.Batch.Index;
+                     index < state.Blocked.Batch.Works.Count;
+                     index++)
+                {
+                    CleanupWork work =
+                        state.Blocked.Batch.Works[index];
+                    if (work.InFlight != null &&
+                        blockedInFlight.Add(work.Node.Candidate))
+                    {
+                        ObserveLateCleanupNoThrowAsync(
+                            work.Node.Candidate,
+                            work.InFlight).Forget();
+                    }
+                }
             }
 
-            for (int index = 0;
-                 index < state.FaultOwned.Count;
-                 index++)
+            for (int index = state.FaultOwned.Count - 1;
+                 index >= 0;
+                 index--)
             {
                 ForceCleanupCandidate(
                     state.FaultOwned[index].Candidate,
-                    unique);
+                    unique,
+                    blockedInFlight);
+            }
+
+            for (int index = state.ActiveOwned.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                ForceCleanupCandidate(
+                    state.ActiveOwned[index].Candidate,
+                    unique,
+                    blockedInFlight);
+            }
+
+            for (int nodeIndex = state.Plan.Nodes.Count - 1;
+                 nodeIndex >= 0;
+                 nodeIndex--)
+            {
+                RegionPlanNodeId nodeId =
+                    state.Plan.Nodes[nodeIndex].Id;
+                if (state.Committed.TryGetValue(
+                        nodeId,
+                        out OwnedNode committed))
+                {
+                    ForceCleanupCandidate(
+                        committed.Candidate,
+                        unique,
+                        blockedInFlight);
+                }
             }
 
             if (state.Blocked != null)
@@ -1672,7 +1923,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                     ForceCleanupCandidate(
                         state.Blocked.Batch.Works[index]
                             .Node.Candidate,
-                        unique);
+                        unique,
+                        blockedInFlight);
                 }
             }
 
@@ -1684,18 +1936,30 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private void ForceCleanupCandidate(
             IRegionParticipantCandidate candidate,
-            ISet<IRegionParticipantCandidate> unique)
+            ISet<IRegionParticipantCandidate> unique,
+            ISet<IRegionParticipantCandidate> excluded = null)
         {
-            if (candidate == null || !unique.Add(candidate)) return;
-            if (!(candidate is IRegionParticipantTerminalCleanup terminal))
+            if (candidate == null ||
+                excluded != null &&
+                excluded.Contains(candidate) ||
+                !unique.Add(candidate))
             {
                 return;
             }
-
-            EnterParticipantCallback();
             try
             {
-                terminal.ForceCleanupNoFail();
+                if (candidate is IRegionParticipantTerminalCleanup terminal)
+                {
+                    EnterParticipantCallback();
+                    try
+                    {
+                        terminal.ForceCleanupNoFail();
+                    }
+                    finally
+                    {
+                        ExitParticipantCallback();
+                    }
+                }
             }
             catch
             {
@@ -1703,7 +1967,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
             finally
             {
-                ExitParticipantCallback();
+                ownedCandidates.Remove(candidate);
             }
         }
 
@@ -1834,32 +2098,87 @@ namespace CoCoFlow.Runtime.Modules.Map
             return new CleanupBatch(works);
         }
 
+        private static HashSet<IRegionParticipantCandidate>
+            CollectRemainingCleanupCandidates(CleanupBatch batch)
+        {
+            var candidates =
+                new HashSet<IRegionParticipantCandidate>(
+                    ReferenceCandidateComparer.Instance);
+            if (batch == null) return candidates;
+
+            for (int index = batch.Index;
+                 index < batch.Works.Count;
+                 index++)
+            {
+                IRegionParticipantCandidate candidate =
+                    batch.Works[index].Node.Candidate;
+                if (candidate != null)
+                {
+                    candidates.Add(candidate);
+                }
+            }
+
+            return candidates;
+        }
+
+        private static void AddCompletedCleanupCandidates(
+            CleanupBatch batch,
+            ISet<IRegionParticipantCandidate> candidates)
+        {
+            if (batch == null || candidates == null) return;
+
+            for (int index = 0; index < batch.Works.Count; index++)
+            {
+                CleanupWork work = batch.Works[index];
+                if (work.Completed && work.Node.Candidate != null)
+                {
+                    candidates.Add(work.Node.Candidate);
+                }
+            }
+        }
+
+        private static void CollectObservableCleanupTasks(
+            CleanupBatch batch,
+            IDictionary<
+                IRegionParticipantCandidate,
+                Task<RegionParticipantCleanupResult>> cleanups)
+        {
+            if (batch == null || cleanups == null) return;
+
+            for (int index = batch.Index;
+                 index < batch.Works.Count;
+                 index++)
+            {
+                CleanupWork work = batch.Works[index];
+                if (!work.Completed &&
+                    work.InvocationAttempted &&
+                    work.InFlight != null &&
+                    work.Node.Candidate != null)
+                {
+                    cleanups[work.Node.Candidate] = work.InFlight;
+                }
+            }
+        }
+
         private static CleanupBatch CreateShutdownCleanupBatch(
-            RegionState state)
+            RegionState state,
+            ISet<IRegionParticipantCandidate> excluded = null)
         {
             var unique =
                 new HashSet<IRegionParticipantCandidate>(
                     ReferenceCandidateComparer.Instance);
-            var works = new List<CleanupWork>();
-            for (int nodeIndex = state.Plan.Nodes.Count - 1;
-                 nodeIndex >= 0;
-                 nodeIndex--)
+            if (excluded != null)
             {
-                RegionPlanNodeId nodeId =
-                    state.Plan.Nodes[nodeIndex].Id;
-                if (state.Committed.TryGetValue(
-                        nodeId,
-                        out OwnedNode committed) &&
-                    unique.Add(committed.Candidate))
+                foreach (IRegionParticipantCandidate candidate in excluded)
                 {
-                    works.Add(
-                        new CleanupWork(
-                            committed,
-                            RegionParticipantCleanupReason
-                                .HostShutdown));
+                    if (candidate != null)
+                    {
+                        unique.Add(candidate);
+                    }
                 }
             }
 
+            var works = new List<CleanupWork>();
             for (int index = state.FaultOwned.Count - 1;
                  index >= 0;
                  index--)
@@ -1885,6 +2204,25 @@ namespace CoCoFlow.Runtime.Modules.Map
                     works.Add(
                         new CleanupWork(
                             node,
+                            RegionParticipantCleanupReason
+                                .HostShutdown));
+                }
+            }
+
+            for (int nodeIndex = state.Plan.Nodes.Count - 1;
+                 nodeIndex >= 0;
+                 nodeIndex--)
+            {
+                RegionPlanNodeId nodeId =
+                    state.Plan.Nodes[nodeIndex].Id;
+                if (state.Committed.TryGetValue(
+                        nodeId,
+                        out OwnedNode committed) &&
+                    unique.Add(committed.Candidate))
+                {
+                    works.Add(
+                        new CleanupWork(
+                            committed,
                             RegionParticipantCleanupReason
                                 .HostShutdown));
                 }
@@ -1986,6 +2324,67 @@ namespace CoCoFlow.Runtime.Modules.Map
         private static async UniTask<T> AwaitTaskAsync<T>(
             Task<T> task) =>
             await task;
+
+        private async UniTaskVoid ObserveLateCleanupNoThrowAsync(
+            IRegionParticipantCandidate candidate,
+            Task<RegionParticipantCleanupResult> cleanup)
+        {
+            bool requiresTerminalCleanup;
+            try
+            {
+                RegionParticipantCleanupResult result =
+                    await cleanup;
+                requiresTerminalCleanup = !result.Succeeded;
+            }
+            catch
+            {
+                requiresTerminalCleanup = true;
+            }
+
+            try
+            {
+                await UniTask.SwitchToMainThread();
+                if (!requiresTerminalCleanup)
+                {
+                    ownedCandidates.Remove(candidate);
+                    return;
+                }
+
+                ForceCleanupCandidate(
+                    candidate,
+                    new HashSet<IRegionParticipantCandidate>(
+                        ReferenceCandidateComparer.Instance));
+            }
+            catch
+            {
+                // Terminal shutdown has no remaining recovery surface.
+            }
+        }
+
+        private async UniTaskVoid ObserveLateRunnerAndForceStateNoThrowAsync(
+            RegionState state,
+            Task runner,
+            ISet<IRegionParticipantCandidate> excluded)
+        {
+            try
+            {
+                try
+                {
+                    await runner;
+                }
+                catch
+                {
+                    // Runner failure still releases terminal ownership below.
+                }
+
+                await UniTask.SwitchToMainThread();
+                ForceCleanupState(state, excluded);
+            }
+            catch
+            {
+                // Terminal shutdown has no remaining recovery surface.
+            }
+        }
 
         private sealed class ReferenceCandidateComparer :
             IEqualityComparer<IRegionParticipantCandidate>

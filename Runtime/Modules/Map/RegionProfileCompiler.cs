@@ -257,8 +257,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                 }
 
                 if (definition.Configuration == null ||
-                    !registration.ConfigFreezer.ConfigurationType.IsInstanceOfType(
-                        definition.Configuration))
+                    definition.Configuration.GetType() !=
+                    registration.ConfigurationType)
                 {
                     AddError(
                         diagnostics,

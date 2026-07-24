@@ -393,7 +393,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return false;
             }
 
-            if (!RegionParticipantRegistration.TryCreate(
+            if (!RegionParticipantRegistration.TryCreateOwningContent(
                     TypeId,
                     ModeId,
                     RegionBuiltInParticipantUtilities.StandardCapabilities,

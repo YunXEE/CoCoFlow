@@ -201,9 +201,10 @@ intact even when their proposed model is superseded.
       Direct-only host compiles without that package.
 - [ ] UI keeps its Prefab Source lease until the corresponding panel instance is
       actually destroyed; UI still owns Instantiate/Destroy and does not pool.
-- [ ] Map demands are requester-scoped. Releasing requester A cannot unload a
-      scene still leased by requester B; Region/Chunk streaming policy remains
-      deferred to Pre10.
+- [ ] Content's shared Additive Scene ownership still isolates every Lease.
+      Pre10 Map reaches that authority only through its built-in Content
+      participant; the removed requester-scene pusher is not retained as a
+      second consumer path.
 - [ ] Content debug snapshots and the fixed-capacity ledger are immutable and
       identity-only; they retain no resource, Scene, backend handle, Lease, or
       exception object. Release-build stack capture is explicit and bounded.
@@ -260,13 +261,89 @@ intact even when their proposed model is superseded.
       synchronous Temporal Apply hook. It is not multi-Actor/world rollback,
       durable reconstruction, physics/animation/navigation reversal, or
       automatic domain-payload capture.
-- [ ] Existing UI, Map, and Enemy consumers were not migrated. Additive Scenes
-      and permanent world roots remain outside Pooling; downstream modules must
-      opt in with an explicit reset and ownership contract.
+- [ ] Existing UI and Enemy consumers were not migrated. Pre10 Map Pooling is
+      opt-in through an explicit compiled participant. Additive Scenes and
+      permanent world roots remain outside Pooling; downstream modules must opt
+      in with an explicit reset and ownership contract.
+
+### Pre10 Map Region fidelity
+
+- [ ] A Region is a logical fidelity unit and a Chunk is its owned optimization
+      partition. Region, Chunk, participant-slot, participant-mode, and
+      capability identities are stable values; Scene ownership is unique per
+      Region/Chunk/slot.
+- [ ] `RegionCapabilityId` is a string value. `cocoflow.*` is reserved for the
+      ordered Represented/Background/Enterable/Full capabilities, while
+      project/TA namespaces can register custom capabilities without reflection
+      discovery or silent downgrade.
+- [ ] Tier zero is empty and every later Profile tier is a strict capability
+      superset. Standard capability order is fixed; custom capabilities may be
+      inserted. Unsupported capabilities fail with `UnsupportedCapability`.
+- [ ] `RegionCoverage` is `All` or a non-empty known Chunk set. Invalid Chunk
+      identity rejects the whole create/update. Region-global nodes merge every
+      live demand; each Chunk merges only demands covering that Chunk.
+- [ ] Demand ownership is Scope/Lease based. Lease revision is independent from
+      transition generation; only update/dispose of the same Lease supersedes
+      an older revision, and readiness is exactly Ready/Cancelled/Superseded/
+      Failed/Disposed.
+- [ ] `CoCoRegionProfile` uses `[SerializeReference]` extension configuration;
+      an explicit Catalog/Provider registers config freezers, immutable plans,
+      modes, and participant types. Registered types are snapshotted; plans are
+      exact sealed pure-data types and copied collections use
+      `RegionImmutableArray<T>`. Player builds use no reflection discovery.
+- [ ] Profile/Binding compilation validates strict tier growth, dependency DAG,
+      stable binding identity, Required bindings, duplicate `ContentId`,
+      canonical Direct/Addressables Scene locators, and unique Scene ownership.
+      Compiled plans retain no Unity Object or runtime Lease.
+- [ ] Plan nodes use `(RegionId, optional RegionChunkId, ParticipantSlotId)`.
+      Unchanged fingerprints reuse committed nodes and stable resources across
+      generations; only changed nodes create candidates.
+- [ ] Candidate ownership begins before `PrepareAsync` and every success,
+      failure, cancellation, replacement, removal, and shutdown path cleans it
+      exactly once. Phase/order/Slot sorting and complete reverse cleanup are
+      deterministic.
+- [ ] Dependencies are limited to Region-global or same-Chunk nodes; no
+      Region-global-to-Chunk or cross-Chunk edge exists, and Required never
+      depends on Optional. Optional Prepare failure publishes
+      `Absent + OptionalDegraded`.
+- [ ] Commit exception enters terminal non-retryable `FaultedCommit`, stops
+      remaining commits, and preserves old/candidate ownership for Host
+      shutdown. Cleanup timeout uses unscaled time, reports `BlockedCleanup`,
+      observes late completion, and explicit retry resolves cleanup first.
+- [ ] `CoCoMapHost` references Content Host, bootstrap bindings, and catalog
+      provider explicitly. It uses no singleton, `FindObjects*`, implicit
+      registration, runtime Profile write-back, or unloaded-Scene scanning.
+- [ ] A managed Chunk Scene cold-starts with one metadata-only
+      `CoCoRegionChunkAnchor` root and inactive managed roots. Runtime scans only
+      the exact leased Scene, and public participant context exposes no raw
+      `ContentScope`.
+- [ ] Built-in participants cover Content, GameObject, Collider, Renderer,
+      Animator, Particle, Behaviour, and Pool-backed content. An external TA
+      fixture references only the public Map SDK from a production-like asmdef
+      and receives no test IVT.
+- [ ] A Pool Scope belongs to a stable committed Map node. Replacement closes
+      the old Scope after commit and before Scene release; terminal Map shutdown
+      may force-close only its own Scope and never the shared Pool Runtime.
+      Every Chunk Pool slot directly depends on its owning Content slot, and
+      compilation rejects any configuration that could reverse cleanup order.
+- [ ] The Temporal decorator chain is
+      `Map -> optional Pool -> project restore binding`. Map records committed
+      capability/Coverage only for retention and availability; Preview does not
+      load, prepare, or tier-commit, and post-branch retention decrease waits
+      until the callback returns.
+- [ ] Profile/Binding authoring, compiler diagnostics, the Participant-by-Tier
+      matrix, and Runtime Monitor expose demand/revision, desired/committed
+      per-Chunk capability, generation/reuse/candidate, degraded, fault, and
+      blocked-cleanup state without mutating runtime policy implicitly.
+- [ ] `MapResourceManager`, `MapStreamTrigger`, `MapChunkLoadedEvent`, and the
+      two legacy script GUIDs are absent. No compatibility layer or migration
+      component remains; legacy Demand/Release/event use is mapped to Lease
+      demand/disposal/readiness or immutable snapshots in documentation.
 
 ## Serialization and rollback
 
 - ContextFrame Descriptor/Slot changes (including stable ID impact):
+- Region Profile/Binding stable-ID and managed-reference impact:
 - StateGraph Editor layout/version/session-state impact:
 - Temporal/Durable/Derived projection impact:
 - Existing asset/prefab impact:
@@ -302,6 +379,10 @@ intact even when their proposed model is superseded.
 - [ ] `git diff --check`
 - [ ] All changed JSON and asmdef files parse successfully.
 - [ ] Dead-link, obsolete-term, and forbidden-dependency scans were reviewed.
+- [ ] Pre10 static scans reject legacy Map types/GUIDs, Map-to-Core reverse
+      dependency, Map/Map-extension code that bypasses Content through raw
+      Addressables/SceneManager use, compiled Unity Objects or Leases, missing
+      managed references, and missing/duplicate `.meta` GUIDs.
 - [ ] Fixed Layout hot paths contain no runtime reflection or string-key lookup.
 - [ ] Pure StateGraph compiler/validator assemblies have no Unity reference;
       Unity authoring and Editor tooling remain in one-way dependent asmdefs.
@@ -352,6 +433,28 @@ intact even when their proposed model is superseded.
 - [ ] Pre9 dependency variants were checked in isolated hosts: UniTask + Direct
       without Addressables, and UniTask + supported optional Addressables.
       Pooling adds no separate installation action or hard package dependency.
+- [ ] Pre10 capability/Profile/compiler suites passed for standard and custom
+      capabilities, strict tier growth, Coverage validation, dependency DAG,
+      duplicate content/Scene ownership, deterministic cache, and AOT catalog.
+- [ ] Pre10 demand/runtime suites passed for per-Chunk merge, Lease revision,
+      plan diff/reuse, Required/Optional failures, late completion,
+      `FaultedCommit`, `BlockedCleanup`, retry, and terminal shutdown.
+- [ ] Pre10 integration suites passed for the 2 km wilderness plus
+      castle/chapel/mine model, Direct and Addressables Scenes, cold-start
+      anchors, unique Scene owner, Pool Scope reuse, Content-first terminal
+      fallback, and the complete Temporal decorator chain.
+- [ ] Pre10 authoring/build validation passed for project-copied templates,
+      Participant-by-Tier matrix, compiler diagnostics, runtime monitor,
+      production-like external TA assembly, missing managed references,
+      assembly closure, AOT types, and deterministic generated `link.xml`.
+- [ ] Exact Unity `6000.3.20f1` validation hosts were recorded for Direct-only
+      and Addressables `2.9.1`. Any explicitly authorized developer host
+      preserved its pre-existing tracked changes; disposable hosts left no
+      retained project state.
+- [ ] Warm transition, large Coverage, overlapping Region,
+      old-plus-candidate peak, and cleanup duration were recorded as
+      observations only; no hidden budget or automatic downgrade threshold was
+      introduced.
 - [ ] StateGraph Runtime EditMode and Host lifecycle/event PlayMode suites passed
       for this Pre's focused and full-package runs.
 - [ ] Committed debugger snapshot, default-disabled/fixed-while-Running Trace,
@@ -387,6 +490,12 @@ links that allow a reviewer to verify the checks above.
 - Pre9 Pooling Direct/Addressables/EditMode/PlayMode result:
 - Pre9 Temporal retention/projection result:
 - Pre9 Ready idle-hit allocation and Unity Object Pool black-box result:
+- Pre10 Direct-only EditMode/PlayMode/full-package result:
+- Pre10 Addressables 2.9.1 EditMode/PlayMode/full-package result:
+- Pre10 wilderness/castle/chapel/mine integration result:
+- Pre10 Pool/Content-first/Temporal-chain integration result:
+- Pre10 external TA/AOT/link.xml/build-validation result:
+- Pre10 warm/large-Coverage/overlap/peak/cleanup observations:
 - Allocation summary (100 warm-up / 10,000 measured):
 - macOS Universal IL2CPP + High Stripping artifact/log:
 - Unity Package Validation Suite result/log:

@@ -163,8 +163,11 @@ namespace CoCoFlow.Runtime.Modules.Map
 
                 try
                 {
-                    target.SetActive(plan.Active);
+                    // Commit may still be interrupted by Unity-side
+                    // callbacks. Mark the candidate dirty before the first
+                    // mutation so Host shutdown can restore captured state.
                     committed = true;
+                    target.SetActive(plan.Active);
                     diagnostic = CoCoDiagnostic.None;
                     return true;
                 }
@@ -384,6 +387,11 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             try
             {
+                // A Behaviour write can synchronously invoke project code
+                // that destroys a later target. Treat the candidate as
+                // committed before the first write so terminal cleanup
+                // restores every surviving component already changed.
+                committed = true;
                 for (int index = 0; index < components.Length; index++)
                 {
                     if (components[index] == null)
@@ -397,7 +405,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                     WriteEnabled(components[index], plan.Enabled);
                 }
 
-                committed = true;
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }

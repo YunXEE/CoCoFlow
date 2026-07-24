@@ -1,4 +1,8 @@
+using System.Reflection;
 using NUnit.Framework;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Map.Tests
 {
@@ -87,6 +91,63 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             Assert.IsFalse(RegionParticipantModeId.TryCreate(
                 "mode",
                 out _));
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void ColdStartRejectsActiveAndInactiveChildrenUnderAnchorRoot(
+            bool childActive)
+        {
+            Scene scene = EditorSceneManager.NewScene(
+                NewSceneSetup.EmptyScene,
+                NewSceneMode.Additive);
+            var anchorRoot = new GameObject("Region Anchor");
+            SceneManager.MoveGameObjectToScene(anchorRoot, scene);
+            var child = new GameObject("Escaped Managed Content");
+            child.transform.SetParent(anchorRoot.transform, false);
+            child.SetActive(childActive);
+
+            CoCoRegionChunkAnchor anchor =
+                anchorRoot.AddComponent<CoCoRegionChunkAnchor>();
+            Assert.IsTrue(RegionId.TryCreate(
+                "world.wilderness",
+                out RegionId regionId));
+            Assert.IsTrue(RegionChunkId.TryCreate(
+                "north-west",
+                out RegionChunkId chunkId));
+            SetField(anchor, "regionId", regionId);
+            SetField(anchor, "chunkId", chunkId);
+
+            try
+            {
+                Assert.IsFalse(anchor.TryValidateColdStart(
+                    regionId,
+                    chunkId,
+                    out CoCoFlow.Runtime.Core.CoCoDiagnostic diagnostic));
+                Assert.AreEqual(
+                    CoCoFlow.Runtime.Core.CoCoDiagnosticCode
+                        .RegionSceneContractViolation,
+                    diagnostic.Code);
+                StringAssert.Contains(
+                    "cannot contain child GameObjects",
+                    diagnostic.Message);
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(scene, true);
+            }
+        }
+
+        private static void SetField<TValue>(
+            CoCoRegionChunkAnchor anchor,
+            string fieldName,
+            TValue value)
+        {
+            FieldInfo field = typeof(CoCoRegionChunkAnchor).GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field);
+            field.SetValue(anchor, value);
         }
     }
 }

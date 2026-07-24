@@ -5,12 +5,10 @@ using System.Reflection;
 using System.Threading;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.Modules.Map;
 using CoCoFlow.Runtime.Modules.UI;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.ContentConsumers
@@ -84,72 +82,8 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
         }
 
         [UnityTest]
-        public IEnumerator MapDuplicateDemandIsIdempotentAndRequesterReleaseIsIsolated()
-        {
-            CreateMapFixture(
-                out CoCoContentHost host,
-                out TestSceneBackend backend,
-                out MapResourceManager manager);
-            ContentId sceneId = CreateContentId("tests.map.shared-scene");
-            ContentReference sceneSource = CreateSceneReference(sceneId);
-            ContentOwnerId requesterA = CreateOwnerId("tests.map.requester-a");
-            ContentOwnerId requesterB = CreateOwnerId("tests.map.requester-b");
-
-            manager.DemandScene(requesterA, sceneSource);
-            manager.DemandScene(requesterA, sceneSource);
-            manager.DemandScene(requesterB, sceneSource);
-            yield return null;
-
-            Assert.That(backend.LoadCount, Is.EqualTo(1));
-            AssertSingleEntry(host, sceneId, expectedLeaseCount: 2);
-
-            manager.ReleaseScene(requesterA, sceneId);
-            yield return null;
-
-            Assert.That(backend.ReleaseCount, Is.Zero);
-            AssertSingleEntry(host, sceneId, expectedLeaseCount: 1);
-
-            manager.ReleaseScene(requesterB, sceneId);
-            yield return null;
-
-            Assert.That(backend.ReleaseCount, Is.EqualTo(1));
-            Assert.That(host.Runtime.CaptureSnapshot().Entries.Count, Is.Zero);
-        }
-
-        [UnityTest]
-        public IEnumerator DestroyingOneMapManagerDoesNotReleaseAnotherManagersLease()
-        {
-            CreateContentHost(out CoCoContentHost host, out TestSceneBackend backend);
-            MapResourceManager managerA = CreateMapManager("Map Manager A", host);
-            MapResourceManager managerB = CreateMapManager("Map Manager B", host);
-            ContentId sceneId = CreateContentId("tests.map.world-routed-scene");
-            ContentReference sceneSource = CreateSceneReference(sceneId);
-
-            managerA.DemandScene(CreateOwnerId("tests.map.world-a"), sceneSource);
-            managerB.DemandScene(CreateOwnerId("tests.map.world-b"), sceneSource);
-            yield return null;
-            AssertSingleEntry(host, sceneId, expectedLeaseCount: 2);
-
-            UnityEngine.Object.DestroyImmediate(managerA.gameObject);
-            yield return null;
-
-            Assert.That(backend.ReleaseCount, Is.Zero);
-            AssertSingleEntry(host, sceneId, expectedLeaseCount: 1);
-
-            UnityEngine.Object.DestroyImmediate(managerB.gameObject);
-            yield return null;
-
-            Assert.That(backend.ReleaseCount, Is.EqualTo(1));
-            Assert.That(host.Runtime.CaptureSnapshot().Entries.Count, Is.Zero);
-        }
-
-        [UnityTest]
         public IEnumerator DestroyingUiManagerDuringPendingAcquirePublishesNoPanelAndReclaimsLateSource() =>
             UniTask.ToCoroutine(RunDestroyingUiManagerDuringPendingAcquireAsync);
-
-        [UnityTest]
-        public IEnumerator MapImmediateRedemandIgnoresStaleCompletionAndKeepsNewLease() =>
-            UniTask.ToCoroutine(RunMapImmediateRedemandAsync);
 
         private async UniTask RunDestroyingUiManagerDuringPendingAcquireAsync()
         {
@@ -199,85 +133,6 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
             Assert.That(GetTrackedScopeCount(host.Runtime), Is.Zero);
         }
 
-        private async UniTask RunMapImmediateRedemandAsync()
-        {
-            CreateDelayedContentHost(
-                out CoCoContentHost host,
-                out DelayedContentBackend backend);
-            MapResourceManager manager = CreateMapManager("Redemand Map Manager", host);
-            ContentId sceneId = CreateContentId("tests.map.immediate-redemand");
-            ContentReference sceneSource = CreateSceneReference(sceneId);
-            ContentOwnerId requester = CreateOwnerId("tests.map.redemand-requester");
-            int loadedEventCount = 0;
-            var eventAgent = new EventAgent();
-            eventAgent.Subscribe<MapChunkLoadedEvent>(
-                (ref MapChunkLoadedEvent loadedEvent) =>
-                {
-                    if (loadedEvent.RequesterId == requester &&
-                        loadedEvent.SceneId == sceneId)
-                    {
-                        loadedEventCount++;
-                    }
-                });
-
-            try
-            {
-                manager.DemandScene(requester, sceneSource);
-                await WaitUntilAsync(
-                    () => backend.PendingCount == 1,
-                    "Map did not start the first delayed Scene acquire.");
-
-                manager.ReleaseScene(requester, sceneId);
-                manager.DemandScene(requester, sceneSource);
-                backend.CompleteNextScene();
-
-                await WaitUntilAsync(
-                    () => backend.LoadCount == 2 && backend.PendingCount == 1,
-                    "The replacement demand did not start after stale cleanup.");
-                Assert.That(loadedEventCount, Is.Zero);
-                Assert.That(backend.ReleaseCount, Is.EqualTo(1));
-
-                backend.CompleteNextScene();
-                await WaitUntilAsync(
-                    () => loadedEventCount == 1,
-                    "The current Map demand did not publish its loaded event.");
-                AssertSingleEntry(host, sceneId, expectedLeaseCount: 1);
-                Assert.That(backend.ReleaseCount, Is.EqualTo(1));
-
-                manager.ReleaseScene(requester, sceneId);
-                await WaitUntilRuntimeEmptyAsync(host.Runtime);
-                Assert.That(backend.ReleaseCount, Is.EqualTo(2));
-                Assert.That(loadedEventCount, Is.EqualTo(1));
-                Assert.That(GetTrackedScopeCount(host.Runtime), Is.Zero);
-            }
-            finally
-            {
-                eventAgent.UnsubscribeAll();
-            }
-        }
-
-        private void CreateMapFixture(
-            out CoCoContentHost host,
-            out TestSceneBackend backend,
-            out MapResourceManager manager)
-        {
-            CreateContentHost(out host, out backend);
-            manager = CreateMapManager("Map Manager", host);
-        }
-
-        private void CreateContentHost(
-            out CoCoContentHost host,
-            out TestSceneBackend backend)
-        {
-            GameObject hostObject = Track(new GameObject("Content Host"));
-            hostObject.SetActive(false);
-            backend = hostObject.AddComponent<TestSceneBackend>();
-            host = hostObject.AddComponent<CoCoContentHost>();
-            SetField(host, "backendComponents", new MonoBehaviour[] { backend });
-            hostObject.SetActive(true);
-            Assert.That(host.IsInitialized, Is.True, host.LastDiagnostic.Message);
-        }
-
         private void CreateDelayedContentHost(
             out CoCoContentHost host,
             out DelayedContentBackend backend)
@@ -289,14 +144,6 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
             SetField(host, "backendComponents", new MonoBehaviour[] { backend });
             hostObject.SetActive(true);
             Assert.That(host.IsInitialized, Is.True, host.LastDiagnostic.Message);
-        }
-
-        private MapResourceManager CreateMapManager(string name, CoCoContentHost host)
-        {
-            GameObject managerObject = Track(new GameObject(name));
-            MapResourceManager manager = managerObject.AddComponent<MapResourceManager>();
-            SetField(manager, "contentHost", host);
-            return manager;
         }
 
         private GameObject Track(GameObject gameObject)
@@ -327,26 +174,9 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
             return null;
         }
 
-        private static ContentReference CreateSceneReference(ContentId sceneId)
-        {
-            Assert.That(
-                ContentReference.TryCreateAddressableAdditiveScene(
-                    sceneId,
-                    "tests/fake-additive-scene",
-                    out ContentReference reference),
-                Is.True);
-            return reference;
-        }
-
         private static ContentId CreateContentId(string value)
         {
             Assert.That(ContentId.TryCreate(value, out ContentId id), Is.True);
-            return id;
-        }
-
-        private static ContentOwnerId CreateOwnerId(string value)
-        {
-            Assert.That(ContentOwnerId.TryCreate(value, out ContentOwnerId id), Is.True);
             return id;
         }
 
@@ -431,46 +261,6 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
             }
         }
 
-        private sealed class TestSceneBackend : MonoBehaviour, IContentBackend
-        {
-            private static readonly ContentBackendId Id = CreateBackendId();
-
-            public int LoadCount { get; private set; }
-            public int ReleaseCount { get; private set; }
-            public ContentBackendId BackendId => Id;
-
-            public bool CanHandle(ContentReference reference) =>
-                reference.IsValid &&
-                reference.SourceKind == ContentSourceKind.Addressables &&
-                reference.Kind == ContentKind.AdditiveScene;
-
-            public UniTask<ContentBackendLoadResult> LoadAsync(
-                ContentBackendRequest request,
-                CancellationToken lifetimeCancellationToken)
-            {
-                _ = request;
-                _ = lifetimeCancellationToken;
-                LoadCount++;
-                return UniTask.FromResult(ContentBackendLoadResult.Success(
-                    default(Scene),
-                    ReleaseAsync));
-            }
-
-            private UniTask<CoCoDiagnostic> ReleaseAsync()
-            {
-                ReleaseCount++;
-                return UniTask.FromResult(CoCoDiagnostic.None);
-            }
-
-            private static ContentBackendId CreateBackendId()
-            {
-                ContentBackendId.TryCreate(
-                    "tests.content-consumer-scene",
-                    out ContentBackendId backendId);
-                return backendId;
-            }
-        }
-
         private sealed class DelayedContentBackend : MonoBehaviour, IContentBackend
         {
             private static readonly ContentBackendId Id = CreateBackendId();
@@ -485,8 +275,7 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
             public bool CanHandle(ContentReference reference) =>
                 reference.IsValid &&
                 reference.SourceKind == ContentSourceKind.Addressables &&
-                (reference.Kind == ContentKind.PrefabSource ||
-                 reference.Kind == ContentKind.AdditiveScene);
+                reference.Kind == ContentKind.PrefabSource;
 
             public UniTask<ContentBackendLoadResult> LoadAsync(
                 ContentBackendRequest request,
@@ -507,13 +296,6 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
                 PendingLoad pending = Dequeue(ContentKind.PrefabSource);
                 pending.Completion.TrySetResult(
                     ContentBackendLoadResult.Success(prefab, ReleaseAsync));
-            }
-
-            public void CompleteNextScene()
-            {
-                PendingLoad pending = Dequeue(ContentKind.AdditiveScene);
-                pending.Completion.TrySetResult(
-                    ContentBackendLoadResult.Success(default(Scene), ReleaseAsync));
             }
 
             private PendingLoad Dequeue(ContentKind expectedKind)

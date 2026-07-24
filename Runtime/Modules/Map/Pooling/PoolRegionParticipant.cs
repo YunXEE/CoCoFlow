@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -104,16 +103,16 @@ namespace CoCoFlow.Runtime.Modules.Map.Pooling
 
     public sealed class PoolRegionParticipantPlan : IRegionParticipantPlan
     {
-        private readonly ReadOnlyCollection<RegionPoolProfilePlan> profiles;
+        private readonly RegionImmutableArray<RegionPoolProfilePlan> profiles;
 
         internal PoolRegionParticipantPlan(
             IList<RegionPoolProfilePlan> profiles,
             string fingerprint)
         {
-            this.profiles = new ReadOnlyCollection<RegionPoolProfilePlan>(
-                profiles == null
-                    ? new List<RegionPoolProfilePlan>()
-                    : new List<RegionPoolProfilePlan>(profiles));
+            this.profiles = profiles == null
+                ? RegionImmutableArray<RegionPoolProfilePlan>.Empty
+                : new RegionImmutableArray<RegionPoolProfilePlan>(
+                    profiles);
             Fingerprint = fingerprint ?? string.Empty;
         }
 
@@ -151,7 +150,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Pooling
     }
 
     public sealed class PoolRegionParticipantConfigFreezer :
-        IRegionParticipantConfigFreezer
+        IRegionParticipantConfigFreezer,
+        IRegionRequiresOwningContentDependency
     {
         public Type ConfigurationType => typeof(PoolRegionParticipantConfig);
         public Type PlanType => typeof(PoolRegionParticipantPlan);

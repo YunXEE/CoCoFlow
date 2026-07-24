@@ -127,8 +127,9 @@ namespace CoCoFlow.Runtime.Modules.Map
                     diagnostics,
                     "binding.chunks[" + chunkIndex + "].participants");
 
-                if (!scopeSeeds.ContainsKey(
-                        chunkBinding.OwningContentSlotId))
+                if (!scopeSeeds.TryGetValue(
+                        chunkBinding.OwningContentSlotId,
+                        out NodeSeed owningContentSeed))
                 {
                     AddError(
                         diagnostics,
@@ -136,6 +137,16 @@ namespace CoCoFlow.Runtime.Modules.Map
                         "].owningContentSlotId",
                         RegionErrors.InvalidProfile(
                             "The owning Content slot must be bound in the same Chunk."));
+                }
+                else if (!owningContentSeed.Definition.Registration
+                             .CanOwnChunkScene)
+                {
+                    AddError(
+                        diagnostics,
+                        "binding.chunks[" + chunkIndex +
+                        "].owningContentSlotId",
+                        RegionErrors.SceneContract(
+                            "The owning Content slot must use a Map-authorized Chunk Scene owner registration."));
                 }
             }
 
@@ -146,6 +157,10 @@ namespace CoCoFlow.Runtime.Modules.Map
             ResolveDependencies(
                 allSeeds,
                 globalSeeds,
+                chunkSeeds,
+                diagnostics);
+            ValidateOwningContentDependencies(
+                allSeeds,
                 chunkSeeds,
                 diagnostics);
 
@@ -202,6 +217,10 @@ namespace CoCoFlow.Runtime.Modules.Map
             var ownersByPath =
                 new Dictionary<string, List<SceneOwner>>(
                     StringComparer.Ordinal);
+            var ownersByContentId =
+                new Dictionary<ContentId, List<SceneOwner>>();
+            var ownersByRegionId =
+                new Dictionary<RegionId, List<int>>();
             for (int resultIndex = 0;
                  resultIndex < results.Count;
                  resultIndex++)
@@ -209,6 +228,17 @@ namespace CoCoFlow.Runtime.Modules.Map
                 RegionCompileResult result = results[resultIndex];
                 if (!result.Succeeded) continue;
 
+                if (!ownersByRegionId.TryGetValue(
+                        result.Plan.RegionId,
+                        out List<int> regionOwners))
+                {
+                    regionOwners = new List<int>();
+                    ownersByRegionId.Add(
+                        result.Plan.RegionId,
+                        regionOwners);
+                }
+
+                regionOwners.Add(resultIndex);
                 for (int chunkIndex = 0;
                      chunkIndex < result.Plan.Chunks.Count;
                      chunkIndex++)
@@ -222,17 +252,64 @@ namespace CoCoFlow.Runtime.Modules.Map
                         ownersByPath.Add(chunk.CanonicalScenePath, owners);
                     }
 
-                    owners.Add(
-                        new SceneOwner(
-                            resultIndex,
-                            result.Plan.RegionId,
-                            chunk.ChunkId,
-                            chunk.OwningContentSlotId));
+                    var owner = new SceneOwner(
+                        resultIndex,
+                        result.Plan.RegionId,
+                        chunk.ChunkId,
+                        chunk.OwningContentSlotId);
+                    owners.Add(owner);
+                    if (!ownersByContentId.TryGetValue(
+                            chunk.SceneReference.ContentId,
+                            out List<SceneOwner> contentOwners))
+                    {
+                        contentOwners = new List<SceneOwner>();
+                        ownersByContentId.Add(
+                            chunk.SceneReference.ContentId,
+                            contentOwners);
+                    }
+
+                    contentOwners.Add(owner);
                 }
             }
 
             var duplicateDiagnostics =
                 new Dictionary<int, List<RegionCompileDiagnostic>>();
+            foreach (KeyValuePair<RegionId, List<int>> pair in ownersByRegionId)
+            {
+                if (pair.Value.Count < 2) continue;
+
+                for (int index = 0; index < pair.Value.Count; index++)
+                {
+                    AddDuplicateDiagnostic(
+                        duplicateDiagnostics,
+                        pair.Value[index],
+                        "binding.regionId",
+                        RegionErrors.InvalidIdentifier(
+                            "RegionId '" + pair.Key.Value +
+                            "' is owned by more than one bootstrap Binding."));
+                }
+            }
+
+            foreach (
+                KeyValuePair<ContentId, List<SceneOwner>> pair
+                in ownersByContentId)
+            {
+                if (pair.Value.Count < 2) continue;
+
+                string owners = FormatOwners(pair.Value);
+                for (int index = 0; index < pair.Value.Count; index++)
+                {
+                    AddDuplicateDiagnostic(
+                        duplicateDiagnostics,
+                        pair.Value[index].ResultIndex,
+                        "binding.chunks.sceneSource",
+                        RegionErrors.SceneContract(
+                            "ContentId '" + pair.Key.Value +
+                            "' has multiple owning Region/Chunk/Slot tuples: " +
+                            owners + "."));
+                }
+            }
+
             foreach (KeyValuePair<string, List<SceneOwner>> pair in ownersByPath)
             {
                 if (pair.Value.Count < 2) continue;
@@ -241,23 +318,14 @@ namespace CoCoFlow.Runtime.Modules.Map
                 for (int index = 0; index < pair.Value.Count; index++)
                 {
                     SceneOwner owner = pair.Value[index];
-                    if (!duplicateDiagnostics.TryGetValue(
-                            owner.ResultIndex,
-                            out List<RegionCompileDiagnostic> ownerDiagnostics))
-                    {
-                        ownerDiagnostics = new List<RegionCompileDiagnostic>();
-                        duplicateDiagnostics.Add(
-                            owner.ResultIndex,
-                            ownerDiagnostics);
-                    }
-
-                    ownerDiagnostics.Add(
-                        new RegionCompileDiagnostic(
-                            "binding.chunks.sceneSource",
-                            RegionErrors.SceneContract(
-                                "Scene '" + pair.Key +
-                                "' has multiple owning Region/Chunk/Slot tuples: " +
-                                owners + ".")));
+                    AddDuplicateDiagnostic(
+                        duplicateDiagnostics,
+                        owner.ResultIndex,
+                        "binding.chunks.sceneSource",
+                        RegionErrors.SceneContract(
+                            "Scene '" + pair.Key +
+                            "' has multiple owning Region/Chunk/Slot tuples: " +
+                            owners + "."));
                 }
             }
 
@@ -273,6 +341,26 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
 
             return results.AsReadOnly();
+        }
+
+        private static void AddDuplicateDiagnostic(
+            IDictionary<int, List<RegionCompileDiagnostic>> diagnosticsByResult,
+            int resultIndex,
+            string path,
+            CoCoDiagnostic diagnostic)
+        {
+            if (!diagnosticsByResult.TryGetValue(
+                    resultIndex,
+                    out List<RegionCompileDiagnostic> diagnostics))
+            {
+                diagnostics = new List<RegionCompileDiagnostic>();
+                diagnosticsByResult.Add(resultIndex, diagnostics);
+            }
+
+            diagnostics.Add(
+                new RegionCompileDiagnostic(
+                    path,
+                    diagnostic));
         }
 
         private static List<RegionCompiledChunk> CompileChunks(
@@ -563,7 +651,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                     nodeId,
                     binding,
                     definition,
-                    participantScene);
+                    participantScene,
+                    owningContentSlotId);
                 scopeSeeds.Add(binding.SlotId, seed);
                 allSeeds.Add(seed);
 
@@ -726,6 +815,45 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
         }
 
+        private static void ValidateOwningContentDependencies(
+            IReadOnlyList<NodeSeed> seeds,
+            IReadOnlyDictionary<
+                RegionChunkId,
+                Dictionary<RegionParticipantSlotId, NodeSeed>> chunkSeeds,
+            IList<RegionCompileDiagnostic> diagnostics)
+        {
+            for (int index = 0; index < seeds.Count; index++)
+            {
+                NodeSeed seed = seeds[index];
+                if (!seed.Id.HasChunkId ||
+                    !(seed.Definition.Registration.ConfigFreezer is
+                        IRegionRequiresOwningContentDependency))
+                {
+                    continue;
+                }
+
+                if (!seed.OwningContentSlotId.IsValid ||
+                    !chunkSeeds.TryGetValue(
+                        seed.Id.ChunkId,
+                        out Dictionary<
+                            RegionParticipantSlotId,
+                            NodeSeed> localSeeds) ||
+                    !localSeeds.TryGetValue(
+                        seed.OwningContentSlotId,
+                        out NodeSeed owningContentSeed) ||
+                    !owningContentSeed.Definition.Registration
+                        .CanOwnChunkScene ||
+                    !seed.Dependencies.Contains(owningContentSeed.Id))
+                {
+                    AddError(
+                        diagnostics,
+                        "binding.nodes." + seed.Id + ".dependencies",
+                        RegionErrors.InvalidProfile(
+                            "A Chunk-scoped participant that owns dependent resources must directly depend on the same Chunk's authoritative Content slot."));
+                }
+            }
+        }
+
         private static RegionCompiledParticipantNode FreezeNode(
             NodeSeed seed,
             IList<RegionCompileDiagnostic> diagnostics)
@@ -769,22 +897,61 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
 
             Type expectedPlanType =
-                seed.Definition.Registration.ConfigFreezer.PlanType;
+                seed.Definition.Registration.PlanType;
             if (participantPlan == null ||
-                !expectedPlanType.IsInstanceOfType(participantPlan) ||
-                string.IsNullOrWhiteSpace(participantPlan.Fingerprint))
+                participantPlan.GetType() != expectedPlanType)
             {
                 AddError(
                     diagnostics,
                     "binding.nodes." + seed.Id + ".configuration",
                     RegionErrors.CompilationFailed(
-                        "The config freezer must return its registered immutable plan type with a deterministic non-empty fingerprint."));
+                        "The config freezer must return exactly its registered immutable plan type."));
+                return null;
+            }
+
+            string participantFingerprint;
+            try
+            {
+                participantFingerprint = participantPlan.Fingerprint;
+            }
+            catch (Exception exception)
+            {
+                AddError(
+                    diagnostics,
+                    "binding.nodes." + seed.Id + ".configuration",
+                    RegionErrors.CompilationFailed(
+                        "The frozen participant plan fingerprint threw: " +
+                        exception.Message));
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(participantFingerprint))
+            {
+                AddError(
+                    diagnostics,
+                    "binding.nodes." + seed.Id + ".configuration",
+                    RegionErrors.CompilationFailed(
+                        "The frozen participant plan requires a deterministic non-empty fingerprint."));
+                return null;
+            }
+
+            if (!RegionPlanPurityValidator.TryValidate(
+                    participantPlan,
+                    out string purityFailure))
+            {
+                AddError(
+                    diagnostics,
+                    "binding.nodes." + seed.Id + ".configuration",
+                    RegionErrors.CompilationFailed(
+                        "The frozen participant plan is not immutable pure data: " +
+                        purityFailure));
                 return null;
             }
 
             string fingerprint = BuildNodeFingerprint(
                 seed,
-                participantPlan);
+                participantPlan,
+                participantFingerprint);
             return new RegionCompiledParticipantNode(
                 seed.Id,
                 seed.Definition.Source.ParticipantTypeId,
@@ -802,7 +969,8 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private static string BuildNodeFingerprint(
             NodeSeed seed,
-            IRegionParticipantPlan participantPlan)
+            IRegionParticipantPlan participantPlan,
+            string participantFingerprint)
         {
             var builder = new FingerprintBuilder();
             builder.Append(seed.Id.ToString());
@@ -829,7 +997,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             AppendScene(ref builder, seed.SceneReference);
             builder.Append(
                 participantPlan.GetType().AssemblyQualifiedName);
-            builder.Append(participantPlan.Fingerprint);
+            builder.Append(participantFingerprint);
             return builder.Complete();
         }
 
@@ -971,18 +1139,21 @@ namespace CoCoFlow.Runtime.Modules.Map
                 RegionPlanNodeId id,
                 RegionParticipantSlotBinding binding,
                 RegionCompiledParticipantDefinition definition,
-                RegionCompiledSceneReference sceneReference)
+                RegionCompiledSceneReference sceneReference,
+                RegionParticipantSlotId owningContentSlotId)
             {
                 Id = id;
                 Binding = binding;
                 Definition = definition;
                 SceneReference = sceneReference;
+                OwningContentSlotId = owningContentSlotId;
             }
 
             internal RegionPlanNodeId Id { get; }
             internal RegionParticipantSlotBinding Binding { get; }
             internal RegionCompiledParticipantDefinition Definition { get; }
             internal RegionCompiledSceneReference SceneReference { get; }
+            internal RegionParticipantSlotId OwningContentSlotId { get; }
             internal List<RegionPlanNodeId> Dependencies { get; } =
                 new List<RegionPlanNodeId>();
         }

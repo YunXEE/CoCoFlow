@@ -45,6 +45,14 @@ namespace CoCoFlow.Runtime.Modules.Map
             out CoCoDiagnostic diagnostic);
     }
 
+    /// <summary>
+    /// Internal adapter contract for participants whose owned resources must be
+    /// released before the Chunk's authoritative Content lease.
+    /// </summary>
+    internal interface IRegionRequiresOwningContentDependency
+    {
+    }
+
     public interface IRegionParticipantFactory
     {
         Type CandidateType { get; }

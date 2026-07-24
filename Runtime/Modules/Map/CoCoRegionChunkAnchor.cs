@@ -60,6 +60,13 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return false;
             }
 
+            if (transform.childCount != 0)
+            {
+                diagnostic = RegionErrors.SceneContract(
+                    "The chunk Anchor root is metadata-only and cannot contain child GameObjects; place managed content in inactive sibling roots.");
+                return false;
+            }
+
             GameObject[] sceneRoots = scene.GetRootGameObjects();
             int anchorCount = 0;
             var expectedManagedRoots = new HashSet<GameObject>();

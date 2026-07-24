@@ -121,7 +121,12 @@ namespace CoCoFlow.Runtime.Modules.Map.Pooling.Tests
                     out RegionParticipantRegistration registration));
                 Assert.AreEqual(
                     typeof(PoolRegionParticipantCandidate),
-                    registration.Factory.CandidateType);
+                    registration.CandidateType);
+                Assert.IsTrue(
+                    RegionPlanPurityValidator.TryValidate(
+                        harness.Plan,
+                        out string purityFailure),
+                    purityFailure);
                 CollectionAssert.Contains(
                     (ICollection<Type>)RegionBuiltInPoolCatalog.AotTypes,
                     typeof(PoolRegionParticipantCandidate));

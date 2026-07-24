@@ -1,6 +1,9 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-pre.9` · Updated 2026-07-23
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-24
+>
+> Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
+> package, Player-build, and Package Validation Suite evidence is recorded.
 
 Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity
@@ -96,9 +99,20 @@ normally available in Editor/Development builds and disabled in Release builds.
 - UI owns panel instances and keeps one Prefab Source lease alive until each
   instance is actually destroyed. Pre9 does not migrate the retained UI module
   to Pooling; navigation and any later pooled-UI policy remain Pre12.
-- Map owns requester-scoped Additive Scene demands. Different requesters may
-  share one physical scene load, and one requester cannot unload another's
-  lease. Additive Scenes are not pooled; Region/Chunk policy remains Pre10.
+- Map resolves owner-scoped Region demand into transactional Region-global and
+  per-Chunk participant nodes. Its built-in Content participant is the sole
+  Additive Scene lease authority for Map-managed scenes. Public Map participant
+  context does not expose raw `ContentScope`, so project and TA participants
+  cannot acquire or release the managed Scene out of band.
+- A managed Chunk Scene cold-starts with exactly one metadata-only
+  `CoCoRegionChunkAnchor` root; all other managed roots begin inactive. Map
+  resolves fragments only after Content returns the exact Scene lease and scans
+  only that leased Scene. A Map Direct Scene locator must be a full asset path;
+  an Addressables locator must resolve to one unique Scene asset at authoring
+  validation time.
+- Additive Scenes are never pooled. Map can bind a separate Pool Scope to a
+  stable committed participant node for transient instances inside the Region,
+  but that Scope cannot retain, release, or substitute the Scene lease.
 - One prepared Pool Entry owns exactly one Prefab Source `ContentLease` until
   its idle, rented, pending-destroy, and Temporal-retained physical instances
   are terminal. Pooling owns those instances and their generation-safe
@@ -110,8 +124,16 @@ normally available in Editor/Development builds and disabled in Release builds.
   drain before disposing Content Scopes, so source release does not depend on
   Unity component destruction order.
 
+Normal world shutdown is explicitly composed as Map, then Pool, then Content.
+If Content shutdown begins first, it is treated as an idempotent terminal
+fallback: dependent Map and Pool ownership drains coordinate before Content
+disposes their Scopes. This fallback is not the normal lifecycle order and does
+not make Content a global Map/Pool service locator.
+
 Content leases, Unity Objects, backend locators, and handles never enter
 StateFlow Frames, Temporal history, or Persistence documents.
 
 See [Object Pooling and Instance Ownership](ObjectPooling.md) for the instance
-ownership, reset, capacity, Scope-close, and Temporal-retention contracts.
+ownership, reset, capacity, Scope-close, and Temporal-retention contracts. See
+[Map Region Fidelity](Module-Map.md) for Region/Chunk demand, cold-start Scene,
+and transactional participant ownership.

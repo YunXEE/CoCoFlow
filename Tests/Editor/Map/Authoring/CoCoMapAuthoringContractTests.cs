@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using CoCoFlow.Fixtures.ExternalMapTa;
 using CoCoFlow.Runtime.Core;
@@ -83,7 +81,7 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
                     out RegionParticipantRegistration registration),
                 Is.True);
             Assert.That(
-                registration.ConfigFreezer.ConfigurationType,
+                registration.ConfigurationType,
                 Is.EqualTo(typeof(ExternalWeatherParticipantConfig)));
             Assert.That(
                 catalog.RegisteredTypes.All(
@@ -96,9 +94,8 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
         }
 
         [Test]
-        public void AbstractAotMetadataFailsClosedBeforeLinker()
+        public void AbstractPlanMetadataFailsClosedAtRegistration()
         {
-            var catalog = new RegionParticipantCatalog();
             Assert.That(
                 RegionCapabilitySet.TryCreate(
                     new[] { RegionCapabilityId.Represented },
@@ -123,40 +120,14 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
                     new ConcreteCandidateFactory(),
                     out RegionParticipantRegistration registration,
                     out CoCoDiagnostic registrationDiagnostic),
-                Is.True,
-                registrationDiagnostic.Message);
+                Is.False);
             Assert.That(
-                catalog.TryRegisterParticipant(
-                    registration,
-                    out CoCoDiagnostic catalogDiagnostic),
-                Is.True,
-                catalogDiagnostic.Message);
-            catalog.Seal();
-
-            Type validationType = Type.GetType(
-                "CoCoFlow.Editor.Modules.Map.CoCoMapBuildValidation, " +
-                "CoCoFlow.Editor.Modules.Map",
-                true);
-            MethodInfo validate = validationType.GetMethod(
-                "ValidatePlayerAssemblyClosure",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.That(validate, Is.Not.Null);
-
-            var messages =
-                new SortedSet<string>(StringComparer.Ordinal);
-            validate.Invoke(
-                null,
-                new object[] { catalog, messages });
-
+                registration,
+                Is.Null);
             Assert.That(
-                messages.Any(
-                    message =>
-                        message.Contains(
-                            typeof(AbstractPlan).FullName) &&
-                        message.Contains(
-                            "closed concrete metadata type")),
-                Is.True,
-                string.Join(Environment.NewLine, messages));
+                registrationDiagnostic.Code,
+                Is.EqualTo(
+                    CoCoDiagnosticCode.RegionCatalogConflict));
         }
 
         [Serializable]
