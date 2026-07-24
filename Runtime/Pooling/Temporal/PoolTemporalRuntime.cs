@@ -625,15 +625,6 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 {
                     return false;
                 }
-
-                if (!PoolTemporalAccess.TryGetInstance(
-                        record.Token,
-                        out _,
-                        out CoCoDiagnostic diagnostic))
-                {
-                    MarkUnavailable(record, diagnostic);
-                    return false;
-                }
             }
 
             for (int index = 0; index < _recordCount; index++)
@@ -646,15 +637,6 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
                 if (record.Unavailable)
                 {
-                    return false;
-                }
-
-                if (!PoolTemporalAccess.TryGetInstance(
-                        record.Token,
-                        out _,
-                        out CoCoDiagnostic diagnostic))
-                {
-                    MarkUnavailable(record, diagnostic);
                     return false;
                 }
             }

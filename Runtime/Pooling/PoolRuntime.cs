@@ -396,8 +396,32 @@ namespace CoCoFlow.Runtime.Pooling
                 return UniTask.FromResult(CoCoDiagnostic.None);
             }
 
+            if (!HasOutstandingOwnership())
+            {
+                return ShutdownAsync();
+            }
+
             ForceShutdown();
             return AwaitSharedTaskAsync(shutdownTask);
+        }
+
+        private bool HasOutstandingOwnership()
+        {
+            foreach (PoolScope scope in scopes)
+            {
+                PoolScopeSnapshot scopeSnapshot = scope.CaptureSnapshot();
+                foreach (PoolEntrySnapshot entry in scopeSnapshot.Entries)
+                {
+                    if (entry.ActiveCount != 0 ||
+                        entry.TemporalRetainedCount != 0 ||
+                        entry.QuarantineCount != 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private void ScheduleRetentionRootDestroy()

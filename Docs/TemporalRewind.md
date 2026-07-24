@@ -119,6 +119,13 @@ current/preview metadata, rewind/restore dropped-input count, and whether the
 selection can Confirm. It does not expose mutable Frames, payload buffers,
 prepared candidates, arena handles, or long-lived history tokens.
 
+The Confirm eligibility flag is a side-effect-free structural snapshot derived
+from cached Temporal records. Reading `TemporalState` never probes Unity object
+liveness, marks a retained physical identity unavailable, or latches world
+correction. Actual projection and Confirm preparation revalidate the physical
+identity and may still reject a selection that became unavailable after the
+snapshot was read.
+
 Depth is absolute from the branch head: `0` means current authority, `1` means
 the preceding recorded commit, and so on. Confirm requires a historical depth;
 selecting current authority does not manufacture a new Epoch.
@@ -285,9 +292,10 @@ authoritative for gameplay values.
 
 The aggregate binding freezes the downstream Restore component at Host attach:
 whether it was configured, its exact `MonoBehaviour` identity, and its interface
-reference. Every projection validates that frozen identity, Unity liveness, and
-Host boundary before Pool mutation, again before the downstream call, and after
-the call returns. A destroyed, replaced, moved, rejecting, or throwing
+reference. Every public Adopt, Activate, or Despawn mutation and every
+projection validates that frozen identity, Unity liveness, and Host boundary
+before Pool mutation; projection validates it again before the downstream call
+and after the call returns. A destroyed, replaced, moved, rejecting, or throwing
 downstream cannot silently degrade to “not configured” and cannot proceed to
 after-restore Pool activation. Once a downstream callback has started, failure
 uses the Host's existing world-correction path; CoCoFlow does not fabricate a

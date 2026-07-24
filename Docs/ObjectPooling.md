@@ -182,10 +182,15 @@ also releases without another Return. Force Destroy is reserved for unavailable
 physical identity, reset/reparent failure, or callback re-entry.
 
 Pooling also registers an internal dependency drain with its `ContentRuntime`.
-If Content shutdown begins first, it starts and awaits Pool shutdown before
-disposing Content Scopes. Correct ownership therefore does not depend on
-`MonoBehaviour.OnDisable` or `OnDestroy` ordering, although explicit project
-shutdown may still close Pooling before Content for clearer diagnostics.
+If Content shutdown begins first, Pooling synchronously checks every Entry. A
+runtime with no active, Temporal-retained, or quarantined ownership uses the
+normal graceful shutdown path and returns no forced-shutdown warning. Idle,
+pending-destroy, and cancelled-Prepare cleanup still waits for physical
+termination before releasing source ownership. If any active or Temporal
+ownership remains, Pooling uses forced shutdown, reports
+`PoolForcedShutdown`, and preserves the same physical terminal barrier.
+Correct ownership therefore does not depend on `MonoBehaviour.OnDisable` or
+`OnDestroy` ordering.
 
 ## Temporal retained entities
 

@@ -42,7 +42,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             ref PooledHandle handle,
             out CoCoDiagnostic diagnostic)
         {
-            if (!TryRequireRuntime(out diagnostic))
+            if (!TryRequireMutationRuntime(out diagnostic))
             {
                 return false;
             }
@@ -59,7 +59,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             CoCoTemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
-            if (!TryRequireRuntime(out diagnostic))
+            if (!TryRequireMutationRuntime(out diagnostic))
             {
                 return false;
             }
@@ -73,7 +73,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             CoCoTemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
-            if (!TryRequireRuntime(out diagnostic))
+            if (!TryRequireMutationRuntime(out diagnostic))
             {
                 return false;
             }
@@ -317,6 +317,21 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
             diagnostic = ConflictError(
                 "Pool Temporal Binding is not attached to live StateGraph and Pool Hosts.");
+            _lastDiagnostic = diagnostic;
+            return false;
+        }
+
+        private bool TryRequireMutationRuntime(
+            out CoCoDiagnostic diagnostic)
+        {
+            if (TryRequireRuntime(out diagnostic) &&
+                TryValidateFrozenDownstream(
+                    stateGraphHost,
+                    out diagnostic))
+            {
+                return true;
+            }
+
             _lastDiagnostic = diagnostic;
             return false;
         }

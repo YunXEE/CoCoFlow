@@ -35,6 +35,14 @@ namespace CoCoFlow.Tests.Runtime.Pooling
             UniTask.ToCoroutine(RunContentShutdownDependencyAsync);
 
         [UnityTest]
+        public IEnumerator ContentShutdownGracefullyDrainsIdlePoolWithoutWarning() =>
+            UniTask.ToCoroutine(RunCleanContentShutdownDependencyAsync);
+
+        [UnityTest]
+        public IEnumerator ContentShutdownGracefullyAwaitsPendingDestroyWithoutWarning() =>
+            UniTask.ToCoroutine(RunPendingDestroyContentShutdownDependencyAsync);
+
+        [UnityTest]
         public IEnumerator AlreadyCancelledPrewarmLeavesReadySnapshotUntouched() =>
             UniTask.ToCoroutine(RunAlreadyCancelledPrewarmAsync);
 
@@ -427,12 +435,12 @@ namespace CoCoFlow.Tests.Runtime.Pooling
                     Is.False);
                 Assert.That(invalidated.IsNone, Is.False);
                 Assert.That(
-                    PoolLifecycleProbe.Events.Any(
+                    PoolLifecycleProbe.Events.Count(
                         value =>
                             value ==
                             "return:content-shutdown:ForcedShutdown:False"),
-                    Is.True,
-                    "Content-triggered Pool drain must run the ForcedShutdown reset.");
+                    Is.EqualTo(1),
+                    "Content-triggered Pool drain must run exactly one ForcedShutdown reset.");
 
                 for (int frame = 0;
                      frame < 20 &&
@@ -446,8 +454,229 @@ namespace CoCoFlow.Tests.Runtime.Pooling
                 Assert.That(fixture.PoolRuntime.IsDisposed, Is.True);
                 Assert.That(fixture.ContentRuntime.IsDisposed, Is.True);
                 CoCoDiagnostic shutdown = await shuttingDown;
-                Assert.That(shutdown.IsError, Is.False, shutdown.Message);
-                Assert.That(fixture.PoolRuntime.CaptureSnapshot().Scopes, Is.Empty);
+                Assert.That(shutdown.IsWarning, Is.True, shutdown.Message);
+                Assert.That(
+                    shutdown.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PoolForcedShutdown));
+                PoolRuntimeSnapshot finalized =
+                    fixture.PoolRuntime.CaptureSnapshot();
+                Assert.That(finalized.Scopes, Is.Empty);
+                Assert.That(
+                    finalized.Diagnostics.Count(
+                        record =>
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.ForcedShutdown &&
+                            !record.PoolId.IsValid),
+                    Is.EqualTo(1));
+                Assert.That(
+                    fixture.ContentRuntime.CaptureSnapshot().Entries,
+                    Is.Empty);
+            }
+            finally
+            {
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask RunCleanContentShutdownDependencyAsync()
+        {
+            PoolLifecycleProbe.ResetEvents();
+            PoolingTestFixture fixture = PoolingTestFixture.Create(
+                0,
+                1,
+                prefab =>
+                    prefab.AddComponent<PoolLifecycleProbe>()
+                        .Configure("clean-content-shutdown"));
+            try
+            {
+                PoolPrepareResult prepared =
+                    await fixture.Scope.PrepareAsync(fixture.Profile);
+                Assert.That(prepared.Succeeded, Is.True, prepared.Diagnostic.Message);
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryGetInstance(
+                        out GameObject instance,
+                        out CoCoDiagnostic resolve),
+                    Is.True,
+                    resolve.Message);
+                instance.transform.SetParent(fixture.OwnerRoot.transform, false);
+                Assert.That(
+                    handle.TryActivate(out CoCoDiagnostic activated),
+                    Is.True,
+                    activated.Message);
+                Assert.That(
+                    handle.TryReturn(out CoCoDiagnostic returned),
+                    Is.True,
+                    returned.Message);
+
+                PoolEntrySnapshot idle =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(idle.ActiveCount, Is.Zero);
+                Assert.That(idle.InactiveCount, Is.EqualTo(1));
+                Assert.That(idle.TemporalRetainedCount, Is.Zero);
+                Assert.That(idle.QuarantineCount, Is.Zero);
+                PoolLifecycleProbe.ResetEvents();
+
+                UniTask<CoCoDiagnostic> shuttingDown =
+                    fixture.ContentRuntime.ShutdownAsync();
+
+                Assert.That(fixture.ContentRuntime.IsShuttingDown, Is.True);
+                Assert.That(fixture.ContentRuntime.IsDisposed, Is.False);
+                PoolRuntimeSnapshot pendingPool =
+                    fixture.PoolRuntime.CaptureSnapshot();
+                Assert.That(pendingPool.IsShuttingDown, Is.True);
+                Assert.That(pendingPool.IsDisposed, Is.False);
+                Assert.That(pendingPool.Scopes, Has.Count.EqualTo(1));
+                Assert.That(
+                    pendingPool.Diagnostics.Any(
+                        record =>
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.ForcedShutdown),
+                    Is.False);
+                Assert.That(
+                    fixture.ContentRuntime.CaptureSnapshot()
+                        .Entries.Single().LeaseCount,
+                    Is.EqualTo(1),
+                    "Graceful Content-first shutdown must retain the source lease " +
+                    "until the idle physical instance is terminal.");
+                Assert.That(
+                    PoolLifecycleProbe.Events.Any(
+                        value => value.Contains("ForcedShutdown")),
+                    Is.False);
+
+                for (int frame = 0;
+                     frame < 20 &&
+                     (!fixture.PoolRuntime.IsDisposed ||
+                      !fixture.ContentRuntime.IsDisposed);
+                     frame++)
+                {
+                    await UniTask.NextFrame();
+                }
+
+                Assert.That(fixture.PoolRuntime.IsDisposed, Is.True);
+                Assert.That(fixture.ContentRuntime.IsDisposed, Is.True);
+                CoCoDiagnostic shutdown = await shuttingDown;
+                Assert.That(shutdown.IsNone, Is.True, shutdown.Message);
+                PoolRuntimeSnapshot finalized =
+                    fixture.PoolRuntime.CaptureSnapshot();
+                Assert.That(finalized.Scopes, Is.Empty);
+                Assert.That(
+                    finalized.Diagnostics.Any(
+                        record =>
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.ForcedShutdown),
+                    Is.False);
+                Assert.That(
+                    fixture.ContentRuntime.CaptureSnapshot().Entries,
+                    Is.Empty);
+            }
+            finally
+            {
+                await fixture.CleanupAsync();
+            }
+        }
+
+        private static async UniTask
+            RunPendingDestroyContentShutdownDependencyAsync()
+        {
+            PoolingTestFixture fixture = PoolingTestFixture.Create(0, 1);
+            try
+            {
+                PoolPrepareResult prepared =
+                    await fixture.Scope.PrepareAsync(fixture.Profile);
+                Assert.That(prepared.Succeeded, Is.True, prepared.Diagnostic.Message);
+                Assert.That(
+                    fixture.Scope.TryRent(
+                        fixture.Profile.Id,
+                        out PooledHandle handle,
+                        out CoCoDiagnostic rent),
+                    Is.True,
+                    rent.Message);
+                Assert.That(
+                    handle.TryReturn(out CoCoDiagnostic returned),
+                    Is.True,
+                    returned.Message);
+                PoolEntrySnapshot idle =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(idle.ActiveCount, Is.Zero);
+                Assert.That(idle.InactiveCount, Is.EqualTo(1));
+                Assert.That(
+                    fixture.Scope.TryClearInactive(
+                        fixture.Profile.Id,
+                        out CoCoDiagnostic cleared),
+                    Is.True,
+                    cleared.Message);
+
+                PoolEntrySnapshot pendingDestroy =
+                    fixture.Scope.CaptureSnapshot().Entries.Single();
+                Assert.That(pendingDestroy.ActiveCount, Is.Zero);
+                Assert.That(pendingDestroy.InactiveCount, Is.Zero);
+                Assert.That(pendingDestroy.TemporalRetainedCount, Is.Zero);
+                Assert.That(pendingDestroy.QuarantineCount, Is.Zero);
+                Assert.That(pendingDestroy.PendingDestroyCount, Is.EqualTo(1));
+
+                UniTask<CoCoDiagnostic> shuttingDown =
+                    fixture.ContentRuntime.ShutdownAsync();
+
+                PoolRuntimeSnapshot pendingPool =
+                    fixture.PoolRuntime.CaptureSnapshot();
+                Assert.That(pendingPool.IsShuttingDown, Is.True);
+                Assert.That(pendingPool.IsDisposed, Is.False);
+                Assert.That(pendingPool.Scopes, Has.Count.EqualTo(1));
+                Assert.That(
+                    pendingPool.Scopes.Single()
+                        .Entries.Single().PendingDestroyCount,
+                    Is.EqualTo(1));
+                Assert.That(
+                    pendingPool.Diagnostics.Any(
+                        record =>
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.ForcedShutdown),
+                    Is.False);
+                Assert.That(
+                    fixture.ContentRuntime.CaptureSnapshot()
+                        .Entries.Single().LeaseCount,
+                    Is.EqualTo(1),
+                    "Graceful Content-first shutdown must retain the source lease " +
+                    "until the pending physical destroy is terminal.");
+
+                for (int frame = 0;
+                     frame < 20 &&
+                     (!fixture.PoolRuntime.IsDisposed ||
+                      !fixture.ContentRuntime.IsDisposed);
+                     frame++)
+                {
+                    await UniTask.NextFrame();
+                }
+
+                Assert.That(fixture.PoolRuntime.IsDisposed, Is.True);
+                Assert.That(fixture.ContentRuntime.IsDisposed, Is.True);
+                CoCoDiagnostic shutdown = await shuttingDown;
+                Assert.That(shutdown.IsNone, Is.True, shutdown.Message);
+                PoolRuntimeSnapshot finalized =
+                    fixture.PoolRuntime.CaptureSnapshot();
+                Assert.That(finalized.Scopes, Is.Empty);
+                Assert.That(
+                    finalized.Diagnostics.Any(
+                        record =>
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.ForcedShutdown),
+                    Is.False);
+                Assert.That(
+                    finalized.Diagnostics.Count(
+                        record =>
+                            record.InstanceSequence ==
+                            handle.InstanceSequence &&
+                            record.EventKind ==
+                            PoolDiagnosticEventKind.InstanceDestroyed),
+                    Is.EqualTo(1),
+                    "The pending Pool-owned destroy must reach exactly one terminal event.");
                 Assert.That(
                     fixture.ContentRuntime.CaptureSnapshot().Entries,
                     Is.Empty);

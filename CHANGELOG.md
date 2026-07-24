@@ -53,6 +53,15 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 ### Fixed
 
+- Avoided forced-shutdown warnings for clean Content-first Pool dependency
+  drains while preserving terminal force cleanup and diagnostics for live
+  physical or Temporal ownership.
+- Guarded public Temporal Adopt, Activate, and Despawn mutations with the frozen
+  downstream Restore identity, Unity-liveness, and Host-boundary checks before
+  Pool ownership can change.
+- Kept `TemporalState` Confirm eligibility observation side-effect free;
+  physical identity is revalidated by the actual projection and Confirm
+  preparation paths.
 - Restored each physical instance's captured prefab-root local transform
   baseline whenever normal or Temporal ownership returns it to retention.
 - Preserved explicit Scene Root and the latest live Transform parent across
