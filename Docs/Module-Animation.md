@@ -74,8 +74,8 @@ Playable graph, playback token, modulation, root-motion relay, or Temporal
 restore path.
 
 `AnimOperator` additionally requires Playback and Modulation Sections and owns
-the `AnimPlaybackContext` outcome. It publishes Activation-, TimelineEpoch-,
-OperationSequence-, and layer-scoped `AnimPlaybackToken` values with
+the `AnimPlaybackContext` outcome. It publishes GraphInstance-, Activation-,
+TimelineEpoch-, OperationSequence-, and layer-scoped `AnimPlaybackToken` values with
 `Playing`, `CrossFading`, `Completed`, or `Interrupted` lifecycle state;
 `AnimPlaybackContext.IsHeld` separately records the graph hold.
 
@@ -84,7 +84,8 @@ OperationSequence-, and layer-scoped `AnimPlaybackToken` values with
 1. Author layers, states, transitions, Blend Trees, parameters, and clips in
    the Unity Animator Controller.
 2. Add either `AnimAutoOperator` or `AnimOperator` beside the `Animator`. The
-   two components are mutually exclusive on one Animator.
+   variants share one Animation Operator identity, so one Host may contain only
+   one of them even when it owns multiple Animators.
 3. Bind the same-boundary `CoCoStateGraphHost`.
 4. Map stable binding IDs to existing Controller parameters, triggers, layers,
    and full state paths. `AnimOperator` may also map modulation targets.
@@ -98,17 +99,19 @@ paths. They do not edit or mirror the Animator state machine. Runtime binding
 rebuild is available in Play Mode after Inspector changes.
 
 `AnimEventSmb` emits State Enter, configured Marker, and State Exit signals. It
-keeps per-Animator trigger state so one shared SMB asset does not leak marker
-flags between Animator instances. Marker delivery scans the absolute
+keeps fixed current/next cursors per Animator layer, so shared SMB assets and
+same-state transitions do not merge outgoing and incoming marker intervals.
+Marker delivery scans the absolute
 normalized-time interval `(previous, current]`, including multiple loop
 boundaries and the tail observed on State Exit. Backwards or non-finite time
 only establishes a new cursor; it does not synthesize reverse events.
 For a visible non-looping state, `AnimOperator` classifies normalized time
-`>= 1` as `Completed` before considering its outgoing transition. An earlier
-transition remains `Interrupted`; during a same-state transition, the active
-token reads the next state instance rather than the outgoing instance. Outward
-SMB records remain committed Events and never become direct StateGraph
-callbacks.
+`>= 1` as `Completed` only when an outgoing transition began at or after that
+boundary. A transition that began earlier remains `Interrupted`, including a
+single large evaluation that crosses `1`; an ambiguous transition is
+fail-closed as interrupted. During a same-state transition, the active token
+reads the next state instance rather than the outgoing instance. Outward SMB
+records remain committed Events and never become direct StateGraph callbacks.
 
 ## Playable Evaluation
 
@@ -123,6 +126,9 @@ generic Playable wrapper.
   graph.
 - `Stop` holds evaluation, stops owned modulation, and interrupts active
   playback tokens.
+- Host Stop/Start creates a new Graph instance. `AnimOperator` rebuilds its
+  local Playable runtime before the first write and does not inherit playback,
+  Hold, tween, feedback, root-motion, or modulation-stamp state.
 
 Zero, negative, NaN, and infinite Step values are rejected. Animation V2 does
 not run negative Tick delta and does not evaluate the Playable graph backwards.
@@ -144,7 +150,8 @@ not an immediate root-motion side effect.
 - `COCOFLOW_DOTWEEN_SUPPORT` enables
   `CoCoFlow.Runtime.Modules.Animation.DOTween`. Adapter-owned modulation ticks
   only tweens created and owned by the Animation adapter; it never calls the
-  global `DOTween.ManualUpdate`.
+  global `DOTween.ManualUpdate`. A target write failure stops the owned batch,
+  invalidates modulation stamps, and rejects the current Operator transaction.
 - `COCOFLOW_UNITASK_SUPPORT` enables
   `CoCoFlow.Runtime.Modules.Animation.UniTask`.
   `WaitForTerminalStatusAsync` waits for one published playback token.

@@ -23,6 +23,8 @@ namespace CoCoFlow.Tests.Runtime.Animation
         private const ulong ModulationBindingValue = 603UL;
         private const ulong EarlyExitBindingValue = 604UL;
         private const ulong PlainOneShotBindingValue = 605UL;
+        private const ulong IncomingMarkerBindingValue = 606UL;
+        private const ulong OutgoingMarkerBindingValue = 607UL;
         private readonly List<UnityEngine.Object> _objects =
             new List<UnityEngine.Object>();
 
@@ -238,6 +240,10 @@ namespace CoCoFlow.Tests.Runtime.Animation
             playable.Play(plainOneShotHash, 0, 0f);
             EvaluateAsCandidate(animationOperator, graph, 0f);
             EvaluateAsCandidate(animationOperator, graph, 0.51f);
+            AnimatorStateInfo plainCurrent =
+                playable.GetCurrentAnimatorStateInfo(0);
+            AnimatorTransitionInfo plainTransition =
+                playable.GetAnimatorTransitionInfo(0);
             InvokeUpdatePlaybackStates(animationOperator);
 
             AnimPlaybackLayer plainCompleted =
@@ -245,7 +251,14 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.That(
                 plainCompleted.Status,
                 Is.EqualTo(AnimPlaybackStatus.Completed),
-                "Completion must not depend on AnimEventSmb.");
+                "Completion must not depend on AnimEventSmb. " +
+                $"current={plainCurrent.normalizedTime}, " +
+                $"length={plainCurrent.length}, " +
+                $"speed={plainCurrent.speed}, " +
+                $"multiplier={plainCurrent.speedMultiplier}, " +
+                $"transition={plainTransition.normalizedTime}, " +
+                $"duration={plainTransition.duration}, " +
+                $"unit={plainTransition.durationUnit}.");
             Assert.That(
                 plainCompleted.Token,
                 Is.EqualTo(plainCompletedToken));
@@ -297,7 +310,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 Animator.StringToHash("Base Layer.EarlyExit");
             playable.Play(earlyExitHash, 0, 0f);
             EvaluateAsCandidate(animationOperator, graph, 0f);
-            EvaluateAsCandidate(animationOperator, graph, 0.81f);
+            EvaluateAsCandidate(animationOperator, graph, 1.01f);
             Assert.That(
                 playable.GetCurrentAnimatorStateInfo(0).fullPathHash,
                 Is.EqualTo(earlyExitHash));
@@ -378,6 +391,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 0.5f,
                 0,
                 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
             EvaluateAsCandidate(animationOperator, graph, 0.3f);
             InvokeUpdatePlaybackStates(animationOperator);
 
@@ -389,6 +403,37 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.That(
                 crossFadedSameState.Status,
                 Is.EqualTo(AnimPlaybackStatus.CrossFading));
+            EvaluateAsCandidate(animationOperator, graph, 0.3f);
+            string sameStateFeedback = string.Join(
+                ", ",
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Select(staged =>
+                        staged.Record.Kind + ":" +
+                        staged.Record.EventBindingId.Value + "@" +
+                        staged.Record.NormalizedTime));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.StateMarker &&
+                        staged.Record.EventBindingId.Value ==
+                        IncomingMarkerBindingValue),
+                Is.EqualTo(1),
+                "The incoming same-state cursor must emit its marker exactly once. " +
+                sameStateFeedback);
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.StateMarker &&
+                        staged.Record.EventBindingId.Value ==
+                        OutgoingMarkerBindingValue),
+                Is.EqualTo(1),
+                "The outgoing same-state cursor must emit its marker exactly once. " +
+                sameStateFeedback);
             Assert.That(
                 stagedEvents
                     .Take(feedback.Count)
@@ -507,13 +552,18 @@ namespace CoCoFlow.Tests.Runtime.Animation
             SetField(
                 smb,
                 "eventConfigs",
-                new[] { CreateEventConfig(602UL, 0.8f) });
+                new[]
+                {
+                    CreateEventConfig(IncomingMarkerBindingValue, 0.2f),
+                    CreateEventConfig(602UL, 0.8f),
+                    CreateEventConfig(OutgoingMarkerBindingValue, 0.9f)
+                });
             AnimatorStateTransition exitEarly =
                 earlyExit.AddTransition(idle);
             exitEarly.hasExitTime = true;
             exitEarly.exitTime = 0.8f;
             exitEarly.hasFixedDuration = true;
-            exitEarly.duration = 0.1f;
+            exitEarly.duration = 0.5f;
             earlyExit.AddStateMachineBehaviour<AnimEventSmb>();
             AnimatorStateTransition exitPlainOneShot =
                 plainOneShot.AddTransition(idle);
@@ -875,8 +925,12 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 LastStoppedBinding = target.BindingId;
             }
 
-            public void ManualUpdate(float positiveDeltaSeconds)
+            public bool TryManualUpdate(
+                float positiveDeltaSeconds,
+                out CoCoDiagnostic diagnostic)
             {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
             }
 
             public void StopAll()

@@ -52,12 +52,20 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
                     second,
                     out CoCoDiagnostic secondDiagnostic),
                 secondDiagnostic.Message);
-            _adapter.ManualUpdate(0.25f);
+            Assert.IsTrue(
+                _adapter.TryManualUpdate(
+                    0.25f,
+                    out CoCoDiagnostic updateDiagnostic),
+                updateDiagnostic.Message);
             float stoppedValue = _host.Read(first).x;
             float secondValue = _host.Read(second).x;
 
             _adapter.Stop(first);
-            _adapter.ManualUpdate(0.25f);
+            Assert.IsTrue(
+                _adapter.TryManualUpdate(
+                    0.25f,
+                    out updateDiagnostic),
+                updateDiagnostic.Message);
 
             Assert.That(_host.Read(first).x, Is.EqualTo(stoppedValue));
             Assert.That(_host.Read(second).x, Is.GreaterThan(secondValue));
@@ -83,11 +91,55 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
                     target,
                     out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
-            _adapter.ManualUpdate(0.5f);
+            Assert.IsTrue(
+                _adapter.TryManualUpdate(
+                    0.5f,
+                    out CoCoDiagnostic updateDiagnostic),
+                updateDiagnostic.Message);
 
             Vector4 value = _host.Read(target);
             Assert.That(value.sqrMagnitude, Is.GreaterThan(0.99f));
             Assert.That(value.w, Is.GreaterThan(0.99f));
+        }
+
+        [Test]
+        public void ManualUpdate_WriteFailureStopsAllOwnedTweensAndReturnsError()
+        {
+            AnimModulationTarget first = CreateTarget(
+                504UL,
+                AnimModulationKind.FloatParameter);
+            AnimModulationTarget second = CreateTarget(
+                505UL,
+                AnimModulationKind.FloatParameter);
+            _host.Set(first, Vector4.zero);
+            _host.Set(second, Vector4.zero);
+            Assert.IsTrue(
+                _adapter.TryStart(
+                    CreateCommand(first, 10f, 1f),
+                    first,
+                    out CoCoDiagnostic firstDiagnostic),
+                firstDiagnostic.Message);
+            Assert.IsTrue(
+                _adapter.TryStart(
+                    CreateCommand(second, 20f, 1f),
+                    second,
+                    out CoCoDiagnostic secondDiagnostic),
+                secondDiagnostic.Message);
+
+            _host.RejectedBinding = first.BindingId;
+            Assert.IsFalse(
+                _adapter.TryManualUpdate(
+                    0.25f,
+                    out CoCoDiagnostic diagnostic));
+            Assert.IsTrue(diagnostic.IsError);
+            Vector4 secondValue = _host.Read(second);
+            _host.RejectedBinding = default;
+            Assert.IsTrue(
+                _adapter.TryManualUpdate(
+                    0.25f,
+                    out diagnostic),
+                diagnostic.Message);
+            Assert.That(_host.Read(second), Is.EqualTo(secondValue));
         }
 
         private static AnimModulationTarget CreateTarget(
@@ -152,6 +204,7 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
         {
             private readonly Dictionary<AnimBindingId, Vector4> _values =
                 new Dictionary<AnimBindingId, Vector4>();
+            internal AnimBindingId RejectedBinding { get; set; }
 
             internal void Set(
                 in AnimModulationTarget target,
@@ -176,6 +229,11 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
                 in AnimModulationTarget target,
                 in Vector4 value)
             {
+                if (target.BindingId == RejectedBinding)
+                {
+                    return false;
+                }
+
                 _values[target.BindingId] = value;
                 return true;
             }

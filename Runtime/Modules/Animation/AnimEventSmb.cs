@@ -36,7 +36,16 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             InstanceState state = GetOrCreateState(animator);
             state.Receiver = ResolveReceiver(animator);
-            state.ResetForEnter(stateInfo.normalizedTime);
+            TryResolveStateSnapshot(
+                state.Receiver,
+                animator,
+                layerIndex,
+                out AnimSmbStateSnapshot snapshot);
+            StateCursor cursor = state
+                .GetLayer(layerIndex)
+                .BeginEnter(
+                    snapshot,
+                    stateInfo);
             if (state.Receiver == null ||
                 !IsSupportedNormalizedTime(stateInfo.normalizedTime))
             {
@@ -52,7 +61,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         loopCount,
                         stateInfo.normalizedTime)))
             {
-                state.ReceiverRejected = true;
+                cursor.ReceiverRejected = true;
             }
         }
 
@@ -67,32 +76,48 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return;
             }
 
-            // Rejection stops only the current callback enumeration. A poisoned
-            // Operator buffer continues rejecting immediately until its recovery
-            // boundary, while a new Graph/Epoch must be allowed to try again.
-            state.ReceiverRejected = false;
-            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime))
+            LayerState layer = state.GetLayer(layerIndex);
+            TryResolveStateSnapshot(
+                state.Receiver,
+                animator,
+                layerIndex,
+                out AnimSmbStateSnapshot snapshot);
+            StateCursor cursor = layer.Resolve(
+                snapshot,
+                stateInfo,
+                false);
+            if (cursor == null)
             {
-                state.Rebase(stateInfo.normalizedTime);
                 return;
             }
 
-            if (!state.HasPreviousNormalizedTime ||
-                stateInfo.normalizedTime < state.PreviousNormalizedTime)
+            // Rejection stops only the current callback enumeration. A poisoned
+            // Operator buffer continues rejecting immediately until its recovery
+            // boundary, while a new Graph/Epoch must be allowed to try again.
+            cursor.ReceiverRejected = false;
+            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime))
+            {
+                cursor.Rebase(stateInfo.normalizedTime);
+                return;
+            }
+
+            if (!cursor.HasPreviousNormalizedTime ||
+                stateInfo.normalizedTime < cursor.PreviousNormalizedTime)
             {
                 // Controller reset, re-entry or a backwards seek: establish a
                 // new baseline but never synthesize reverse/retroactive markers.
-                state.Rebase(stateInfo.normalizedTime);
+                cursor.Rebase(stateInfo.normalizedTime);
                 return;
             }
 
             EmitCrossedMarkers(
                 state,
+                cursor,
                 stateInfo,
                 layerIndex,
-                state.PreviousNormalizedTime,
+                cursor.PreviousNormalizedTime,
                 stateInfo.normalizedTime);
-            state.Rebase(stateInfo.normalizedTime);
+            cursor.Rebase(stateInfo.normalizedTime);
         }
 
         public override void OnStateExit(
@@ -110,30 +135,47 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return;
             }
 
-            // See OnStateUpdate: this flag is callback-local, not a second
-            // lifetime latch beside the Operator's feedback buffer.
-            state.ReceiverRejected = false;
-            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime) ||
-                (state.HasPreviousNormalizedTime &&
-                 stateInfo.normalizedTime < state.PreviousNormalizedTime))
+            LayerState layer = state.GetLayer(layerIndex);
+            TryResolveStateSnapshot(
+                state.Receiver,
+                animator,
+                layerIndex,
+                out AnimSmbStateSnapshot snapshot);
+            StateCursor cursor = layer.Resolve(
+                snapshot,
+                stateInfo,
+                true);
+            if (cursor == null)
             {
-                state.Rebase(stateInfo.normalizedTime);
                 return;
             }
 
-            if (state.HasPreviousNormalizedTime)
+            // See OnStateUpdate: this flag is callback-local, not a second
+            // lifetime latch beside the Operator's feedback buffer.
+            cursor.ReceiverRejected = false;
+            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime) ||
+                (cursor.HasPreviousNormalizedTime &&
+                 stateInfo.normalizedTime < cursor.PreviousNormalizedTime))
+            {
+                cursor.Rebase(stateInfo.normalizedTime);
+                layer.Release(cursor, snapshot);
+                return;
+            }
+
+            if (cursor.HasPreviousNormalizedTime)
             {
                 EmitCrossedMarkers(
                     state,
+                    cursor,
                     stateInfo,
                     layerIndex,
-                    state.PreviousNormalizedTime,
+                    cursor.PreviousNormalizedTime,
                     stateInfo.normalizedTime);
-                state.Rebase(stateInfo.normalizedTime);
+                cursor.Rebase(stateInfo.normalizedTime);
             }
 
             int loopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
-            if (!state.ReceiverRejected &&
+            if (!cursor.ReceiverRejected &&
                 !state.Receiver.TryReceiveSmbSignal(
                     AnimSmbSignal.State(
                         AnimSmbSignalKind.StateExit,
@@ -142,23 +184,27 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         loopCount,
                         stateInfo.normalizedTime)))
             {
-                state.ReceiverRejected = true;
+                cursor.ReceiverRejected = true;
             }
+
+            layer.Release(cursor, snapshot);
         }
 
         private void EmitCrossedMarkers(
             InstanceState state,
+            StateCursor cursor,
             AnimatorStateInfo stateInfo,
             int layerIndex,
             float previousNormalizedTime,
             float currentNormalizedTime)
         {
-            if (state.ReceiverRejected || currentNormalizedTime <= previousNormalizedTime)
+            if (cursor.ReceiverRejected ||
+                currentNormalizedTime <= previousNormalizedTime)
             {
                 return;
             }
 
-            state.ReceiverRejected = !TryEmitCrossedMarkers(
+            cursor.ReceiverRejected = !TryEmitCrossedMarkers(
                 eventConfigs,
                 stateInfo.loop,
                 stateInfo.fullPathHash,
@@ -323,6 +369,38 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return animator.GetComponent<AnimAutoOperator>();
         }
 
+        private static bool TryResolveStateSnapshot(
+            IAnimEventReceiver receiver,
+            Animator animator,
+            int layerIndex,
+            out AnimSmbStateSnapshot snapshot)
+        {
+            if (receiver is IAnimEventStateResolver resolver &&
+                resolver.TryCaptureSmbState(
+                    layerIndex,
+                    out snapshot))
+            {
+                return true;
+            }
+
+            if (animator == null ||
+                layerIndex < 0 ||
+                layerIndex >= animator.layerCount)
+            {
+                snapshot = default;
+                return false;
+            }
+
+            bool inTransition = animator.IsInTransition(layerIndex);
+            snapshot = new AnimSmbStateSnapshot(
+                animator.GetCurrentAnimatorStateInfo(layerIndex),
+                inTransition,
+                inTransition
+                    ? animator.GetNextAnimatorStateInfo(layerIndex)
+                    : default);
+            return snapshot.IsValid;
+        }
+
         private static bool IsFinite(float value) =>
             !float.IsNaN(value) && !float.IsInfinity(value);
 
@@ -355,12 +433,230 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private sealed class InstanceState
         {
             internal IAnimEventReceiver Receiver;
-            internal bool HasPreviousNormalizedTime;
-            internal float PreviousNormalizedTime;
-            internal bool ReceiverRejected;
+            private LayerState[] _layers = Array.Empty<LayerState>();
 
-            internal void ResetForEnter(float normalizedTime)
+            internal LayerState GetLayer(int layerIndex)
             {
+                if (layerIndex < 0)
+                {
+                    return null;
+                }
+
+                if (layerIndex >= _layers.Length)
+                {
+                    Array.Resize(ref _layers, layerIndex + 1);
+                }
+
+                return _layers[layerIndex] ??=
+                    new LayerState();
+            }
+        }
+
+        private sealed class LayerState
+        {
+            private readonly StateCursor _current = new StateCursor();
+            private readonly StateCursor _next = new StateCursor();
+            private bool _wasInTransition;
+
+            internal StateCursor BeginEnter(
+                in AnimSmbStateSnapshot snapshot,
+                AnimatorStateInfo stateInfo)
+            {
+                bool isIncoming =
+                    snapshot.IsValid &&
+                    snapshot.IsInTransition &&
+                    snapshot.NextStateHash ==
+                    stateInfo.fullPathHash;
+                if (!isIncoming)
+                {
+                    _next.Clear();
+                    _wasInTransition = false;
+                    _current.ResetForEnter(
+                        stateInfo.fullPathHash,
+                        stateInfo.normalizedTime);
+                    return _current;
+                }
+
+                _wasInTransition = true;
+                StateCursor cursor;
+                if (!_current.IsActive)
+                {
+                    cursor = _current;
+                }
+                else if (!_next.IsActive)
+                {
+                    cursor = _next;
+                }
+                else
+                {
+                    // Mecanim exposes only current and next state instances.
+                    // A third enter means the previously tracked next instance
+                    // can no longer receive an independently addressable callback.
+                    cursor = _next;
+                }
+
+                cursor.ResetForEnter(
+                    stateInfo.fullPathHash,
+                    stateInfo.normalizedTime);
+                return cursor;
+            }
+
+            internal StateCursor Resolve(
+                in AnimSmbStateSnapshot snapshot,
+                AnimatorStateInfo callbackState,
+                bool forExit)
+            {
+                if (!forExit &&
+                    _wasInTransition &&
+                    snapshot.IsValid &&
+                    !snapshot.IsInTransition &&
+                    _next.IsActive)
+                {
+                    PromoteNext();
+                    _wasInTransition = false;
+                }
+                else if (snapshot.IsValid &&
+                         snapshot.IsInTransition)
+                {
+                    _wasInTransition = true;
+                }
+
+                bool currentMatches =
+                    _current.IsActive &&
+                    _current.StateHash == callbackState.fullPathHash;
+                bool nextMatches =
+                    _next.IsActive &&
+                    _next.StateHash == callbackState.fullPathHash;
+                if (!currentMatches && !nextMatches)
+                {
+                    return null;
+                }
+
+                bool inTransition =
+                    snapshot.IsValid &&
+                    snapshot.IsInTransition;
+                if (!forExit &&
+                    !inTransition &&
+                    nextMatches &&
+                    snapshot.CurrentStateHash == _next.StateHash)
+                {
+                    PromoteNext();
+                    _wasInTransition = false;
+                    return _current;
+                }
+
+                if (currentMatches && !nextMatches)
+                {
+                    return _current;
+                }
+
+                if (!currentMatches)
+                {
+                    if (!forExit && !inTransition)
+                    {
+                        PromoteNext();
+                        return _current;
+                    }
+
+                    return _next;
+                }
+
+                if (inTransition)
+                {
+                    float currentDistance = StateDistance(
+                        callbackState,
+                        snapshot.CurrentStateHash,
+                        snapshot.CurrentNormalizedTime,
+                        _current);
+                    float nextDistance = StateDistance(
+                        callbackState,
+                        snapshot.NextStateHash,
+                        snapshot.NextNormalizedTime,
+                        _next);
+                    return nextDistance < currentDistance
+                        ? _next
+                        : _current;
+                }
+
+                if (forExit)
+                {
+                    return CursorDistance(callbackState, _next) <
+                           CursorDistance(callbackState, _current)
+                        ? _next
+                        : _current;
+                }
+
+                return _current;
+            }
+
+            internal void Release(
+                StateCursor cursor,
+                in AnimSmbStateSnapshot snapshot)
+            {
+                bool releasedCurrent = ReferenceEquals(cursor, _current);
+                cursor.Clear();
+                if (releasedCurrent &&
+                    _next.IsActive &&
+                    (!snapshot.IsValid ||
+                     !snapshot.IsInTransition))
+                {
+                    PromoteNext();
+                    _wasInTransition = false;
+                }
+            }
+
+            private void PromoteNext()
+            {
+                _current.CopyFrom(_next);
+                _next.Clear();
+            }
+
+            private static float StateDistance(
+                AnimatorStateInfo callbackState,
+                int animatorStateHash,
+                float animatorNormalizedTime,
+                StateCursor cursor)
+            {
+                if (animatorStateHash != callbackState.fullPathHash ||
+                    !IsSupportedNormalizedTime(animatorNormalizedTime))
+                {
+                    return float.PositiveInfinity;
+                }
+
+                float animatorDistance = Mathf.Abs(
+                    callbackState.normalizedTime -
+                    animatorNormalizedTime);
+                return animatorDistance +
+                       CursorDistance(callbackState, cursor) *
+                       0.0001f;
+            }
+
+            private static float CursorDistance(
+                AnimatorStateInfo callbackState,
+                StateCursor cursor)
+            {
+                return cursor.HasPreviousNormalizedTime
+                    ? Mathf.Abs(
+                        callbackState.normalizedTime -
+                        cursor.PreviousNormalizedTime)
+                    : float.PositiveInfinity;
+            }
+        }
+
+        private sealed class StateCursor
+        {
+            internal int StateHash { get; private set; }
+            internal bool IsActive { get; private set; }
+            internal bool HasPreviousNormalizedTime { get; private set; }
+            internal float PreviousNormalizedTime { get; private set; }
+            internal bool ReceiverRejected { get; set; }
+
+            internal void ResetForEnter(
+                int stateHash,
+                float normalizedTime)
+            {
+                StateHash = stateHash;
+                IsActive = true;
                 ReceiverRejected = false;
                 Rebase(normalizedTime);
             }
@@ -370,6 +666,26 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 HasPreviousNormalizedTime =
                     IsSupportedNormalizedTime(normalizedTime);
                 PreviousNormalizedTime = normalizedTime;
+            }
+
+            internal void CopyFrom(StateCursor source)
+            {
+                StateHash = source.StateHash;
+                IsActive = source.IsActive;
+                HasPreviousNormalizedTime =
+                    source.HasPreviousNormalizedTime;
+                PreviousNormalizedTime =
+                    source.PreviousNormalizedTime;
+                ReceiverRejected = source.ReceiverRejected;
+            }
+
+            internal void Clear()
+            {
+                StateHash = default;
+                IsActive = false;
+                HasPreviousNormalizedTime = false;
+                PreviousNormalizedTime = default;
+                ReceiverRejected = false;
             }
         }
     }
@@ -442,5 +758,51 @@ namespace CoCoFlow.Runtime.Modules.Animation
     internal interface IAnimEventReceiver
     {
         bool TryReceiveSmbSignal(in AnimSmbSignal signal);
+    }
+
+    internal interface IAnimEventStateResolver
+    {
+        bool TryCaptureSmbState(
+            int layerIndex,
+            out AnimSmbStateSnapshot snapshot);
+    }
+
+    internal readonly struct AnimSmbStateSnapshot
+    {
+        internal AnimSmbStateSnapshot(
+            AnimatorStateInfo current,
+            bool isInTransition,
+            AnimatorStateInfo next)
+        {
+            CurrentStateHash = current.fullPathHash;
+            CurrentNormalizedTime = current.normalizedTime;
+            IsInTransition = isInTransition;
+            NextStateHash = isInTransition
+                ? next.fullPathHash
+                : default;
+            NextNormalizedTime = isInTransition
+                ? next.normalizedTime
+                : default;
+            IsValid =
+                CurrentStateHash != 0 &&
+                IsFiniteNonNegative(CurrentNormalizedTime) &&
+                (!isInTransition ||
+                 (NextStateHash != 0 &&
+                  IsFiniteNonNegative(NextNormalizedTime)));
+        }
+
+        internal int CurrentStateHash { get; }
+        internal float CurrentNormalizedTime { get; }
+        internal bool IsInTransition { get; }
+        internal int NextStateHash { get; }
+        internal float NextNormalizedTime { get; }
+        internal bool IsValid { get; }
+
+        private static bool IsFiniteNonNegative(float value)
+        {
+            return !float.IsNaN(value) &&
+                   !float.IsInfinity(value) &&
+                   value >= 0f;
+        }
     }
 }

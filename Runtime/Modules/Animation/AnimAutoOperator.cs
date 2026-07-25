@@ -12,7 +12,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         MonoBehaviour,
         ICoCoOperator,
         ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>,
-        IAnimEventReceiver
+        IAnimEventReceiver,
+        IAnimEventStateResolver
     {
         [SerializeField] private Animator animator;
         [SerializeField] private CoCoStateGraphHost stateGraphHost;
@@ -174,6 +175,28 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
 
             return true;
+        }
+
+        bool IAnimEventStateResolver.TryCaptureSmbState(
+            int layerIndex,
+            out AnimSmbStateSnapshot snapshot)
+        {
+            if (animator == null ||
+                layerIndex < 0 ||
+                layerIndex >= animator.layerCount)
+            {
+                snapshot = default;
+                return false;
+            }
+
+            bool inTransition = animator.IsInTransition(layerIndex);
+            snapshot = new AnimSmbStateSnapshot(
+                animator.GetCurrentAnimatorStateInfo(layerIndex),
+                inTransition,
+                inTransition
+                    ? animator.GetNextAnimatorStateInfo(layerIndex)
+                    : default);
+            return snapshot.IsValid;
         }
 
         private bool ApplyParameters(IAnimParameterOperationSection section)

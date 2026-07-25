@@ -47,6 +47,14 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Changed `AnimOperator.CurrentPlayback` and `TryGetPlayback` to report only
   committed `AnimPlaybackContext` state. Candidate execution state remains
   private and cannot leak through a cancelled transaction.
+- Made the Auto and Advanced descriptors aliases of one Host-exclusive
+  Animation Operator identity. A Host cannot configure both variants.
+- Scoped playback tokens and the Advanced Playable runtime to the current
+  `GraphInstanceId`; Host Stop/Start rebuilds local playback, Hold, modulation,
+  root-motion, and feedback state before the next execution.
+- Isolated SMB marker cursors by Animator layer and current/next state instance,
+  preserved early-transition interruption across large evaluations, and made
+  DOTween target-write failures reject the Operator transaction explicitly.
 - Updated Setup Assistant reporting, public documentation, the package version,
   and the two existing Unity Package Validation Suite exception scopes to
   `0.4.0-pre.11`. DOTween and UniTask remain optional rather than hard package
@@ -54,12 +62,14 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 ### Verification
 
-- `PASS`: Unity 6000.3.20f1 Batchmode reimport and compilation; focused Setup
-  EditMode (`9/9`); focused Animation PlayMode (`31 PASS`, `0 FAIL`, with the
-  frozen G1/G3 replay probes intentionally `INCONCLUSIVE`). The PlayMode
-  fixture executes a real `AnimatorControllerPlayable` with Loop, OneShot
-  exit-time, Parameter, SMB Marker, Root Motion, natural completion, early
-  interruption, and committed-only playback-query checks.
+- `PASS`: on this six-fix Head, Unity 6000.3.20f1 Batchmode reimport and
+  compilation; focused Setup EditMode (`9/9`); focused non-Replay Animation
+  PlayMode (`24/24`). The real `AnimatorControllerPlayable` fixture covers
+  Loop, OneShot exit-time, Parameter, concurrent same-state SMB Markers, Root
+  Motion, natural completion, large-Tick early interruption, and
+  committed-only playback queries.
+- `FROZEN`: the prior G1/G3 Replay probes remain intentionally
+  `INCONCLUSIVE`; this fix pass did not rerun or change Exact Replay.
 - `BASELINE`: repeated package-wide EditMode runs are
   `593 PASS / 15 FAIL / 1 SKIP` and `592 PASS / 16 FAIL / 1 SKIP`, against
   exact Base `0df9d486` at `586 PASS / 15 FAIL / 1 SKIP`. The 15 baseline

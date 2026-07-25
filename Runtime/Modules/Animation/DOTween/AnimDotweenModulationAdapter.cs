@@ -101,22 +101,31 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
             return true;
         }
 
-        public void ManualUpdate(float positiveDeltaSeconds)
+        public bool TryManualUpdate(
+            float positiveDeltaSeconds,
+            out CoCoDiagnostic diagnostic)
         {
+            diagnostic = CoCoDiagnostic.None;
             if (_isDisposed ||
                 positiveDeltaSeconds <= 0f ||
                 float.IsNaN(positiveDeltaSeconds) ||
                 float.IsInfinity(positiveDeltaSeconds))
             {
-                return;
+                diagnostic = AnimOperatorContracts.Error(
+                    "DOTween modulation requires one positive finite manual delta on a live adapter.");
+                return false;
             }
 
             for (int index = _ownedTweenCount - 1; index >= 0; index--)
             {
                 OwnedTween owned = _ownedTweens[index];
+                if (owned.WriteFailed)
+                {
+                    return FailWrite(out diagnostic);
+                }
+
                 if (owned.Tween == null ||
-                    !owned.Tween.IsActive() ||
-                    owned.WriteFailed)
+                    !owned.Tween.IsActive())
                 {
                     RemoveAt(index);
                     continue;
@@ -125,13 +134,19 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
                 owned.Tween.ManualUpdate(
                     positiveDeltaSeconds,
                     positiveDeltaSeconds);
-                if (owned.WriteFailed ||
-                    !owned.Tween.IsActive() ||
+                if (owned.WriteFailed)
+                {
+                    return FailWrite(out diagnostic);
+                }
+
+                if (!owned.Tween.IsActive() ||
                     owned.Tween.IsComplete())
                 {
                     RemoveAt(index);
                 }
             }
+
+            return true;
         }
 
         public void Stop(in AnimModulationTarget target)
@@ -172,6 +187,14 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
                     RemoveAt(index);
                 }
             }
+        }
+
+        private bool FailWrite(out CoCoDiagnostic diagnostic)
+        {
+            StopAll();
+            diagnostic = AnimOperatorContracts.Error(
+                "DOTween modulation lost a writable target during manual evaluation.");
+            return false;
         }
 
         private void RemoveAt(int index)

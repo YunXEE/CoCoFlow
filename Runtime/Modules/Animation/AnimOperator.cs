@@ -18,6 +18,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         ICoCoTemporalDecoratorBinding,
         ICoCoStateGraphTemporalParticipant,
         IAnimEventReceiver,
+        IAnimEventStateResolver,
         IAnimModulationHost
     {
         [SerializeField] private Animator animator;
@@ -46,6 +47,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
             new AnimRootMotionRelay();
         private readonly AnimPlaybackLayer[] _layerStates =
             new AnimPlaybackLayer[AnimContractLimits.PlaybackLayerCount];
+        private readonly TransitionObservation[] _transitionObservations =
+            new TransitionObservation[AnimContractLimits.PlaybackLayerCount];
 
         private AnimParameterTarget[] _parameterTargets = Array.Empty<AnimParameterTarget>();
         private AnimTriggerTarget[] _triggerTargets = Array.Empty<AnimTriggerTarget>();
@@ -294,7 +297,19 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             if (evaluationPlan.ShouldEvaluate)
             {
-                _modulationAdapter?.ManualUpdate(evaluationPlan.DeltaSeconds);
+                if (_modulationAdapter != null &&
+                    !_modulationAdapter.TryManualUpdate(
+                        evaluationPlan.DeltaSeconds,
+                        out _lastDiagnostic))
+                {
+                    Array.Clear(
+                        _modulationStamps,
+                        0,
+                        _modulationStamps.Length);
+                    outcome = CoCoOperatorOutcome.Rejected(_lastDiagnostic);
+                    return true;
+                }
+
                 _rootMotionRelay.ResetEvaluation();
                 _isEvaluating = true;
                 try
@@ -406,6 +421,31 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
 
             return true;
+        }
+
+        bool IAnimEventStateResolver.TryCaptureSmbState(
+            int layerIndex,
+            out AnimSmbStateSnapshot snapshot)
+        {
+            if (!_controllerPlayable.IsValid() ||
+                layerIndex < 0 ||
+                layerIndex >= _controllerPlayable.GetLayerCount())
+            {
+                snapshot = default;
+                return false;
+            }
+
+            bool inTransition =
+                _controllerPlayable.IsInTransition(layerIndex);
+            snapshot = new AnimSmbStateSnapshot(
+                _controllerPlayable.GetCurrentAnimatorStateInfo(
+                    layerIndex),
+                inTransition,
+                inTransition
+                    ? _controllerPlayable.GetNextAnimatorStateInfo(
+                        layerIndex)
+                    : default);
+            return snapshot.IsValid;
         }
 
         bool IAnimModulationHost.TryReadModulation(
@@ -1014,7 +1054,56 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     : nextMatches
                         ? Mathf.Max(0f, next.normalizedTime)
                         : previous.NormalizedTime;
+                bool outgoingTransition =
+                    !sameStateTransition &&
+                    inTransition &&
+                    currentMatches &&
+                    !nextMatches;
+                if (sameStateTransition)
+                {
+                    _transitionObservations[lane] = default;
+                }
+                else if (outgoingTransition)
+                {
+                    TransitionObservation observation =
+                        ObserveTransition(
+                            lane,
+                            previous.Token,
+                            current,
+                            _controllerPlayable.GetAnimatorTransitionInfo(
+                                controllerLayer));
+                    if (observation.StartedBeforeCompletion)
+                    {
+                        CompletePlayback(
+                            lane,
+                            previous,
+                            AnimPlaybackStatus.Interrupted,
+                            AnimFeedbackKind.PlaybackInterrupted,
+                            normalizedTime);
+                        continue;
+                    }
+
+                    if (!current.loop && current.normalizedTime >= 1f)
+                    {
+                        normalizedTime = Mathf.Max(
+                            normalizedTime,
+                            1f);
+                        CompletePlayback(
+                            lane,
+                            previous,
+                            AnimPlaybackStatus.Completed,
+                            AnimFeedbackKind.PlaybackCompleted,
+                            normalizedTime);
+                        continue;
+                    }
+                }
+                else
+                {
+                    _transitionObservations[lane] = default;
+                }
+
                 if (!sameStateTransition &&
+                    !outgoingTransition &&
                     currentMatches &&
                     !current.loop &&
                     current.normalizedTime >= 1f)
@@ -1022,31 +1111,23 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     normalizedTime = Mathf.Max(
                         normalizedTime,
                         1f);
-                    _layerStates[lane] = new AnimPlaybackLayer(
-                        previous.Slot,
-                        previous.Token,
-                        previous.StateBindingId,
+                    CompletePlayback(
+                        lane,
+                        previous,
                         AnimPlaybackStatus.Completed,
-                        normalizedTime);
-                    AppendPlaybackFeedback(
                         AnimFeedbackKind.PlaybackCompleted,
-                        previous.Token,
                         normalizedTime);
                     continue;
                 }
 
                 if ((!currentMatches && !nextMatches) ||
-                    (inTransition && currentMatches && !nextMatches))
+                    outgoingTransition)
                 {
-                    _layerStates[lane] = new AnimPlaybackLayer(
-                        previous.Slot,
-                        previous.Token,
-                        previous.StateBindingId,
+                    CompletePlayback(
+                        lane,
+                        previous,
                         AnimPlaybackStatus.Interrupted,
-                        normalizedTime);
-                    AppendPlaybackFeedback(
                         AnimFeedbackKind.PlaybackInterrupted,
-                        previous.Token,
                         normalizedTime);
                     continue;
                 }
@@ -1072,6 +1153,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private void InterruptLayer(int lane)
         {
+            _transitionObservations[lane] = default;
             AnimPlaybackLayer previous = _layerStates[lane];
             if (!previous.IsActive)
             {
@@ -1088,6 +1170,99 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 AnimFeedbackKind.PlaybackInterrupted,
                 previous.Token,
                 previous.NormalizedTime);
+        }
+
+        private void CompletePlayback(
+            int lane,
+            in AnimPlaybackLayer previous,
+            AnimPlaybackStatus status,
+            AnimFeedbackKind feedbackKind,
+            float normalizedTime)
+        {
+            _transitionObservations[lane] = default;
+            _layerStates[lane] = new AnimPlaybackLayer(
+                previous.Slot,
+                previous.Token,
+                previous.StateBindingId,
+                status,
+                normalizedTime);
+            AppendPlaybackFeedback(
+                feedbackKind,
+                previous.Token,
+                normalizedTime);
+        }
+
+        private TransitionObservation ObserveTransition(
+            int lane,
+            AnimPlaybackToken token,
+            in AnimatorStateInfo current,
+            in AnimatorTransitionInfo transition)
+        {
+            TransitionObservation observation =
+                _transitionObservations[lane];
+            if (observation.HasValue && observation.Token == token)
+            {
+                return observation;
+            }
+
+            bool startedBeforeCompletion =
+                !TryRecoverTransitionStart(
+                    current,
+                    transition,
+                    out float startNormalizedTime) ||
+                startNormalizedTime < 0.9999f;
+            observation = new TransitionObservation(
+                token,
+                startedBeforeCompletion);
+            _transitionObservations[lane] = observation;
+            return observation;
+        }
+
+        private static bool TryRecoverTransitionStart(
+            in AnimatorStateInfo current,
+            in AnimatorTransitionInfo transition,
+            out float startNormalizedTime)
+        {
+            startNormalizedTime = default;
+            if (!IsFinite(current.normalizedTime) ||
+                !IsFinite(transition.normalizedTime) ||
+                !IsFinite(transition.duration) ||
+                transition.normalizedTime < 0f ||
+                transition.duration < 0f)
+            {
+                return false;
+            }
+
+            float normalizedAdvance;
+            if (transition.durationUnit == DurationUnit.Fixed)
+            {
+                float effectiveSpeed =
+                    Mathf.Abs(current.speed * current.speedMultiplier);
+                if (!IsFinite(current.length) ||
+                    !IsFinite(effectiveSpeed) ||
+                    current.length <= 0f ||
+                    effectiveSpeed <= 0f)
+                {
+                    return false;
+                }
+
+                normalizedAdvance =
+                    transition.normalizedTime *
+                    transition.duration /
+                    current.length;
+            }
+            else
+            {
+                normalizedAdvance =
+                    transition.normalizedTime *
+                    transition.duration;
+            }
+
+            startNormalizedTime =
+                current.normalizedTime - normalizedAdvance;
+            return IsFinite(normalizedAdvance) &&
+                   normalizedAdvance >= 0f &&
+                   IsFinite(startNormalizedTime);
         }
 
         private void AppendPlaybackFeedback(
@@ -1127,6 +1302,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     default,
                     AnimPlaybackStatus.None,
                     0f);
+                _transitionObservations[lane] = default;
             }
 
             _isHeld = false;
@@ -1375,6 +1551,22 @@ namespace CoCoFlow.Runtime.Modules.Animation
             internal bool IsValid =>
                 !ShouldEvaluate ||
                 (DeltaSeconds > 0f && IsFinite(DeltaSeconds));
+        }
+
+        private readonly struct TransitionObservation
+        {
+            internal TransitionObservation(
+                AnimPlaybackToken token,
+                bool startedBeforeCompletion)
+            {
+                Token = token;
+                StartedBeforeCompletion = startedBeforeCompletion;
+                HasValue = token.IsValid;
+            }
+
+            internal AnimPlaybackToken Token { get; }
+            internal bool StartedBeforeCompletion { get; }
+            internal bool HasValue { get; }
         }
 
         internal static bool IsPlaybackControlAllowed(
