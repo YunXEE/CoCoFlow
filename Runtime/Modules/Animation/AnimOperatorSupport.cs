@@ -327,6 +327,20 @@ namespace CoCoFlow.Runtime.Modules.Animation
                    _timelineEpoch == other._timelineEpoch;
         }
 
+        internal bool IsSameSource(in AnimFeedbackSourceStamp other)
+        {
+            return _kind == other._kind &&
+                   _kind != SourceKind.None &&
+                   _graphInstanceId == other._graphInstanceId &&
+                   _timelineEpoch == other._timelineEpoch &&
+                   _tick == other._tick &&
+                   _executionSequence == other._executionSequence &&
+                   _revision == other._revision;
+        }
+
+        internal bool IsCommittedContext =>
+            _kind == SourceKind.CommittedContext;
+
         internal bool MatchesCandidate(
             CoCoGraphInstanceId graphInstanceId,
             CoCoTimelineEpoch timelineEpoch,
@@ -408,14 +422,53 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoOperatorExecutionContext context,
             CoCoStateGraphHost host)
         {
-            if (Overflowed &&
-                context.IsValid &&
-                host != null &&
-                host.GraphInstanceId.IsValid)
+            if (!context.IsValid ||
+                host == null ||
+                !host.GraphInstanceId.IsValid)
+            {
+                return;
+            }
+
+            if (Overflowed)
             {
                 PrepareForTimeline(
                     host.GraphInstanceId,
                     context.TickFrame.TimelineEpoch);
+                if (Overflowed)
+                {
+                    return;
+                }
+            }
+
+            int originalCount = _count;
+            int retainedCount = 0;
+            for (int index = 0; index < originalCount; index++)
+            {
+                if (!_sources[index].Matches(context, host))
+                {
+                    continue;
+                }
+
+                if (retainedCount != index)
+                {
+                    _events[retainedCount] = _events[index];
+                    _sources[retainedCount] = _sources[index];
+                }
+
+                retainedCount++;
+            }
+
+            if (retainedCount < originalCount)
+            {
+                Array.Clear(
+                    _events,
+                    retainedCount,
+                    originalCount - retainedCount);
+                Array.Clear(
+                    _sources,
+                    retainedCount,
+                    originalCount - retainedCount);
+                _count = retainedCount;
             }
         }
 
@@ -444,17 +497,29 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return false;
             }
 
-            AnimFeedbackSourceStamp batchSource = Overflowed
-                ? _overflowSource
-                : _count > 0
-                    ? _sources[0]
-                    : default;
-            if (batchSource.IsValid &&
-                !batchSource.IsSameTimeline(source))
+            if (Overflowed &&
+                !_overflowSource.IsSameTimeline(source))
             {
                 // A new Graph/Epoch owns a new transaction even when its first
                 // callback arrives before the next Operator execution.
                 Clear();
+            }
+            else if (!Overflowed && _count > 0)
+            {
+                AnimFeedbackSourceStamp batchSource = _sources[0];
+                bool sameSource = batchSource.IsSameSource(source);
+                if (!batchSource.IsSameTimeline(source) ||
+                    (source.IsCommittedContext && !sameSource) ||
+                    (!source.IsCommittedContext &&
+                     !batchSource.IsCommittedContext &&
+                     !sameSource))
+                {
+                    // A newer Direct frame or candidate execution supersedes
+                    // stale same-timeline records before they consume the next
+                    // transaction's reliable capacity. The one valid mixed
+                    // batch is previous committed Direct + current candidate.
+                    Clear();
+                }
             }
 
             if (_count >= _events.Length)

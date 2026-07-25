@@ -20,6 +20,9 @@ namespace CoCoFlow.Tests.Runtime.Animation
     public sealed class AnimOperatorControllerPlayModeTests
     {
         private const ulong OneShotBindingValue = 601UL;
+        private const ulong ModulationBindingValue = 603UL;
+        private const ulong EarlyExitBindingValue = 604UL;
+        private const ulong PlainOneShotBindingValue = 605UL;
         private readonly List<UnityEngine.Object> _objects =
             new List<UnityEngine.Object>();
 
@@ -77,6 +80,53 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.IsTrue(graph.IsValid());
             Assert.IsTrue(playable.IsValid());
 
+            Assert.IsTrue(
+                AnimBindingId.TryCreate(
+                    ModulationBindingValue,
+                    out AnimBindingId modulationBindingId));
+            Assert.IsTrue(
+                CoCoActivationId.TryCreate(
+                    21UL,
+                    out CoCoActivationId modulationActivationId));
+            Assert.IsTrue(
+                AnimModulationCommand.TryCreate(
+                    AnimModulationKind.FloatParameter,
+                    modulationBindingId,
+                    AnimModulationInterpolation.Immediate,
+                    modulationActivationId,
+                    1U,
+                    0f,
+                    0.75f,
+                    0f,
+                    0f,
+                    0f,
+                    out AnimModulationCommand immediate));
+            var recordingAdapter = new RecordingModulationAdapter();
+            SetField(
+                animationOperator,
+                "_modulationAdapter",
+                recordingAdapter);
+            MethodInfo applyModulation =
+                typeof(AnimOperator).GetMethod(
+                    "ApplyModulationCommands",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(applyModulation, Is.Not.Null);
+            Assert.That(
+                applyModulation.Invoke(
+                    animationOperator,
+                    new object[]
+                    {
+                        new ModulationSection(immediate)
+                    }),
+                Is.EqualTo(true));
+            Assert.That(recordingAdapter.StopCount, Is.EqualTo(1));
+            Assert.That(
+                recordingAdapter.LastStoppedBinding,
+                Is.EqualTo(modulationBindingId));
+            Assert.That(
+                playable.GetFloat(Animator.StringToHash("Speed")),
+                Is.EqualTo(0.75f));
+
             AnimRootMotionRelay rootMotionRelay =
                 ReadField<AnimRootMotionRelay>(
                     animationOperator,
@@ -118,18 +168,22 @@ namespace CoCoFlow.Tests.Runtime.Animation
             playable.Play(oneShotHash, 0, 0f);
             EvaluateAsCandidate(animationOperator, graph, 0f);
             EvaluateAsCandidate(animationOperator, graph, 1.01f);
-            int feedbackBeforeCompletion = feedback.Count;
+            Assert.That(
+                playable.GetCurrentAnimatorStateInfo(0).fullPathHash,
+                Is.EqualTo(oneShotHash));
+            Assert.IsTrue(playable.IsInTransition(0));
             AnimFeedbackEvent[] stagedEvents =
                 ReadField<AnimFeedbackEvent[]>(
                     feedback,
                     "_events");
             Assert.IsTrue(
                 stagedEvents
-                    .Take(feedbackBeforeCompletion)
+                    .Take(feedback.Count)
                     .Any(staged =>
                         staged.Record.Kind ==
                         AnimFeedbackKind.StateMarker),
                 "The real Controller SMB did not emit its 0.8 marker.");
+            int feedbackBeforeCompletion = feedback.Count;
             InvokeUpdatePlaybackStates(animationOperator);
 
             AnimPlaybackLayer completed =
@@ -147,12 +201,63 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 animationOperator.CurrentPlayback,
                 Is.EqualTo(default(AnimPlaybackContext)));
             Assert.That(
-                feedback.Count,
-                Is.EqualTo(feedbackBeforeCompletion + 1));
-            InvokeUpdatePlaybackStates(animationOperator);
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackCompleted &&
+                        staged.Record.PlaybackToken == completedToken),
+                Is.EqualTo(1));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackInterrupted &&
+                        staged.Record.PlaybackToken == completedToken),
+                Is.Zero);
             Assert.That(
                 feedback.Count,
                 Is.EqualTo(feedbackBeforeCompletion + 1));
+            int feedbackAfterCompletion = feedback.Count;
+            InvokeUpdatePlaybackStates(animationOperator);
+            Assert.That(
+                feedback.Count,
+                Is.EqualTo(feedbackAfterCompletion));
+
+            feedback.Clear();
+            AnimPlaybackToken plainCompletedToken =
+                CreateToken(16UL, 6UL);
+            SetCandidateFeedbackStamp(animationOperator, 6UL);
+            SetActiveLayer(
+                animationOperator,
+                plainCompletedToken,
+                PlainOneShotBindingValue);
+            int plainOneShotHash =
+                Animator.StringToHash("Base Layer.PlainOneShot");
+            playable.Play(plainOneShotHash, 0, 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0.51f);
+            InvokeUpdatePlaybackStates(animationOperator);
+
+            AnimPlaybackLayer plainCompleted =
+                ReadLayers(animationOperator)[0];
+            Assert.That(
+                plainCompleted.Status,
+                Is.EqualTo(AnimPlaybackStatus.Completed),
+                "Completion must not depend on AnimEventSmb.");
+            Assert.That(
+                plainCompleted.Token,
+                Is.EqualTo(plainCompletedToken));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackCompleted &&
+                        staged.Record.PlaybackToken ==
+                        plainCompletedToken),
+                Is.EqualTo(1));
 
             feedback.Clear();
             AnimPlaybackToken interruptedToken =
@@ -179,6 +284,158 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.That(
                 feedback.Count,
                 Is.EqualTo(feedbackBeforeInterruption + 1));
+
+            feedback.Clear();
+            AnimPlaybackToken earlyExitToken =
+                CreateToken(13UL, 3UL);
+            SetCandidateFeedbackStamp(animationOperator, 3UL);
+            SetActiveLayer(
+                animationOperator,
+                earlyExitToken,
+                EarlyExitBindingValue);
+            int earlyExitHash =
+                Animator.StringToHash("Base Layer.EarlyExit");
+            playable.Play(earlyExitHash, 0, 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0.81f);
+            Assert.That(
+                playable.GetCurrentAnimatorStateInfo(0).fullPathHash,
+                Is.EqualTo(earlyExitHash));
+            Assert.IsTrue(playable.IsInTransition(0));
+            InvokeUpdatePlaybackStates(animationOperator);
+            AnimPlaybackLayer earlyExit =
+                ReadLayers(animationOperator)[0];
+            Assert.That(
+                earlyExit.Status,
+                Is.EqualTo(AnimPlaybackStatus.Interrupted),
+                string.Join(
+                    ", ",
+                    stagedEvents
+                        .Take(feedback.Count)
+                        .Select(staged =>
+                            staged.Record.Kind + "@" +
+                            staged.Record.NormalizedTime)));
+            Assert.That(earlyExit.Token, Is.EqualTo(earlyExitToken));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackInterrupted &&
+                        staged.Record.PlaybackToken == earlyExitToken),
+                Is.EqualTo(1));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Count(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackCompleted &&
+                        staged.Record.PlaybackToken == earlyExitToken),
+                Is.Zero);
+
+            feedback.Clear();
+            AnimPlaybackToken oldSameStateToken =
+                CreateToken(14UL, 4UL);
+            AnimPlaybackToken replayedSameStateToken =
+                CreateToken(15UL, 5UL);
+            SetCandidateFeedbackStamp(animationOperator, 4UL);
+            SetActiveLayer(
+                animationOperator,
+                oldSameStateToken,
+                OneShotBindingValue);
+            playable.Play(oneShotHash, 0, 0.8f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+            SetActiveLayer(
+                animationOperator,
+                replayedSameStateToken,
+                OneShotBindingValue);
+            playable.Play(oneShotHash, 0, 0f);
+            EvaluateAsCandidate(animationOperator, graph, 0.3f);
+            InvokeUpdatePlaybackStates(animationOperator);
+
+            AnimPlaybackLayer replayedSameState =
+                ReadLayers(animationOperator)[0];
+            Assert.That(
+                replayedSameState.Token,
+                Is.EqualTo(replayedSameStateToken));
+            Assert.That(
+                replayedSameState.Status,
+                Is.EqualTo(AnimPlaybackStatus.Playing),
+                "A replayed state must not inherit the replaced token's exit.");
+
+            feedback.Clear();
+            AnimPlaybackToken crossFadedSameStateToken =
+                CreateToken(17UL, 7UL);
+            SetCandidateFeedbackStamp(animationOperator, 7UL);
+            playable.Play(oneShotHash, 0, 0.8f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+            SetActiveLayer(
+                animationOperator,
+                crossFadedSameStateToken,
+                OneShotBindingValue);
+            playable.CrossFadeInFixedTime(
+                oneShotHash,
+                0.5f,
+                0,
+                0f);
+            EvaluateAsCandidate(animationOperator, graph, 0.3f);
+            InvokeUpdatePlaybackStates(animationOperator);
+
+            AnimPlaybackLayer crossFadedSameState =
+                ReadLayers(animationOperator)[0];
+            Assert.That(
+                crossFadedSameState.Token,
+                Is.EqualTo(crossFadedSameStateToken));
+            Assert.That(
+                crossFadedSameState.Status,
+                Is.EqualTo(AnimPlaybackStatus.CrossFading));
+            Assert.That(
+                stagedEvents
+                    .Take(feedback.Count)
+                    .Any(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackCompleted &&
+                        staged.Record.PlaybackToken ==
+                        crossFadedSameStateToken),
+                Is.False,
+                "The old current instance must not complete the new next token.");
+
+            PoisonFeedback(feedback, 31UL);
+            Assert.That(feedback.Overflowed, Is.True);
+            Assert.IsTrue(
+                animationOperator.TryRebuildBindings(
+                    out diagnostic),
+                diagnostic.Message);
+            Assert.That(feedback.Count, Is.Zero);
+            Assert.That(feedback.Overflowed, Is.False);
+
+            var autoObject = new GameObject("Pre11 Auto Recovery Fixture");
+            _objects.Add(autoObject);
+            autoObject.SetActive(false);
+            Animator autoAnimator = autoObject.AddComponent<Animator>();
+            CoCoStateGraphHost autoHost =
+                autoObject.AddComponent<CoCoStateGraphHost>();
+            AnimAutoOperator autoOperator =
+                autoObject.AddComponent<AnimAutoOperator>();
+            SetField(autoOperator, "animator", autoAnimator);
+            SetField(autoOperator, "stateGraphHost", autoHost);
+            autoObject.SetActive(true);
+            Assert.IsTrue(
+                autoOperator.TryRebuildBindings(
+                    out diagnostic),
+                diagnostic.Message);
+            AnimFeedbackBuffer autoFeedback =
+                ReadField<AnimFeedbackBuffer>(
+                    autoOperator,
+                    "_feedback");
+            PoisonFeedback(autoFeedback, 32UL);
+            Assert.That(autoFeedback.Overflowed, Is.True);
+            Assert.IsTrue(
+                autoOperator.TryRebuildBindings(
+                    out diagnostic),
+                diagnostic.Message);
+            Assert.That(autoFeedback.Count, Is.Zero);
+            Assert.That(autoFeedback.Overflowed, Is.False);
         }
 
         private AnimatorController CreateControllerFixture(
@@ -211,11 +468,21 @@ namespace CoCoFlow.Tests.Runtime.Animation
             AnimationClip idleClip = CreateClip("Loop", true, false);
             AnimationClip oneShotClip =
                 CreateClip("OneShot", false, false);
+            AnimationClip earlyExitClip =
+                CreateClip("EarlyExit", false, false);
+            AnimationClip plainOneShotClip =
+                CreateClip("PlainOneShot", false, false);
             rootMotionClip = CreateClip("RootMotion", false, true);
             AnimatorState idle = stateMachine.AddState("Idle");
             idle.motion = idleClip;
             AnimatorState oneShot = stateMachine.AddState("OneShot");
             oneShot.motion = oneShotClip;
+            AnimatorState earlyExit = stateMachine.AddState("EarlyExit");
+            earlyExit.motion = earlyExitClip;
+            AnimatorState plainOneShot =
+                stateMachine.AddState("PlainOneShot");
+            plainOneShot.motion = plainOneShotClip;
+            plainOneShot.speed = 2f;
             AnimatorState rootMotion = stateMachine.AddState("RootMotion");
             rootMotion.motion = rootMotionClip;
             stateMachine.defaultState = idle;
@@ -241,6 +508,19 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 smb,
                 "eventConfigs",
                 new[] { CreateEventConfig(602UL, 0.8f) });
+            AnimatorStateTransition exitEarly =
+                earlyExit.AddTransition(idle);
+            exitEarly.hasExitTime = true;
+            exitEarly.exitTime = 0.8f;
+            exitEarly.hasFixedDuration = true;
+            exitEarly.duration = 0.1f;
+            earlyExit.AddStateMachineBehaviour<AnimEventSmb>();
+            AnimatorStateTransition exitPlainOneShot =
+                plainOneShot.AddTransition(idle);
+            exitPlainOneShot.hasExitTime = true;
+            exitPlainOneShot.exitTime = 1f;
+            exitPlainOneShot.hasFixedDuration = true;
+            exitPlainOneShot.duration = 0.5f;
             return controller;
         }
 
@@ -293,6 +573,21 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 oneShot.transitions.Any(transition =>
                     transition.hasExitTime &&
                     transition.exitTime == 1f));
+            AnimatorState earlyExit = stateMachine.states
+                .Select(child => child.state)
+                .Single(state => state.name == "EarlyExit");
+            Assert.IsTrue(
+                earlyExit.transitions.Any(transition =>
+                    transition.hasExitTime &&
+                    transition.exitTime == 0.8f));
+            AnimatorState plainOneShot = stateMachine.states
+                .Select(child => child.state)
+                .Single(state => state.name == "PlainOneShot");
+            Assert.That(plainOneShot.behaviours, Is.Empty);
+            Assert.IsTrue(
+                plainOneShot.transitions.Any(transition =>
+                    transition.hasExitTime &&
+                    transition.exitTime == 1f));
         }
 
         private static void ConfigureOperator(
@@ -316,7 +611,24 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     CreateStateBinding(
                         OneShotBindingValue,
                         0,
-                        "Base Layer.OneShot")
+                        "Base Layer.OneShot"),
+                    CreateStateBinding(
+                        EarlyExitBindingValue,
+                        0,
+                        "Base Layer.EarlyExit"),
+                    CreateStateBinding(
+                        PlainOneShotBindingValue,
+                        0,
+                        "Base Layer.PlainOneShot")
+                });
+            SetField(
+                animationOperator,
+                "modulationBindings",
+                new[]
+                {
+                    CreateModulationBinding(
+                        ModulationBindingValue,
+                        "Speed")
                 });
             SetField(animationOperator, "enableRootMotionRelay", true);
             SetField(animationOperator, "relayPosition", true);
@@ -341,6 +653,20 @@ namespace CoCoFlow.Tests.Runtime.Animation
             SetField(boxed, "controllerLayer", controllerLayer);
             SetField(boxed, "fullPath", fullPath);
             return (AnimStateBinding)boxed;
+        }
+
+        private static AnimModulationBinding CreateModulationBinding(
+            ulong bindingId,
+            string parameterName)
+        {
+            object boxed = new AnimModulationBinding();
+            SetField(boxed, "bindingId", bindingId);
+            SetField(
+                boxed,
+                "modulationKind",
+                AnimModulationKind.FloatParameter);
+            SetField(boxed, "parameterName", parameterName);
+            return (AnimModulationBinding)boxed;
         }
 
         private static AnimEventConfig CreateEventConfig(
@@ -378,11 +704,12 @@ namespace CoCoFlow.Tests.Runtime.Animation
 
         private static void SetActiveLayer(
             AnimOperator animationOperator,
-            AnimPlaybackToken token)
+            AnimPlaybackToken token,
+            ulong bindingValue = OneShotBindingValue)
         {
             Assert.IsTrue(
                 AnimBindingId.TryCreate(
-                    OneShotBindingValue,
+                    bindingValue,
                     out AnimBindingId bindingId));
             AnimPlaybackLayer[] layers = ReadLayers(animationOperator);
             layers[0] = new AnimPlaybackLayer(
@@ -448,6 +775,41 @@ namespace CoCoFlow.Tests.Runtime.Animation
             }
         }
 
+        private static void PoisonFeedback(
+            AnimFeedbackBuffer feedback,
+            ulong graphValue)
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    graphValue,
+                    out CoCoGraphInstanceId graph));
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCandidate(
+                    graph,
+                    new CoCoTimelineEpoch(0UL),
+                    new CoCoTimelineTick(1UL),
+                    new CoCoExecutionSequence(1UL),
+                    out AnimFeedbackSourceStamp source));
+            Assert.IsTrue(
+                AnimFeedbackRecord.TryCreateRootMotion(
+                    1f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    out AnimFeedbackRecord record));
+            for (int index = 0;
+                 index < AnimContractLimits.FeedbackCapacity;
+                 index++)
+            {
+                Assert.IsTrue(feedback.TryAppend(record, source));
+            }
+
+            Assert.IsFalse(feedback.TryAppend(record, source));
+        }
+
         private static T ReadField<T>(object target, string fieldName)
         {
             FieldInfo field = target.GetType().GetField(
@@ -467,6 +829,58 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
             field.SetValue(target, value);
+        }
+
+        private sealed class ModulationSection :
+            IAnimModulationOperationSection
+        {
+            internal ModulationSection(AnimModulationCommand slot00)
+            {
+                Slot00 = slot00;
+            }
+
+            public AnimModulationCommand Slot00 { get; }
+            public AnimModulationCommand Slot01 => default;
+            public AnimModulationCommand Slot02 => default;
+            public AnimModulationCommand Slot03 => default;
+            public AnimModulationCommand Slot04 => default;
+            public AnimModulationCommand Slot05 => default;
+            public AnimModulationCommand Slot06 => default;
+            public AnimModulationCommand Slot07 => default;
+        }
+
+        private sealed class RecordingModulationAdapter :
+            IAnimModulationAdapter
+        {
+            internal int StopCount { get; private set; }
+            internal AnimBindingId LastStoppedBinding { get; private set; }
+
+            public bool TryStart(
+                in AnimModulationCommand command,
+                in AnimModulationTarget target,
+                out CoCoDiagnostic diagnostic)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            public void Stop(in AnimModulationTarget target)
+            {
+                StopCount++;
+                LastStoppedBinding = target.BindingId;
+            }
+
+            public void ManualUpdate(float positiveDeltaSeconds)
+            {
+            }
+
+            public void StopAll()
+            {
+            }
+
+            public void Dispose()
+            {
+            }
         }
     }
 }

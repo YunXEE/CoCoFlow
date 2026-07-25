@@ -55,6 +55,16 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     activationId,
                     -0.01f,
                     out _));
+            Assert.IsFalse(
+                AnimPlaybackCommand.TryCreateStep(
+                    activationId,
+                    float.NaN,
+                    out _));
+            Assert.IsFalse(
+                AnimPlaybackCommand.TryCreateStep(
+                    activationId,
+                    float.PositiveInfinity,
+                    out _));
             Assert.IsTrue(
                 AnimPlaybackCommand.TryCreateStep(
                     activationId,
@@ -142,6 +152,67 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 Assert.IsTrue(intent.TryGetRecord(index, out AnimFeedbackRecord record));
                 Assert.AreEqual(index, record.PositionX);
             }
+        }
+
+        [Test]
+        public void RootMotionFeedback_ProjectsThroughTypedEventAdapter()
+        {
+            Assert.IsTrue(
+                AnimFeedbackRecord.TryCreateRootMotion(
+                    1f,
+                    2f,
+                    3f,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    out AnimFeedbackRecord record));
+            Assert.IsTrue(
+                AnimFeedbackEvent.TryCreate(
+                    record,
+                    out AnimFeedbackEvent feedbackEvent));
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    801UL,
+                    out CoCoGraphInstanceId source));
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    802UL,
+                    out CoCoGraphInstanceId target));
+            Assert.IsTrue(
+                CoCoEventSequence.TryCreate(
+                    1UL,
+                    out CoCoEventSequence sequence));
+            Assert.IsTrue(
+                CoCoActorEventEnvelope.TryCreate(
+                    AnimContractIds.FeedbackEventTypeId,
+                    AnimContractIds.FeedbackEventDomainId,
+                    source,
+                    target,
+                    new CoCoTimelineEpoch(0UL),
+                    new CoCoTimelineTick(1UL),
+                    sequence,
+                    CoCoEventDeliveryMode.Targeted,
+                    CoCoEventReliability.Reliable,
+                    default,
+                    default,
+                    default,
+                    out CoCoActorEventEnvelope envelope));
+            Assert.IsTrue(
+                CoCoEventPacket<AnimFeedbackEvent>.TryCreate(
+                    envelope,
+                    feedbackEvent,
+                    out CoCoEventPacket<AnimFeedbackEvent> packet));
+            var adapter = new AnimFeedbackEventToIntentAdapter();
+
+            Assert.IsTrue(
+                adapter.TryProject(
+                    packet,
+                    out AnimFeedbackIntent intent));
+            Assert.That(intent.Count, Is.EqualTo(1));
+            Assert.IsTrue(intent.TryGetRecord(0, out AnimFeedbackRecord projected));
+            Assert.That(projected.Kind, Is.EqualTo(AnimFeedbackKind.RootMotion));
+            Assert.That(projected.PositionX, Is.EqualTo(1f));
         }
 
         [Test]
@@ -506,6 +577,156 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.IsTrue(buffer.TryAppend(record, newSource));
             Assert.IsFalse(buffer.Overflowed);
             Assert.That(buffer.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FeedbackBuffer_NewerCommittedFrameDropsStaleDirectCapacity()
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    601UL,
+                    out CoCoGraphInstanceId graph));
+            var epoch = new CoCoTimelineEpoch(0UL);
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCommitted(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(1UL),
+                    new CoCoExecutionSequence(1UL),
+                    new CoCoContextRevision(1UL),
+                    out AnimFeedbackSourceStamp staleSource));
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCommitted(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(8UL),
+                    new CoCoExecutionSequence(8UL),
+                    new CoCoContextRevision(8UL),
+                    out AnimFeedbackSourceStamp currentSource));
+            Assert.IsTrue(
+                AnimFeedbackRecord.TryCreateRootMotion(
+                    1f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    out AnimFeedbackRecord record));
+            var buffer = new AnimFeedbackBuffer();
+            for (int index = 0;
+                 index < AnimContractLimits.FeedbackCapacity;
+                 index++)
+            {
+                Assert.IsTrue(buffer.TryAppend(record, staleSource));
+            }
+
+            Assert.IsTrue(buffer.TryAppend(record, currentSource));
+            Assert.IsFalse(buffer.Overflowed);
+            Assert.That(buffer.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FeedbackBuffer_NewerCandidateDropsStaleCandidateCapacity()
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    701UL,
+                    out CoCoGraphInstanceId graph));
+            var epoch = new CoCoTimelineEpoch(0UL);
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCandidate(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(1UL),
+                    new CoCoExecutionSequence(1UL),
+                    out AnimFeedbackSourceStamp staleSource));
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCandidate(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(8UL),
+                    new CoCoExecutionSequence(8UL),
+                    out AnimFeedbackSourceStamp currentSource));
+            Assert.IsTrue(
+                AnimFeedbackRecord.TryCreateRootMotion(
+                    1f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    out AnimFeedbackRecord record));
+            var buffer = new AnimFeedbackBuffer();
+            for (int index = 0;
+                 index < AnimContractLimits.FeedbackCapacity;
+                 index++)
+            {
+                Assert.IsTrue(buffer.TryAppend(record, staleSource));
+            }
+
+            Assert.IsTrue(buffer.TryAppend(record, currentSource));
+            Assert.IsFalse(buffer.Overflowed);
+            Assert.That(buffer.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FeedbackBuffer_DirectAndCandidateShareOneAtomicCapacity()
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    751UL,
+                    out CoCoGraphInstanceId graph));
+            var epoch = new CoCoTimelineEpoch(0UL);
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCommitted(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(7UL),
+                    new CoCoExecutionSequence(7UL),
+                    new CoCoContextRevision(7UL),
+                    out AnimFeedbackSourceStamp directSource));
+            Assert.IsTrue(
+                AnimFeedbackSourceStamp.TryCreateCandidate(
+                    graph,
+                    epoch,
+                    new CoCoTimelineTick(8UL),
+                    new CoCoExecutionSequence(8UL),
+                    out AnimFeedbackSourceStamp candidateSource));
+            Assert.IsTrue(
+                AnimFeedbackRecord.TryCreateRootMotion(
+                    1f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                    out AnimFeedbackRecord record));
+            var buffer = new AnimFeedbackBuffer();
+            for (int index = 0; index < 8; index++)
+            {
+                Assert.IsTrue(
+                    buffer.TryAppend(record, directSource));
+            }
+
+            for (int index = 0; index < 8; index++)
+            {
+                Assert.IsTrue(
+                    buffer.TryAppend(record, candidateSource));
+            }
+
+            Assert.That(
+                buffer.Count,
+                Is.EqualTo(AnimContractLimits.FeedbackCapacity));
+            Assert.IsFalse(buffer.Overflowed);
+            Assert.IsFalse(
+                buffer.TryAppend(record, candidateSource));
+            Assert.That(
+                buffer.Count,
+                Is.EqualTo(AnimContractLimits.FeedbackCapacity));
+            Assert.IsTrue(buffer.Overflowed);
         }
 
         [Test]

@@ -993,16 +993,23 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     : default;
                 bool currentMatches = current.fullPathHash == target.StateHash;
                 bool nextMatches = inTransition && next.fullPathHash == target.StateHash;
-                float normalizedTime = currentMatches
+                bool sameStateTransition =
+                    currentMatches && nextMatches;
+                float normalizedTime = sameStateTransition
+                    ? Mathf.Max(0f, next.normalizedTime)
+                    : currentMatches
                     ? Mathf.Max(0f, current.normalizedTime)
                     : nextMatches
                         ? Mathf.Max(0f, next.normalizedTime)
                         : previous.NormalizedTime;
-
-                if (currentMatches &&
+                if (!sameStateTransition &&
+                    currentMatches &&
                     !current.loop &&
                     current.normalizedTime >= 1f)
                 {
+                    normalizedTime = Mathf.Max(
+                        normalizedTime,
+                        1f);
                     _layerStates[lane] = new AnimPlaybackLayer(
                         previous.Slot,
                         previous.Token,
