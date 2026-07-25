@@ -625,11 +625,12 @@ IL2CPP/High-Stripping checks, and Unity Package Validation Suite.
 `CoCoFlow/Setup/Setup Assistant` remains a
 dependency/support-define tool; it does not install project content.
 
-Pre11 Unity validation is currently `UNVERIFIED`: the authorized CoCoLab CLI
-attempt was blocked by a local Unity Licensing Client protocol mismatch before
-test execution. Animation EditMode/PlayMode execution, focused and full package
-tests, Package Validation Suite output, and macOS Universal
-IL2CPP/High-Stripping Player evidence remain outstanding.
+At the committed Pre11 head, focused CoCoLab validation on Unity `6000.3.20f1`
+records Animation PlayMode at 33 total / 31 passed / 0 failed / 2 intentionally
+inconclusive, and Setup EditMode at 9/9 passed. Unity Package Validation Suite is
+unavailable in the validation environment, and the macOS Universal IL2CPP
+backend is absent; those release gates remain `UNVERIFIED`, so Pre11 is not yet
+merge-ready.
 
 ## Documentation
 

@@ -526,10 +526,11 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-Pre11 Unity 验证当前为 `UNVERIFIED`：已授权的 CoCoLab CLI 尝试在执行测试前被本机
-Unity Licensing Client 协议不匹配阻塞。Animation EditMode/PlayMode、聚焦与完整
-包测试、Package Validation Suite，以及 macOS Universal
-IL2CPP/High-Stripping Player 证据仍待记录。
+在已提交的 Pre11 Head 上，CoCoLab 使用 Unity `6000.3.20f1` 完成了定向验证：
+Animation PlayMode 共 33 项，31 项通过、0 项失败、2 项按设计为 inconclusive；
+Setup EditMode 9/9 通过。验证环境无法使用 Unity Package Validation Suite，且缺少
+macOS Universal IL2CPP backend；这两项发布门禁仍为 `UNVERIFIED`，因此 Pre11 尚未
+达到 merge-ready。
 
 ## 文档
 

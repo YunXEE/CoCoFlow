@@ -55,16 +55,18 @@ projects and does not include a migration runtime for 0.3.9 projects.
 ### Verification
 
 - `PASS`: Unity 6000.3.20f1 Batchmode reimport and compilation; focused Setup
-  EditMode (`9/9`); focused Animation PlayMode (`27 PASS`, `0 FAIL`, with the
+  EditMode (`9/9`); focused Animation PlayMode (`31 PASS`, `0 FAIL`, with the
   frozen G1/G3 replay probes intentionally `INCONCLUSIVE`). The PlayMode
   fixture executes a real `AnimatorControllerPlayable` with Loop, OneShot
   exit-time, Parameter, SMB Marker, Root Motion, natural completion, early
   interruption, and committed-only playback-query checks.
-- `BASELINE`: package-wide EditMode is `593 PASS / 15 FAIL / 1 SKIP` against
-  exact Base `0df9d486` at `586 PASS / 15 FAIL / 1 SKIP`; all failures are
-  pre-existing boundary/Map cases, with one Map timing case differing between
-  runs. Package-wide PlayMode is `326 PASS / 6 FAIL / 2 INCONCLUSIVE` against
-  Base `300 PASS / 6 FAIL`; the six failures are identical and the two added
+- `BASELINE`: repeated package-wide EditMode runs are
+  `593 PASS / 15 FAIL / 1 SKIP` and `592 PASS / 16 FAIL / 1 SKIP`, against
+  exact Base `0df9d486` at `586 PASS / 15 FAIL / 1 SKIP`. The 15 baseline
+  failure names recur; the intermittent additional failure is the excluded
+  Map timing case `ForceFallbackKeepsLateSourceAheadOfTargetCleanup`.
+  Package-wide PlayMode is `331 PASS / 6 FAIL / 2 INCONCLUSIVE` against Base
+  `300 PASS / 6 FAIL`; the six failures are identical and the two added
   inconclusive results are the frozen G1/G3 replay gates.
 - `UNVERIFIED`: Package Validation Suite is not installed in the local Editor
   or package cache. macOS Universal IL2CPP with High Managed Stripping reached

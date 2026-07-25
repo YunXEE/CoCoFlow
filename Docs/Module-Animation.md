@@ -103,6 +103,12 @@ flags between Animator instances. Marker delivery scans the absolute
 normalized-time interval `(previous, current]`, including multiple loop
 boundaries and the tail observed on State Exit. Backwards or non-finite time
 only establishes a new cursor; it does not synthesize reverse events.
+For a visible non-looping state, `AnimOperator` classifies normalized time
+`>= 1` as `Completed` before considering its outgoing transition. An earlier
+transition remains `Interrupted`; during a same-state transition, the active
+token reads the next state instance rather than the outgoing instance. Outward
+SMB records remain committed Events and never become direct StateGraph
+callbacks.
 
 ## Playable Evaluation
 
