@@ -37,6 +37,62 @@ namespace CoCoFlow.Runtime.Modules.Animation
         IAnimModulationAdapter Create(IAnimModulationHost host);
     }
 
+    internal static class AnimModulationMath
+    {
+        private const float MinimumRotationMagnitude = 0.000001f;
+
+        internal static bool TryNormalizeRotation(
+            in Vector4 value,
+            out Vector4 normalized)
+        {
+            normalized = default;
+            if (!IsFinite(value.x) ||
+                !IsFinite(value.y) ||
+                !IsFinite(value.z) ||
+                !IsFinite(value.w))
+            {
+                return false;
+            }
+
+            float maximum = Mathf.Max(
+                Mathf.Max(
+                    Mathf.Abs(value.x),
+                    Mathf.Abs(value.y)),
+                Mathf.Max(
+                    Mathf.Abs(value.z),
+                    Mathf.Abs(value.w)));
+            if (!IsFinite(maximum) || maximum <= 0f)
+            {
+                return false;
+            }
+
+            Vector4 scaled = value / maximum;
+            float scaledMagnitude = Mathf.Sqrt(
+                scaled.x * scaled.x +
+                scaled.y * scaled.y +
+                scaled.z * scaled.z +
+                scaled.w * scaled.w);
+            if (!IsFinite(scaledMagnitude) ||
+                scaledMagnitude <= 0f ||
+                (maximum <= MinimumRotationMagnitude &&
+                 maximum * scaledMagnitude <= MinimumRotationMagnitude))
+            {
+                return false;
+            }
+
+            normalized = scaled / scaledMagnitude;
+            return IsFinite(normalized.x) &&
+                   IsFinite(normalized.y) &&
+                   IsFinite(normalized.z) &&
+                   IsFinite(normalized.w);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+    }
+
     internal static class AnimModulationAdapterRegistry
     {
         private static IAnimModulationAdapterFactory _factory;

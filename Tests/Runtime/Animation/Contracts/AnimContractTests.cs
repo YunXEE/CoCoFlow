@@ -248,6 +248,38 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
+        public void RotationNormalization_AcceptsHugeFiniteAndRejectsInvalidMagnitude()
+        {
+            var huge = new Vector4(
+                float.MaxValue,
+                float.MaxValue,
+                float.MaxValue,
+                float.MaxValue);
+            Assert.IsTrue(
+                AnimModulationMath.TryNormalizeRotation(
+                    huge,
+                    out Vector4 normalized));
+            Assert.That(normalized.magnitude, Is.EqualTo(1f).Within(0.00001f));
+            Assert.That(normalized.x, Is.EqualTo(0.5f).Within(0.00001f));
+            Assert.That(normalized.y, Is.EqualTo(0.5f).Within(0.00001f));
+            Assert.That(normalized.z, Is.EqualTo(0.5f).Within(0.00001f));
+            Assert.That(normalized.w, Is.EqualTo(0.5f).Within(0.00001f));
+
+            Assert.IsFalse(
+                AnimModulationMath.TryNormalizeRotation(
+                    new Vector4(0.0000001f, 0f, 0f, 0f),
+                    out _));
+            Assert.IsFalse(
+                AnimModulationMath.TryNormalizeRotation(
+                    new Vector4(float.NaN, 0f, 0f, 1f),
+                    out _));
+            Assert.IsFalse(
+                AnimModulationMath.TryNormalizeRotation(
+                    new Vector4(float.PositiveInfinity, 0f, 0f, 1f),
+                    out _));
+        }
+
+        [Test]
         public void FeedbackIntent_PreservesOrderAndReportsOverflow()
         {
             AnimFeedbackIntent intent = default;

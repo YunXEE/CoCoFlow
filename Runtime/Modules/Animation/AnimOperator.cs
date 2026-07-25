@@ -554,27 +554,19 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 case AnimModulationKind.PresentationOffsetRotation:
                     if (target.PresentationOffset != null)
                     {
-                        var rotation = new Quaternion(
-                            value.x,
-                            value.y,
-                            value.z,
-                            value.w);
-                        float magnitude = Mathf.Sqrt(
-                            rotation.x * rotation.x +
-                            rotation.y * rotation.y +
-                            rotation.z * rotation.z +
-                            rotation.w * rotation.w);
-                        if (magnitude <= 0.000001f)
+                        if (!AnimModulationMath.TryNormalizeRotation(
+                                value,
+                                out Vector4 normalized))
                         {
                             return false;
                         }
 
                         target.PresentationOffset.localRotation =
                             new Quaternion(
-                                rotation.x / magnitude,
-                                rotation.y / magnitude,
-                                rotation.z / magnitude,
-                                rotation.w / magnitude);
+                                normalized.x,
+                                normalized.y,
+                                normalized.z,
+                                normalized.w);
                         return true;
                     }
 
@@ -1450,12 +1442,14 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             if (command.Kind == AnimModulationKind.PresentationOffsetRotation)
             {
-                float magnitudeSquared =
-                    command.ValueX * command.ValueX +
-                    command.ValueY * command.ValueY +
-                    command.ValueZ * command.ValueZ +
-                    command.ValueW * command.ValueW;
-                return magnitudeSquared > 0.000000000001f;
+                var value = new Vector4(
+                    command.ValueX,
+                    command.ValueY,
+                    command.ValueZ,
+                    command.ValueW);
+                return AnimModulationMath.TryNormalizeRotation(
+                    value,
+                    out _);
             }
 
             return true;

@@ -38,18 +38,34 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
                 return false;
             }
 
-            Stop(target);
             var targetValue = new Vector4(
                 command.ValueX,
                 command.ValueY,
                 command.ValueZ,
                 command.ValueW);
-            if (target.Kind == AnimModulationKind.PresentationOffsetRotation &&
-                Vector4.Dot(currentValue, targetValue) < 0f)
+            if (target.Kind == AnimModulationKind.PresentationOffsetRotation)
             {
-                targetValue = -targetValue;
+                if (!AnimModulationMath.TryNormalizeRotation(
+                        currentValue,
+                        out Vector4 normalizedCurrent) ||
+                    !AnimModulationMath.TryNormalizeRotation(
+                        targetValue,
+                        out Vector4 normalizedTarget))
+                {
+                    diagnostic = AnimOperatorContracts.Error(
+                        "DOTween rotation modulation requires finite non-zero quaternion endpoints.");
+                    return false;
+                }
+
+                currentValue = normalizedCurrent;
+                targetValue = normalizedTarget;
+                if (Vector4.Dot(currentValue, targetValue) < 0f)
+                {
+                    targetValue = -targetValue;
+                }
             }
 
+            Stop(target);
             if (command.DurationSeconds == 0f)
             {
                 if (!_host.TryWriteModulation(target, targetValue))

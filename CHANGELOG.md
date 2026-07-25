@@ -52,6 +52,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Scoped playback tokens and the Advanced Playable runtime to the current
   `GraphInstanceId`; Host Stop/Start rebuilds local playback, Hold, modulation,
   root-motion, and feedback state before the next execution.
+- Invalidated the previously committed playback snapshot when the Advanced
+  runtime is rebuilt, so public queries and active UniTask waiters cannot
+  observe playback owned by a destroyed Playable graph.
+- Normalized finite rotation modulation with an overflow-safe scaled
+  calculation shared by Immediate and DOTween paths.
 - Isolated SMB marker cursors by Animator layer and current/next state instance,
   preserved early-transition interruption across large evaluations, and made
   DOTween target-write failures reject the Operator transaction explicitly.

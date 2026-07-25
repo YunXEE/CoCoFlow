@@ -86,7 +86,7 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
                         0f,
                         0f,
                         0f,
-                        -1f,
+                        -float.MaxValue,
                         1f),
                     target,
                     out CoCoDiagnostic diagnostic),
@@ -100,6 +100,64 @@ namespace CoCoFlow.Tests.Runtime.Animation.DOTween
             Vector4 value = _host.Read(target);
             Assert.That(value.sqrMagnitude, Is.GreaterThan(0.99f));
             Assert.That(value.w, Is.GreaterThan(0.99f));
+        }
+
+        [Test]
+        public void RotationTween_NormalizesHugeFiniteTargetBeforeInterpolation()
+        {
+            AnimModulationTarget target = CreateTarget(
+                506UL,
+                AnimModulationKind.PresentationOffsetRotation);
+            _host.Set(target, new Vector4(0f, 0f, 0f, 1f));
+
+            Assert.IsTrue(
+                _adapter.TryStart(
+                    CreateCommand(
+                        target,
+                        float.MaxValue,
+                        float.MaxValue,
+                        0f,
+                        0f,
+                        1f),
+                    target,
+                    out CoCoDiagnostic diagnostic),
+                diagnostic.Message);
+            Assert.IsTrue(
+                _adapter.TryManualUpdate(
+                    1f,
+                    out CoCoDiagnostic updateDiagnostic),
+                updateDiagnostic.Message);
+
+            Vector4 value = _host.Read(target);
+            Assert.That(value.magnitude, Is.EqualTo(1f).Within(0.00001f));
+            Assert.That(value.x, Is.EqualTo(0.7071068f).Within(0.00001f));
+            Assert.That(value.y, Is.EqualTo(0.7071068f).Within(0.00001f));
+            Assert.That(value.z, Is.EqualTo(0f).Within(0.00001f));
+            Assert.That(value.w, Is.EqualTo(0f).Within(0.00001f));
+        }
+
+        [Test]
+        public void RotationTween_RejectsNearZeroEndpointBeforeOwningTween()
+        {
+            AnimModulationTarget target = CreateTarget(
+                507UL,
+                AnimModulationKind.PresentationOffsetRotation);
+            Vector4 current = new Vector4(0f, 0f, 0f, 1f);
+            _host.Set(target, current);
+
+            Assert.IsFalse(
+                _adapter.TryStart(
+                    CreateCommand(
+                        target,
+                        0.0000001f,
+                        0f,
+                        0f,
+                        0f,
+                        1f),
+                    target,
+                    out CoCoDiagnostic diagnostic));
+            Assert.IsTrue(diagnostic.IsError);
+            Assert.That(_host.Read(target), Is.EqualTo(current));
         }
 
         [Test]
