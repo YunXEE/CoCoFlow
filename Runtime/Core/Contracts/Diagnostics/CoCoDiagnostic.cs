@@ -22,8 +22,7 @@ namespace CoCoFlow.Runtime.Core
         Operator = 15,
         EventOutbox = 16,
         Content = 17,
-        Pooling = 18,
-        Map = 19
+        Pooling = 18
     }
 
     public enum CoCoDiagnosticCode
@@ -132,26 +131,7 @@ namespace CoCoFlow.Runtime.Core
         PoolTemporalConflict = 102,
         PoolTemporalEntityUnavailable = 103,
         PoolTemporalProjectionFailed = 104,
-        PoolTemporalCleanupFailed = 105,
-        InvalidRegionIdentifier = 106,
-        InvalidRegionCapability = 107,
-        UnsupportedRegionCapability = 108,
-        InvalidRegionCoverage = 109,
-        InvalidRegionProfile = 110,
-        RegionCompilationFailed = 111,
-        RegionCatalogConflict = 112,
-        RegionRuntimeDisposed = 113,
-        RegionMainThreadRequired = 114,
-        RegionDemandConflict = 115,
-        RegionDemandSuperseded = 116,
-        RegionTransitionFailed = 117,
-        RegionCommitFaulted = 118,
-        RegionCleanupBlocked = 119,
-        RegionOptionalDegraded = 120,
-        RegionSceneContractViolation = 121,
-        RegionTemporalConflict = 122,
-        RegionTemporalProjectionFailed = 123,
-        RegionTemporalCleanupFailed = 124
+        PoolTemporalCleanupFailed = 105
     }
 
     public enum CoCoDiagnosticSeverity

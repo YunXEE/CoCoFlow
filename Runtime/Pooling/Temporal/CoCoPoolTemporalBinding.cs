@@ -9,8 +9,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
     public sealed class CoCoPoolTemporalBinding :
         MonoBehaviour,
         ICoCoContextRestoreBinding,
-        ICoCoStateGraphTemporalParticipant,
-        ICoCoTemporalDecoratorBinding
+        ICoCoStateGraphTemporalParticipant
     {
         [SerializeField] private CoCoStateGraphHost stateGraphHost;
         [SerializeField] private CoCoPoolHost poolHost;
@@ -25,9 +24,6 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
         public CoCoPoolHost PoolHost => poolHost;
-        MonoBehaviour ICoCoTemporalDecoratorBinding
-            .DownstreamRestoreBinding => downstreamRestoreBinding;
-
         public CoCoDiagnostic LastDiagnostic
         {
             get
@@ -194,10 +190,6 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 poolHost.Runtime == null ||
                 poolHost.Runtime.IsDisposed ||
                 !CoCoStateGraphHostBoundary.Contains(host, this) ||
-                !CoCoTemporalDecoratorChain.TryValidate(
-                    host,
-                    this,
-                    out diagnostic) ||
                 !TryFreezeDownstream(host, out diagnostic))
             {
                 if (!diagnostic.IsError)

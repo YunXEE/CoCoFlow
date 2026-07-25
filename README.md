@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.10 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.9 · **Unity**: 6000+
 >
-> Pre10 replaces the legacy Map scene pusher with transactional Region fidelity:
-> editable capability Profiles, per-Chunk demand Coverage, stable participant
-> nodes, cold-start Scene ownership, and Map/Pool/Temporal extension seams.
+> Pre9 adds Content-backed GameObject pooling, generation-safe handles,
+> explicit prewarm/idle retention, Scope-owned shutdown, and an optional
+> Host-scoped Temporal entity-retention sidecar.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -464,7 +464,7 @@ exposes a candidate Tick, payload, Inbox, Envelope, retained Context handle, or
 private reflected field; a failed or cancelled Tick cannot replace committed
 snapshot authority.
 
-## Content, Object Pool, and Map Region Fidelity
+## Content and Object Pool Ownership
 
 Content owns loaded Assets, Prefab Sources, and Additive Scenes through explicit
 Scopes and reference-type `ContentLease` values. Pooling builds on that
@@ -480,37 +480,7 @@ There is no hard active cap, automatic trim, LRU, or hidden Addressables path.
 The optional Temporal sidecar keeps the same physical instance quarantined
 while one Host's retained history can still project its entity as present. It
 stores only pure identity/presence values and is not multi-Actor or whole-world
-rollback. The retained UI and Enemy consumers are not automatically migrated.
-
-Map now treats a Region as a logical fidelity unit and a Chunk as that Region's
-optimization partition. Schema-v1 `CoCoRegionProfile` has a stable asset
-identity, fixed `off / represented / background / enterable / full` Tier IDs,
-and an editable Participant-by-Tier Enabled/Mode/configuration matrix. It accepts
-namespaced custom capabilities and participants through an explicit AOT-safe
-catalog. A demand owner retains a `RegionDemandLease` with `All` or explicit
-Chunk Coverage; Region-global nodes merge every live demand, while each Chunk
-merges only the demands that cover it.
-
-Transitions reuse unchanged `(Region, optional Chunk, participant slot)` nodes
-and prepare only changed candidates. Residency, Services, Simulation, and
-Presentation commit in deterministic order and clean up in reverse. Required
-failure keeps the transition atomic; optional failure is visible as
-`OptionalDegraded`; commit faults and blocked cleanup remain explicit.
-Capability-triggered cross-Region dependency rules acquire independent target
-Leases and make the target Ready before the source transition commits.
-
-Content is the only Additive Scene lease authority for built-in Map
-participants. A managed Chunk Scene cold-starts with one metadata-only anchor
-root and inactive managed roots. A committed Map node may own a Pool Scope, and
-the Temporal decorator chain is
-`Map -> optional Pool -> project restore binding`; Preview never loads a Scene,
-prepares a Pool, or commits a fidelity tier. Its barrier queues only the final
-demand resolution for `LateUpdate`, and startup rejects decorator cycles. Map
-Disable/Destroy/explicit shutdown converge on one transactional terminal task.
-The Editor monitor reads an internal immutable ownership snapshot without
-exposing raw Content or Pool authority. See
-[Map Region Fidelity](Docs/Module-Map.md) for the complete contract and breaking
-migration from `MapResourceManager`/`MapStreamTrigger`.
+rollback. Pre9 does not migrate the retained UI, Map, or Enemy consumers.
 
 ## Repository and Package Boundary
 
@@ -529,15 +499,13 @@ Runtime/Content          Unity-facing content acquisition, ownership, Direct bac
 Runtime/Content/Addressables  optional conditional Addressables backend
 Runtime/Pooling          Content-backed GameObject instance ownership and diagnostics
 Runtime/Pooling/Temporal optional Host-scoped pooled Temporal entity retention
-Runtime/Modules/Map      transactional Region fidelity, demand, participants, and adapters
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
-Runtime/Modules          other transitional presentation and service modules
+Runtime/Modules          transitional presentation and service modules
 Editor/StateGraph        constrained graph authoring and diagnostics
 Editor/StateGraphHost    Host Inspector and committed runtime debugger
 Editor/Content           Content reference authoring and runtime ownership monitor
 Editor/Pooling           Pool Host authoring and runtime ownership monitor
-Editor/Modules/Map       Region Profile/Binding authoring, validation, and runtime monitor
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -560,8 +528,7 @@ with this document, the Pre2 State Flow model is authoritative.
 
 - **Pooling extensions**: generic non-GameObject pools, hard active/total caps,
   automatic trim/LRU, hot profile mutation, and world/durable rollback.
-- **Map extensions**: project-owned distance/adjacency policy, automatic
-  fidelity budgets/downgrade, Map-state replay, and whole-world rollback.
+- **Pre10**: Map Region/Chunk policy, production streaming, races, and replay.
 - **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
   timing, and root-motion ownership.
 - **Pre12**: final UI navigation, focus, transition, and authoring contracts.
@@ -575,12 +542,8 @@ with this document, the Pre2 State Flow model is authoritative.
 ## Dependencies
 
 Addressables remains outside the package's hard dependency set. Direct-only
-Content, Pooling, and Map projects need no Addressables package. Install the
-optional backend explicitly from `CoCoFlow/Setup/Setup Assistant` when
-Addressables content is required. Addressable Map bindings additionally require
-a project-owned `IRegionAddressableSceneResolver` wired to `CoCoMapHost` and an
-equivalent Editor resolver provider; installing the Content backend alone does
-not define the address-to-Scene mapping.
+Content and Pooling projects need no Addressables package. Install the optional backend explicitly
+from `CoCoFlow/Setup/Setup Assistant` when Addressables content is required.
 
 | Package | Version | Current owner |
 |---|---:|---|
@@ -616,12 +579,6 @@ IL2CPP/High-Stripping checks, and Unity Package Validation Suite.
 `CoCoFlow/Setup/Setup Assistant` remains a
 dependency/support-define tool; it does not install project content.
 
-Pre10 Unity validation is currently `UNVERIFIED`: the authorized CoCoLab CLI
-attempt was blocked by a local Unity Licensing Client protocol mismatch before
-test execution. Direct-only and Addressables runtime results, focused and full
-package tests, Package Validation Suite output, and macOS Universal
-IL2CPP/High-Stripping Player evidence remain outstanding.
-
 ## Documentation
 
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
@@ -632,7 +589,7 @@ IL2CPP/High-Stripping Player evidence remain outstanding.
 - [Content Acquisition and Ownership](Docs/ContentOwnership.md)
 - [Object Pooling and Instance Ownership](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
-- [Map Region Fidelity](Docs/Module-Map.md)
+- [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.10 · **Unity**：6000+
+> **版本**：0.4.0-pre.9 · **Unity**：6000+
 >
-> Pre10 用事务式 Region fidelity 取代旧 Map 场景推送器：可编辑 Capability
-> Profile、per-Chunk Demand Coverage、稳定 Participant Node、cold-start Scene
-> 所有权，以及 Map/Pool/Temporal 扩展接缝。
+> Pre9 加入由 Content 驱动的 GameObject Pool、generation-safe Handle、
+> 显式 prewarm/idle retention、Scope-owned shutdown，以及可选的 Host-scoped
+> Temporal entity retention sidecar。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -384,7 +384,7 @@ lifecycle/fault、Context revision、Tick/Clock/Epoch、各 Layer active path �
 Transition，不暴露 candidate Tick、payload、Inbox、Envelope、retained Context Handle
 或反射私有字段；失败或取消的 Tick 不能替换 committed Snapshot 权威。
 
-## Content、Object Pool 与 Map Region Fidelity
+## Content 与 Object Pool 所有权
 
 Content 通过显式 Scope 与引用类型 `ContentLease` 管理已加载的 Asset、Prefab Source
 和 Additive Scene。Pooling 建立在这条边界之上：一个已 Prepare 的 Pool Entry 在拥有
@@ -398,33 +398,7 @@ Addressables 路径。
 
 可选 Temporal sidecar 会在单个 Host 的历史仍能把实体投射为 present 时 quarantine
 同一物理实例。它只保存纯 identity/presence value，不是 multi-Actor 或 whole-world
-rollback。现有 UI 与 Enemy consumer 不会被自动迁移。
-
-Map 现在把 Region 定义为逻辑 Fidelity 单元，把 Chunk 定义为 Region 所拥有的优化
-分区。schema-v1 `CoCoRegionProfile` 具有稳定资产身份、固定的
-`off / represented / background / enterable / full` Tier ID，以及可编辑的
-Participant-by-Tier Enabled/Mode/configuration 矩阵；并通过显式、AOT-safe Catalog
-接纳命名空间化自定义 Capability 与 Participant。Demand Owner 持有
-`RegionDemandLease`，Coverage 可以是 `All` 或显式 Chunk 集合；Region-global Node
-合并全部 live demand，每个 Chunk 只合并覆盖自己的 demand。
-
-Transition 会复用未改变的 `(Region, optional Chunk, participant slot)` Node，只为
-fingerprint 变化的 Node Prepare Candidate。Residency、Services、Simulation、
-Presentation 按确定顺序提交并逆序清理。Required 失败保持事务原子性，Optional
-失败显示为 `OptionalDegraded`，Commit Fault 与 Blocked Cleanup 都保持显式。
-由 Capability 触发的跨 Region Dependency Rule 会持有独立 Target Lease，并在 Source
-Transition 提交前等待 Target Ready。
-
-内置 Map Participant 的 Additive Scene Lease 只能由 Content 持有。受管理 Chunk
-Scene cold-start 时只有一个 metadata-only Anchor Root，其余 managed Root 初始
-inactive。已提交 Map Node 可以拥有 Pool Scope；Temporal decorator 链固定为
-`Map -> optional Pool -> project restore binding`，Preview 不会加载 Scene、Prepare
-Pool 或提交 Fidelity Tier。Barrier 只把每个 Region 的最终 Demand Resolution 排队到
-`LateUpdate`，启动前会拒绝 Decorator Cycle；Disable、Destroy 与显式 Shutdown
-收束到同一个事务式终止任务。Editor Monitor 只读取内部不可变 Ownership Snapshot，
-不会暴露原始 Content 或 Pool 权威。完整契约以及从 `MapResourceManager`/
-`MapStreamTrigger` 迁移的 breaking 说明见
-[Map Region Fidelity](Docs/Module-Map.md)。
+rollback。Pre9 不迁移现有 UI、Map 或 Enemy consumer。
 
 ## 仓库与包边界
 
@@ -442,15 +416,13 @@ Runtime/Content          Unity-facing Content 获取、所有权、Direct 后端
 Runtime/Content/Addressables  可选条件编译的 Addressables 后端
 Runtime/Pooling          Content-backed GameObject 实例所有权与 diagnostics
 Runtime/Pooling/Temporal 可选的 Host-scoped pooled Temporal entity retention
-Runtime/Modules/Map      事务式 Region fidelity、demand、participant 与 adapter
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
-Runtime/Modules          其他过渡期表现与服务模块
+Runtime/Modules          过渡期表现与服务模块
 Editor/StateGraph        受限图创作与 diagnostics
 Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
 Editor/Content           Content Reference 创作与 Runtime Ownership Monitor
 Editor/Pooling           Pool Host 创作与 Runtime Ownership Monitor
-Editor/Modules/Map       Region Profile/Binding 创作、validation 与 Runtime Monitor
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -470,8 +442,7 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 - **Pooling 扩展**：generic non-GameObject pool、hard active/total cap、
   自动 Trim/LRU、hot profile mutation，以及 world/durable rollback。
-- **Map 扩展**：项目自有 distance/adjacency 策略、自动 fidelity budget/downgrade、
-  Map-state replay 与 whole-world rollback。
+- **Pre10**：Map Region/Chunk 策略、production streaming、竞态与 replay。
 - **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
   所有权。
 - **Pre12**：最终 UI navigation、focus、transition 与 authoring 契约。
@@ -482,11 +453,8 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
 
 ## 依赖
 
-Addressables 仍不属于包体硬依赖。只使用 Direct Content/Pooling/Map 的项目不需要
-安装 Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显式安装。
-Addressable Map Binding 还必须由项目实现 `IRegionAddressableSceneResolver` 并接到
-`CoCoMapHost`，同时为 Editor 注册等价 Resolver Provider；只安装 Content Backend
-不会自动定义 Address 到唯一 Scene 的映射。
+Addressables 仍不属于包体硬依赖。只使用 Direct Content/Pooling 的项目不需要安装
+Addressables；需要可选后端时，从 `CoCoFlow/Setup/Setup Assistant` 显式安装。
 
 | Package | Version | 当前使用者 |
 |---|---:|---|
@@ -518,11 +486,6 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-Pre10 Unity 验证当前为 `UNVERIFIED`：已授权的 CoCoLab CLI 尝试在执行测试前被本机
-Unity Licensing Client 协议不匹配阻塞。Direct-only/Addressables Runtime、聚焦与
-完整包测试、Package Validation Suite，以及 macOS Universal
-IL2CPP/High-Stripping Player 证据仍待记录。
-
 ## 文档
 
 - [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
@@ -533,7 +496,7 @@ IL2CPP/High-Stripping Player 证据仍待记录。
 - [Content 获取与所有权](Docs/ContentOwnership.md)
 - [Object Pooling 与实例所有权](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
-- [Map Region Fidelity](Docs/Module-Map.md)
+- [Module: Map](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)
 - [Module: Persistence](Docs/Module-Persistence.md)

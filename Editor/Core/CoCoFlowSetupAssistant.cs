@@ -87,37 +87,10 @@ namespace CoCoFlow.Editor.Core
                 },
                 "Optional Host-scoped temporal retention sidecar; not world rollback."),
             new ModuleDefinition(
-                "Map (Region Fidelity)",
+                "Map",
                 new[] { UniTaskDefine },
-                new[]
-                {
-                    "UniTask",
-                    "CoCoFlow.Runtime.Content",
-                    "CoCoFlow.Runtime.Modules.Map"
-                },
-                "Compiled Region Profiles, scoped Demand Leases, per-Chunk fidelity, and transactional participants."),
-            new ModuleDefinition(
-                "Map (Pooling)",
-                new[] { UniTaskDefine },
-                new[]
-                {
-                    "UniTask",
-                    "CoCoFlow.Runtime.Modules.Map",
-                    "CoCoFlow.Runtime.Pooling",
-                    "CoCoFlow.Runtime.Modules.Map.Pooling"
-                },
-                "Optional Region participant adapter with committed-node PoolScope ownership."),
-            new ModuleDefinition(
-                "Map (Temporal)",
-                new[] { UniTaskDefine },
-                new[]
-                {
-                    "UniTask",
-                    "CoCoFlow.Runtime.Modules.Map",
-                    "CoCoFlow.Runtime.StateGraphHost",
-                    "CoCoFlow.Runtime.Modules.Map.Temporal"
-                },
-                "Map-first availability and retention decorator; it does not replay Map state."),
+                new[] { "UniTask", "CoCoFlow.Runtime.Content" },
+                "Map policy using shared Content scene ownership."),
             new ModuleDefinition(
                 "Enemy AI",
                 new string[0],
@@ -641,12 +614,6 @@ namespace CoCoFlow.Editor.Core
                 IsAssemblyInstalled("CoCoFlow.Runtime.Pooling.Temporal");
             status.AssemblyStates["CoCoFlow.Runtime.StateGraphHost"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.StateGraphHost");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Pooling"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Pooling");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Temporal"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Temporal");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");

@@ -3,6 +3,7 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Map",
     "references": [
         "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Content",
         "UniTask"
     ],

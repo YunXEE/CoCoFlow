@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-pre.10",
+  "version": "0.4.0-pre.9",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with transactional Region fidelity, explicit content ownership, generation-safe GameObject pooling, and Temporal availability barriers.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with explicit content ownership, generation-safe GameObject pooling, and optional Host-scoped Temporal entity retention.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.inputsystem": "1.18.0",
@@ -30,8 +30,6 @@
     "resource-lifecycle",
     "object-pooling",
     "pooling",
-    "region-fidelity",
-    "map-streaming",
     "temporal-entities",
     "addressables",
     "core-contracts",

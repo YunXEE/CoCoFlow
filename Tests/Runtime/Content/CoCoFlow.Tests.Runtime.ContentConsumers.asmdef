@@ -3,8 +3,10 @@
     "rootNamespace": "CoCoFlow.Tests.Runtime.ContentConsumers",
     "references": [
         "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Modules.UI",
+        "CoCoFlow.Runtime.Modules.Map",
         "UniTask"
     ],
     "includePlatforms": [],
