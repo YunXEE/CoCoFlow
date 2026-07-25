@@ -2,11 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.10 · **Unity**：6000+
+> **版本**：0.4.0-pre.11 · **Unity**：6000+
 >
-> Pre10 用事务式 Region fidelity 取代旧 Map 场景推送器：可编辑 Capability
-> Profile、per-Chunk Demand Coverage、稳定 Participant Node、cold-start Scene
-> 所有权，以及 Map/Pool/Temporal 扩展接缝。
+> Pre11 用两个 State Flow Operator 取代旧 Animation facade：
+> 只处理 Parameter/Trigger 的 `AnimAutoOperator`，以及基于手动
+> `AnimatorControllerPlayable` 的 `AnimOperator`。Animator 精确重放仍明确延期，
+> 并在 Temporal 路径失败关闭。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -442,6 +443,8 @@ Runtime/Content          Unity-facing Content 获取、所有权、Direct 后端
 Runtime/Content/Addressables  可选条件编译的 Addressables 后端
 Runtime/Pooling          Content-backed GameObject 实例所有权与 diagnostics
 Runtime/Pooling/Temporal 可选的 Host-scoped pooled Temporal entity retention
+Runtime/Animation        与引擎隔离的 Animation Operation 与 feedback 契约
+Runtime/Modules/Animation  Animator Controller Operator、SMB bridge 与可选 adapter
 Runtime/Modules/Map      事务式 Region fidelity、demand、participant 与 adapter
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
 Runtime/Gameplay         过渡期 gameplay 实现
@@ -451,6 +454,7 @@ Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
 Editor/Content           Content Reference 创作与 Runtime Ownership Monitor
 Editor/Pooling           Pool Host 创作与 Runtime Ownership Monitor
 Editor/Modules/Map       Region Profile/Binding 创作、validation 与 Runtime Monitor
+Editor/Modules/Animation Controller mapping validation 与 SMB 创作工具
 Editor                   dependency/setup 与过渡期模块工具
 Tests                    契约、架构与过渡期回归测试
 ```
@@ -472,8 +476,8 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
   自动 Trim/LRU、hot profile mutation，以及 world/durable rollback。
 - **Map 扩展**：项目自有 distance/adjacency 策略、自动 fidelity budget/downgrade、
   Map-state replay 与 whole-world rollback。
-- **Pre11**：Playable Animation V2、Animation Operator、Combo Timing 与 Root Motion
-  所有权。
+- **Animation 扩展**：待 bounded replay gate 通过后再实现 Animator 精确重放；
+  generic Playable、内置 IK 与直接写世界 Transform 的 Root Motion 不属于 Pre11。
 - **Pre12**：最终 UI navigation、focus、transition 与 authoring 契约。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
 - **Pre15**：production gameplay State 与替代 Sample。
@@ -502,10 +506,14 @@ Addressable Map Binding 还必须由项目实现 `IRegionAddressableSceneResolve
 | Package | 推荐版本 | 当前使用者 |
 |---|---:|---|
 | Addressables | `[2.9.1,3.0.0)` | 仅 `CoCoFlow.Runtime.Content.Addressables` |
+| DOTween | 项目自有 | 可选 Animation modulation 与 UI |
+| UniTask | `2.5.11` Git revision | 可选 Animation playback waiter 与异步模块 |
 
 UniTask 仍由 Setup Assistant 管理。启用 `COCOFLOW_UNITASK_SUPPORT` 后编译
-Content、Pooling、Pooling Temporal、UI 与 Map；Addressables 适配器还需要对应
-package version define。Setup Assistant 只报告 Pooling 可用性，不安装独立 Pool 包。
+Content、Pooling、Pooling Temporal、UI、Map 与可选 Animation waiter。
+可选 Animation modulation adapter 使用 `COCOFLOW_DOTWEEN_SUPPORT`，并且只推进
+自身拥有的 tween；Addressables adapter 还需要对应 package version define。
+Setup Assistant 只报告模块可用性，不安装独立 Pool 或 Animation 包。
 
 ## 安装与验证
 
@@ -518,9 +526,9 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-Pre10 Unity 验证当前为 `UNVERIFIED`：已授权的 CoCoLab CLI 尝试在执行测试前被本机
-Unity Licensing Client 协议不匹配阻塞。Direct-only/Addressables Runtime、聚焦与
-完整包测试、Package Validation Suite，以及 macOS Universal
+Pre11 Unity 验证当前为 `UNVERIFIED`：已授权的 CoCoLab CLI 尝试在执行测试前被本机
+Unity Licensing Client 协议不匹配阻塞。Animation EditMode/PlayMode、聚焦与完整
+包测试、Package Validation Suite，以及 macOS Universal
 IL2CPP/High-Stripping Player 证据仍待记录。
 
 ## 文档
@@ -539,7 +547,8 @@ IL2CPP/High-Stripping Player 证据仍待记录。
 - [Module: Persistence](Docs/Module-Persistence.md)
 - [Changelog](CHANGELOG.md)
 
-除非明确标注为 0.4 权威契约，模块文档描述的都是过渡期实现。
+除非明确标注为 0.4 权威契约，模块文档描述的都是过渡期实现；Animation 模块文档
+描述的是 Pre11 的 0.4 表面。
 
 ## 版本约定
 

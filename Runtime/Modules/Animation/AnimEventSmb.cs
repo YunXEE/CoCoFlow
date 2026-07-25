@@ -1,95 +1,228 @@
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
+using CoCoFlow.Runtime.Animation.Contracts;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace CoCoFlow.Runtime.Modules.Animation
 {
-    /// <summary>
-    /// 动画事件配置数据结构
-    /// </summary>
     [Serializable]
-    public class AnimEventConfig
+    public sealed class AnimEventConfig
     {
-        [Tooltip("Event Name")]
-        public string eventName;
+        [SerializeField] private ulong bindingId;
+        [SerializeField, FormerlySerializedAs("eventName")] private string eventName;
+        [SerializeField, Range(0f, 1f), FormerlySerializedAs("triggerTime")]
+        private float triggerTime;
 
-        [Range(0f, 1f)]
-        [Tooltip("Trigger Percent Of Animation")]
-        public float triggerTime;
+        public ulong BindingId => bindingId;
+        public string EventName => eventName ?? string.Empty;
+        public float TriggerTime => triggerTime;
     }
 
-    /// <summary>
-    /// Animator SMB 行为扩展，用于精确触发自定义动画事件
-    /// 解决原生 Animation Event 在过渡或循环时可能存在的失效问题
-    /// </summary>
-    public class AnimEventSmb : StateMachineBehaviour
+    public sealed class AnimEventSmb : StateMachineBehaviour
     {
-        /// <summary>
-        /// 动画事件列表
-        /// </summary>
-        public AnimEventConfig[] events;
+        [SerializeField, FormerlySerializedAs("events")]
+        private AnimEventConfig[] eventConfigs = Array.Empty<AnimEventConfig>();
 
-        private class InstanceState
-        {
-            public AnimHandler Handler;
-            public bool[] TriggerFlags;
-            public int LastLoopCount;
-        }
-
-        // 弱引用表：为每个使用该 SMB 的 Animator 实例独立存储状态
-        // 理由：SMB 是资源级的（Asset），会被多个场景对象共享，不能直接存储实例变量
         private readonly ConditionalWeakTable<Animator, InstanceState> _instanceStates =
             new ConditionalWeakTable<Animator, InstanceState>();
 
-        public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
-        {
-            // 首次进入时进行状态绑定
-            if (!_instanceStates.TryGetValue(animator, out var state))
-            {
-                state = new InstanceState
-                {
-                    Handler = animator.GetComponent<AnimHandler>(),
-                    TriggerFlags = new bool[events.Length]
-                };
-                _instanceStates.Add(animator, state); // 添加到弱引用表
-            }
+        public AnimEventConfig[] EventConfigs => eventConfigs;
 
-            // 初始化循环计数与触发标志
+        public override void OnStateEnter(
+            Animator animator,
+            AnimatorStateInfo stateInfo,
+            int layerIndex)
+        {
+            InstanceState state = GetOrCreateState(animator);
+            state.Receiver = ResolveReceiver(animator);
             state.LastLoopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
-            for (var i = 0; i < state.TriggerFlags.Length; i++)
-            {
-                state.TriggerFlags[i] = false;
-            }
+            state.EnsureCapacity(eventConfigs?.Length ?? 0);
+            state.ClearFlags();
+            state.Receiver?.ReceiveSmbSignal(
+                AnimSmbSignal.State(
+                    AnimSmbSignalKind.StateEnter,
+                    stateInfo.fullPathHash,
+                    layerIndex,
+                    state.LastLoopCount,
+                    stateInfo.normalizedTime));
         }
 
-        public override void OnStateUpdate(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
+        public override void OnStateUpdate(
+            Animator animator,
+            AnimatorStateInfo stateInfo,
+            int layerIndex)
         {
-            if (!_instanceStates.TryGetValue(animator, out var state) || state.Handler == null) return;
-
-            int currentLoopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
-            float currentNormalizedTime = stateInfo.normalizedTime - currentLoopCount;
-
-            #region Internal Logic
-            // 处理循环逻辑：跨周目时重置所有事件的触发状态
-            if (stateInfo.loop && currentLoopCount > state.LastLoopCount)
+            if (!_instanceStates.TryGetValue(animator, out InstanceState state) ||
+                state.Receiver == null)
             {
-                state.LastLoopCount = currentLoopCount;
-                for (int i = 0; i < state.TriggerFlags.Length; i++)
-                {
-                    state.TriggerFlags[i] = false;
-                }
+                return;
             }
 
-            // 进度检测触发
-            for (int i = 0; i < events.Length; i++)
+            int eventCount = eventConfigs?.Length ?? 0;
+            state.EnsureCapacity(eventCount);
+            int loopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
+            float normalizedTime = stateInfo.normalizedTime - loopCount;
+            if (stateInfo.loop && loopCount != state.LastLoopCount)
             {
-                if (!state.TriggerFlags[i] && currentNormalizedTime >= events[i].triggerTime)
-                {
-                    state.TriggerFlags[i] = true;
-                    state.Handler.OnAnimationEventTriggered(events[i].eventName);
-                }
+                state.LastLoopCount = loopCount;
+                state.ClearFlags();
             }
-            #endregion
+
+            for (int index = 0; index < eventCount; index++)
+            {
+                AnimEventConfig config = eventConfigs[index];
+                if (config == null ||
+                    state.TriggerFlags[index] ||
+                    normalizedTime < config.TriggerTime ||
+                    !AnimBindingId.TryCreate(
+                        config.BindingId,
+                        out AnimBindingId bindingId))
+                {
+                    continue;
+                }
+
+                state.TriggerFlags[index] = true;
+                state.Receiver.ReceiveSmbSignal(
+                    AnimSmbSignal.Marker(
+                        bindingId,
+                        stateInfo.fullPathHash,
+                        layerIndex,
+                        loopCount,
+                        normalizedTime));
+            }
         }
+
+        public override void OnStateExit(
+            Animator animator,
+            AnimatorStateInfo stateInfo,
+            int layerIndex)
+        {
+            if (!_instanceStates.TryGetValue(animator, out InstanceState state))
+            {
+                return;
+            }
+
+            state.Receiver?.ReceiveSmbSignal(
+                AnimSmbSignal.State(
+                    AnimSmbSignalKind.StateExit,
+                    stateInfo.fullPathHash,
+                    layerIndex,
+                    Mathf.FloorToInt(stateInfo.normalizedTime),
+                    stateInfo.normalizedTime));
+        }
+
+        private InstanceState GetOrCreateState(Animator animator)
+        {
+            if (_instanceStates.TryGetValue(animator, out InstanceState state))
+            {
+                return state;
+            }
+
+            state = new InstanceState();
+            _instanceStates.Add(animator, state);
+            return state;
+        }
+
+        private static IAnimEventReceiver ResolveReceiver(Animator animator)
+        {
+            AnimOperator advanced = animator.GetComponent<AnimOperator>();
+            if (advanced != null)
+            {
+                return advanced;
+            }
+
+            return animator.GetComponent<AnimAutoOperator>();
+        }
+
+        private sealed class InstanceState
+        {
+            internal IAnimEventReceiver Receiver;
+            internal bool[] TriggerFlags = Array.Empty<bool>();
+            internal int LastLoopCount;
+
+            internal void EnsureCapacity(int count)
+            {
+                if (TriggerFlags.Length != count)
+                {
+                    TriggerFlags = count == 0 ? Array.Empty<bool>() : new bool[count];
+                }
+            }
+
+            internal void ClearFlags()
+            {
+                Array.Clear(TriggerFlags, 0, TriggerFlags.Length);
+            }
+        }
+    }
+
+    internal enum AnimSmbSignalKind : byte
+    {
+        StateEnter = 1,
+        Marker = 2,
+        StateExit = 3
+    }
+
+    internal readonly struct AnimSmbSignal
+    {
+        private AnimSmbSignal(
+            AnimSmbSignalKind kind,
+            AnimBindingId bindingId,
+            int stateHash,
+            int layerIndex,
+            int loopCount,
+            float normalizedTime)
+        {
+            Kind = kind;
+            BindingId = bindingId;
+            StateHash = stateHash;
+            LayerIndex = layerIndex;
+            LoopCount = loopCount;
+            NormalizedTime = normalizedTime;
+        }
+
+        internal AnimSmbSignalKind Kind { get; }
+        internal AnimBindingId BindingId { get; }
+        internal int StateHash { get; }
+        internal int LayerIndex { get; }
+        internal int LoopCount { get; }
+        internal float NormalizedTime { get; }
+
+        internal static AnimSmbSignal State(
+            AnimSmbSignalKind kind,
+            int stateHash,
+            int layerIndex,
+            int loopCount,
+            float normalizedTime)
+        {
+            return new AnimSmbSignal(
+                kind,
+                default,
+                stateHash,
+                layerIndex,
+                loopCount,
+                normalizedTime);
+        }
+
+        internal static AnimSmbSignal Marker(
+            AnimBindingId bindingId,
+            int stateHash,
+            int layerIndex,
+            int loopCount,
+            float normalizedTime)
+        {
+            return new AnimSmbSignal(
+                AnimSmbSignalKind.Marker,
+                bindingId,
+                stateHash,
+                layerIndex,
+                loopCount,
+                normalizedTime);
+        }
+    }
+
+    internal interface IAnimEventReceiver
+    {
+        void ReceiveSmbSignal(in AnimSmbSignal signal);
     }
 }

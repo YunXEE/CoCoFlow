@@ -1,11 +1,10 @@
 {
-    "name": "CoCoFlow.Runtime.Modules.Animation",
-    "rootNamespace": "CoCoFlow.Runtime.Modules.Animation",
+    "name": "CoCoFlow.Runtime.Modules.Animation.UniTask",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Animation.UniTask",
     "references": [
         "CoCoFlow.Runtime.Animation.Contracts",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Runtime.Modules.Animation",
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -13,7 +12,9 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

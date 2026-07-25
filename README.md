@@ -2,11 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.10 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.11 · **Unity**: 6000+
 >
-> Pre10 replaces the legacy Map scene pusher with transactional Region fidelity:
-> editable capability Profiles, per-Chunk demand Coverage, stable participant
-> nodes, cold-start Scene ownership, and Map/Pool/Temporal extension seams.
+> Pre11 replaces the legacy Animation facade with two State Flow Operators:
+> parameter/trigger-only `AnimAutoOperator` and a manual
+> `AnimatorControllerPlayable`-based `AnimOperator`. Exact Animator replay
+> remains explicitly deferred and fails closed.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -529,6 +530,8 @@ Runtime/Content          Unity-facing content acquisition, ownership, Direct bac
 Runtime/Content/Addressables  optional conditional Addressables backend
 Runtime/Pooling          Content-backed GameObject instance ownership and diagnostics
 Runtime/Pooling/Temporal optional Host-scoped pooled Temporal entity retention
+Runtime/Animation        engine-independent Animation Operation and feedback contracts
+Runtime/Modules/Animation  Animator Controller Operators, SMB bridge, and optional adapters
 Runtime/Modules/Map      transactional Region fidelity, demand, participants, and adapters
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
 Runtime/Gameplay         transitional gameplay implementations
@@ -538,6 +541,7 @@ Editor/StateGraphHost    Host Inspector and committed runtime debugger
 Editor/Content           Content reference authoring and runtime ownership monitor
 Editor/Pooling           Pool Host authoring and runtime ownership monitor
 Editor/Modules/Map       Region Profile/Binding authoring, validation, and runtime monitor
+Editor/Modules/Animation Controller mapping validation and SMB authoring tools
 Editor                   dependency/setup and transitional module tooling
 Tests                    contract, architecture, and transition regressions
 ```
@@ -562,8 +566,9 @@ with this document, the Pre2 State Flow model is authoritative.
   automatic trim/LRU, hot profile mutation, and world/durable rollback.
 - **Map extensions**: project-owned distance/adjacency policy, automatic
   fidelity budgets/downgrade, Map-state replay, and whole-world rollback.
-- **Pre11**: Playable-based Animation V2, animation Operator contracts, combo
-  timing, and root-motion ownership.
+- **Animation extensions**: exact Animator replay after its bounded replay gate
+  passes; generic Playables, built-in IK, and world-transform root-motion writes
+  are not planned Pre11 surfaces.
 - **Pre12**: final UI navigation, focus, transition, and authoring contracts.
 - **Pre13**: Persistence V2, durable projection, migration, containers, and
   world facts.
@@ -596,12 +601,16 @@ Optional dependency:
 | Package | Recommended version | Current owner |
 |---|---:|---|
 | Addressables | `[2.9.1,3.0.0)` | `CoCoFlow.Runtime.Content.Addressables` only |
+| DOTween | project-owned | optional Animation modulation and UI |
+| UniTask | `2.5.11` Git revision | optional Animation playback waiter and async modules |
 
 UniTask remains Setup-Assistant-managed. Content, Pooling, Pooling Temporal, UI,
-and Map assemblies compile when `COCOFLOW_UNITASK_SUPPORT` is enabled; the
-optional Addressables assembly also requires the Addressables package version
-define. Setup Assistant reports Pooling availability but does not install a
-separate Pool package.
+Map, and the optional Animation waiter compile when
+`COCOFLOW_UNITASK_SUPPORT` is enabled. The optional Animation modulation adapter
+uses `COCOFLOW_DOTWEEN_SUPPORT`; it advances only tweens it owns. The optional
+Addressables assembly also requires the Addressables package version define.
+Setup Assistant reports module availability but does not install separate Pool
+or Animation packages.
 
 ## Installation and Validation
 
@@ -616,10 +625,10 @@ IL2CPP/High-Stripping checks, and Unity Package Validation Suite.
 `CoCoFlow/Setup/Setup Assistant` remains a
 dependency/support-define tool; it does not install project content.
 
-Pre10 Unity validation is currently `UNVERIFIED`: the authorized CoCoLab CLI
+Pre11 Unity validation is currently `UNVERIFIED`: the authorized CoCoLab CLI
 attempt was blocked by a local Unity Licensing Client protocol mismatch before
-test execution. Direct-only and Addressables runtime results, focused and full
-package tests, Package Validation Suite output, and macOS Universal
+test execution. Animation EditMode/PlayMode execution, focused and full package
+tests, Package Validation Suite output, and macOS Universal
 IL2CPP/High-Stripping Player evidence remain outstanding.
 
 ## Documentation
@@ -639,7 +648,8 @@ IL2CPP/High-Stripping Player evidence remain outstanding.
 - [Changelog](CHANGELOG.md)
 
 Module documents describe transitional implementations unless they explicitly
-mark a 0.4 contract as authoritative.
+mark a 0.4 contract as authoritative. The Animation module document describes
+the Pre11 0.4 surface.
 
 ## Versioning
 

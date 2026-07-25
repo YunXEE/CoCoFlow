@@ -1,6 +1,7 @@
 # Pre11 Animator Exact-Replay Gate Evidence
 
-Date: 2026-07-25  
+Date: 2026-07-25
+
 Unity Editor: 6000.3.20f1
 
 ## Frozen rule

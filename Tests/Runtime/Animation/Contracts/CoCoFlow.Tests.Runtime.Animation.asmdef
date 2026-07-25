@@ -1,0 +1,23 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.Animation",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Animation",
+    "references": [
+        "CoCoFlow.Runtime.Animation.Contracts",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Modules.Animation"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
