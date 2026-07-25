@@ -1,6 +1,8 @@
 # CoCoFlow Documentation
 
 This page is the Unity Package Manager documentation entry point for CoCoFlow.
+The current package line is `0.4.0-pre.11`; Animation V2 is forward-only and
+exact Animator replay remains explicitly deferred.
 
 - [Package overview](../README.md)
 - [简体中文概览](../README.zh-CN.md)
@@ -13,7 +15,7 @@ This page is the Unity Package Manager documentation entry point for CoCoFlow.
 - [Object pooling and instance ownership](../Docs/ObjectPooling.md)
 - [UI module](../Docs/Module-UI.md)
 - [Map Region Fidelity](../Docs/Module-Map.md)
-- [Animation module](../Docs/Module-Animation.md)
+- [Animation V2 module](../Docs/Module-Animation.md)
 - [Camera module](../Docs/Module-Camera.md)
 - [Persistence module](../Docs/Module-Persistence.md)
 - [Changelog](../CHANGELOG.md)

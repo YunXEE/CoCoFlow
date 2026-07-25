@@ -126,8 +126,32 @@ namespace CoCoFlow.Editor.Core
             new ModuleDefinition(
                 "Animation",
                 new string[0],
-                new string[0],
-                "Animator helpers, SMB event bridge, and editor injection tooling."),
+                new[]
+                {
+                    "CoCoFlow.Runtime.Animation.Contracts",
+                    "CoCoFlow.Runtime.Modules.Animation"
+                },
+                "Animator Controller parameter/trigger and manual Playable Operators."),
+            new ModuleDefinition(
+                "Animation (DOTween)",
+                new[] { DotweenDefine },
+                new[]
+                {
+                    "DOTween",
+                    "CoCoFlow.Runtime.Modules.Animation",
+                    "CoCoFlow.Runtime.Modules.Animation.DOTween"
+                },
+                "Optional Operator-owned manual modulation; never advances global tweens."),
+            new ModuleDefinition(
+                "Animation (UniTask)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Modules.Animation",
+                    "CoCoFlow.Runtime.Modules.Animation.UniTask"
+                },
+                "Optional playback-token waiter; cancellation does not stop playback."),
             new ModuleDefinition(
                 "UI",
                 new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
@@ -528,23 +552,50 @@ namespace CoCoFlow.Editor.Core
 
         private void ApplyAvailableSupportDefines(bool uniTaskInstallSucceeded)
         {
-            var defines = new List<string>();
-            if (uniTaskInstallSucceeded || IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask"))
-                defines.Add(UniTaskDefine);
+            bool uniTaskAvailable = uniTaskInstallSucceeded ||
+                                    IsAssemblyInstalled("UniTask") ||
+                                    IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            string[] defines = SelectAvailableSupportDefines(
+                uniTaskAvailable,
+                IsDotweenInstalled(),
+                IsDotweenModuleInstalled(),
+                IsAssemblyInstalled("UniTask.DOTween"));
 
-            if (IsDotweenModuleInstalled())
-            {
-                defines.Add(DotweenDefine);
-                defines.Add(UniTaskDotweenDefine);
-            }
-
-            if (defines.Count == 0)
+            if (defines.Length == 0)
             {
                 AddLog("No support defines were added because dependencies are not available yet.");
                 return;
             }
 
-            AddDefinesToAllValidTargets(defines.ToArray());
+            AddDefinesToAllValidTargets(defines);
+        }
+
+        internal static string[] SelectAvailableSupportDefines(
+            bool uniTaskAvailable,
+            bool dotweenAvailable,
+            bool dotweenModulesAvailable,
+            bool uniTaskDotweenAvailable)
+        {
+            var defines = new List<string>();
+            if (uniTaskAvailable)
+            {
+                defines.Add(UniTaskDefine);
+            }
+
+            if (dotweenAvailable)
+            {
+                defines.Add(DotweenDefine);
+            }
+
+            if (uniTaskAvailable &&
+                dotweenAvailable &&
+                dotweenModulesAvailable &&
+                uniTaskDotweenAvailable)
+            {
+                defines.Add(UniTaskDotweenDefine);
+            }
+
+            return defines.ToArray();
         }
 
         private void AddDefinesToAllValidTargets(params string[] definesToAdd)
@@ -647,6 +698,14 @@ namespace CoCoFlow.Editor.Core
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Pooling");
             status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Temporal"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Temporal");
+            status.AssemblyStates["CoCoFlow.Runtime.Animation.Contracts"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Animation.Contracts");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.DOTween"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.DOTween");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.UniTask"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.UniTask");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
@@ -682,7 +741,6 @@ namespace CoCoFlow.Editor.Core
         private static bool IsDotweenInstalled()
         {
             return IsAssemblyInstalled("DOTween") ||
-                   IsAssemblyInstalled("DOTween.Modules") ||
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
         }
 

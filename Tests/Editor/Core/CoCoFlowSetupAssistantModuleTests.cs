@@ -45,6 +45,42 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.That(module.Description, Does.Contain("not world rollback"));
         }
 
+        [TestCase(false, false, false, false, "")]
+        [TestCase(false, true, false, false, "COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(false, true, true, false, "COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(true, false, false, false, "COCOFLOW_UNITASK_SUPPORT")]
+        [TestCase(true, false, true, true, "COCOFLOW_UNITASK_SUPPORT")]
+        [TestCase(
+            true,
+            true,
+            true,
+            false,
+            "COCOFLOW_UNITASK_SUPPORT;COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(
+            true,
+            true,
+            true,
+            true,
+            "COCOFLOW_UNITASK_SUPPORT;COCOFLOW_DOTWEEN_SUPPORT;UNITASK_DOTWEEN_SUPPORT")]
+        public void SupportDefinesRequireTheirExactOptionalDependencies(
+            bool uniTaskAvailable,
+            bool dotweenAvailable,
+            bool dotweenModulesAvailable,
+            bool uniTaskDotweenAvailable,
+            string expectedDefines)
+        {
+            string[] actual = CoCoFlowSetupAssistant.SelectAvailableSupportDefines(
+                uniTaskAvailable,
+                dotweenAvailable,
+                dotweenModulesAvailable,
+                uniTaskDotweenAvailable);
+
+            string[] expected = string.IsNullOrEmpty(expectedDefines)
+                ? Array.Empty<string>()
+                : expectedDefines.Split(';');
+            Assert.That(actual, Is.EqualTo(expected));
+        }
+
         private static ModuleView FindModule(string displayName)
         {
             FieldInfo modulesField = typeof(CoCoFlowSetupAssistant).GetField(

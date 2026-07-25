@@ -5,6 +5,101 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.11] - 2026-07-25
+
+### Added
+
+- Engine-independent Animation contracts for fixed-capacity Parameter,
+  Trigger, Playback, and Modulation Operation Sections, plus typed playback,
+  feedback Event/Intent, reducer, adapter, and `AnimPlaybackContext` surfaces.
+- `AnimAutoOperator` for Parameter and Trigger delivery only, and
+  `AnimOperator` for one manually evaluated `AnimatorControllerPlayable`.
+  `AnimOperator` supports positive Tick or explicit positive Step evaluation,
+  mapped `Play`, `CrossFade`, and `Stop`, four playback layers with lifecycle
+  tokens, eight modulation lanes, and one owned playback Context outcome.
+- `AnimEventSmb` State Enter, Marker, and State Exit feedback with per-Animator
+  trigger state. Feedback enters the Actor Event path only after a successful
+  commit: Playable feedback is visible on the next accepted Tick, while Direct
+  SMB feedback is staged until the next Operator commit and projected on the
+  following accepted Tick.
+- Optional internal `AnimRootMotionRelay` behavior owned by `AnimOperator`.
+  Position and rotation forwarding can be selected independently; the relay
+  emits typed deltas and never writes a Transform, CharacterController, or
+  Rigidbody.
+- Controller-authoritative custom Inspectors for fixed-lane mapping and
+  validation, plus retained SMB injection/editing tools. Animator layers,
+  states, transitions, Blend Trees, parameters, and clips remain authored in
+  the Animator Controller.
+- Conditional DOTween modulation and UniTask playback-waiter assemblies.
+  DOTween advances only Animation-owned tweens; UniTask cancellation cancels
+  only the waiter and never stops playback.
+
+### Changed
+
+- Replaced the retained 0.3.9 `AnimHandler` surface with the two Pre11
+  Operators. `AnimEventSmb` is a `StateMachineBehaviour`, and
+  `AnimRootMotionRelay` is an internal plain helper, so the Animation V2
+  production surface contains exactly two `MonoBehaviour` components.
+- Assigned `AnimAutoOperator` the new script GUID
+  `e3244dec4ece44d9a45369111d6c2344`. The legacy `AnimHandler` GUID is not
+  reused and no migration alias is provided; 0.3.9 scenes must replace the
+  resulting Missing Script explicitly.
+- Changed `AnimOperator.CurrentPlayback` and `TryGetPlayback` to report only
+  committed `AnimPlaybackContext` state. Candidate execution state remains
+  private and cannot leak through a cancelled transaction.
+- Made the Auto and Advanced descriptors aliases of one Host-exclusive
+  Animation Operator identity. A Host cannot configure both variants.
+- Scoped playback tokens and the Advanced Playable runtime to the current
+  `GraphInstanceId`; Host Stop/Start rebuilds local playback, Hold, modulation,
+  root-motion, and feedback state before the next execution.
+- Invalidated the previously committed playback snapshot when the Advanced
+  runtime is rebuilt, so public queries and active UniTask waiters cannot
+  observe playback owned by a destroyed Playable graph.
+- Normalized finite rotation modulation with an overflow-safe scaled
+  calculation shared by Immediate and DOTween paths.
+- Isolated SMB marker cursors by Animator layer and current/next state instance,
+  preserved early-transition interruption across large evaluations, and made
+  DOTween target-write failures reject the Operator transaction explicitly.
+- Updated Setup Assistant reporting, public documentation, the package version,
+  and the two existing Unity Package Validation Suite exception scopes to
+  `0.4.0-pre.11`. DOTween and UniTask remain optional rather than hard package
+  dependencies.
+
+### Verification
+
+- `PASS`: on this six-fix Head, Unity 6000.3.20f1 Batchmode reimport and
+  compilation; focused Setup EditMode (`9/9`); focused non-Replay Animation
+  PlayMode (`24/24`). The real `AnimatorControllerPlayable` fixture covers
+  Loop, OneShot exit-time, Parameter, concurrent same-state SMB Markers, Root
+  Motion, natural completion, large-Tick early interruption, and
+  committed-only playback queries.
+- `FROZEN`: the prior G1/G3 Replay probes remain intentionally
+  `INCONCLUSIVE`; this fix pass did not rerun or change Exact Replay.
+- `BASELINE`: repeated package-wide EditMode runs are
+  `593 PASS / 15 FAIL / 1 SKIP` and `592 PASS / 16 FAIL / 1 SKIP`, against
+  exact Base `0df9d486` at `586 PASS / 15 FAIL / 1 SKIP`. The 15 baseline
+  failure names recur; the intermittent additional failure is the excluded
+  Map timing case `ForceFallbackKeepsLateSourceAheadOfTargetCleanup`.
+  Package-wide PlayMode is `331 PASS / 6 FAIL / 2 INCONCLUSIVE` against Base
+  `300 PASS / 6 FAIL`; the six failures are identical and the two added
+  inconclusive results are the frozen G1/G3 replay gates.
+- `UNVERIFIED`: Package Validation Suite is not installed in the local Editor
+  or package cache. macOS Universal IL2CPP with High Managed Stripping reached
+  the requested `IL2CPP / High / architecture=2` settings, but the Editor's
+  macOS IL2CPP player support is not installed. Performance observations also
+  remain unverified.
+
+### Deferred
+
+- Exact Animator replay did not pass the bounded replay gate within the frozen
+  Pre11 scope (`G1=UNVERIFIED`, `G2=NO-GO`, `G3=UNVERIFIED`). `AnimOperator` is forward-only:
+  `AnimExactReplayStatus.Deferred` is explicit, and Temporal Preview,
+  projection, restore, Confirm preparation, and correction fail closed rather
+  than approximating a pose or evaluating backwards.
+- Generic/low-level Playable abstraction, built-in IK or rigging, world
+  root-motion application, a second authored state machine/profile, and
+  negative Tick or Step evaluation remain outside Pre11.
+
 ## [0.4.0-pre.10] - 2026-07-24
 
 ### Added

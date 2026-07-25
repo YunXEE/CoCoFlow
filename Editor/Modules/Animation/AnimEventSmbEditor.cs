@@ -1,73 +1,119 @@
-﻿using UnityEngine;
-using UnityEditor;
-using UnityEditorInternal; // 引入 ReorderableList
+﻿using System.Collections.Generic;
 using CoCoFlow.Runtime.Modules.Animation;
+using UnityEditor;
+using UnityEditorInternal;
+using UnityEngine;
 
 namespace CoCoFlow.Editor.Modules.Animation
 {
     [CustomEditor(typeof(AnimEventSmb))]
-    public class AnimEventSmbEditor : UnityEditor.Editor
+    internal sealed class AnimEventSmbEditor : UnityEditor.Editor
     {
-        private SerializedProperty _eventsProp;
-        private ReorderableList _reorderableList;
+        private SerializedProperty eventConfigs;
+        private ReorderableList eventList;
 
         private void OnEnable()
         {
-            _eventsProp = serializedObject.FindProperty("events");
-
-            // 初始化 ReorderableList
-            _reorderableList = new ReorderableList(serializedObject, _eventsProp, true, true, true, true)
+            eventConfigs = serializedObject.FindProperty("eventConfigs");
+            if (eventConfigs == null)
             {
-                // 1. 绘制表头
-                drawHeaderCallback = (Rect rect) =>
-                {
-                    EditorGUI.LabelField(rect, "动画帧事件配置表 (Animation Events)");
-                },
+                return;
+            }
 
-                // 2. 绘制列表里的每一个元素
-                drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
-                {
-                    var element = _reorderableList.serializedProperty.GetArrayElementAtIndex(index);
-                    var eventNameProp = element.FindPropertyRelative("eventName");
-                    var triggerTimeProp = element.FindPropertyRelative("triggerTime");
-
-                    rect.y += 2;
-
-                    // 划分每一行的显示区域 (比如 40% 给名字，60% 给时间滑块)
-                    float nameWidth = rect.width * 0.4f;
-                    float timeWidth = rect.width * 0.6f - 10f; // 减 10 留点空隙
-
-                    // 绘制事件名输入框
-                    EditorGUI.PropertyField(
-                        new Rect(rect.x, rect.y, nameWidth, EditorGUIUtility.singleLineHeight),
-                        eventNameProp, GUIContent.none);
-
-                    // 绘制时间滑块 (0.0 到 1.0)
-                    EditorGUI.PropertyField(
-                        new Rect(rect.x + nameWidth + 10, rect.y, timeWidth, EditorGUIUtility.singleLineHeight),
-                        triggerTimeProp, GUIContent.none);
-                },
-
-                // 3. 动态调整元素高度
-                elementHeightCallback = (int index) =>
-                {
-                    return EditorGUIUtility.singleLineHeight + 4;
-                }
+            eventList = new ReorderableList(
+                serializedObject,
+                eventConfigs,
+                true,
+                true,
+                true,
+                true)
+            {
+                drawHeaderCallback = rect =>
+                    EditorGUI.LabelField(rect, "State Marker Events"),
+                elementHeightCallback = _ =>
+                    (EditorGUIUtility.singleLineHeight * 3f) + 10f,
+                drawElementCallback = DrawElement
             };
         }
 
         public override void OnInspectorGUI()
         {
-            serializedObject.Update();
+            serializedObject.UpdateIfRequiredOrScript();
+            EditorGUILayout.HelpBox(
+                "AnimEventSmb is a StateMachineBehaviour, not an Animator Event callback bridge. " +
+                "Enter, Marker, and Exit signals are staged by the owning animation Operator and " +
+                "become Event input on a later CoCoTick.",
+                MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "Marker Binding ID is the stable StateFlow mapping. Marker Name is descriptive only; " +
+                "each Marker Binding ID must be non-zero and unique in this SMB.",
+                MessageType.None);
 
-            EditorGUILayout.Space(5);
-            EditorGUILayout.HelpBox("提示：TriggerTime 表示动画播放的百分比 (0=开始, 1=结束)。", MessageType.Info);
-            EditorGUILayout.Space(5);
-
-            // 绘制列表
-            _reorderableList.DoLayoutList();
+            if (eventList == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "The serialized eventConfigs array could not be resolved. This SMB cannot be authored safely.",
+                    MessageType.Error);
+            }
+            else
+            {
+                eventList.DoLayoutList();
+                DrawBindingValidation();
+            }
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        private void DrawElement(Rect rect, int index, bool isActive, bool isFocused)
+        {
+            SerializedProperty element = eventList.serializedProperty.GetArrayElementAtIndex(index);
+            SerializedProperty bindingId = element.FindPropertyRelative("bindingId");
+            SerializedProperty eventName = element.FindPropertyRelative("eventName");
+            SerializedProperty triggerTime = element.FindPropertyRelative("triggerTime");
+            float line = EditorGUIUtility.singleLineHeight;
+            rect.y += 2f;
+
+            EditorGUI.PropertyField(
+                new Rect(rect.x, rect.y, rect.width, line),
+                bindingId,
+                new GUIContent("Marker Binding ID"));
+            rect.y += line + 2f;
+            EditorGUI.PropertyField(
+                new Rect(rect.x, rect.y, rect.width, line),
+                eventName,
+                new GUIContent("Marker Name"));
+            rect.y += line + 2f;
+            EditorGUI.Slider(
+                new Rect(rect.x, rect.y, rect.width, line),
+                triggerTime,
+                0f,
+                1f,
+                new GUIContent("Normalized Time"));
+        }
+
+        private void DrawBindingValidation()
+        {
+            var ids = new HashSet<ulong>();
+            for (int index = 0; index < eventConfigs.arraySize; index++)
+            {
+                SerializedProperty bindingId = eventConfigs
+                    .GetArrayElementAtIndex(index)
+                    .FindPropertyRelative("bindingId");
+                if (bindingId == null || bindingId.ulongValue == 0UL)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Marker " + (index + 1) + " requires a non-zero Marker Binding ID.",
+                        MessageType.Error);
+                    continue;
+                }
+
+                if (!ids.Add(bindingId.ulongValue))
+                {
+                    EditorGUILayout.HelpBox(
+                        "Marker " + (index + 1) + " duplicates a Marker Binding ID in this SMB.",
+                        MessageType.Error);
+                }
+            }
         }
     }
 }
