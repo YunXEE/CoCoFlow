@@ -38,9 +38,8 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.Inconclusive(
                 "G1 UNVERIFIED: Unity 6000.3.20f1 exposes the positive " +
                 "journal-replay primitives, but the isolated live/candidate " +
-                "tick comparison could not run because the batch Editor " +
-                "never completed LicensingClient initialization. API " +
-                "presence is not evidence of bit-exact replay.");
+                "tick comparison has not been executed. API presence is not " +
+                "evidence of bit-exact replay.");
         }
 
         [Test]
@@ -108,20 +107,62 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 "identical. Those properties require an executed fixture.");
         }
 
-        [Test]
-        public void ExactReplayGateRemainsDeferredWhenAnyGateIsNotGo()
+        [TestCase(
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            true)]
+        [TestCase(
+            ReplayGateStatus.Unverified,
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            false)]
+        [TestCase(
+            ReplayGateStatus.NoGo,
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            false)]
+        [TestCase(
+            ReplayGateStatus.Go,
+            ReplayGateStatus.NoGo,
+            ReplayGateStatus.Go,
+            false)]
+        [TestCase(
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Unverified,
+            ReplayGateStatus.Go,
+            false)]
+        [TestCase(
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Unverified,
+            false)]
+        [TestCase(
+            ReplayGateStatus.Go,
+            ReplayGateStatus.Go,
+            ReplayGateStatus.NoGo,
+            false)]
+        public void ExactReplayShippingGateRequiresEveryGateToBeGo(
+            ReplayGateStatus g1,
+            ReplayGateStatus g2,
+            ReplayGateStatus g3,
+            bool expected)
         {
-            ReplayGateStatus g1 = ReplayGateStatus.Unverified;
-            ReplayGateStatus g2 = ReplayGateStatus.NoGo;
-            ReplayGateStatus g3 = ReplayGateStatus.Unverified;
-
-            Assert.That(
-                new[] { g1, g2, g3 },
-                Has.None.EqualTo(ReplayGateStatus.Go));
             Assert.That(
                 CanShipExactReplay(g1, g2, g3),
-                Is.False,
+                Is.EqualTo(expected),
                 "Exact replay is shippable only when every frozen gate is GO.");
+        }
+
+        [Test]
+        public void ExactReplayGateSnapshotRemainsDeferred()
+        {
+            Assert.That(
+                CanShipExactReplay(
+                    ReplayGateStatus.Unverified,
+                    ReplayGateStatus.NoGo,
+                    ReplayGateStatus.Unverified),
+                Is.False);
         }
 
         private static MethodInfo[] PublicInstanceMethods(Type type)
@@ -156,7 +197,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
                    g3 == ReplayGateStatus.Go;
         }
 
-        private enum ReplayGateStatus
+        public enum ReplayGateStatus
         {
             Unverified,
             Go,

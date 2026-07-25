@@ -1,12 +1,11 @@
 {
-    "name": "CoCoFlow.Tests.Runtime.Animation",
-    "rootNamespace": "CoCoFlow.Tests.Runtime.Animation",
+    "name": "CoCoFlow.Tests.Runtime.Animation.DOTween",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Animation.DOTween",
     "references": [
         "CoCoFlow.Runtime.Animation.Contracts",
         "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Modules.Animation",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Runtime.Modules.Animation.DOTween"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -15,7 +14,8 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [
-        "UNITY_INCLUDE_TESTS"
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_DOTWEEN_SUPPORT"
     ],
     "versionDefines": [],
     "noEngineReferences": false,
