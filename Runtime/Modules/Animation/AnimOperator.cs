@@ -61,7 +61,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private AnimationPlayableOutput _output;
         private CoCoStateGraphHost _attachedTemporalHost;
         private CoCoDiagnostic _lastDiagnostic;
-        private AnimPlaybackContext _playbackContext;
+        private AnimFeedbackSourceStamp _candidateFeedbackStamp;
         private bool _isInitialized;
         private bool _isEvaluating;
         private bool _isHeld;
@@ -74,7 +74,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
         public AnimEvaluationMode EvaluationMode => evaluationMode;
         public AnimExactReplayStatus ExactTemporalReplay => AnimExactReplayStatus.Deferred;
-        public AnimPlaybackContext CurrentPlayback => _playbackContext;
+        public AnimPlaybackContext CurrentPlayback =>
+            TryReadCommittedPlayback(out AnimPlaybackContext playback)
+                ? playback
+                : default;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
         MonoBehaviour ICoCoTemporalDecoratorBinding.DownstreamRestoreBinding =>
@@ -203,19 +206,67 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoOperatorExecutionContext context,
             out CoCoOperatorOutcome outcome)
         {
+            _feedback.PrepareForExecution(context, stateGraphHost);
+            if (_feedback.Overflowed)
+            {
+                return Reject(
+                    "AnimOperator feedback overflowed its fixed reliable batch of 16 records. " +
+                    "The entire batch is rejected; stop, rebuild bindings, then start the Host to recover.",
+                    out outcome);
+            }
+
             if (!TryPrevalidate(
                     context,
                     out CoCoOperationSectionEntry<IAnimParameterOperationSection> parameters,
                     out CoCoOperationSectionEntry<IAnimTriggerOperationSection> triggers,
                     out CoCoOperationSectionEntry<IAnimPlaybackOperationSection> playback,
                     out CoCoOperationSectionEntry<IAnimModulationOperationSection> modulation,
-                    out CoCoStateSlot<AnimPlaybackContext> outcomeSlot))
+                    out CoCoStateSlot<AnimPlaybackContext> outcomeSlot,
+                    out EvaluationPlan evaluationPlan))
             {
                 return Reject(
-                    "AnimOperator input, mapping, or Playable prevalidation failed.",
+                    "AnimOperator input, mapping, Playable, or evaluation prevalidation failed.",
                     out outcome);
             }
 
+            if (!AnimFeedbackSourceStamp.TryCaptureCandidate(
+                    context,
+                    stateGraphHost,
+                    out _candidateFeedbackStamp))
+            {
+                return Reject(
+                    "AnimOperator could not capture the candidate feedback identity.",
+                    out outcome);
+            }
+
+            try
+            {
+                return TryExecuteCandidate(
+                    context,
+                    parameters,
+                    triggers,
+                    playback,
+                    modulation,
+                    outcomeSlot,
+                    evaluationPlan,
+                    out outcome);
+            }
+            finally
+            {
+                _candidateFeedbackStamp = default;
+            }
+        }
+
+        private bool TryExecuteCandidate(
+            in CoCoOperatorExecutionContext context,
+            in CoCoOperationSectionEntry<IAnimParameterOperationSection> parameters,
+            in CoCoOperationSectionEntry<IAnimTriggerOperationSection> triggers,
+            in CoCoOperationSectionEntry<IAnimPlaybackOperationSection> playback,
+            in CoCoOperationSectionEntry<IAnimModulationOperationSection> modulation,
+            CoCoStateSlot<AnimPlaybackContext> outcomeSlot,
+            in EvaluationPlan evaluationPlan,
+            out CoCoOperatorOutcome outcome)
+        {
             bool changed = ApplyParameters(parameters.View);
             if (triggers.Header.Enabled)
             {
@@ -224,38 +275,21 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             changed |= ApplyModulationCommands(modulation.View);
 
-            float evaluationDelta = 0f;
-            bool shouldEvaluate = false;
             if (playback.Header.Enabled)
             {
                 changed |= ApplyPlaybackCommands(
                     playback,
-                    context.TickFrame.TimelineEpoch,
-                    out bool explicitStep,
-                    out float stepDelta);
-                if (explicitStep)
-                {
-                    evaluationDelta = stepDelta;
-                    shouldEvaluate = true;
-                }
+                    context.TickFrame.TimelineEpoch);
             }
 
-            if (!shouldEvaluate &&
-                evaluationMode == AnimEvaluationMode.Tick &&
-                !_isHeld)
+            if (evaluationPlan.ShouldEvaluate)
             {
-                evaluationDelta = (float)context.TickFrame.DeltaTime;
-                shouldEvaluate = true;
-            }
-
-            if (shouldEvaluate)
-            {
-                _modulationAdapter?.ManualUpdate(evaluationDelta);
+                _modulationAdapter?.ManualUpdate(evaluationPlan.DeltaSeconds);
                 _rootMotionRelay.ResetEvaluation();
                 _isEvaluating = true;
                 try
                 {
-                    _graph.Evaluate(evaluationDelta);
+                    _graph.Evaluate(evaluationPlan.DeltaSeconds);
                 }
                 finally
                 {
@@ -267,15 +301,17 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         animator,
                         out AnimFeedbackRecord rootMotion))
                 {
-                    _feedback.TryAppend(rootMotion);
+                    _feedback.TryAppend(
+                        rootMotion,
+                        _candidateFeedbackStamp);
                 }
 
                 UpdatePlaybackStates();
             }
 
-            _playbackContext = BuildPlaybackContext();
+            AnimPlaybackContext playbackContext = BuildPlaybackContext();
             if (changed &&
-                !context.TryWriteOutcome(outcomeSlot, _playbackContext))
+                !context.TryWriteOutcome(outcomeSlot, playbackContext))
             {
                 outcome = default;
                 return false;
@@ -307,14 +343,15 @@ namespace CoCoFlow.Runtime.Modules.Animation
             out AnimPlaybackLayer playback)
         {
             if (layer < AnimPlaybackLayerSlot.Layer00 ||
-                layer > AnimPlaybackLayerSlot.Layer03)
+                layer > AnimPlaybackLayerSlot.Layer03 ||
+                !TryReadCommittedPlayback(out AnimPlaybackContext context))
             {
                 playback = default;
                 return false;
             }
 
-            playback = _layerStates[(int)layer - 1];
-            return true;
+            playback = context.GetLayer(layer);
+            return playback.IsValid;
         }
 
         public bool TryApply(
@@ -326,16 +363,39 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return false;
         }
 
-        void IAnimEventReceiver.ReceiveSmbSignal(in AnimSmbSignal signal)
+        bool IAnimEventReceiver.TryReceiveSmbSignal(in AnimSmbSignal signal)
         {
+            AnimFeedbackSourceStamp source;
+            if (_isEvaluating)
+            {
+                source = _candidateFeedbackStamp;
+            }
+            else if (!AnimFeedbackSourceStamp.TryCaptureCommitted(
+                         stateGraphHost,
+                         out source))
+            {
+                _lastDiagnostic = AnimOperatorContracts.Error(
+                    "AnimOperator SMB feedback buffer rejected an unattributable signal.");
+                return false;
+            }
+
             if (!AnimAutoOperator.TryCreateSmbFeedback(
                     signal,
                     out AnimFeedbackRecord record) ||
-                !_feedback.TryAppend(record))
+                !source.IsValid ||
+                !_feedback.TryAppend(
+                    record,
+                    source))
             {
                 _lastDiagnostic = AnimOperatorContracts.Error(
-                    "AnimOperator SMB feedback buffer rejected a signal.");
+                    _feedback.Overflowed
+                        ? "AnimOperator SMB feedback overflowed its fixed reliable batch of 16 records. " +
+                          "The entire batch is rejected; stop, rebuild bindings, then start the Host to recover."
+                        : "AnimOperator SMB feedback buffer rejected an unattributable or invalid signal.");
+                return false;
             }
+
+            return true;
         }
 
         bool IAnimModulationHost.TryReadModulation(
@@ -591,7 +651,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
             out CoCoOperationSectionEntry<IAnimTriggerOperationSection> triggers,
             out CoCoOperationSectionEntry<IAnimPlaybackOperationSection> playback,
             out CoCoOperationSectionEntry<IAnimModulationOperationSection> modulation,
-            out CoCoStateSlot<AnimPlaybackContext> outcomeSlot)
+            out CoCoStateSlot<AnimPlaybackContext> outcomeSlot,
+            out EvaluationPlan evaluationPlan)
         {
             if (!context.IsValid ||
                 !_isInitialized ||
@@ -608,6 +669,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 !context.PreviousContext.Layout.TryResolveSlot(
                     AnimContractIds.PlaybackContextSlotId,
                     out outcomeSlot) ||
+                !TryResolveEvaluationPlan(
+                    playback,
+                    context.TickFrame.DeltaTime,
+                    out evaluationPlan) ||
                 !AnimBindingRuntime.ValidateParameters(
                     parameters.View,
                     _parameterTargets) ||
@@ -623,6 +688,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 playback = default;
                 modulation = default;
                 outcomeSlot = default;
+                evaluationPlan = default;
                 return false;
             }
 
@@ -764,12 +830,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private bool ApplyPlaybackCommands(
             CoCoOperationSectionEntry<IAnimPlaybackOperationSection> entry,
-            CoCoTimelineEpoch timelineEpoch,
-            out bool explicitStep,
-            out float stepDelta)
+            CoCoTimelineEpoch timelineEpoch)
         {
-            explicitStep = false;
-            stepDelta = 0f;
             bool changed = false;
             AnimPlaybackCommand control = entry.View.Control;
             if (control.Kind == AnimPlaybackCommandKind.Stop)
@@ -782,8 +844,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             if (control.Kind == AnimPlaybackCommandKind.Step)
             {
-                explicitStep = true;
-                stepDelta = control.StepDeltaSeconds;
+                changed = true;
             }
 
             for (int lane = 0; lane < AnimContractLimits.PlaybackLayerCount; lane++)
@@ -842,7 +903,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 changed = true;
             }
 
-            return changed || explicitStep;
+            return changed;
         }
 
         private bool ApplyModulationCommands(IAnimModulationOperationSection section)
@@ -925,24 +986,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         ? Mathf.Max(0f, next.normalizedTime)
                         : previous.NormalizedTime;
 
-                if ((!currentMatches && !nextMatches) ||
-                    (inTransition && currentMatches && !nextMatches))
-                {
-                    _layerStates[lane] = new AnimPlaybackLayer(
-                        previous.Slot,
-                        previous.Token,
-                        previous.StateBindingId,
-                        AnimPlaybackStatus.Interrupted,
-                        normalizedTime);
-                    AppendPlaybackFeedback(
-                        AnimFeedbackKind.PlaybackInterrupted,
-                        previous.Token,
-                        normalizedTime);
-                    continue;
-                }
-
                 if (currentMatches &&
-                    !inTransition &&
                     !current.loop &&
                     current.normalizedTime >= 1f)
                 {
@@ -954,6 +998,22 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         normalizedTime);
                     AppendPlaybackFeedback(
                         AnimFeedbackKind.PlaybackCompleted,
+                        previous.Token,
+                        normalizedTime);
+                    continue;
+                }
+
+                if ((!currentMatches && !nextMatches) ||
+                    (inTransition && currentMatches && !nextMatches))
+                {
+                    _layerStates[lane] = new AnimPlaybackLayer(
+                        previous.Slot,
+                        previous.Token,
+                        previous.StateBindingId,
+                        AnimPlaybackStatus.Interrupted,
+                        normalizedTime);
+                    AppendPlaybackFeedback(
+                        AnimFeedbackKind.PlaybackInterrupted,
                         previous.Token,
                         normalizedTime);
                     continue;
@@ -1009,7 +1069,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     normalizedTime,
                     out AnimFeedbackRecord record))
             {
-                _feedback.TryAppend(record);
+                _feedback.TryAppend(
+                    record,
+                    _candidateFeedbackStamp);
             }
         }
 
@@ -1036,7 +1098,80 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
 
             _isHeld = false;
-            _playbackContext = BuildPlaybackContext();
+        }
+
+        private bool TryResolveEvaluationPlan(
+            in CoCoOperationSectionEntry<IAnimPlaybackOperationSection> playback,
+            double tickDeltaSeconds,
+            out EvaluationPlan plan)
+        {
+            bool willBeHeld = _isHeld;
+            AnimPlaybackCommand control = default;
+            if (playback.Header.Enabled)
+            {
+                control = playback.View.Control;
+                if (control.Kind == AnimPlaybackCommandKind.Stop)
+                {
+                    willBeHeld = true;
+                }
+
+                for (int lane = 0;
+                     lane < AnimContractLimits.PlaybackLayerCount;
+                     lane++)
+                {
+                    AnimPlaybackCommand command =
+                        AnimOperationLaneReader.Read(playback.View, lane);
+                    if (command.Kind == AnimPlaybackCommandKind.None)
+                    {
+                        continue;
+                    }
+
+                    willBeHeld = false;
+                }
+            }
+
+            if (control.Kind == AnimPlaybackCommandKind.Step)
+            {
+                plan = new EvaluationPlan(true, control.StepDeltaSeconds);
+                return plan.IsValid;
+            }
+
+            if (evaluationMode != AnimEvaluationMode.Tick || willBeHeld)
+            {
+                plan = EvaluationPlan.NoEvaluation;
+                return true;
+            }
+
+            if (!TryConvertTickDeltaSeconds(
+                    tickDeltaSeconds,
+                    out float deltaSeconds))
+            {
+                plan = default;
+                return false;
+            }
+
+            plan = new EvaluationPlan(true, deltaSeconds);
+            return true;
+        }
+
+        private bool TryReadCommittedPlayback(
+            out AnimPlaybackContext playback)
+        {
+            CoCoContextFrame context = stateGraphHost == null
+                ? default
+                : stateGraphHost.CurrentContext;
+            if (!context.IsAlive ||
+                context.Layout == null ||
+                !context.Layout.TryResolveSlot(
+                    AnimContractIds.PlaybackContextSlotId,
+                    out CoCoStateSlot<AnimPlaybackContext> slot))
+            {
+                playback = default;
+                return false;
+            }
+
+            playback = context.Read(slot);
+            return true;
         }
 
         private bool ValidateModulationValue(in AnimModulationCommand command)
@@ -1116,6 +1251,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             _isInitialized = false;
             _isEvaluating = false;
+            _candidateFeedbackStamp = default;
             _modulationAdapter?.StopAll();
             _modulationAdapter?.Dispose();
             _modulationAdapter = null;
@@ -1139,6 +1275,31 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private static bool IsFinite(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        internal static bool TryConvertTickDeltaSeconds(
+            double tickDeltaSeconds,
+            out float deltaSeconds)
+        {
+            deltaSeconds = (float)tickDeltaSeconds;
+            return deltaSeconds > 0f && IsFinite(deltaSeconds);
+        }
+
+        private readonly struct EvaluationPlan
+        {
+            internal EvaluationPlan(bool shouldEvaluate, float deltaSeconds)
+            {
+                ShouldEvaluate = shouldEvaluate;
+                DeltaSeconds = deltaSeconds;
+            }
+
+            internal static EvaluationPlan NoEvaluation => default;
+
+            internal bool ShouldEvaluate { get; }
+            internal float DeltaSeconds { get; }
+            internal bool IsValid =>
+                !ShouldEvaluate ||
+                (DeltaSeconds > 0f && IsFinite(DeltaSeconds));
         }
 
         internal static bool IsPlaybackControlAllowed(

@@ -54,6 +54,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
         public bool TryRebuildBindings(out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
+            // Rebuild is the explicit recovery boundary for a fail-closed
+            // feedback overflow. Never carry a staged batch across bindings.
+            _feedback.Clear();
             animator ??= GetComponent<Animator>();
             stateGraphHost ??= GetComponentInParent<CoCoStateGraphHost>();
             if (animator == null ||
@@ -93,9 +96,17 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoOperatorExecutionContext context,
             out CoCoOperatorOutcome outcome)
         {
+            _feedback.PrepareForExecution(context, stateGraphHost);
+            if (_feedback.Overflowed)
+            {
+                return Reject(
+                    "AnimAutoOperator SMB feedback overflowed its fixed reliable batch of 16 records. " +
+                    "The entire batch is rejected; stop, rebuild bindings, then start the Host to recover.",
+                    out outcome);
+            }
+
             if (!context.IsValid ||
                 !_isInitialized ||
-                _feedback.Overflowed ||
                 animator == null ||
                 stateGraphHost == null ||
                 !CoCoStateGraphHostBoundary.Contains(stateGraphHost, this) ||
@@ -146,14 +157,23 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return _feedbackAdapter.TryProject(packet, out intent);
         }
 
-        void IAnimEventReceiver.ReceiveSmbSignal(in AnimSmbSignal signal)
+        bool IAnimEventReceiver.TryReceiveSmbSignal(in AnimSmbSignal signal)
         {
             if (!TryCreateSmbFeedback(signal, out AnimFeedbackRecord record) ||
-                !_feedback.TryAppend(record))
+                !AnimFeedbackSourceStamp.TryCaptureCommitted(
+                    stateGraphHost,
+                    out AnimFeedbackSourceStamp source) ||
+                !_feedback.TryAppend(record, source))
             {
                 _lastDiagnostic = AnimOperatorContracts.Error(
-                    "AnimAutoOperator SMB feedback buffer rejected a signal.");
+                    _feedback.Overflowed
+                        ? "AnimAutoOperator SMB feedback overflowed its fixed reliable batch of 16 records. " +
+                          "The entire batch is rejected; stop, rebuild bindings, then start the Host to recover."
+                        : "AnimAutoOperator SMB feedback buffer rejected an unattributable or invalid signal.");
+                return false;
             }
+
+            return true;
         }
 
         private bool ApplyParameters(IAnimParameterOperationSection section)

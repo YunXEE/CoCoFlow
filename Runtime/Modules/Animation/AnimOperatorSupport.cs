@@ -166,29 +166,307 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
     }
 
+    /// <summary>
+    /// Private provenance for staged feedback. Feedback records deliberately stay
+    /// transport-only; their source frame is an operator-local delivery guard.
+    /// </summary>
+    internal readonly struct AnimFeedbackSourceStamp
+    {
+        private enum SourceKind : byte
+        {
+            None = 0,
+            CommittedContext = 1,
+            CandidateTick = 2
+        }
+
+        private readonly SourceKind _kind;
+        private readonly CoCoGraphInstanceId _graphInstanceId;
+        private readonly CoCoTimelineEpoch _timelineEpoch;
+        private readonly CoCoTimelineTick _tick;
+        private readonly CoCoExecutionSequence _executionSequence;
+        private readonly CoCoContextRevision _revision;
+
+        internal bool IsValid => _kind != SourceKind.None;
+
+        private AnimFeedbackSourceStamp(
+            SourceKind kind,
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch,
+            CoCoTimelineTick tick,
+            CoCoExecutionSequence executionSequence,
+            CoCoContextRevision revision)
+        {
+            _kind = kind;
+            _graphInstanceId = graphInstanceId;
+            _timelineEpoch = timelineEpoch;
+            _tick = tick;
+            _executionSequence = executionSequence;
+            _revision = revision;
+        }
+
+        internal static bool TryCaptureCommitted(
+            CoCoStateGraphHost host,
+            out AnimFeedbackSourceStamp stamp)
+        {
+            CoCoContextFrame frame = host != null ? host.CurrentContext : default;
+            if (host == null ||
+                !host.GraphInstanceId.IsValid ||
+                !frame.IsAlive ||
+                !frame.Header.IsValid ||
+                frame.Header.Identity.Kind != CoCoStateFlowFrameKind.Context ||
+                !frame.Revision.IsValid ||
+                frame.Header.Identity.GraphInstanceId != host.GraphInstanceId)
+            {
+                stamp = default;
+                return false;
+            }
+
+            CoCoStateFlowFrameIdentity identity = frame.Header.Identity;
+            return TryCreateCommitted(
+                identity.GraphInstanceId,
+                identity.TimelineEpoch,
+                identity.Tick,
+                identity.ExecutionSequence,
+                frame.Revision,
+                out stamp);
+        }
+
+        internal static bool TryCreateCommitted(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch,
+            CoCoTimelineTick tick,
+            CoCoExecutionSequence executionSequence,
+            CoCoContextRevision revision,
+            out AnimFeedbackSourceStamp stamp)
+        {
+            if (!graphInstanceId.IsValid || !revision.IsValid)
+            {
+                stamp = default;
+                return false;
+            }
+
+            stamp = new AnimFeedbackSourceStamp(
+                SourceKind.CommittedContext,
+                graphInstanceId,
+                timelineEpoch,
+                tick,
+                executionSequence,
+                revision);
+            return true;
+        }
+
+        internal static bool TryCaptureCandidate(
+            in CoCoOperatorExecutionContext context,
+            CoCoStateGraphHost host,
+            out AnimFeedbackSourceStamp stamp)
+        {
+            if (!context.IsValid ||
+                host == null ||
+                !host.GraphInstanceId.IsValid)
+            {
+                stamp = default;
+                return false;
+            }
+
+            return TryCreateCandidate(
+                host.GraphInstanceId,
+                context.TickFrame.TimelineEpoch,
+                context.TickFrame.Tick,
+                context.TickFrame.ExecutionSequence,
+                out stamp);
+        }
+
+        internal static bool TryCreateCandidate(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch,
+            CoCoTimelineTick tick,
+            CoCoExecutionSequence executionSequence,
+            out AnimFeedbackSourceStamp stamp)
+        {
+            if (!graphInstanceId.IsValid)
+            {
+                stamp = default;
+                return false;
+            }
+
+            stamp = new AnimFeedbackSourceStamp(
+                SourceKind.CandidateTick,
+                graphInstanceId,
+                timelineEpoch,
+                tick,
+                executionSequence,
+                default);
+            return true;
+        }
+
+        internal bool IsSameTimeline(
+            CoCoStateGraphHost host,
+            CoCoTimelineEpoch timelineEpoch)
+        {
+            return host != null &&
+                   IsSameTimeline(
+                       host.GraphInstanceId,
+                       timelineEpoch);
+        }
+
+        internal bool IsSameTimeline(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch)
+        {
+            return _kind != SourceKind.None &&
+                   graphInstanceId.IsValid &&
+                   graphInstanceId == _graphInstanceId &&
+                   timelineEpoch == _timelineEpoch;
+        }
+
+        internal bool IsSameTimeline(in AnimFeedbackSourceStamp other)
+        {
+            return _kind != SourceKind.None &&
+                   other._kind != SourceKind.None &&
+                   _graphInstanceId == other._graphInstanceId &&
+                   _timelineEpoch == other._timelineEpoch;
+        }
+
+        internal bool MatchesCandidate(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch,
+            CoCoTimelineTick tick,
+            CoCoExecutionSequence executionSequence)
+        {
+            return _kind == SourceKind.CandidateTick &&
+                   graphInstanceId == _graphInstanceId &&
+                   timelineEpoch == _timelineEpoch &&
+                   tick == _tick &&
+                   executionSequence == _executionSequence;
+        }
+
+        internal bool MatchesCommitted(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch,
+            CoCoTimelineTick tick,
+            CoCoExecutionSequence executionSequence,
+            CoCoContextRevision revision)
+        {
+            return _kind == SourceKind.CommittedContext &&
+                   graphInstanceId == _graphInstanceId &&
+                   timelineEpoch == _timelineEpoch &&
+                   tick == _tick &&
+                   executionSequence == _executionSequence &&
+                   revision == _revision;
+        }
+
+        internal bool Matches(
+            in CoCoOperatorExecutionContext context,
+            CoCoStateGraphHost host)
+        {
+            if (!context.IsValid ||
+                host == null ||
+                !host.GraphInstanceId.IsValid ||
+                host.GraphInstanceId != _graphInstanceId)
+            {
+                return false;
+            }
+
+            switch (_kind)
+            {
+                case SourceKind.CommittedContext:
+                    CoCoContextFrameReadView previous = context.PreviousContext;
+                    CoCoStateFlowFrameIdentity identity = previous.Header.Identity;
+                    return previous.HasCommittedFrame &&
+                           identity.Kind == CoCoStateFlowFrameKind.Context &&
+                           MatchesCommitted(
+                               identity.GraphInstanceId,
+                               identity.TimelineEpoch,
+                               identity.Tick,
+                               identity.ExecutionSequence,
+                               previous.Revision);
+                case SourceKind.CandidateTick:
+                    return MatchesCandidate(
+                        host.GraphInstanceId,
+                        context.TickFrame.TimelineEpoch,
+                        context.TickFrame.Tick,
+                        context.TickFrame.ExecutionSequence);
+                default:
+                    return false;
+            }
+        }
+    }
+
     internal sealed class AnimFeedbackBuffer
     {
         private readonly AnimFeedbackEvent[] _events =
             new AnimFeedbackEvent[AnimContractLimits.FeedbackCapacity];
+        private readonly AnimFeedbackSourceStamp[] _sources =
+            new AnimFeedbackSourceStamp[AnimContractLimits.FeedbackCapacity];
         private int _count;
+        private AnimFeedbackSourceStamp _overflowSource;
 
         internal int Count => _count;
         internal bool Overflowed { get; private set; }
 
-        internal bool TryAppend(in AnimFeedbackRecord record)
+        internal void PrepareForExecution(
+            in CoCoOperatorExecutionContext context,
+            CoCoStateGraphHost host)
         {
-            if (!AnimFeedbackEvent.TryCreate(record, out AnimFeedbackEvent feedbackEvent))
+            if (Overflowed &&
+                context.IsValid &&
+                host != null &&
+                host.GraphInstanceId.IsValid)
+            {
+                PrepareForTimeline(
+                    host.GraphInstanceId,
+                    context.TickFrame.TimelineEpoch);
+            }
+        }
+
+        internal void PrepareForTimeline(
+            CoCoGraphInstanceId graphInstanceId,
+            CoCoTimelineEpoch timelineEpoch)
+        {
+            if (Overflowed &&
+                !_overflowSource.IsSameTimeline(
+                    graphInstanceId,
+                    timelineEpoch))
+            {
+                Clear();
+            }
+        }
+
+        internal bool TryAppend(
+            in AnimFeedbackRecord record,
+            in AnimFeedbackSourceStamp source)
+        {
+            if (!source.IsValid ||
+                !AnimFeedbackEvent.TryCreate(
+                    record,
+                    out AnimFeedbackEvent feedbackEvent))
             {
                 return false;
+            }
+
+            AnimFeedbackSourceStamp batchSource = Overflowed
+                ? _overflowSource
+                : _count > 0
+                    ? _sources[0]
+                    : default;
+            if (batchSource.IsValid &&
+                !batchSource.IsSameTimeline(source))
+            {
+                // A new Graph/Epoch owns a new transaction even when its first
+                // callback arrives before the next Operator execution.
+                Clear();
             }
 
             if (_count >= _events.Length)
             {
                 Overflowed = true;
+                _overflowSource = source;
                 return false;
             }
 
-            _events[_count++] = feedbackEvent;
+            _events[_count] = feedbackEvent;
+            _sources[_count] = source;
+            _count++;
             return true;
         }
 
@@ -210,6 +488,14 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             for (int index = 0; index < _count; index++)
             {
+                // A Direct SMB callback belongs only to the immediately following
+                // execution. Candidate feedback belongs only to its own Tick.
+                // Stale callbacks are intentionally discarded, never re-enveloped.
+                if (!_sources[index].Matches(context, host))
+                {
+                    continue;
+                }
+
                 if (context.EventOutbox.TryWrite(
                         AnimOperatorContracts.FeedbackRequirement,
                         target,
@@ -226,8 +512,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
         internal void Clear()
         {
             Array.Clear(_events, 0, _count);
+            Array.Clear(_sources, 0, _count);
             _count = 0;
             Overflowed = false;
+            _overflowSource = default;
         }
     }
 

@@ -36,16 +36,24 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             InstanceState state = GetOrCreateState(animator);
             state.Receiver = ResolveReceiver(animator);
-            state.LastLoopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
-            state.EnsureCapacity(eventConfigs?.Length ?? 0);
-            state.ClearFlags();
-            state.Receiver?.ReceiveSmbSignal(
-                AnimSmbSignal.State(
-                    AnimSmbSignalKind.StateEnter,
-                    stateInfo.fullPathHash,
-                    layerIndex,
-                    state.LastLoopCount,
-                    stateInfo.normalizedTime));
+            state.ResetForEnter(stateInfo.normalizedTime);
+            if (state.Receiver == null ||
+                !IsSupportedNormalizedTime(stateInfo.normalizedTime))
+            {
+                return;
+            }
+
+            int loopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
+            if (!state.Receiver.TryReceiveSmbSignal(
+                    AnimSmbSignal.State(
+                        AnimSmbSignalKind.StateEnter,
+                        stateInfo.fullPathHash,
+                        layerIndex,
+                        loopCount,
+                        stateInfo.normalizedTime)))
+            {
+                state.ReceiverRejected = true;
+            }
         }
 
         public override void OnStateUpdate(
@@ -59,38 +67,32 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return;
             }
 
-            int eventCount = eventConfigs?.Length ?? 0;
-            state.EnsureCapacity(eventCount);
-            int loopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
-            float normalizedTime = stateInfo.normalizedTime - loopCount;
-            if (stateInfo.loop && loopCount != state.LastLoopCount)
+            // Rejection stops only the current callback enumeration. A poisoned
+            // Operator buffer continues rejecting immediately until its recovery
+            // boundary, while a new Graph/Epoch must be allowed to try again.
+            state.ReceiverRejected = false;
+            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime))
             {
-                state.LastLoopCount = loopCount;
-                state.ClearFlags();
+                state.Rebase(stateInfo.normalizedTime);
+                return;
             }
 
-            for (int index = 0; index < eventCount; index++)
+            if (!state.HasPreviousNormalizedTime ||
+                stateInfo.normalizedTime < state.PreviousNormalizedTime)
             {
-                AnimEventConfig config = eventConfigs[index];
-                if (config == null ||
-                    state.TriggerFlags[index] ||
-                    normalizedTime < config.TriggerTime ||
-                    !AnimBindingId.TryCreate(
-                        config.BindingId,
-                        out AnimBindingId bindingId))
-                {
-                    continue;
-                }
-
-                state.TriggerFlags[index] = true;
-                state.Receiver.ReceiveSmbSignal(
-                    AnimSmbSignal.Marker(
-                        bindingId,
-                        stateInfo.fullPathHash,
-                        layerIndex,
-                        loopCount,
-                        normalizedTime));
+                // Controller reset, re-entry or a backwards seek: establish a
+                // new baseline but never synthesize reverse/retroactive markers.
+                state.Rebase(stateInfo.normalizedTime);
+                return;
             }
+
+            EmitCrossedMarkers(
+                state,
+                stateInfo,
+                layerIndex,
+                state.PreviousNormalizedTime,
+                stateInfo.normalizedTime);
+            state.Rebase(stateInfo.normalizedTime);
         }
 
         public override void OnStateExit(
@@ -103,13 +105,199 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return;
             }
 
-            state.Receiver?.ReceiveSmbSignal(
-                AnimSmbSignal.State(
-                    AnimSmbSignalKind.StateExit,
-                    stateInfo.fullPathHash,
+            if (state.Receiver == null)
+            {
+                return;
+            }
+
+            // See OnStateUpdate: this flag is callback-local, not a second
+            // lifetime latch beside the Operator's feedback buffer.
+            state.ReceiverRejected = false;
+            if (!IsSupportedNormalizedTime(stateInfo.normalizedTime) ||
+                (state.HasPreviousNormalizedTime &&
+                 stateInfo.normalizedTime < state.PreviousNormalizedTime))
+            {
+                state.Rebase(stateInfo.normalizedTime);
+                return;
+            }
+
+            if (state.HasPreviousNormalizedTime)
+            {
+                EmitCrossedMarkers(
+                    state,
+                    stateInfo,
                     layerIndex,
-                    Mathf.FloorToInt(stateInfo.normalizedTime),
-                    stateInfo.normalizedTime));
+                    state.PreviousNormalizedTime,
+                    stateInfo.normalizedTime);
+                state.Rebase(stateInfo.normalizedTime);
+            }
+
+            int loopCount = Mathf.FloorToInt(stateInfo.normalizedTime);
+            if (!state.ReceiverRejected &&
+                !state.Receiver.TryReceiveSmbSignal(
+                    AnimSmbSignal.State(
+                        AnimSmbSignalKind.StateExit,
+                        stateInfo.fullPathHash,
+                        layerIndex,
+                        loopCount,
+                        stateInfo.normalizedTime)))
+            {
+                state.ReceiverRejected = true;
+            }
+        }
+
+        private void EmitCrossedMarkers(
+            InstanceState state,
+            AnimatorStateInfo stateInfo,
+            int layerIndex,
+            float previousNormalizedTime,
+            float currentNormalizedTime)
+        {
+            if (state.ReceiverRejected || currentNormalizedTime <= previousNormalizedTime)
+            {
+                return;
+            }
+
+            state.ReceiverRejected = !TryEmitCrossedMarkers(
+                eventConfigs,
+                stateInfo.loop,
+                stateInfo.fullPathHash,
+                layerIndex,
+                previousNormalizedTime,
+                currentNormalizedTime,
+                state.Receiver);
+        }
+
+        internal static bool TryEmitCrossedMarkers(
+            AnimEventConfig[] configs,
+            bool isLooping,
+            int stateHash,
+            int layerIndex,
+            float previousNormalizedTime,
+            float currentNormalizedTime,
+            IAnimEventReceiver receiver)
+        {
+            if (receiver == null ||
+                !IsSupportedNormalizedTime(previousNormalizedTime) ||
+                !IsSupportedNormalizedTime(currentNormalizedTime) ||
+                currentNormalizedTime <= previousNormalizedTime ||
+                !HasValidMarker(configs))
+            {
+                return receiver != null;
+            }
+
+            if (!isLooping)
+            {
+                return TryEmitMarkersForLoop(
+                    configs,
+                    receiver,
+                    stateHash,
+                    layerIndex,
+                    0,
+                    Mathf.Clamp01(previousNormalizedTime),
+                    Mathf.Clamp01(currentNormalizedTime));
+            }
+
+            int firstLoop = Mathf.FloorToInt(previousNormalizedTime);
+            int lastLoop = Mathf.FloorToInt(currentNormalizedTime);
+            for (int loop = firstLoop;; loop++)
+            {
+                float loopStart = loop == firstLoop
+                    ? previousNormalizedTime - loop
+                    // A newly entered loop starts strictly after the prior
+                    // loop's end, so its 0.0 marker belongs to this interval.
+                    : -float.Epsilon;
+                float loopEnd = loop == lastLoop
+                    ? currentNormalizedTime - loop
+                    : 1f;
+                if (!TryEmitMarkersForLoop(
+                        configs,
+                        receiver,
+                        stateHash,
+                        layerIndex,
+                        loop,
+                        loopStart,
+                        loopEnd))
+                {
+                    return false;
+                }
+
+                if (loop == lastLoop)
+                {
+                    return true;
+                }
+            }
+        }
+
+        private static bool TryEmitMarkersForLoop(
+            AnimEventConfig[] configs,
+            IAnimEventReceiver receiver,
+            int stateHash,
+            int layerIndex,
+            int loopCount,
+            float intervalStart,
+            float intervalEnd)
+        {
+            if (intervalEnd <= intervalStart)
+            {
+                return true;
+            }
+
+            int eventCount = configs?.Length ?? 0;
+            float previousTriggerTime = float.NegativeInfinity;
+            int previousConfigIndex = -1;
+            while (true)
+            {
+                int selectedIndex = -1;
+                float selectedTriggerTime = default;
+                AnimBindingId selectedBindingId = default;
+                for (int index = 0; index < eventCount; index++)
+                {
+                    AnimEventConfig config = configs[index];
+                    if (config == null ||
+                        !IsFinite(config.TriggerTime) ||
+                        config.TriggerTime < 0f ||
+                        config.TriggerTime > 1f ||
+                        config.TriggerTime <= intervalStart ||
+                        config.TriggerTime > intervalEnd ||
+                        !AnimBindingId.TryCreate(
+                            config.BindingId,
+                            out AnimBindingId bindingId) ||
+                        config.TriggerTime < previousTriggerTime ||
+                        (config.TriggerTime == previousTriggerTime &&
+                         index <= previousConfigIndex) ||
+                        (selectedIndex >= 0 &&
+                         (config.TriggerTime > selectedTriggerTime ||
+                          (config.TriggerTime == selectedTriggerTime &&
+                           index > selectedIndex))))
+                    {
+                        continue;
+                    }
+
+                    selectedIndex = index;
+                    selectedTriggerTime = config.TriggerTime;
+                    selectedBindingId = bindingId;
+                }
+
+                if (selectedIndex < 0)
+                {
+                    return true;
+                }
+
+                if (!receiver.TryReceiveSmbSignal(
+                        AnimSmbSignal.Marker(
+                            selectedBindingId,
+                            stateHash,
+                            layerIndex,
+                            loopCount,
+                            selectedTriggerTime)))
+                {
+                    return false;
+                }
+
+                previousTriggerTime = selectedTriggerTime;
+                previousConfigIndex = selectedIndex;
+            }
         }
 
         private InstanceState GetOrCreateState(Animator animator)
@@ -135,23 +323,53 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return animator.GetComponent<AnimAutoOperator>();
         }
 
-        private sealed class InstanceState
-        {
-            internal IAnimEventReceiver Receiver;
-            internal bool[] TriggerFlags = Array.Empty<bool>();
-            internal int LastLoopCount;
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
 
-            internal void EnsureCapacity(int count)
+        private static bool IsSupportedNormalizedTime(float value) =>
+            IsFinite(value) &&
+            value >= 0f &&
+            value < (float)int.MaxValue;
+
+        private static bool HasValidMarker(AnimEventConfig[] configs)
+        {
+            int eventCount = configs?.Length ?? 0;
+            for (int index = 0; index < eventCount; index++)
             {
-                if (TriggerFlags.Length != count)
+                AnimEventConfig config = configs[index];
+                if (config != null &&
+                    IsFinite(config.TriggerTime) &&
+                    config.TriggerTime >= 0f &&
+                    config.TriggerTime <= 1f &&
+                    AnimBindingId.TryCreate(
+                        config.BindingId,
+                        out AnimBindingId _))
                 {
-                    TriggerFlags = count == 0 ? Array.Empty<bool>() : new bool[count];
+                    return true;
                 }
             }
 
-            internal void ClearFlags()
+            return false;
+        }
+
+        private sealed class InstanceState
+        {
+            internal IAnimEventReceiver Receiver;
+            internal bool HasPreviousNormalizedTime;
+            internal float PreviousNormalizedTime;
+            internal bool ReceiverRejected;
+
+            internal void ResetForEnter(float normalizedTime)
             {
-                Array.Clear(TriggerFlags, 0, TriggerFlags.Length);
+                ReceiverRejected = false;
+                Rebase(normalizedTime);
+            }
+
+            internal void Rebase(float normalizedTime)
+            {
+                HasPreviousNormalizedTime =
+                    IsSupportedNormalizedTime(normalizedTime);
+                PreviousNormalizedTime = normalizedTime;
             }
         }
     }
@@ -223,6 +441,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
     internal interface IAnimEventReceiver
     {
-        void ReceiveSmbSignal(in AnimSmbSignal signal);
+        bool TryReceiveSmbSignal(in AnimSmbSignal signal);
     }
 }
