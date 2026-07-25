@@ -62,6 +62,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private CoCoStateGraphHost _attachedTemporalHost;
         private CoCoDiagnostic _lastDiagnostic;
         private AnimFeedbackSourceStamp _candidateFeedbackStamp;
+        private CoCoGraphInstanceId _boundGraphInstanceId;
         private bool _isInitialized;
         private bool _isEvaluating;
         private bool _isHeld;
@@ -189,6 +190,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     new AnimModulationStamp[_modulationTargets.Length];
                 _modulationAdapter = AnimModulationAdapterRegistry.Create(this);
                 InitializePlaybackContext();
+                _boundGraphInstanceId = stateGraphHost.GraphInstanceId;
                 _isInitialized = true;
                 diagnostic = CoCoDiagnostic.None;
                 _lastDiagnostic = diagnostic;
@@ -206,6 +208,13 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoOperatorExecutionContext context,
             out CoCoOperatorOutcome outcome)
         {
+            if (!TryPrepareGraphInstance(out CoCoDiagnostic graphDiagnostic))
+            {
+                _lastDiagnostic = graphDiagnostic;
+                outcome = CoCoOperatorOutcome.Rejected(_lastDiagnostic);
+                return true;
+            }
+
             _feedback.PrepareForExecution(context, stateGraphHost);
             if (_feedback.Overflowed)
             {
@@ -279,6 +288,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             {
                 changed |= ApplyPlaybackCommands(
                     playback,
+                    stateGraphHost.GraphInstanceId,
                     context.TickFrame.TimelineEpoch);
             }
 
@@ -830,6 +840,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private bool ApplyPlaybackCommands(
             CoCoOperationSectionEntry<IAnimPlaybackOperationSection> entry,
+            CoCoGraphInstanceId graphInstanceId,
             CoCoTimelineEpoch timelineEpoch)
         {
             bool changed = false;
@@ -865,6 +876,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     out AnimStateTarget target);
                 AnimPlaybackLayerSlot slot = (AnimPlaybackLayerSlot)(lane + 1);
                 AnimPlaybackToken.TryCreate(
+                    graphInstanceId,
                     command.SourceActivationId,
                     timelineEpoch,
                     entry.Header.OperationSequence,
@@ -1259,6 +1271,48 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return true;
         }
 
+        private bool TryPrepareGraphInstance(out CoCoDiagnostic diagnostic)
+        {
+            CoCoGraphInstanceId current =
+                stateGraphHost == null ? default : stateGraphHost.GraphInstanceId;
+            if (!current.IsValid)
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "AnimOperator requires a running Host GraphInstance before execution.");
+                return false;
+            }
+
+            if (!_boundGraphInstanceId.IsValid)
+            {
+                _boundGraphInstanceId = current;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (_boundGraphInstanceId == current)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (!TryRebuildBindings(out diagnostic))
+            {
+                return false;
+            }
+
+            current = stateGraphHost == null
+                ? default
+                : stateGraphHost.GraphInstanceId;
+            if (!current.IsValid || _boundGraphInstanceId != current)
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "AnimOperator could not bind its Playable runtime to the current Host GraphInstance.");
+                return false;
+            }
+
+            return true;
+        }
+
         private bool FailInitialization(CoCoDiagnostic diagnostic)
         {
             _isInitialized = false;
@@ -1272,6 +1326,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             _isInitialized = false;
             _isEvaluating = false;
             _candidateFeedbackStamp = default;
+            _boundGraphInstanceId = default;
             _modulationAdapter?.StopAll();
             _modulationAdapter?.Dispose();
             _modulationAdapter = null;

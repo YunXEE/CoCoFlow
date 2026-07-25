@@ -41,11 +41,10 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public static CoCoOperationSectionId ModulationSectionId { get; } =
             CreateOperationSectionId(0x414E494D00000004UL);
 
-        public static CoCoOperatorId AutoOperatorId { get; } =
-            CreateOperatorId(0x414E494D00000101UL);
-
         public static CoCoOperatorId OperatorId { get; } =
             CreateOperatorId(0x414E494D00000102UL);
+
+        public static CoCoOperatorId AutoOperatorId => OperatorId;
 
         public static CoCoIntentId FeedbackIntentId { get; } =
             CreateIntentId(0x414E494D00000201UL);
@@ -471,11 +470,13 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         private readonly bool _hasTimelineEpoch;
 
         private AnimPlaybackToken(
+            CoCoGraphInstanceId graphInstanceId,
             CoCoActivationId sourceActivationId,
             CoCoTimelineEpoch timelineEpoch,
             CoCoOperationSequence operationSequence,
             AnimPlaybackLayerSlot layer)
         {
+            GraphInstanceId = graphInstanceId;
             SourceActivationId = sourceActivationId;
             TimelineEpoch = timelineEpoch;
             OperationSequence = operationSequence;
@@ -483,24 +484,28 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             _hasTimelineEpoch = true;
         }
 
+        public CoCoGraphInstanceId GraphInstanceId { get; }
         public CoCoActivationId SourceActivationId { get; }
         public CoCoTimelineEpoch TimelineEpoch { get; }
         public CoCoOperationSequence OperationSequence { get; }
         public AnimPlaybackLayerSlot Layer { get; }
-        public bool IsValid => SourceActivationId.IsValid &&
+        public bool IsValid => GraphInstanceId.IsValid &&
+                               SourceActivationId.IsValid &&
                                _hasTimelineEpoch &&
                                OperationSequence.IsValid &&
                                Layer >= AnimPlaybackLayerSlot.Layer00 &&
                                Layer <= AnimPlaybackLayerSlot.Layer03;
 
         public static bool TryCreate(
+            CoCoGraphInstanceId graphInstanceId,
             CoCoActivationId sourceActivationId,
             CoCoTimelineEpoch timelineEpoch,
             CoCoOperationSequence operationSequence,
             AnimPlaybackLayerSlot layer,
             out AnimPlaybackToken token)
         {
-            if (!sourceActivationId.IsValid ||
+            if (!graphInstanceId.IsValid ||
+                !sourceActivationId.IsValid ||
                 !operationSequence.IsValid ||
                 layer < AnimPlaybackLayerSlot.Layer00 ||
                 layer > AnimPlaybackLayerSlot.Layer03)
@@ -510,6 +515,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             }
 
             token = new AnimPlaybackToken(
+                graphInstanceId,
                 sourceActivationId,
                 timelineEpoch,
                 operationSequence,
@@ -518,6 +524,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
 
         public bool Equals(AnimPlaybackToken other) =>
+            GraphInstanceId == other.GraphInstanceId &&
             SourceActivationId == other.SourceActivationId &&
             TimelineEpoch == other.TimelineEpoch &&
             OperationSequence == other.OperationSequence &&
@@ -530,7 +537,8 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         {
             unchecked
             {
-                int hashCode = SourceActivationId.GetHashCode();
+                int hashCode = GraphInstanceId.GetHashCode();
+                hashCode = (hashCode * 397) ^ SourceActivationId.GetHashCode();
                 hashCode = (hashCode * 397) ^ TimelineEpoch.GetHashCode();
                 hashCode = (hashCode * 397) ^ OperationSequence.GetHashCode();
                 hashCode = (hashCode * 397) ^ (int)Layer;

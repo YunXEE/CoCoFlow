@@ -693,7 +693,12 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     operationSequenceValue,
                     out CoCoOperationSequence operationSequence));
             Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    1UL,
+                    out CoCoGraphInstanceId graphInstanceId));
+            Assert.IsTrue(
                 AnimPlaybackToken.TryCreate(
+                    graphInstanceId,
                     activationId,
                     new CoCoTimelineEpoch(0UL),
                     operationSequence,

@@ -90,8 +90,27 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
-        public void PlaybackToken_IdentityIncludesEpochSequenceActivationAndLayer()
+        public void OperatorVariants_ShareOneHostExclusiveAnimationIdentity()
         {
+            Assert.AreEqual(
+                AnimContractIds.OperatorId,
+                AnimContractIds.AutoOperatorId);
+            Assert.AreEqual(
+                AnimOperatorContracts.AdvancedDescriptor.OperatorId,
+                AnimOperatorContracts.AutoDescriptor.OperatorId);
+        }
+
+        [Test]
+        public void PlaybackToken_IdentityIncludesGraphEpochSequenceActivationAndLayer()
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    7UL,
+                    out CoCoGraphInstanceId firstGraph));
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    8UL,
+                    out CoCoGraphInstanceId secondGraph));
             Assert.IsTrue(
                 CoCoActivationId.TryCreate(
                     12UL,
@@ -103,6 +122,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
 
             Assert.IsTrue(
                 AnimPlaybackToken.TryCreate(
+                    firstGraph,
                     activationId,
                     new CoCoTimelineEpoch(5UL),
                     operationSequence,
@@ -110,14 +130,16 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     out AnimPlaybackToken first));
             Assert.IsTrue(
                 AnimPlaybackToken.TryCreate(
+                    secondGraph,
                     activationId,
-                    new CoCoTimelineEpoch(6UL),
+                    new CoCoTimelineEpoch(5UL),
                     operationSequence,
                     AnimPlaybackLayerSlot.Layer02,
                     out AnimPlaybackToken second));
 
             Assert.IsTrue(first.IsValid);
             Assert.AreNotEqual(first, second);
+            Assert.AreEqual(firstGraph, first.GraphInstanceId);
             Assert.AreEqual(new CoCoTimelineEpoch(5UL), first.TimelineEpoch);
             Assert.AreEqual(operationSequence, first.OperationSequence);
             Assert.AreEqual(activationId, first.SourceActivationId);
