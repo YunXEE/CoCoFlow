@@ -147,6 +147,107 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
+        public void PlaybackPublicationFence_RequiresCommittedReplacementAfterRebuild()
+        {
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    21UL,
+                    out CoCoGraphInstanceId graph));
+            Assert.IsTrue(
+                CoCoActivationId.TryCreate(
+                    22UL,
+                    out CoCoActivationId activation));
+            Assert.IsTrue(
+                CoCoOperationSequence.TryCreate(
+                    23UL,
+                    out CoCoOperationSequence operationSequence));
+            Assert.IsTrue(
+                AnimBindingId.TryCreate(
+                    24UL,
+                    out AnimBindingId binding));
+            Assert.IsTrue(
+                AnimPlaybackToken.TryCreate(
+                    graph,
+                    activation,
+                    new CoCoTimelineEpoch(0UL),
+                    operationSequence,
+                    AnimPlaybackLayerSlot.Layer00,
+                    out AnimPlaybackToken token));
+
+            AnimPlaybackContext invalidated = CreatePlaybackContext(
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer00,
+                    token,
+                    binding,
+                    AnimPlaybackStatus.Playing,
+                    0.25f),
+                false);
+            CoCoStateFlowFrameIdentity oldIdentity =
+                CreateContextIdentity(graph, 1UL);
+            CoCoStateFlowFrameIdentity unrelatedIdentity =
+                CreateContextIdentity(graph, 2UL);
+            CoCoStateFlowFrameIdentity stagedIdentity =
+                CreateContextIdentity(graph, 3UL);
+            var fence = new AnimOperator.PlaybackPublicationFence();
+
+            fence.Invalidate(invalidated);
+            Assert.IsFalse(
+                fence.CanPublish(invalidated, oldIdentity));
+            Assert.IsFalse(
+                fence.CanPublish(invalidated, unrelatedIdentity),
+                "An unrelated commit can copy the invalidated Animation slot.");
+
+            fence.MarkOutcomeStaged(stagedIdentity);
+            Assert.IsFalse(
+                fence.CanPublish(invalidated, unrelatedIdentity),
+                "Staging alone must not restore publication authority.");
+            Assert.IsTrue(
+                fence.CanPublish(invalidated, stagedIdentity),
+                "The exact committed replacement may publish even when its reset value is identical.");
+            Assert.IsFalse(fence.IsActive);
+
+            fence.Invalidate(invalidated);
+            fence.MarkOutcomeStaged(CreateContextIdentity(graph, 4UL));
+            Assert.IsFalse(
+                fence.CanPublish(
+                    invalidated,
+                    CreateContextIdentity(graph, 5UL)),
+                "A cancelled candidate must not clear the rebuild fence.");
+            AnimPlaybackContext replacement = CreatePlaybackContext(
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer00,
+                    token,
+                    binding,
+                    AnimPlaybackStatus.Playing,
+                    0.5f),
+                false);
+            Assert.IsTrue(
+                fence.CanPublish(
+                    replacement,
+                    CreateContextIdentity(graph, 6UL)),
+                "A different committed Animation snapshot replaces the invalidated publication.");
+
+            AnimPlaybackContext held = CreatePlaybackContext(
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer00,
+                    default,
+                    default,
+                    AnimPlaybackStatus.None,
+                    0f),
+                true);
+            fence.Invalidate(held);
+            Assert.IsFalse(
+                fence.CanPublish(
+                    held,
+                    CreateContextIdentity(graph, 7UL)),
+                "A rebuilt runtime must not expose a copied Held snapshot without a token.");
+            Assert.IsTrue(
+                fence.CanPublish(
+                    CreatePlaybackContext(held.Layer00, false),
+                    CreateContextIdentity(graph, 8UL)));
+        }
+
+        [Test]
         public void FeedbackIntent_PreservesOrderAndReportsOverflow()
         {
             AnimFeedbackIntent intent = default;
@@ -846,6 +947,45 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 .GetField("triggerTime", flags)
                 ?.SetValue(config, triggerTime);
             return config;
+        }
+
+        private static AnimPlaybackContext CreatePlaybackContext(
+            AnimPlaybackLayer layer00,
+            bool isHeld)
+        {
+            return new AnimPlaybackContext(
+                layer00,
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer01,
+                    default,
+                    default,
+                    AnimPlaybackStatus.None,
+                    0f),
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer02,
+                    default,
+                    default,
+                    AnimPlaybackStatus.None,
+                    0f),
+                new AnimPlaybackLayer(
+                    AnimPlaybackLayerSlot.Layer03,
+                    default,
+                    default,
+                    AnimPlaybackStatus.None,
+                    0f),
+                isHeld);
+        }
+
+        private static CoCoStateFlowFrameIdentity CreateContextIdentity(
+            CoCoGraphInstanceId graph,
+            ulong tick)
+        {
+            return new CoCoStateFlowFrameIdentity(
+                graph,
+                new CoCoTimelineEpoch(0UL),
+                new CoCoTimelineTick(tick),
+                new CoCoExecutionSequence(tick),
+                CoCoStateFlowFrameKind.Context);
         }
 
         private sealed class RecordingReceiver : IAnimEventReceiver

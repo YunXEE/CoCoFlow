@@ -9,6 +9,7 @@ namespace CoCoFlow.Runtime.Modules.Animation.UniTask
     {
         /// <summary>
         /// Waits until one currently published playback token completes or is interrupted.
+        /// A token invalidated by a runtime rebuild is observed as interrupted.
         /// Cancelling the token cancels only this waiter and never changes playback.
         /// </summary>
         public static async UniTask<AnimPlaybackStatus> WaitForTerminalStatusAsync(
@@ -51,8 +52,7 @@ namespace CoCoFlow.Runtime.Modules.Animation.UniTask
                         playbackToken.Layer,
                         out playback))
                 {
-                    throw new InvalidOperationException(
-                        "AnimOperator no longer exposes the playback token's layer.");
+                    return AnimPlaybackStatus.Interrupted;
                 }
 
                 if (playback.Token != playbackToken)

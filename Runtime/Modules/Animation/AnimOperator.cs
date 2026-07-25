@@ -66,6 +66,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private CoCoDiagnostic _lastDiagnostic;
         private AnimFeedbackSourceStamp _candidateFeedbackStamp;
         private CoCoGraphInstanceId _boundGraphInstanceId;
+        private PlaybackPublicationFence _playbackPublicationFence;
         private bool _isInitialized;
         private bool _isEvaluating;
         private bool _isHeld;
@@ -118,10 +119,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
         public bool TryRebuildBindings(out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
-            DisposeRuntime();
             animator ??= GetComponent<Animator>();
             stateGraphHost ??= GetComponentInParent<CoCoStateGraphHost>();
             controller ??= animator == null ? null : animator.runtimeAnimatorController;
+            CaptureCommittedPlaybackForInvalidation();
+            DisposeRuntime();
             if (animator == null ||
                 controller == null ||
                 animator.runtimeAnimatorController != controller ||
@@ -211,6 +213,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoOperatorExecutionContext context,
             out CoCoOperatorOutcome outcome)
         {
+            RefreshPlaybackPublicationFence();
             if (!TryPrepareGraphInstance(out CoCoDiagnostic graphDiagnostic))
             {
                 _lastDiagnostic = graphDiagnostic;
@@ -340,6 +343,17 @@ namespace CoCoFlow.Runtime.Modules.Animation
             {
                 outcome = default;
                 return false;
+            }
+
+            if (changed)
+            {
+                _playbackPublicationFence.MarkOutcomeStaged(
+                    new CoCoStateFlowFrameIdentity(
+                        stateGraphHost.GraphInstanceId,
+                        context.TickFrame.TimelineEpoch,
+                        context.TickFrame.Tick,
+                        context.TickFrame.ExecutionSequence,
+                        CoCoStateFlowFrameKind.Context));
             }
 
             bool wroteFeedback = _feedback.Count > 0;
@@ -1365,7 +1379,25 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private bool TryReadCommittedPlayback(
             out AnimPlaybackContext playback)
         {
-            CoCoContextFrame context = stateGraphHost == null
+            if (!TryReadRawCommittedPlayback(
+                    out CoCoContextFrame context,
+                    out playback) ||
+                !_playbackPublicationFence.CanPublish(
+                    playback,
+                    context.Header.Identity))
+            {
+                playback = default;
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryReadRawCommittedPlayback(
+            out CoCoContextFrame context,
+            out AnimPlaybackContext playback)
+        {
+            context = stateGraphHost == null
                 ? default
                 : stateGraphHost.CurrentContext;
             if (!context.IsAlive ||
@@ -1380,6 +1412,32 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             playback = context.Read(slot);
             return true;
+        }
+
+        private void CaptureCommittedPlaybackForInvalidation()
+        {
+            if (TryReadRawCommittedPlayback(
+                    out _,
+                    out AnimPlaybackContext playback))
+            {
+                _playbackPublicationFence.Invalidate(playback);
+                return;
+            }
+
+            _playbackPublicationFence.Clear();
+        }
+
+        private void RefreshPlaybackPublicationFence()
+        {
+            if (_playbackPublicationFence.IsActive &&
+                TryReadRawCommittedPlayback(
+                    out CoCoContextFrame context,
+                    out AnimPlaybackContext playback))
+            {
+                _playbackPublicationFence.CanPublish(
+                    playback,
+                    context.Header.Identity);
+            }
         }
 
         private bool ValidateModulationValue(in AnimModulationCommand command)
@@ -1567,6 +1625,80 @@ namespace CoCoFlow.Runtime.Modules.Animation
             internal AnimPlaybackToken Token { get; }
             internal bool StartedBeforeCompletion { get; }
             internal bool HasValue { get; }
+        }
+
+        internal struct PlaybackPublicationFence
+        {
+            private AnimPlaybackContext _invalidated;
+            private CoCoStateFlowFrameIdentity _pendingCommitIdentity;
+            private bool _isActive;
+
+            internal bool IsActive => _isActive;
+
+            internal void Invalidate(in AnimPlaybackContext playback)
+            {
+                _invalidated = playback;
+                _pendingCommitIdentity = default;
+                _isActive = true;
+            }
+
+            internal void Clear()
+            {
+                this = default;
+            }
+
+            internal void MarkOutcomeStaged(
+                CoCoStateFlowFrameIdentity contextIdentity)
+            {
+                if (_isActive &&
+                    contextIdentity.IsValid &&
+                    contextIdentity.Kind == CoCoStateFlowFrameKind.Context)
+                {
+                    _pendingCommitIdentity = contextIdentity;
+                }
+            }
+
+            internal bool CanPublish(
+                in AnimPlaybackContext playback,
+                CoCoStateFlowFrameIdentity contextIdentity)
+            {
+                if (!_isActive)
+                {
+                    return true;
+                }
+
+                if (!PlaybackEquals(playback, _invalidated) ||
+                    (_pendingCommitIdentity.IsValid &&
+                     contextIdentity == _pendingCommitIdentity))
+                {
+                    Clear();
+                    return true;
+                }
+
+                return false;
+            }
+
+            private static bool PlaybackEquals(
+                in AnimPlaybackContext left,
+                in AnimPlaybackContext right)
+            {
+                return left.IsHeld == right.IsHeld &&
+                       LayerEquals(left.Layer00, right.Layer00) &&
+                       LayerEquals(left.Layer01, right.Layer01) &&
+                       LayerEquals(left.Layer02, right.Layer02) &&
+                       LayerEquals(left.Layer03, right.Layer03);
+            }
+
+            private static bool LayerEquals(
+                in AnimPlaybackLayer left,
+                in AnimPlaybackLayer right)
+            {
+                return left.Slot == right.Slot &&
+                       left.Token == right.Token &&
+                       left.StateBindingId == right.StateBindingId &&
+                       left.Status == right.Status &&
+                       left.NormalizedTime.Equals(right.NormalizedTime);
+            }
         }
 
         internal static bool IsPlaybackControlAllowed(
