@@ -25,6 +25,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
         private const ulong PlainOneShotBindingValue = 605UL;
         private const ulong IncomingMarkerBindingValue = 606UL;
         private const ulong OutgoingMarkerBindingValue = 607UL;
+        private const ulong OffsetTargetBindingValue = 608UL;
         private readonly List<UnityEngine.Object> _objects =
             new List<UnityEngine.Object>();
 
@@ -161,6 +162,117 @@ namespace CoCoFlow.Tests.Runtime.Animation
             AnimFeedbackBuffer feedback = ReadField<AnimFeedbackBuffer>(
                 animationOperator,
                 "_feedback");
+            feedback.Clear();
+            playable.Play(
+                Animator.StringToHash("Base Layer.Idle"),
+                0,
+                0f);
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+            Assert.IsTrue(
+                AnimBindingId.TryCreate(
+                    OffsetTargetBindingValue,
+                    out AnimBindingId offsetTargetBinding));
+            Assert.IsTrue(
+                CoCoActivationId.TryCreate(
+                    18UL,
+                    out CoCoActivationId offsetActivation));
+            Assert.IsTrue(
+                AnimPlaybackCommand.TryCreateCrossFade(
+                    offsetTargetBinding,
+                    offsetActivation,
+                    0.4f,
+                    0.5f,
+                    out AnimPlaybackCommand offsetCrossFade));
+            Assert.IsTrue(
+                CoCoOperationSequence.TryCreate(
+                    8UL,
+                    out CoCoOperationSequence offsetSequence));
+            var offsetHeader =
+                (CoCoOperationSectionEntryHeader)Activator.CreateInstance(
+                    typeof(CoCoOperationSectionEntryHeader),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new object[]
+                    {
+                        true,
+                        offsetActivation,
+                        offsetSequence
+                    },
+                    null);
+            var offsetEntry =
+                (CoCoOperationSectionEntry<IAnimPlaybackOperationSection>)
+                Activator.CreateInstance(
+                    typeof(CoCoOperationSectionEntry<
+                        IAnimPlaybackOperationSection>),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new object[]
+                    {
+                        offsetHeader,
+                        new PlaybackSection(offsetCrossFade)
+                    },
+                    null);
+            MethodInfo validatePlayback =
+                typeof(AnimOperator).GetMethod(
+                    "ValidatePlayback",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(validatePlayback, Is.Not.Null);
+            Assert.That(
+                validatePlayback.Invoke(
+                    animationOperator,
+                    new object[] { offsetEntry.View }),
+                Is.EqualTo(true));
+            MethodInfo applyPlayback =
+                typeof(AnimOperator).GetMethod(
+                    "ApplyPlaybackCommands",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(applyPlayback, Is.Not.Null);
+            Assert.IsTrue(
+                CoCoGraphInstanceId.TryCreate(
+                    1UL,
+                    out CoCoGraphInstanceId offsetGraph));
+            SetCandidateFeedbackStamp(animationOperator, 8UL);
+            Assert.That(
+                applyPlayback.Invoke(
+                    animationOperator,
+                    new[]
+                    {
+                        (object)offsetEntry,
+                        offsetGraph,
+                        new CoCoTimelineEpoch(0UL)
+                    }),
+                Is.EqualTo(true));
+            EvaluateAsCandidate(animationOperator, graph, 0f);
+
+            int offsetTargetHash =
+                Animator.StringToHash("Base Layer.OffsetTarget");
+            Assert.IsTrue(playable.IsInTransition(0));
+            AnimatorStateInfo offsetTarget =
+                playable.GetNextAnimatorStateInfo(0);
+            Assert.That(offsetTarget.fullPathHash, Is.EqualTo(offsetTargetHash));
+            Assert.That(offsetTarget.length, Is.EqualTo(2f).Within(0.001f));
+            Assert.That(
+                offsetTarget.normalizedTime,
+                Is.EqualTo(0.5f).Within(0.001f),
+                "CrossFade must preserve the command's normalized destination offset.");
+            Assert.That(
+                ReadLayers(animationOperator)[0].NormalizedTime,
+                Is.EqualTo(0.5f));
+            Assert.That(
+                ReadField<AnimFeedbackEvent[]>(feedback, "_events")
+                    .Take(feedback.Count)
+                    .Single(staged =>
+                        staged.Record.Kind ==
+                        AnimFeedbackKind.PlaybackStarted)
+                    .Record.NormalizedTime,
+                Is.EqualTo(0.5f));
+            EvaluateAsCandidate(animationOperator, graph, 0.2f);
+            Assert.That(
+                playable.GetAnimatorTransitionInfo(0).normalizedTime,
+                Is.EqualTo(0.5f).Within(0.01f),
+                "CrossFade must retain the command's transition duration in seconds.");
+
+            feedback.Clear();
             AnimPlaybackToken completedToken =
                 CreateToken(11UL, 1UL);
             SetCandidateFeedbackStamp(animationOperator, 1UL);
@@ -517,6 +629,8 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 CreateClip("EarlyExit", false, false);
             AnimationClip plainOneShotClip =
                 CreateClip("PlainOneShot", false, false);
+            AnimationClip offsetTargetClip =
+                CreateClip("OffsetTarget", false, false, 2f);
             rootMotionClip = CreateClip("RootMotion", false, true);
             AnimatorState idle = stateMachine.AddState("Idle");
             idle.motion = idleClip;
@@ -528,6 +642,9 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 stateMachine.AddState("PlainOneShot");
             plainOneShot.motion = plainOneShotClip;
             plainOneShot.speed = 2f;
+            AnimatorState offsetTarget =
+                stateMachine.AddState("OffsetTarget");
+            offsetTarget.motion = offsetTargetClip;
             AnimatorState rootMotion = stateMachine.AddState("RootMotion");
             rootMotion.motion = rootMotionClip;
             stateMachine.defaultState = idle;
@@ -577,7 +694,8 @@ namespace CoCoFlow.Tests.Runtime.Animation
         private AnimationClip CreateClip(
             string name,
             bool loop,
-            bool rootMotion)
+            bool rootMotion,
+            float durationSeconds = 1f)
         {
             var clip = new AnimationClip
             {
@@ -588,7 +706,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 string.Empty,
                 typeof(Transform),
                 rootMotion ? "m_LocalPosition.x" : "m_LocalScale.x",
-                AnimationCurve.Linear(0f, 0f, 1f, 1f));
+                AnimationCurve.Linear(0f, 0f, durationSeconds, 1f));
             AnimationClipSettings settings =
                 AnimationUtility.GetAnimationClipSettings(clip);
             settings.loopTime = loop;
@@ -669,7 +787,11 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     CreateStateBinding(
                         PlainOneShotBindingValue,
                         0,
-                        "Base Layer.PlainOneShot")
+                        "Base Layer.PlainOneShot"),
+                    CreateStateBinding(
+                        OffsetTargetBindingValue,
+                        0,
+                        "Base Layer.OffsetTarget")
                 });
             SetField(
                 animationOperator,
@@ -902,6 +1024,21 @@ namespace CoCoFlow.Tests.Runtime.Animation
             public AnimModulationCommand Slot05 => default;
             public AnimModulationCommand Slot06 => default;
             public AnimModulationCommand Slot07 => default;
+        }
+
+        private sealed class PlaybackSection :
+            IAnimPlaybackOperationSection
+        {
+            internal PlaybackSection(AnimPlaybackCommand layer00)
+            {
+                Layer00 = layer00;
+            }
+
+            public AnimPlaybackCommand Control => default;
+            public AnimPlaybackCommand Layer00 { get; }
+            public AnimPlaybackCommand Layer01 => default;
+            public AnimPlaybackCommand Layer02 => default;
+            public AnimPlaybackCommand Layer03 => default;
         }
 
         private sealed class RecordingModulationAdapter :

@@ -49,6 +49,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
             new AnimPlaybackLayer[AnimContractLimits.PlaybackLayerCount];
         private readonly TransitionObservation[] _transitionObservations =
             new TransitionObservation[AnimContractLimits.PlaybackLayerCount];
+        private readonly float[] _normalizedCrossFadeDurations =
+            new float[AnimContractLimits.PlaybackLayerCount];
 
         private AnimParameterTarget[] _parameterTargets = Array.Empty<AnimParameterTarget>();
         private AnimTriggerTarget[] _triggerTargets = Array.Empty<AnimTriggerTarget>();
@@ -753,6 +755,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private bool ValidatePlayback(IAnimPlaybackOperationSection section)
         {
+            Array.Clear(
+                _normalizedCrossFadeDurations,
+                0,
+                _normalizedCrossFadeDurations.Length);
             AnimPlaybackCommand control = section.Control;
             if (control.Kind != AnimPlaybackCommandKind.None &&
                 (!control.IsValid ||
@@ -780,7 +786,13 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         _stateTargets,
                         command.StateBindingId,
                         out AnimStateTarget target) ||
-                    target.ControllerLayer != _controllerLayers[lane])
+                    target.ControllerLayer != _controllerLayers[lane] ||
+                    (command.Kind == AnimPlaybackCommandKind.CrossFade &&
+                     !TryConvertCrossFadeDuration(
+                         command.TransitionDurationSeconds,
+                         _controllerPlayable.GetCurrentAnimatorStateInfo(
+                             target.ControllerLayer).length,
+                         out _normalizedCrossFadeDurations[lane])))
                 {
                     return false;
                 }
@@ -944,9 +956,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 }
                 else
                 {
-                    _controllerPlayable.CrossFadeInFixedTime(
+                    _controllerPlayable.CrossFade(
                         target.StateHash,
-                        command.TransitionDurationSeconds,
+                        _normalizedCrossFadeDurations[lane],
                         target.ControllerLayer,
                         command.StartNormalizedTime);
                     _layerStates[lane] = new AnimPlaybackLayer(
@@ -1586,6 +1598,21 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             deltaSeconds = (float)tickDeltaSeconds;
             return deltaSeconds > 0f && IsFinite(deltaSeconds);
+        }
+
+        internal static bool TryConvertCrossFadeDuration(
+            float transitionDurationSeconds,
+            float sourceDurationSeconds,
+            out float normalizedTransitionDuration)
+        {
+            normalizedTransitionDuration =
+                transitionDurationSeconds / sourceDurationSeconds;
+            return transitionDurationSeconds >= 0f &&
+                   IsFinite(transitionDurationSeconds) &&
+                   sourceDurationSeconds > 0f &&
+                   IsFinite(sourceDurationSeconds) &&
+                   normalizedTransitionDuration >= 0f &&
+                   IsFinite(normalizedTransitionDuration);
         }
 
         private readonly struct EvaluationPlan
