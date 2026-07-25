@@ -552,23 +552,50 @@ namespace CoCoFlow.Editor.Core
 
         private void ApplyAvailableSupportDefines(bool uniTaskInstallSucceeded)
         {
-            var defines = new List<string>();
-            if (uniTaskInstallSucceeded || IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask"))
-                defines.Add(UniTaskDefine);
+            bool uniTaskAvailable = uniTaskInstallSucceeded ||
+                                    IsAssemblyInstalled("UniTask") ||
+                                    IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            string[] defines = SelectAvailableSupportDefines(
+                uniTaskAvailable,
+                IsDotweenInstalled(),
+                IsDotweenModuleInstalled(),
+                IsAssemblyInstalled("UniTask.DOTween"));
 
-            if (IsDotweenModuleInstalled())
-            {
-                defines.Add(DotweenDefine);
-                defines.Add(UniTaskDotweenDefine);
-            }
-
-            if (defines.Count == 0)
+            if (defines.Length == 0)
             {
                 AddLog("No support defines were added because dependencies are not available yet.");
                 return;
             }
 
-            AddDefinesToAllValidTargets(defines.ToArray());
+            AddDefinesToAllValidTargets(defines);
+        }
+
+        internal static string[] SelectAvailableSupportDefines(
+            bool uniTaskAvailable,
+            bool dotweenAvailable,
+            bool dotweenModulesAvailable,
+            bool uniTaskDotweenAvailable)
+        {
+            var defines = new List<string>();
+            if (uniTaskAvailable)
+            {
+                defines.Add(UniTaskDefine);
+            }
+
+            if (dotweenAvailable)
+            {
+                defines.Add(DotweenDefine);
+            }
+
+            if (uniTaskAvailable &&
+                dotweenAvailable &&
+                dotweenModulesAvailable &&
+                uniTaskDotweenAvailable)
+            {
+                defines.Add(UniTaskDotweenDefine);
+            }
+
+            return defines.ToArray();
         }
 
         private void AddDefinesToAllValidTargets(params string[] definesToAdd)
@@ -714,7 +741,6 @@ namespace CoCoFlow.Editor.Core
         private static bool IsDotweenInstalled()
         {
             return IsAssemblyInstalled("DOTween") ||
-                   IsAssemblyInstalled("DOTween.Modules") ||
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
         }
 

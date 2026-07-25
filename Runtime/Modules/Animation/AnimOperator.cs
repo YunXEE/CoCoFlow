@@ -838,6 +838,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
             {
                 _isHeld = true;
                 _modulationAdapter?.StopAll();
+                Array.Clear(
+                    _modulationStamps,
+                    0,
+                    _modulationStamps.Length);
                 InterruptAllPlayback();
                 return true;
             }
@@ -923,13 +927,22 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     out AnimModulationTarget target);
                 if (command.Interpolation == AnimModulationInterpolation.Immediate)
                 {
-                    ((IAnimModulationHost)this).TryWriteModulation(
-                        target,
-                        new Vector4(
-                            command.ValueX,
-                            command.ValueY,
-                            command.ValueZ,
-                            command.ValueW));
+                    _modulationAdapter?.Stop(target);
+                    int immediateTargetIndex = FindModulationTargetIndex(
+                        command.BindingId);
+                    _modulationStamps[immediateTargetIndex] = default;
+                    if (!((IAnimModulationHost)this).TryWriteModulation(
+                            target,
+                            new Vector4(
+                                command.ValueX,
+                                command.ValueY,
+                                command.ValueZ,
+                                command.ValueW)))
+                    {
+                        throw new InvalidOperationException(
+                            "A prevalidated immediate Animation modulation could not be applied.");
+                    }
+
                     changed = true;
                     continue;
                 }

@@ -38,12 +38,18 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
                 return false;
             }
 
-            RemoveOwnedTween(command.BindingId);
+            Stop(target);
             var targetValue = new Vector4(
                 command.ValueX,
                 command.ValueY,
                 command.ValueZ,
                 command.ValueW);
+            if (target.Kind == AnimModulationKind.PresentationOffsetRotation &&
+                Vector4.Dot(currentValue, targetValue) < 0f)
+            {
+                targetValue = -targetValue;
+            }
+
             if (command.DurationSeconds == 0f)
             {
                 if (!_host.TryWriteModulation(target, targetValue))
@@ -126,6 +132,16 @@ namespace CoCoFlow.Runtime.Modules.Animation.DOTween
                     RemoveAt(index);
                 }
             }
+        }
+
+        public void Stop(in AnimModulationTarget target)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            RemoveOwnedTween(target.BindingId);
         }
 
         public void StopAll()

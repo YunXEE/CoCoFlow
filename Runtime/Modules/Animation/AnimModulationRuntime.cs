@@ -23,6 +23,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in AnimModulationTarget target,
             out CoCoDiagnostic diagnostic);
 
+        void Stop(in AnimModulationTarget target);
+
         void ManualUpdate(float positiveDeltaSeconds);
 
         void StopAll();
