@@ -63,6 +63,12 @@ factory instances when binding the Section views. Stable non-zero binding IDs
 connect StateLogic commands to Inspector-authored mappings; runtime execution
 does not use string-key lookup.
 
+The seventeenth staged feedback record poisons the whole reliable batch. The
+Operator rejects the transaction and publishes none of the first 16 records;
+it never truncates the tail silently. Rebuilding bindings clears the batch,
+and a new Host Graph instance or Timeline Epoch discards a poisoned batch from
+the old timeline automatically.
+
 `AnimAutoOperator` requires only Parameter and Trigger Sections. It owns no
 Playable graph, playback token, modulation, root-motion relay, or Temporal
 restore path.
@@ -83,7 +89,7 @@ OperationSequence-, and layer-scoped `AnimPlaybackToken` values with
 4. Map stable binding IDs to existing Controller parameters, triggers, layers,
    and full state paths. `AnimOperator` may also map modulation targets.
 5. Add `AnimEventSmb` to Controller states manually or use
-   `CoCoFlow/AssetPipeline/SMB 注入器`. Give each marker a stable binding ID
+   `CoCoFlow/Animation/Inject Anim Event SMB`. Give each marker a stable binding ID
    and normalized trigger time.
 
 The custom inspectors validate Controller ownership, fixed capacities,
@@ -93,7 +99,10 @@ rebuild is available in Play Mode after Inspector changes.
 
 `AnimEventSmb` emits State Enter, configured Marker, and State Exit signals. It
 keeps per-Animator trigger state so one shared SMB asset does not leak marker
-flags between Animator instances.
+flags between Animator instances. Marker delivery scans the absolute
+normalized-time interval `(previous, current]`, including multiple loop
+boundaries and the tail observed on State Exit. Backwards or non-finite time
+only establishes a new cursor; it does not synthesize reverse events.
 
 ## Playable Evaluation
 

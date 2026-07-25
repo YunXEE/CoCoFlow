@@ -21,28 +21,14 @@ Overall result: **DEFER exact Animator replay in Pre11**. The forward
 `AnimatorControllerPlayable` Operator may proceed, but it must not register an
 exact Temporal capability or silently substitute approximate restoration.
 
-## Attempted runtime proof
+## Runtime proof status
 
-The following batch command was attempted against the existing CoCoLab host:
-
-```text
-/Applications/Unity/Hub/Editor/6000.3.20f1/Unity.app/Contents/MacOS/Unity
-  -batchmode -nographics -quit
-  -projectPath /Users/UnityDev/CoCoLab
-  -executeMethod CoCoFlow.Tests.Editor.Animation.ReplayFixtureAssetBuilder.Generate
-  -logFile /private/tmp/pre11-replay-fixture-host.log
-```
-
-The Editor repeatedly failed the LicensingClient handshake with:
-
-```text
-ResponseCode: 505
-ResponseStatus: Unsupported protocol version '1.18.1'.
-```
-
-The process was stopped before fixture generation or Gate execution. No
-generated controller/clip assets are committed because unvalidated fixtures
-would falsely imply runtime proof.
+No validated runtime fixture has executed the G1 or G3 comparisons recorded by
+this evidence snapshot. No generated controller or clip assets are treated as
+replay proof. A separate forward-only PlayMode fixture did execute Loop,
+OneShot exit-time, Parameter, SMB Marker, Root Motion, natural completion, and
+early interruption behavior; that evidence validates Pre11 forward delivery
+only and does not satisfy either replay gate.
 
 ## Reopen conditions
 

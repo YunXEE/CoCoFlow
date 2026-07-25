@@ -40,6 +40,13 @@ projects and does not include a migration runtime for 0.3.9 projects.
   Operators. `AnimEventSmb` is a `StateMachineBehaviour`, and
   `AnimRootMotionRelay` is an internal plain helper, so the Animation V2
   production surface contains exactly two `MonoBehaviour` components.
+- Assigned `AnimAutoOperator` the new script GUID
+  `e3244dec4ece44d9a45369111d6c2344`. The legacy `AnimHandler` GUID is not
+  reused and no migration alias is provided; 0.3.9 scenes must replace the
+  resulting Missing Script explicitly.
+- Changed `AnimOperator.CurrentPlayback` and `TryGetPlayback` to report only
+  committed `AnimPlaybackContext` state. Candidate execution state remains
+  private and cannot leak through a cancelled transaction.
 - Updated Setup Assistant reporting, public documentation, the package version,
   and the two existing Unity Package Validation Suite exception scopes to
   `0.4.0-pre.11`. DOTween and UniTask remain optional rather than hard package
@@ -47,20 +54,28 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 ### Verification
 
-- `PASS` (static): Animation Contracts, base Runtime, conditional DOTween,
-  conditional UniTask, and focused contract test assemblies compile against
-  the Unity 6 host references. Seven focused contract tests pass through the
-  direct test runner.
-- `BLOCKED`: full Unity batch execution remains blocked before test execution
-  by the local Unity Licensing Client protocol mismatch.
-- `UNVERIFIED`: Unity EditMode/PlayMode execution, package-wide tests, Package
-  Validation Suite, runtime Controller/SMB/root-motion integration, performance
-  observations, and macOS Universal IL2CPP with High Managed Stripping.
+- `PASS`: Unity 6000.3.20f1 Batchmode reimport and compilation; focused Setup
+  EditMode (`9/9`); focused Animation PlayMode (`27 PASS`, `0 FAIL`, with the
+  frozen G1/G3 replay probes intentionally `INCONCLUSIVE`). The PlayMode
+  fixture executes a real `AnimatorControllerPlayable` with Loop, OneShot
+  exit-time, Parameter, SMB Marker, Root Motion, natural completion, early
+  interruption, and committed-only playback-query checks.
+- `BASELINE`: package-wide EditMode is `593 PASS / 15 FAIL / 1 SKIP` against
+  exact Base `0df9d486` at `586 PASS / 15 FAIL / 1 SKIP`; all failures are
+  pre-existing boundary/Map cases, with one Map timing case differing between
+  runs. Package-wide PlayMode is `326 PASS / 6 FAIL / 2 INCONCLUSIVE` against
+  Base `300 PASS / 6 FAIL`; the six failures are identical and the two added
+  inconclusive results are the frozen G1/G3 replay gates.
+- `UNVERIFIED`: Package Validation Suite is not installed in the local Editor
+  or package cache. macOS Universal IL2CPP with High Managed Stripping reached
+  the requested `IL2CPP / High / architecture=2` settings, but the Editor's
+  macOS IL2CPP player support is not installed. Performance observations also
+  remain unverified.
 
 ### Deferred
 
 - Exact Animator replay did not pass the bounded replay gate within the frozen
-  Pre11 scope. `AnimOperator` is forward-only:
+  Pre11 scope (`G1=UNVERIFIED`, `G2=NO-GO`, `G3=UNVERIFIED`). `AnimOperator` is forward-only:
   `AnimExactReplayStatus.Deferred` is explicit, and Temporal Preview,
   projection, restore, Confirm preparation, and correction fail closed rather
   than approximating a pose or evaluating backwards.
