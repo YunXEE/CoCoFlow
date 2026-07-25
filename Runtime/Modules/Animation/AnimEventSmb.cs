@@ -62,6 +62,18 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         stateInfo.normalizedTime)))
             {
                 cursor.ReceiverRejected = true;
+                return;
+            }
+
+            if (!TryEmitEntryMarkers(
+                    eventConfigs,
+                    stateInfo.loop,
+                    stateInfo.fullPathHash,
+                    layerIndex,
+                    stateInfo.normalizedTime,
+                    state.Receiver))
+            {
+                cursor.ReceiverRejected = true;
             }
         }
 
@@ -275,6 +287,63 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
         }
 
+        internal static bool TryEmitEntryMarkers(
+            AnimEventConfig[] configs,
+            bool isLooping,
+            int stateHash,
+            int layerIndex,
+            float normalizedTime,
+            IAnimEventReceiver receiver)
+        {
+            if (receiver == null ||
+                !IsSupportedNormalizedTime(normalizedTime) ||
+                !HasValidMarker(configs))
+            {
+                return receiver != null;
+            }
+
+            if (!isLooping)
+            {
+                return normalizedTime <= 1f &&
+                       TryEmitMarkersForLoop(
+                           configs,
+                           receiver,
+                           stateHash,
+                           layerIndex,
+                           0,
+                           normalizedTime,
+                           normalizedTime,
+                           true);
+            }
+
+            int loop = Mathf.FloorToInt(normalizedTime);
+            float loopTime = normalizedTime - loop;
+            if (loop > 0 &&
+                loopTime == 0f &&
+                !TryEmitMarkersForLoop(
+                    configs,
+                    receiver,
+                    stateHash,
+                    layerIndex,
+                    loop - 1,
+                    1f,
+                    1f,
+                    true))
+            {
+                return false;
+            }
+
+            return TryEmitMarkersForLoop(
+                configs,
+                receiver,
+                stateHash,
+                layerIndex,
+                loop,
+                loopTime,
+                loopTime,
+                true);
+        }
+
         private static bool TryEmitMarkersForLoop(
             AnimEventConfig[] configs,
             IAnimEventReceiver receiver,
@@ -282,9 +351,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
             int layerIndex,
             int loopCount,
             float intervalStart,
-            float intervalEnd)
+            float intervalEnd,
+            bool includeStart = false)
         {
-            if (intervalEnd <= intervalStart)
+            if (intervalEnd < intervalStart ||
+                (!includeStart && intervalEnd == intervalStart))
             {
                 return true;
             }
@@ -304,7 +375,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
                         !IsFinite(config.TriggerTime) ||
                         config.TriggerTime < 0f ||
                         config.TriggerTime > 1f ||
-                        config.TriggerTime <= intervalStart ||
+                        (includeStart
+                            ? config.TriggerTime < intervalStart
+                            : config.TriggerTime <= intervalStart) ||
                         config.TriggerTime > intervalEnd ||
                         !AnimBindingId.TryCreate(
                             config.BindingId,

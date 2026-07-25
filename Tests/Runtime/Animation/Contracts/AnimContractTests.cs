@@ -523,6 +523,63 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
+        public void MarkerEntry_EmitsOnlyTheExactOffsetInStableBoundaryOrder()
+        {
+            AnimEventConfig[] configs =
+            {
+                CreateEventConfig(111UL, 0f),
+                CreateEventConfig(112UL, 0.2f),
+                CreateEventConfig(113UL, 1f),
+                CreateEventConfig(114UL, 0f)
+            };
+            var initial = new RecordingReceiver();
+
+            Assert.IsTrue(
+                AnimEventSmb.TryEmitEntryMarkers(
+                    configs,
+                    true,
+                    77,
+                    2,
+                    0f,
+                    initial));
+            Assert.That(
+                initial.Signals.Select(signal => signal.BindingId.Value),
+                Is.EqualTo(new[] { 111UL, 114UL }));
+            Assert.That(
+                initial.Signals.Select(signal => signal.LoopCount),
+                Is.EqualTo(new[] { 0, 0 }));
+
+            var offset = new RecordingReceiver();
+            Assert.IsTrue(
+                AnimEventSmb.TryEmitEntryMarkers(
+                    configs,
+                    false,
+                    77,
+                    2,
+                    0.2f,
+                    offset));
+            Assert.That(
+                offset.Signals.Select(signal => signal.BindingId.Value),
+                Is.EqualTo(new[] { 112UL }));
+
+            var boundary = new RecordingReceiver();
+            Assert.IsTrue(
+                AnimEventSmb.TryEmitEntryMarkers(
+                    configs,
+                    true,
+                    77,
+                    2,
+                    1f,
+                    boundary));
+            Assert.That(
+                boundary.Signals.Select(signal => signal.BindingId.Value),
+                Is.EqualTo(new[] { 113UL, 111UL, 114UL }));
+            Assert.That(
+                boundary.Signals.Select(signal => signal.LoopCount),
+                Is.EqualTo(new[] { 0, 1, 1 }));
+        }
+
+        [Test]
         public void MarkerScan_HandlesMultipleLoopsExitTailAndBackwardsReset()
         {
             AnimEventConfig[] configs =
