@@ -1,6 +1,9 @@
 # CoCoFlow Temporal Rewind
 
-> Contract status: `0.4.0-pre.9` · Updated 2026-07-23
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+>
+> Pre10 Map decorator verification: `UNVERIFIED` until the Unity-host,
+> package, Player-build, and Package Validation Suite evidence is recorded.
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
 `CoCoStateGraphHost`. It records bounded projections of successful Context
@@ -283,23 +286,56 @@ matching recoverable fault and `RequiresWorldCorrection`; unrelated or
 non-recoverable faults remain latched. Stop and a fresh Host instance remain the
 general recovery path.
 
-## Pooling Temporal sidecar
+## Map and Pooling Temporal decorator chain
 
-Pre9 optionally composes `CoCoPoolTemporalBinding` into the Host's one
-synchronous Restore-binding slot. The sidecar projects whether an adopted
+Pre10 composes optional availability decorators into the Host's one synchronous
+Restore-binding slot:
+
+```text
+Map -> optional Pool -> project restore binding
+```
+
+The Map decorator captures committed Region capability and Coverage. It uses
+that identity for retention and an availability barrier only; it does not put
+Map state into the Temporal ring, restore a fidelity tier, or replay Map
+transitions.
+
+Map holds one internal barrier across Preview, Confirm, and Cancel; an
+independent Correction holds it from Prepare through Finish. Barrier entry is
+atomic and rejects a real transition already in flight, a Map fault, blocked
+cleanup, or an existing deferred flush.
+
+While held, demand Create, Update, and Dispose still advance logical demand,
+revision, and final resolution. They only update a deterministic dirty set:
+Temporal Preview cannot load a Scene, prepare a Pool, Prepare/Commit a
+participant, or retry a Region. If historical presentation is not already
+available through retained committed ownership, the callback fails through the
+existing world-correction contract rather than causing hidden streaming.
+
+Barrier release schedules, but does not synchronously run, transition work.
+`CoCoMapHost.LateUpdate` dispatches only the final resolution for each dirty
+Region after the callback stack returns, and nested dependency recomputation is
+coalesced into that same flush. Confirm branch truncation therefore queues
+retention decreases until they cannot invalidate a live decorator chain.
+
+The optional Pool decorator projects whether an adopted
 `CoCoTemporalEntityId` is physically present; the Context projection remains
 authoritative for gameplay values.
 
-The aggregate binding freezes the downstream Restore component at Host attach:
-whether it was configured, its exact `MonoBehaviour` identity, and its interface
-reference. Every public Adopt, Activate, or Despawn mutation and every
-projection validates that frozen identity, Unity liveness, and Host boundary
-before Pool mutation; projection validates it again before the downstream call
-and after the call returns. A destroyed, replaced, moved, rejecting, or throwing
-downstream cannot silently degrade to “not configured” and cannot proceed to
-after-restore Pool activation. Once a downstream callback has started, failure
-uses the Host's existing world-correction path; CoCoFlow does not fabricate a
-transactional Unity rollback.
+Each decorator freezes the downstream Restore component at Host attach: whether
+it was configured, its exact `MonoBehaviour` identity, and its interface
+reference. Public mutations and every projection validate frozen identity,
+Unity liveness, Host boundary, and callback reentry before local mutation,
+before the downstream call, and after the call returns. A destroyed, replaced,
+moved, rejecting, throwing, or re-entering downstream cannot silently degrade
+to “not configured” or continue after-restore activation. Once a downstream
+callback has started, failure uses the Host's existing world-correction path;
+CoCoFlow does not fabricate a transactional Unity rollback.
+
+Before startup, StateGraph Host internal introspection follows these frozen
+decorator references and rejects direct or indirect cycles, including
+`Map -> Pool -> Map`. Map and Pool provide the introspection seam independently;
+neither product module gains a reverse dependency on the other.
 
 The identity and storage boundaries stay separate:
 
@@ -342,9 +378,10 @@ finish and return the Host to `Ready`. This tolerance never applies while
 authority or the selected history frame still requires the entity present;
 authority-present loss continues to latch world correction.
 
-This bridge covers one Host's pooled physical identity. It is not a world
-snapshot and does not roll back scenes, physics, navigation, animation,
-networking, durable state, or already delivered cross-Actor consequences.
+These decorators cover one Host's retained Map availability and pooled physical
+identity. They are not a world snapshot and do not roll back Map state, scenes,
+physics, navigation, animation, networking, durable state, or already delivered
+cross-Actor consequences.
 
 ## Explicit non-goals
 
@@ -359,6 +396,8 @@ networking, durable state, or already delivered cross-Actor consequences.
 - a global Temporal manager, runtime capacity resizing, or shared history.
 - using Pooling Temporal as multi-Actor or whole-world rollback, durable entity
   reconstruction, or automatic domain-payload capture;
+- using Map Temporal retention to load during Preview, restore Map state, or
+  replace project demand policy;
 - treating suspended debug stepping as authority-neutral Preview or reverse
   execution.
 
@@ -367,4 +406,6 @@ Context and mailbox authority model, and
 [StateGraph Runtime and Host](StateGraphRuntime.md) for normal Tick, lifecycle,
 Operator, and event-publication semantics.
 See [Object Pooling and Instance Ownership](ObjectPooling.md) for pooled
-instance, handle-generation, quarantine, and Scope ownership.
+instance, handle-generation, quarantine, and Scope ownership. See
+[Map Region Fidelity](Module-Map.md) for Region availability, participant
+transactions, and Map-owned retention.

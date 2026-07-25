@@ -3,12 +3,12 @@
     {
       "ValidationTest": "X-ray Validations",
       "ExceptionMessage": "PVP-106-1: Version tag must follow Package Lifecycle rules: Major version 0 cannot have a pre-release tag",
-      "PackageVersion": "0.4.0-pre.9"
+      "PackageVersion": "0.4.0-pre.10"
     },
     {
       "ValidationTest": "Manifest Validation",
       "ExceptionMessage": "In package.json, \"name\" needs to start with one of these approved company names: com.unity., com.autodesk., com.havok., com.ptc.. Read more about this error and potential solutions at https://docs.unity3d.com/Packages/com.unity.package-validation-suite@latest/index.html?preview=1&subfolder=/manual/manifest_validation_error.html#name-needs-to-start-with-one-of-these-approved-company-names",
-      "PackageVersion": "0.4.0-pre.9"
+      "PackageVersion": "0.4.0-pre.10"
     }
   ],
   "WarningExceptions": []

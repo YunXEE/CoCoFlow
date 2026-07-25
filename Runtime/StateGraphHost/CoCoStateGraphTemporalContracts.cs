@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using UnityEngine;
+
 namespace CoCoFlow.Runtime.Core
 {
     public enum CoCoTemporalMode
@@ -199,6 +202,72 @@ namespace CoCoFlow.Runtime.Core
         bool TryApply(
             in CoCoContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic);
+    }
+
+    internal interface ICoCoTemporalDecoratorBinding
+    {
+        MonoBehaviour DownstreamRestoreBinding { get; }
+    }
+
+    internal static class CoCoTemporalDecoratorChain
+    {
+        internal static bool TryValidate(
+            CoCoStateGraphHost host,
+            MonoBehaviour root,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (host == null ||
+                root == null ||
+                !(root is ICoCoContextRestoreBinding) ||
+                !CoCoStateGraphHostBoundary.Contains(host, root))
+            {
+                diagnostic = InvalidChain(
+                    "Temporal Restore Binding chain requires one live root inside the Host boundary.");
+                return false;
+            }
+
+            var visited = new List<MonoBehaviour>();
+            MonoBehaviour current = root;
+            while (!ReferenceEquals(current, null))
+            {
+                if (current == null ||
+                    !(current is ICoCoContextRestoreBinding) ||
+                    !CoCoStateGraphHostBoundary.Contains(host, current))
+                {
+                    diagnostic = InvalidChain(
+                        "Every Temporal decorator target must remain a live Restore Binding inside the same Host boundary.");
+                    return false;
+                }
+
+                for (int index = 0; index < visited.Count; index++)
+                {
+                    if (ReferenceEquals(visited[index], current))
+                    {
+                        diagnostic = InvalidChain(
+                            "Temporal Restore Binding decorator chain contains a direct or indirect cycle.");
+                        return false;
+                    }
+                }
+
+                visited.Add(current);
+                if (!(current is ICoCoTemporalDecoratorBinding decorator))
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    return true;
+                }
+
+                current = decorator.DownstreamRestoreBinding;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static CoCoDiagnostic InvalidChain(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Context,
+                CoCoDiagnosticCode.InvalidActorBinding,
+                message);
     }
 
     // Optional host-scoped participant seam. It deliberately carries only Temporal

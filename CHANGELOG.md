@@ -5,6 +5,125 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.10] - 2026-07-24
+
+### Added
+
+- A complete Map Region-fidelity contract built around stable Region, Chunk,
+  participant-slot, mode, and capability identities. `RegionCapabilitySet`
+  carries the four ordered `cocoflow.*` standard capabilities and
+  project/TA-owned namespaced custom capabilities without reducing the model to
+  a fixed enum.
+- Editable `CoCoRegionProfile` tier ladders with a built-in five-tier baseline,
+  stable serialized Profile/Tier identities, schema version `1`,
+  Participant-by-Tier Enabled/Mode/`[SerializeReference]` configuration,
+  strict-superset and complete-matrix validation, explicit catalog/provider
+  registration, exact snapshotted AOT types, immutable per-tier variants,
+  copied `RegionImmutableArray<T>` extension data, and deterministic compilation
+  caching suitable for Player/AOT builds.
+- `CoCoRegionBinding`, serialized `RegionChunkBinding`, and
+  `CoCoRegionChunkAnchor` authoring contracts for Region-global and
+  Chunk-scoped participant slots, dependency validation, canonical Direct or
+  Addressables Scene ownership, cold-start fragments, and required/optional
+  behavior.
+- Scope/Lease demand ownership through `CoCoMapHost`,
+  `RegionDemandScope`, and `RegionDemandLease`. Immutable lease revisions expose
+  `Ready`, `Cancelled`, `Superseded`, `Failed`, and `Disposed` readiness results
+  independently from internal transition generations.
+- Per-demand Coverage resolution. Region-global nodes merge every live demand;
+  each Chunk merges only the demands that cover it, so a high-fidelity demand
+  for one Chunk cannot raise sibling Chunks. Unknown Chunk IDs fail the complete
+  create or update operation instead of being ignored.
+- Capability-triggered cross-Region dependency rules with normalized tuple
+  identity, global target/Chunk/DAG validation, independent target Leases,
+  target-ready blocking, transitive expansion, and make-before-break release.
+- Transactional participant transitions with stable plan-node identity,
+  fingerprint-based reuse, ordered Residency/Services/Simulation/Presentation
+  phases, reverse cleanup, optional-degraded snapshots, retryable preparation
+  failures, blocked-cleanup observation, and explicit terminal commit-fault
+  handling.
+- Built-in Content, GameObject, Collider, Renderer, Animator, Particle,
+  Behaviour, and Pool-aware participant surfaces, plus public extension
+  contracts for project and world-response TA implementations.
+- Map authoring and runtime inspection surfaces for profile templates,
+  Participant-by-Tier configuration, Coverage, dependencies, compiler
+  diagnostics, and an internal immutable monitor snapshot covering live demand
+  and revision state, desired/committed Tier and effective capability per Chunk,
+  participant/dependency ownership, Content sequences, Temporal retention,
+  reuse/candidates/retirement, degradation, faults, blocked cleanup, and
+  old-plus-candidate peak ownership without exposing raw runtime authority.
+
+### Changed
+
+- Replaced the retained Pre8 scene-pusher Map implementation with Region
+  fidelity orchestration. A Region is a logical gameplay/presentation unit;
+  Chunks are its optimization partitions and do not define independent policy.
+- Made Content the sole Additive Scene lease authority for built-in Map scene
+  participants. Managed Chunk scenes cold-start with one metadata-only anchor
+  root and inactive managed roots; runtime discovery is restricted to the
+  exact leased Scene.
+- Bound Pool Scope lifetime to stable committed Map nodes rather than transition
+  generations. Unchanged nodes reuse their Scope; a replacement closes the old
+  Scope after candidate commit and before its Scene lease is released.
+- Added a Map Temporal decorator ahead of optional Pool and project bindings.
+  It records committed capability/Coverage for availability barriers and
+  retention only; it neither serializes nor replays Map state, and Preview
+  performs no scene load, Pool preparation, or fidelity-tier commit. Logical
+  demand mutations coalesce behind one callback-spanning barrier and dispatch
+  only their final resolutions from `LateUpdate`; startup rejects direct and
+  indirect decorator cycles.
+- Made retry acceptance transactional and unified explicit shutdown,
+  `OnDisable`, `OnDestroy`, and Content-first fallback behind one idempotent
+  terminal task that freezes operations, disposes Scope/Lease ownership, cleans
+  transitions, and unregisters from Content in order.
+- Updated the package and the two existing Unity Package Validation Suite
+  exception scopes to `0.4.0-pre.10`; the Unity minimum and package dependency
+  list are unchanged.
+
+### Removed
+
+- Removed `MapResourceManager`, `MapStreamTrigger`, and
+  `MapChunkLoadedEvent`, including the two legacy script GUIDs. Pre10 provides
+  no compatibility facade, migration component, or automatic serialized
+  upgrade for the old Map surface.
+- Removed the Map assembly's dependency on `CoCoFlow.Runtime.Core`; the new Map
+  contract depends on explicit contracts and module boundaries.
+
+### Migration
+
+- Replace `DemandScene` with a `RegionDemandScope` demand and retain its
+  `RegionDemandLease`.
+- Replace `ReleaseScene` with idempotent lease disposal.
+- Replace loaded-event observation with
+  `WaitUntilReadyAsync(revision, cancellationToken)` or the immutable Map
+  runtime snapshot.
+- Reauthor legacy Map scenes as compiled Region/Chunk bindings. A managed Chunk
+  Scene must satisfy the cold-start anchor contract before it can be owned by
+  Map.
+
+### Verification
+
+- `PASS` (static): separated Map, Pool adapter, Temporal adapter, Editor
+  authoring, external TA, and focused test assemblies compile with zero Roslyn
+  errors; JSON/asmdef, GUID/meta, legacy-symbol/GUID, dependency, and raw
+  loading-authority gates pass.
+- `BLOCKED`: Unity `6000.3.20f1` CLI reached CoCoLab domain loading but its local
+  Licensing Client rejected protocol `1.18.1`; no test-result XML was emitted
+  and CoCoLab's four pre-existing tracked changes remained byte-identical.
+- `UNVERIFIED`: actual EditMode/PlayMode execution, Direct/Addressables runtime
+  integration, package-wide tests, Package Validation Suite, performance
+  observations, and macOS Universal IL2CPP with High Managed Stripping.
+
+### Deferred
+
+- Pre10 validation is scoped to record performance observations for warm
+  transitions, large Coverage, overlapping Regions, old-plus-candidate peak
+  residency, and cleanup duration. Those observations remain `UNVERIFIED`; no
+  hidden budget, automatic downgrade, or threshold policy was added.
+- Whole-world rollback, Map-state replay, generic non-GameObject pooling,
+  durable reconstruction, and out-of-contract TA scene or Content ownership
+  remain outside this release.
+
 ## [0.4.0-pre.9] - 2026-07-23
 
 ### Added

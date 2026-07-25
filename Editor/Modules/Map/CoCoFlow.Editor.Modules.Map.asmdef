@@ -1,0 +1,22 @@
+{
+    "name": "CoCoFlow.Editor.Modules.Map",
+    "rootNamespace": "CoCoFlow.Editor.Modules.Map",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Modules.Map"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

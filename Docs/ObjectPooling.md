@@ -1,6 +1,9 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-pre.9` · Updated 2026-07-24
+> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+>
+> Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
+> package, Player-build, and Package Validation Suite evidence is recorded.
 
 Pre9 adds a Unity-facing GameObject instance-ownership boundary on top of
 Content. It reduces repeated `Instantiate`/`Destroy` work for high-frequency
@@ -42,6 +45,14 @@ is no global Pool singleton or implicit Host lookup.
 One Scope may prepare multiple `PoolId` entries. It owns their asynchronous
 preparation, source leases, rented generations, retained instances, diagnostics,
 and final close.
+
+The built-in Map Pool participant creates a Scope for one stable committed Map
+plan node. The Scope is not owned by a transition generation: an unchanged node
+reuses it, while a fingerprint change prepares a candidate Scope. After the new
+node commits, Map closes the replaced Scope before releasing that node's Scene
+lease. A Chunk-scoped Pool participant must directly depend on that Chunk's
+owning Content slot, so the compiler can guarantee Pool-before-Content reverse
+cleanup.
 
 Pool operations are Unity-main-thread operations. The runtime rejects calls
 from other threads with a structured diagnostic before touching Unity objects
@@ -174,6 +185,18 @@ invalidates generations, performs best-effort reset/destruction, waits for the
 same terminal barrier, releases source ownership, and records leak/forced-
 shutdown diagnostics.
 
+Map has package-internal terminal access only to force-close a Pool Scope that
+Map itself owns. It may use that path during terminal Map Host shutdown after
+normal close cannot complete; it cannot force-stop the shared `PoolRuntime` or a
+Scope owned by another consumer.
+
+Map's graceful and terminal shutdown paths share this same owned-Scope barrier:
+new Map operations are frozen, demand ownership is disposed, and participant
+cleanup closes each Map-owned Scope before its corresponding Scene lease can be
+released. Repeated Disable, Destroy, explicit shutdown, or Content-first
+fallback therefore converge on one terminal task rather than force-closing the
+shared Pool runtime more than once.
+
 For Temporal records, Host stop first uses the normal state-aware release path.
 An active record owns one matched Rent callback lease and therefore receives
 exactly one reverse Return. A pending `TemporalInactive` record has not received
@@ -227,16 +250,23 @@ physical cleanup rather than a `MissingReferenceException`. The Transform
 reference belongs to the live record only; it is cleared at terminal release
 and never enters the Temporal ring or a Host snapshot.
 
-`CoCoPoolTemporalBinding` composes Pool presence projection with the Host's one
-synchronous Context restore binding. `IPoolTemporalApply` provides a separate,
-synchronous hook for reapplying entity presentation after Context projection.
-At Host attachment the aggregate binding freezes whether a downstream binding
-was configured, its exact `MonoBehaviour` identity, and its interface reference.
-Identity, Unity liveness, and Host boundary are checked before Pool mutation,
-again before the downstream call, and after it returns. Rejection, exception,
-replacement, destruction, or boundary escape stops after-restore activation and
-uses the Host's existing world-correction contract; Pooling does not claim an
-unprovable Unity transaction rollback.
+`CoCoPoolTemporalBinding` composes Pool presence projection into the Host's one
+synchronous Context restore slot. When Map retention is enabled, the complete
+decorator chain is `Map -> optional Pool -> project restore binding`.
+`IPoolTemporalApply` provides a separate, synchronous hook for reapplying entity
+presentation after Context projection.
+
+Before the StateGraph Host starts, its internal decorator introspection walks
+the exact downstream component chain and rejects self-reference or an indirect
+cycle such as `Map -> Pool -> Map`. This validation stays inside the Host-facing
+adapter contracts and does not create a Map-to-Pool product dependency.
+
+Each decorator freezes its exact downstream identity at Host attachment.
+Identity, Unity liveness, Host boundary, and callback reentry are checked before
+Pool mutation, before the downstream call, and after it returns. Rejection,
+exception, replacement, destruction, or boundary escape stops after-restore
+activation and uses the Host's existing world-correction contract; Pooling does
+not claim an unprovable Unity transaction rollback.
 
 Temporal history stores only entity and physical identity values. It never
 stores a GameObject, Component, `PooledHandle`, `ContentLease`, backend handle,
@@ -262,9 +292,11 @@ Do not use this module to pool Additive Scenes, permanent world roots, durable
 entities, or objects whose ownership/reset contract is unknown. Raw local Unity
 pooling remains available to project code outside CoCoFlow guarantees.
 
-Pre9 does not migrate the retained UI, Map, or Enemy implementations. Those
-modules keep their existing ownership behavior until their owning downstream
-Pre explicitly adopts Pooling.
+Pre10 Map may opt a participant slot into Pooling through an explicit compiled
+plan. It does not pool Additive Scenes or permanent world roots, and it does not
+grant a participant access to the shared Pool Runtime. The retained UI and Enemy
+implementations keep their existing ownership behavior until their owning
+downstream Pre explicitly adopts Pooling.
 
 ## Diagnostics
 
@@ -284,10 +316,12 @@ measuring the Ready idle-hit allocation path.
 - hard active/total caps and automatic trim/LRU;
 - runtime hot profile mutation;
 - direct Addressables ownership outside Content;
-- automatic migration of UI, Map, Enemy, or permanent scene objects;
+- automatic migration of UI, Enemy, or permanent scene objects;
+- automatic Map pooling without an explicit participant/profile contract;
 - networked, multi-Actor, or whole-world rollback;
 - durable Temporal reconstruction or reflection-driven automatic cleanup.
 
 See [Content Acquisition and Ownership](ContentOwnership.md) for source
 ownership and [Temporal Rewind](TemporalRewind.md) for Host history and
-authority rules.
+authority rules. See [Map Region Fidelity](Module-Map.md) for committed-node
+Scope ownership and transaction ordering.
