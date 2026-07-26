@@ -112,6 +112,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         {
             if (!TryRequireRuntime(out diagnostic) ||
                 !context.IsValid ||
+                (_runtime.IsAuthorityResetPrepared &&
+                 context.ApplyKind != CoCoContextRestoreApplyKind.Confirm) ||
                 !TryValidateFrozenDownstream(stateGraphHost, out diagnostic) ||
                 !_runtime.TryApplyPreparedBeforeRestore(out diagnostic))
             {
@@ -256,6 +258,21 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         void ICoCoStateGraphTemporalParticipant.CancelPreparedCaptureNoFail() =>
             _runtime?.CancelPreparedCaptureNoFail();
+
+        bool ICoCoStateGraphTemporalParticipant.TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic) =>
+            _runtime.TryPrepareAuthorityReset(
+                targetAuthority,
+                out diagnostic);
+
+        void ICoCoStateGraphTemporalParticipant
+            .CommitPreparedAuthorityResetNoFail() =>
+            _runtime?.CommitPreparedAuthorityResetNoFail();
+
+        void ICoCoStateGraphTemporalParticipant
+            .CancelPreparedAuthorityResetNoFail() =>
+            _runtime?.CancelPreparedAuthorityResetNoFail();
 
         bool ICoCoStateGraphTemporalParticipant.TryBeginPreview(
             int historyCount,

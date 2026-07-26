@@ -289,6 +289,14 @@ namespace CoCoFlow.Runtime.Core
 
         void CancelPreparedCaptureNoFail();
 
+        bool TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic);
+
+        void CommitPreparedAuthorityResetNoFail();
+
+        void CancelPreparedAuthorityResetNoFail();
+
         bool TryBeginPreview(
             int historyCount,
             out CoCoDiagnostic diagnostic);

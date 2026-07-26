@@ -959,6 +959,168 @@ namespace CoCoFlow.Runtime.Core
                 out diagnostic);
         }
 
+        internal bool TryCapturePersistencePayload(
+            out byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            payload = null;
+            if (_isStarting ||
+                _isAdvancing ||
+                _isTemporalOperation ||
+                _isPublishingCommittedEvents ||
+                _runtime == null ||
+                _transaction == null ||
+                _bindings == null ||
+                _temporal == null ||
+                _runtime.IsFaulted ||
+                (_runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 _runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                _temporal.Mode == CoCoTemporalMode.Previewing ||
+                !_transaction.CurrentContext.IsAlive)
+            {
+                diagnostic = LifecycleError(
+                    "StateGraph Persistence capture requires one idle healthy Host with a committed ContextFrame.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            bool succeeded;
+            _isTemporalOperation = true;
+            try
+            {
+                try
+                {
+                    succeeded =
+                        CoCoStateGraphPersistencePayloadCodec.TryCreate(
+                            _runtime.Graph.GraphId,
+                            _bindings.ContextLayout,
+                            _bindings.ContextCodecs,
+                            out CoCoStateGraphPersistencePayloadCodec codec,
+                            out diagnostic) &&
+                        codec.TryEncode(
+                            _transaction.CurrentContext,
+                            out payload,
+                            out diagnostic);
+                }
+                catch (Exception)
+                {
+                    succeeded = false;
+                    diagnostic = CoCoDiagnostic.Error(
+                        CoCoDiagnosticDomain.Restore,
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "StateGraph Persistence capture threw inside its synchronous Durable codec boundary.");
+                }
+            }
+            finally
+            {
+                _isTemporalOperation = false;
+            }
+
+            if (_destroyRequested)
+            {
+                _destroyRequested = false;
+                _stopAfterPublish = false;
+                _disposeAfterPublish = false;
+                ForceDisposeHost();
+                payload = null;
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled StateGraph Persistence capture before publication.");
+                succeeded = false;
+            }
+
+            if (!succeeded || diagnostic.IsError)
+            {
+                payload = null;
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            _lastDiagnostic = diagnostic;
+            return true;
+        }
+
+        internal bool TryApplyPersistencePayload(
+            byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (payload == null ||
+                payload.Length == 0 ||
+                _isStarting ||
+                _isAdvancing ||
+                _isTemporalOperation ||
+                _isPublishingCommittedEvents)
+            {
+                diagnostic = LifecycleError(
+                    "StateGraph Persistence import requires one idle Host and one non-empty payload.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_runtime == null ||
+                _transaction == null ||
+                _bindings == null ||
+                _temporal == null)
+            {
+                diagnostic = LifecycleError(
+                    "StateGraph Persistence import requires one live Host instance.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (LatchPendingOverflow(out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!CoCoStateGraphPersistencePayloadCodec.TryCreate(
+                    _runtime.Graph.GraphId,
+                    _bindings.ContextLayout,
+                    _bindings.ContextCodecs,
+                    out CoCoStateGraphPersistencePayloadCodec codec,
+                    out diagnostic) ||
+                !codec.TryDecode(
+                    payload,
+                    out CoCoStateGraphPersistenceEnvelope envelope,
+                    out CoCoProjectionRestoreSource persistedSource,
+                    out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            bool succeeded;
+            _isTemporalOperation = true;
+            try
+            {
+                succeeded = _temporal.TryImportPersistence(
+                    _runtime,
+                    codec,
+                    envelope,
+                    persistedSource,
+                    out diagnostic);
+            }
+            finally
+            {
+                _isTemporalOperation = false;
+            }
+
+            if (_destroyRequested)
+            {
+                _destroyRequested = false;
+                _stopAfterPublish = false;
+                _disposeAfterPublish = false;
+                ForceDisposeHost();
+                diagnostic = LifecycleError(
+                    "Unity destruction cancelled StateGraph Persistence import before publication.");
+                succeeded = false;
+            }
+
+            _lastDiagnostic = diagnostic;
+            return succeeded;
+        }
+
         public CoCoInboxEnqueueResult TryEnqueueLocal<TEvent>(
             in CoCoEventPacket<TEvent> packet)
             where TEvent : unmanaged

@@ -102,6 +102,74 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         }
 
         [Test]
+        public void AuthorityResetReplacesHistoryWithCurrentPresenceBaseline()
+        {
+            CoCoTemporalEntityId retainedId = EntityId(6UL);
+            CoCoTemporalEntityId historicalId = EntityId(7UL);
+            var retained = Record(retainedId, present: false);
+            var historical = Record(historicalId, present: true);
+            var records = new[] { retained, historical };
+            using (var history = new PoolTemporalSidecar(4))
+            {
+                PublishForward(history, records, FrameInfo(1UL));
+                historical.AuthorityPresent = false;
+                retained.AuthorityPresent = true;
+                PublishForward(history, records, FrameInfo(2UL));
+                PublishForward(history, records, FrameInfo(3UL));
+
+                Assert.That(history.Count, Is.EqualTo(3));
+                Assert.That(history.IsReachable(historicalId), Is.True);
+                Assert.That(
+                    history.TryPrepareAuthorityReset(
+                        records,
+                        records.Length,
+                        FrameInfo(10UL)),
+                    Is.True);
+                Assert.That(history.Count, Is.EqualTo(3));
+                Assert.That(history.IsReachable(historicalId), Is.True);
+
+                history.PublishAuthorityResetNoFail();
+
+                Assert.That(history.Count, Is.EqualTo(1));
+                Assert.That(history.ContainsAtDepth(0, retainedId), Is.True);
+                Assert.That(history.IsReachable(historicalId), Is.False);
+                Assert.That(history.GetEntityCountAtDepth(1), Is.Zero);
+            }
+        }
+
+        [Test]
+        public void CancelledAuthorityResetPreservesEveryPublishedFrame()
+        {
+            CoCoTemporalEntityId historicalId = EntityId(8UL);
+            CoCoTemporalEntityId currentId = EntityId(9UL);
+            var historical = Record(historicalId, present: true);
+            var current = Record(currentId, present: false);
+            var records = new[] { historical, current };
+            using (var history = new PoolTemporalSidecar(3))
+            {
+                PublishForward(history, records, FrameInfo(1UL));
+                historical.AuthorityPresent = false;
+                current.AuthorityPresent = true;
+                PublishForward(history, records, FrameInfo(2UL));
+
+                Assert.That(
+                    history.TryPrepareAuthorityReset(
+                        records,
+                        records.Length,
+                        FrameInfo(10UL)),
+                    Is.True);
+                history.CancelPreparedCaptureNoFail();
+
+                Assert.That(history.HasPreparedCapture, Is.False);
+                Assert.That(history.Count, Is.EqualTo(2));
+                Assert.That(history.ContainsAtDepth(0, currentId), Is.True);
+                Assert.That(
+                    history.ContainsAtDepth(1, historicalId),
+                    Is.True);
+            }
+        }
+
+        [Test]
         public void HistoryStorageContainsOnlyPureIdentityAndFrameValues()
         {
             Type historyType = typeof(PoolTemporalSidecar);

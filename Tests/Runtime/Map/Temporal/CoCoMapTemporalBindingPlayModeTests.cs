@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using CoCoFlow.Runtime.Content;
@@ -36,6 +37,87 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         [UnityTest]
         public IEnumerator IndirectMapPoolMapDecoratorCycleIsRejectedBeforeAttach() =>
             UniTask.ToCoroutine(RunIndirectCycleRejectionAsync);
+
+        [UnityTest]
+        public IEnumerator AuthorityResetPublishesMapAndPoolBaselinesOuterToDownstream() =>
+            UniTask.ToCoroutine(RunAuthorityResetDelegationAsync);
+
+        private static async UniTask RunAuthorityResetDelegationAsync()
+        {
+            DecoratorFixture fixture = CreateFixture();
+            try
+            {
+                Assert.That(
+                    fixture.Host.TryStart(
+                        out CoCoDiagnostic start),
+                    Is.True,
+                    start.Message);
+                Assert.That(
+                    fixture.Host.TryStep(
+                        0.1d,
+                        out CoCoDiagnostic firstStep),
+                    Is.True,
+                    firstStep.Message);
+                Assert.That(
+                    fixture.Host.TryStep(
+                        0.1d,
+                        out CoCoDiagnostic secondStep),
+                    Is.True,
+                    secondStep.Message);
+
+                int mapCountBefore =
+                    ReadMapHistoryCount(fixture.MapTemporalBinding);
+                int poolCountBefore =
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding);
+                Assert.That(mapCountBefore, Is.GreaterThan(1));
+                Assert.That(poolCountBefore, Is.EqualTo(mapCountBefore));
+
+                CoCoTemporalFrameInfo imported =
+                    fixture.Host.TemporalState.Current;
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        imported,
+                        out CoCoDiagnostic prepareCancel),
+                    Is.True,
+                    prepareCancel.Message);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CancelPreparedAuthorityResetNoFail");
+                Assert.That(
+                    ReadMapHistoryCount(fixture.MapTemporalBinding),
+                    Is.EqualTo(mapCountBefore));
+                Assert.That(
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding),
+                    Is.EqualTo(poolCountBefore));
+
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        imported,
+                        out CoCoDiagnostic prepare),
+                    Is.True,
+                    prepare.Message);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CommitPreparedAuthorityResetNoFail");
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "DrainPublishedCleanupNoFail");
+
+                Assert.That(
+                    ReadMapHistoryCount(fixture.MapTemporalBinding),
+                    Is.EqualTo(1));
+                Assert.That(
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding),
+                    Is.EqualTo(1),
+                    "Map must publish authority reset to its frozen downstream Pool participant.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
 
         private static async UniTask RunDecoratorLifecycleAsync()
         {
@@ -345,7 +427,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             Assert.That(create, Is.Not.Null);
             object scenario = create.Invoke(
                 null,
-                new object[] { historyCapacity, false, true });
+                new object[] { historyCapacity, false, true, false, null });
             Assert.That(scenario, Is.Not.Null);
 
             return new ReflectedHostScenario(
@@ -434,6 +516,60 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         {
             object runtime = ReadPrivateField(binding, "runtime");
             return (bool)ReadPrivateField(runtime, "projectionPrepared");
+        }
+
+        private static int ReadMapHistoryCount(
+            CoCoMapTemporalBinding binding)
+        {
+            object runtime = ReadPrivateField(binding, "runtime");
+            PropertyInfo count = runtime.GetType().GetProperty(
+                "HistoryCount",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(count, Is.Not.Null);
+            return (int)count.GetValue(runtime);
+        }
+
+        private static bool TryPrepareAuthorityReset(
+            object participant,
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryPrepareAuthorityReset");
+            object[] arguments = { targetAuthority, null };
+            bool prepared = (bool)method.Invoke(
+                participant,
+                arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return prepared;
+        }
+
+        private static void InvokeTemporalParticipantNoFail(
+            object participant,
+            string methodName)
+        {
+            FindTemporalParticipantMethod(
+                    participant,
+                    methodName)
+                .Invoke(participant, null);
+        }
+
+        private static MethodInfo FindTemporalParticipantMethod(
+            object participant,
+            string methodName)
+        {
+            Assert.That(participant, Is.Not.Null);
+            MethodInfo method = participant.GetType()
+                .GetMethods(
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic)
+                .SingleOrDefault(candidate =>
+                    candidate.Name.EndsWith(
+                        "." + methodName,
+                        StringComparison.Ordinal));
+            Assert.That(method, Is.Not.Null);
+            return method;
         }
 
         private static bool IsPoolProjectionPrepared(

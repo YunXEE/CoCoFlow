@@ -174,6 +174,69 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             ClearPreparedCapture();
         }
 
+        internal bool TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireIdle(out diagnostic) ||
+                regionRuntime.IsTemporalDispatchDeferred ||
+                isPreviewing ||
+                pendingTarget != null ||
+                !targetAuthority.IsValid)
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = RegionErrors.TemporalConflict(
+                        "Map Temporal authority reset is not available in the current lifecycle state.");
+                }
+
+                return RecordFailure(diagnostic);
+            }
+
+            stagingFrame = new RegionTemporalFrame(
+                targetAuthority,
+                Array.Empty<RegionTemporalRegionState>());
+            stagingTarget =
+                new Dictionary<RetentionKey, RegionCapabilitySet>();
+            preparedCaptureKind = PreparedCaptureKind.AuthorityReset;
+            diagnostic = CoCoDiagnostic.None;
+            LastDiagnostic = diagnostic;
+            return true;
+        }
+
+        internal void CommitPreparedAuthorityResetNoFail()
+        {
+            if (isDisposed ||
+                preparedCaptureKind != PreparedCaptureKind.AuthorityReset ||
+                stagingFrame == null ||
+                stagingTarget == null)
+            {
+                return;
+            }
+
+            for (int index = 0; index < frames.Length; index++)
+            {
+                frames[index] = null;
+            }
+
+            frames[0] = stagingFrame;
+            headIndex = 0;
+            count = 1;
+            pendingTarget = stagingTarget;
+            ClearPreparedCapture();
+        }
+
+        internal void CancelPreparedAuthorityResetNoFail()
+        {
+            if (isDisposed ||
+                preparedCaptureKind != PreparedCaptureKind.AuthorityReset)
+            {
+                return;
+            }
+
+            ClearPreparedCapture();
+        }
+
         internal bool TryBeginPreview(
             int historyCount,
             out CoCoDiagnostic diagnostic)
@@ -1126,7 +1189,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         {
             None = 0,
             Forward = 1,
-            Branch = 2
+            Branch = 2,
+            AuthorityReset = 3
         }
 
         private readonly struct RetentionKey :

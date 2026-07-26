@@ -44,6 +44,168 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [UnityTest]
+        public IEnumerator AuthorityResetClearsOldEpochStateWithoutRebuildingRuntime()
+        {
+            AnimatorController controller =
+                CreateControllerFixture(out _);
+            var gameObject =
+                new GameObject("Pre13 Animation Authority Reset");
+            _objects.Add(gameObject);
+            gameObject.SetActive(false);
+            Animator animator = gameObject.AddComponent<Animator>();
+            animator.runtimeAnimatorController = controller;
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            CoCoStateGraphHost host =
+                gameObject.AddComponent<CoCoStateGraphHost>();
+            var downstream =
+                gameObject.AddComponent<AnimationRestoreProbe>();
+            AnimOperator animationOperator =
+                gameObject.AddComponent<AnimOperator>();
+            ConfigureOperator(
+                animationOperator,
+                animator,
+                controller,
+                host);
+            SetField(
+                animationOperator,
+                "downstreamRestoreBinding",
+                downstream);
+            SetField(host, "autoStart", false);
+            SetField(host, "contextRestoreBinding", animationOperator);
+            SetField(host, "temporalHistoryCapacity", 3);
+            gameObject.SetActive(true);
+
+            Assert.That(
+                animationOperator.TryRebuildBindings(
+                    out CoCoDiagnostic rebuild),
+                Is.True,
+                rebuild.Message);
+            Assert.That(
+                TryAttachTemporalParticipant(
+                    animationOperator,
+                    host,
+                    3,
+                    out CoCoDiagnostic attach),
+                Is.True,
+                attach.Message);
+
+            AnimFeedbackBuffer feedback =
+                ReadField<AnimFeedbackBuffer>(
+                    animationOperator,
+                    "_feedback");
+            PoisonFeedback(feedback, 31UL);
+            SetCandidateFeedbackStamp(animationOperator, 9UL);
+            SetActiveLayer(
+                animationOperator,
+                CreateToken(99UL, 100UL));
+            AnimRootMotionRelay rootMotion =
+                ReadField<AnimRootMotionRelay>(
+                    animationOperator,
+                    "_rootMotionRelay");
+            rootMotion.Capture(
+                Vector3.one,
+                Quaternion.Euler(0f, 15f, 0f));
+            Assert.IsTrue(
+                AnimBindingId.TryCreate(
+                    ModulationBindingValue,
+                    out AnimBindingId modulationBindingId));
+            Assert.IsTrue(
+                CoCoActivationId.TryCreate(
+                    44UL,
+                    out CoCoActivationId modulationActivationId));
+            AnimModulationStamp[] modulationStamps =
+                ReadField<AnimModulationStamp[]>(
+                    animationOperator,
+                    "_modulationStamps");
+            modulationStamps[0] = new AnimModulationStamp(
+                modulationBindingId,
+                modulationActivationId,
+                1U);
+            var modulationAdapter =
+                new RecordingModulationAdapter();
+            SetField(
+                animationOperator,
+                "_modulationAdapter",
+                modulationAdapter);
+
+            CoCoTemporalFrameInfo imported =
+                CreateTemporalFrame(80UL);
+            Assert.That(
+                TryPrepareAuthorityReset(
+                    animationOperator,
+                    imported,
+                    out CoCoDiagnostic prepareCancel),
+                Is.True,
+                prepareCancel.Message);
+            InvokeTemporalParticipantNoFail(
+                animationOperator,
+                "CancelPreparedAuthorityResetNoFail");
+            Assert.That(feedback.Overflowed, Is.True);
+            Assert.That(
+                ReadField<AnimFeedbackSourceStamp>(
+                    animationOperator,
+                    "_candidateFeedbackStamp").IsValid,
+                Is.True);
+            Assert.That(
+                ReadLayers(animationOperator)[0].Token.IsValid,
+                Is.True);
+            Assert.That(modulationStamps[0].IsValid, Is.True);
+
+            Assert.That(
+                TryPrepareAuthorityReset(
+                    animationOperator,
+                    imported,
+                    out CoCoDiagnostic prepare),
+                Is.True,
+                prepare.Message);
+            Assert.That(
+                ReadField<ICoCoContextRestoreBinding>(
+                    animationOperator,
+                    "_attachedDownstreamBinding"),
+                Is.SameAs(downstream));
+            InvokeTemporalParticipantNoFail(
+                animationOperator,
+                "CommitPreparedAuthorityResetNoFail");
+
+            Assert.That(feedback.Count, Is.Zero);
+            Assert.That(feedback.Overflowed, Is.False);
+            Assert.That(
+                ReadField<AnimFeedbackSourceStamp>(
+                    animationOperator,
+                    "_candidateFeedbackStamp").IsValid,
+                Is.False);
+            Assert.That(
+                ReadLayers(animationOperator)
+                    .All(layer =>
+                        !layer.Token.IsValid &&
+                        layer.Status == AnimPlaybackStatus.None),
+                Is.True);
+            Assert.That(
+                modulationStamps.All(stamp => !stamp.IsValid),
+                Is.True);
+            Assert.That(
+                ReadField<bool>(rootMotion, "_captured"),
+                Is.False);
+            Assert.That(modulationAdapter.StopAllCount, Is.EqualTo(1));
+            Assert.That(
+                ReadField<PlayableGraph>(
+                    animationOperator,
+                    "_graph").IsValid(),
+                Is.True);
+            Assert.That(
+                ReadField<AnimatorControllerPlayable>(
+                    animationOperator,
+                    "_controllerPlayable").IsValid(),
+                Is.True);
+            Assert.That(animationOperator.Animator, Is.SameAs(animator));
+            Assert.That(
+                animationOperator.Controller,
+                Is.SameAs(controller));
+
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator RealControllerFixture_ClassifiesNaturalAndEarlyExitOnce()
         {
             AnimatorController controller = CreateControllerFixture(
@@ -879,6 +1041,59 @@ namespace CoCoFlow.Tests.Runtime.Animation
             return token;
         }
 
+        private static CoCoTemporalFrameInfo CreateTemporalFrame(
+            ulong sequence)
+        {
+            Assert.That(
+                CoCoGraphInstanceId.TryCreate(
+                    0xC0C013UL,
+                    out CoCoGraphInstanceId graphId),
+                Is.True);
+            Assert.That(
+                CoCoTimelineId.TryCreate(
+                    0xC0C013UL,
+                    1UL,
+                    out CoCoTimelineId timelineId),
+                Is.True);
+            Assert.That(
+                CoCoTimelinePosition.TryCreate(
+                    sequence * 0.1d,
+                    out CoCoTimelinePosition position),
+                Is.True);
+            Assert.That(
+                CoCoClockDomainId.TryCreate(
+                    1UL,
+                    out CoCoClockDomainId clockDomainId),
+                Is.True);
+            Assert.That(
+                CoCoTickFrame.TryCreate(
+                    0.1d,
+                    timelineId,
+                    position,
+                    new CoCoTimelineTick(sequence),
+                    clockDomainId,
+                    new CoCoExecutionSequence(sequence),
+                    new CoCoTimelineEpoch(2UL),
+                    out CoCoTickFrame tickFrame,
+                    out CoCoDiagnostic diagnostic),
+                Is.True,
+                diagnostic.Message);
+            ConstructorInfo constructor =
+                typeof(CoCoTemporalFrameInfo)
+                    .GetConstructors(
+                        BindingFlags.Instance |
+                        BindingFlags.NonPublic)
+                    .Single();
+            return (CoCoTemporalFrameInfo)constructor.Invoke(
+                new object[]
+                {
+                    graphId,
+                    tickFrame,
+                    new CoCoContextRevision(sequence + 1UL),
+                    CoCoContextFrameOrigin.Commit()
+                });
+        }
+
         private static void SetActiveLayer(
             AnimOperator animationOperator,
             AnimPlaybackToken token,
@@ -996,6 +1211,64 @@ namespace CoCoFlow.Tests.Runtime.Animation
             return (T)field.GetValue(target);
         }
 
+        private static bool TryAttachTemporalParticipant(
+            object participant,
+            CoCoStateGraphHost host,
+            int historyCapacity,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryAttachTemporalHost");
+            object[] arguments =
+                { host, historyCapacity, null };
+            bool attached =
+                (bool)method.Invoke(participant, arguments);
+            diagnostic = (CoCoDiagnostic)arguments[2];
+            return attached;
+        }
+
+        private static bool TryPrepareAuthorityReset(
+            object participant,
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryPrepareAuthorityReset");
+            object[] arguments = { targetAuthority, null };
+            bool prepared =
+                (bool)method.Invoke(participant, arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return prepared;
+        }
+
+        private static void InvokeTemporalParticipantNoFail(
+            object participant,
+            string methodName)
+        {
+            FindTemporalParticipantMethod(
+                    participant,
+                    methodName)
+                .Invoke(participant, null);
+        }
+
+        private static MethodInfo FindTemporalParticipantMethod(
+            object participant,
+            string methodName)
+        {
+            MethodInfo method = participant.GetType()
+                .GetMethods(
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic)
+                .SingleOrDefault(candidate =>
+                    candidate.Name.EndsWith(
+                        "." + methodName,
+                        StringComparison.Ordinal));
+            Assert.That(method, Is.Not.Null);
+            return method;
+        }
+
         private static void SetField(
             object target,
             string fieldName,
@@ -1045,6 +1318,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
             IAnimModulationAdapter
         {
             internal int StopCount { get; private set; }
+            internal int StopAllCount { get; private set; }
             internal AnimBindingId LastStoppedBinding { get; private set; }
 
             public bool TryStart(
@@ -1072,12 +1346,30 @@ namespace CoCoFlow.Tests.Runtime.Animation
 
             public void StopAll()
             {
+                StopAllCount++;
             }
 
             public void Dispose()
             {
             }
         }
+
+        private sealed class AnimationRestoreProbe :
+            MonoBehaviour,
+            ICoCoContextRestoreBinding
+        {
+            internal int ApplyCount { get; private set; }
+
+            public bool TryApply(
+                in CoCoContextRestoreBindingContext context,
+                out CoCoDiagnostic diagnostic)
+            {
+                ApplyCount++;
+                diagnostic = CoCoDiagnostic.None;
+                return context.IsValid;
+            }
+        }
+
     }
 }
 #endif

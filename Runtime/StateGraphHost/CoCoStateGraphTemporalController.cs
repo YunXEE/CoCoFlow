@@ -321,6 +321,167 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        internal bool TryImportPersistence(
+            CoCoStateGraphRuntime runtime,
+            CoCoStateGraphPersistencePayloadCodec codec,
+            in CoCoStateGraphPersistenceEnvelope envelope,
+            in CoCoProjectionRestoreSource persistedSource,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_isDisposed ||
+                runtime == null ||
+                codec == null ||
+                !envelope.IsValid ||
+                !persistedSource.IsValid ||
+                runtime.IsFaulted ||
+                (runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                _mode == CoCoTemporalMode.Previewing)
+            {
+                diagnostic = TemporalLifecycleError(
+                    "Persistence import requires one healthy Running or Suspended Host outside Temporal preview.");
+                return false;
+            }
+
+            if (_binding != null && !TryRequireLiveBinding(out diagnostic))
+            {
+                return false;
+            }
+
+            if (!CoCoStateGraphPersistencePayloadCodec.TryCreateImportedTickFrame(
+                    runtime.Clock,
+                    envelope,
+                    persistedSource,
+                    out CoCoTickFrame importedTickFrame,
+                    out diagnostic) ||
+                !CoCoStateGraphPersistencePayloadCodec.TryCreatePersistedSourceInfo(
+                    envelope,
+                    persistedSource,
+                    out CoCoTemporalFrameInfo persistedInfo,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            if (_inbox != null && !_inbox.BeginRewindOrRestore())
+            {
+                diagnostic = MailboxError(
+                    "Inbox could not enter Restore mode for Persistence import.");
+                return false;
+            }
+
+            if (!_transaction.TryPreparePersistenceRestore(
+                    runtime,
+                    codec.Projection,
+                    envelope.DurablePayload,
+                    importedTickFrame,
+                    _history,
+                    out CoCoPreparedActorRestore preparedRestore,
+                    out CoCoContextRestoreReadView restoreSource,
+                    out _,
+                    out CoCoTemporalFrameInfo targetAuthority,
+                    out _,
+                    out diagnostic))
+            {
+                _history?.CancelPreparedCapture();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                return false;
+            }
+
+            try
+            {
+                if (_participant != null &&
+                    (!_participant.IsTemporalParticipantLive(_host) ||
+                     !_participant.TryPrepareAuthorityReset(
+                         targetAuthority,
+                         out diagnostic)))
+                {
+                    _participant.CancelPreparedAuthorityResetNoFail();
+                    _history?.CancelPreparedCapture();
+                    preparedRestore.Cancel();
+                    _inbox?.CancelRewindOrRestoreNoFail();
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = HistoryError(
+                            CoCoDiagnosticCode.CommitPreparationFailed,
+                            "Temporal participant rejected the imported authority baseline.");
+                    }
+
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal participant authority reset threw before the Persistence authority barrier.");
+                return false;
+            }
+
+            bool worldMayBeDirty = false;
+            if (_binding != null &&
+                !TryApplyRestore(
+                    CoCoContextRestoreApplyKind.Confirm,
+                    persistedInfo,
+                    importedTickFrame,
+                    restoreSource,
+                    out worldMayBeDirty,
+                    out diagnostic))
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                if (worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            if (_host.IsTemporalOperationCancellationRequested ||
+                !preparedRestore.IsValid ||
+                (_history != null && !_history.HasPreparedCapture) ||
+                (_participant != null &&
+                 !_participant.IsTemporalParticipantLive(_host)) ||
+                (_binding != null && !IsBindingLive) ||
+                (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                diagnostic = TemporalLifecycleError(
+                    "Persistence import proof changed during Unity projection before authority publication.");
+                if (worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            preparedRestore.CommitNoFail();
+            _history?.PublishAuthorityResetNoFail();
+            _participant?.CommitPreparedAuthorityResetNoFail();
+            _inbox?.ResumeAfterTimelineResetNoFail(importedTickFrame.TimelineEpoch);
+            _mode = _history == null
+                ? CoCoTemporalMode.Disabled
+                : CoCoTemporalMode.Ready;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = ToPublicInfo(_transaction.CurrentContext);
+            DrainPublishedCleanupNoFail();
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal bool TryBegin(
             CoCoStateGraphRuntime runtime,
             out CoCoDiagnostic diagnostic)

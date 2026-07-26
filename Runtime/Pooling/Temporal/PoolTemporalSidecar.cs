@@ -108,6 +108,73 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             ClearPreparedCapture();
         }
 
+        internal bool TryPrepareAuthorityReset(
+            PoolTemporalRecord[] records,
+            int recordCount,
+            in CoCoTemporalFrameInfo targetAuthority)
+        {
+            if (_isDisposed ||
+                _preparedKind != PreparedCaptureKind.None ||
+                !targetAuthority.IsValid ||
+                records == null ||
+                recordCount < 0 ||
+                recordCount > records.Length)
+            {
+                return false;
+            }
+
+            int presentCount = 0;
+            for (int index = 0; index < recordCount; index++)
+            {
+                PoolTemporalRecord record = records[index];
+                if (record != null &&
+                    record.IsRetained &&
+                    record.AuthorityPresent)
+                {
+                    presentCount++;
+                }
+            }
+
+            EnsureStagingCapacity(presentCount);
+            int writeIndex = 0;
+            for (int index = 0; index < recordCount; index++)
+            {
+                PoolTemporalRecord record = records[index];
+                if (record == null ||
+                    !record.IsRetained ||
+                    !record.AuthorityPresent)
+                {
+                    continue;
+                }
+
+                _staging[writeIndex++] = record.EntityId;
+            }
+
+            _preparedCount = writeIndex;
+            _stagingInfo = targetAuthority;
+            _preparedKind = PreparedCaptureKind.AuthorityReset;
+            return true;
+        }
+
+        internal void PublishAuthorityResetNoFail()
+        {
+            if (_isDisposed ||
+                _preparedKind != PreparedCaptureKind.AuthorityReset)
+            {
+                return;
+            }
+
+            for (int index = 0; index < _frames.Length; index++)
+            {
+                _frames[index].Clear();
+            }
+
+            PublishStagingTo(0);
+            _headIndex = 0;
+            _count = 1;
+            ClearPreparedCapture();
+        }
+
         internal bool TryPrepareBranchCapture(
             int historyDepth,
             in CoCoTemporalFrameInfo branchHead)
@@ -340,7 +407,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         {
             None = 0,
             Forward = 1,
-            Branch = 2
+            Branch = 2,
+            AuthorityReset = 3
         }
 
         private sealed class Frame
