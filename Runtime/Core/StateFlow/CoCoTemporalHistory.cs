@@ -236,6 +236,39 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryPrepareAuthorityReset(
+            in CoCoFinalizedContextCommit candidate,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            if (_isDisposed ||
+                _preparedKind != PreparedCaptureKind.None ||
+                _generation == ulong.MaxValue ||
+                !candidate.TryGetMetadata(
+                    out CoCoStateFlowFrameHeader header,
+                    out CoCoContextRevision revision,
+                    out CoCoContextFrameOrigin origin) ||
+                !TryValidateAuthority(header, revision, origin))
+            {
+                diagnosticCode = CoCoDiagnosticCode.CommitPreparationFailed;
+                return false;
+            }
+
+            if (!candidate.TryEncode(
+                    _codec,
+                    _stagingPayload,
+                    out int bytesWritten,
+                    out diagnosticCode))
+            {
+                return false;
+            }
+
+            _stagingInfo = new CoCoTemporalHistoryEntryInfo(header, revision, origin);
+            _preparedLength = bytesWritten;
+            _preparedKind = PreparedCaptureKind.AuthorityReset;
+            _preparedGeneration = _generation;
+            return true;
+        }
+
         internal void PublishCaptureNoFail()
         {
             if (_preparedKind != PreparedCaptureKind.Forward ||
@@ -269,6 +302,25 @@ namespace CoCoFlow.Runtime.Core
             PublishStagingTo(publishIndex);
             _headIndex = publishIndex;
             _count = _count - _preparedBranchDepth + 1;
+            CompletePublishNoFail();
+        }
+
+        internal void PublishAuthorityResetNoFail()
+        {
+            if (_preparedKind != PreparedCaptureKind.AuthorityReset ||
+                _preparedGeneration != _generation)
+            {
+                return;
+            }
+
+            for (int index = 1; index < _entries.Length; index++)
+            {
+                _entries[index].ClearMetadata();
+            }
+
+            PublishStagingTo(0);
+            _headIndex = 0;
+            _count = 1;
             CompletePublishNoFail();
         }
 
@@ -465,12 +517,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoContextRevision revision,
             CoCoContextFrameOrigin origin)
         {
-            var info = new CoCoTemporalHistoryEntryInfo(header, revision, origin);
-            if (!info.IsValid ||
-                !_layout.HasExactIdentity(
-                    header.LayoutId,
-                    header.LayoutVersion,
-                    header.LayoutSchemaHash))
+            if (!TryValidateAuthority(header, revision, origin))
             {
                 return false;
             }
@@ -484,6 +531,19 @@ namespace CoCoFlow.Runtime.Core
             return header.Identity.GraphInstanceId == current.Header.Identity.GraphInstanceId &&
                    CoCoStateFlowTickOrder.IsStrictlyAfter(header.TickFrame, current.Header.TickFrame) &&
                    revision.Value > current.Revision.Value;
+        }
+
+        private bool TryValidateAuthority(
+            CoCoStateFlowFrameHeader header,
+            CoCoContextRevision revision,
+            CoCoContextFrameOrigin origin)
+        {
+            var info = new CoCoTemporalHistoryEntryInfo(header, revision, origin);
+            return info.IsValid &&
+                   _layout.HasExactIdentity(
+                       header.LayoutId,
+                       header.LayoutVersion,
+                       header.LayoutSchemaHash);
         }
 
         private bool TryValidateBranchAuthority(
@@ -577,7 +637,8 @@ namespace CoCoFlow.Runtime.Core
         {
             None = 0,
             Forward = 1,
-            Branch = 2
+            Branch = 2,
+            AuthorityReset = 3
         }
 
         private sealed class Entry
