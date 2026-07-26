@@ -1249,6 +1249,161 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void PersistenceImportIntoSuspendedSiblingRebuildsPendingClaimRelease()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallDurableClaimProvider(ids);
+            CoCoStateGraphAsset asset = CreateClaimGraphAsset(ids);
+            byte[] payload = CaptureClaimPersistencePayload(
+                ids,
+                asset,
+                out CoCoStateGraphHost source);
+            CoCoStateGraphHost target = CreateClaimHost(
+                asset,
+                out GameObject targetObject,
+                traceCapacity: 0);
+            var low = targetObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = targetObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(target, low, high);
+
+            Require(target.TryStart(out CoCoDiagnostic start), start);
+            Require(target.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Assert.That(target.GraphInstanceId, Is.Not.EqualTo(source.GraphInstanceId));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+
+            Require(target.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            Require(
+                target.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic imported),
+                imported);
+            Assert.That(target.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+
+            Require(target.TryResume(out CoCoDiagnostic resume), resume);
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            Require(target.TryStep(0.02d, out CoCoDiagnostic following), following);
+
+            Assert.That(low.ExecuteCount, Is.EqualTo(1));
+            Assert.That(high.ExecuteCount, Is.EqualTo(1));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.SecondaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+        }
+
+        [Test]
+        public void PersistenceImportIntoRunningSiblingDiscardsAbandonedClaimRelease()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallDurableClaimProvider(ids);
+            CoCoStateGraphAsset asset = CreateClaimGraphAsset(ids);
+            byte[] payload = CaptureClaimPersistencePayload(
+                ids,
+                asset,
+                out CoCoStateGraphHost source);
+            CoCoStateGraphHost target = CreateClaimHost(
+                asset,
+                out GameObject targetObject,
+                traceCapacity: 0);
+            var low = targetObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = targetObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(target, low, high);
+
+            Require(target.TryStart(out CoCoDiagnostic start), start);
+            Require(target.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Assert.That(target.GraphInstanceId, Is.Not.EqualTo(source.GraphInstanceId));
+            Require(target.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            Require(target.TryResume(out CoCoDiagnostic resume), resume);
+            Require(
+                target.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic imported),
+                imported);
+            Assert.That(target.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            Require(target.TryStep(0.02d, out CoCoDiagnostic following), following);
+
+            Assert.That(low.ExecuteCount, Is.EqualTo(2));
+            Assert.That(high.ExecuteCount, Is.Zero);
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.SecondaryClaimStateSlotId).IsHeld,
+                Is.False);
+        }
+
+        [TestCase(TemporalRestoreFixtureFailure.Reject)]
+        [TestCase(TemporalRestoreFixtureFailure.Throw)]
+        public void PersistenceImportBindingFailurePreservesPendingClaimRelease(
+            TemporalRestoreFixtureFailure failureMode)
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            InstallDurableClaimProvider(ids);
+            CoCoStateGraphAsset asset = CreateClaimGraphAsset(ids);
+            byte[] payload = CaptureClaimPersistencePayload(
+                ids,
+                asset,
+                out CoCoStateGraphHost source);
+            CoCoStateGraphHost target = CreateClaimHost(
+                asset,
+                out GameObject targetObject,
+                traceCapacity: 0);
+            var restoreBinding = targetObject.AddComponent<TemporalCodecRestoreBinding>();
+            SetField(target, "contextRestoreBinding", restoreBinding);
+            var low = targetObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = targetObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(target, low, high);
+
+            Require(target.TryStart(out CoCoDiagnostic start), start);
+            Require(target.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Assert.That(target.GraphInstanceId, Is.Not.EqualTo(source.GraphInstanceId));
+            CoCoContextFrame authority = target.CurrentContext;
+            Require(target.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            restoreBinding.Failure = failureMode;
+            bool applied = true;
+            CoCoDiagnostic failure = default;
+            Assert.DoesNotThrow(() =>
+                applied = target.TryApplyPersistencePayload(payload, out failure));
+
+            Assert.That(applied, Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(target.CurrentContext, Is.EqualTo(authority));
+            Assert.That(target.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Suspended));
+            Assert.That(target.RequiresWorldCorrection, Is.True);
+            Assert.That(target.Fault.IsFaulted, Is.True);
+
+            restoreBinding.Failure = TemporalRestoreFixtureFailure.None;
+            Require(target.TryCorrectWorld(out CoCoDiagnostic correction), correction);
+            Require(target.TryResume(out CoCoDiagnostic resume), resume);
+            OperatorCommitClaimLogic.EnableSecondary = true;
+            Require(target.TryStep(0.02d, out CoCoDiagnostic following), following);
+
+            Assert.That(low.ExecuteCount, Is.EqualTo(1));
+            Assert.That(high.ExecuteCount, Is.EqualTo(1));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+            Assert.That(
+                ReadClaim(target.CurrentContext, ids.SecondaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.SecondOperatorId));
+        }
+
+        [Test]
         public void ResetToDefaultClaimRestoreKeepsContextAndClaimCacheConsistent()
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
@@ -1641,6 +1796,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             InstallClaimProvider(
                 ids,
+                CoCoContextProjection.Temporal,
+                CoCoContextRestorePolicy.Stored,
+                CoCoContextRestorePolicy.Stored);
+        }
+
+        private void InstallDurableClaimProvider(OperatorCommitTestIds ids)
+        {
+            InstallClaimProvider(
+                ids,
+                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
                 CoCoContextRestorePolicy.Stored,
                 CoCoContextRestorePolicy.Stored);
         }
@@ -1650,11 +1815,25 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoContextRestorePolicy primaryClaimRestorePolicy,
             CoCoContextRestorePolicy secondaryClaimRestorePolicy)
         {
+            InstallClaimProvider(
+                ids,
+                CoCoContextProjection.Temporal,
+                primaryClaimRestorePolicy,
+                secondaryClaimRestorePolicy);
+        }
+
+        private void InstallClaimProvider(
+            OperatorCommitTestIds ids,
+            CoCoContextProjection claimProjection,
+            CoCoContextRestorePolicy primaryClaimRestorePolicy,
+            CoCoContextRestorePolicy secondaryClaimRestorePolicy)
+        {
             var provider = new ClaimBindingProvider(
                 ids,
                 false,
                 primaryClaimRestorePolicy,
-                secondaryClaimRestorePolicy);
+                secondaryClaimRestorePolicy,
+                claimProjection);
             Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
         }
 
@@ -1697,6 +1876,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             out GameObject gameObject,
             int traceCapacity)
         {
+            return CreateClaimHost(
+                CreateClaimGraphAsset(ids),
+                out gameObject,
+                traceCapacity);
+        }
+
+        private CoCoStateGraphAsset CreateClaimGraphAsset(OperatorCommitTestIds ids)
+        {
             CoCoStateGraphAsset asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(Guid.NewGuid().ToString("N"));
@@ -1723,7 +1910,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             layer.States.Add(secondState);
             layer.Transitions.Add(transition);
             asset.Layers.Add(layer);
+            return asset;
+        }
 
+        private CoCoStateGraphHost CreateClaimHost(
+            CoCoStateGraphAsset asset,
+            out GameObject gameObject,
+            int traceCapacity)
+        {
             gameObject = new GameObject("Pre5 Claim Host");
             _objects.Add(gameObject);
             CoCoStateGraphHost host = gameObject.AddComponent<CoCoStateGraphHost>();
@@ -1734,6 +1928,31 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "eventOutboxCapacity", 0);
             SetField(host, "traceCapacity", traceCapacity);
             return host;
+        }
+
+        private byte[] CaptureClaimPersistencePayload(
+            OperatorCommitTestIds ids,
+            CoCoStateGraphAsset asset,
+            out CoCoStateGraphHost source)
+        {
+            source = CreateClaimHost(asset, out GameObject sourceObject, traceCapacity: 0);
+            var low = sourceObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Release);
+            var high = sourceObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(source, low, high);
+
+            Require(source.TryStart(out CoCoDiagnostic start), start);
+            Require(source.TryStep(0.02d, out CoCoDiagnostic first), first);
+            Assert.That(
+                ReadClaim(source.CurrentContext, ids.PrimaryClaimStateSlotId).OwnerOperatorId,
+                Is.EqualTo(ids.FirstOperatorId));
+            Require(
+                source.TryCapturePersistencePayload(
+                    out byte[] payload,
+                    out CoCoDiagnostic capture),
+                capture);
+            return payload;
         }
 
         private static CoCoSerializedId128 Serialize(CoCoLayerId id) =>
@@ -2354,14 +2573,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoContextRestorePolicy primaryClaimRestorePolicy =
                     CoCoContextRestorePolicy.Stored,
                 CoCoContextRestorePolicy secondaryClaimRestorePolicy =
-                    CoCoContextRestorePolicy.Stored)
+                    CoCoContextRestorePolicy.Stored,
+                CoCoContextProjection claimProjection =
+                    CoCoContextProjection.Temporal)
             {
                 _ids = ids;
                 _mismatchPrimaryClaimDefault = mismatchPrimaryClaimDefault;
                 Catalog = BuildCatalog(
                     ids,
                     primaryClaimRestorePolicy,
-                    secondaryClaimRestorePolicy);
+                    secondaryClaimRestorePolicy,
+                    claimProjection);
             }
 
             public CoCoGraphDescriptorCatalog Catalog { get; }
@@ -2439,7 +2661,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             private static CoCoGraphDescriptorCatalog BuildCatalog(
                 OperatorCommitTestIds ids,
                 CoCoContextRestorePolicy primaryClaimRestorePolicy,
-                CoCoContextRestorePolicy secondaryClaimRestorePolicy)
+                CoCoContextRestorePolicy secondaryClaimRestorePolicy,
+                CoCoContextProjection claimProjection)
             {
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
                 Require(builder.TryRegisterOperationSection(
@@ -2473,6 +2696,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(OperatorCommitGraphContextFixture.TryRegisterClaimGraph(
                     builder,
                     ids,
+                    claimProjection,
                     primaryClaimRestorePolicy,
                     secondaryClaimRestorePolicy,
                     out CoCoDiagnostic graphContext), graphContext);
