@@ -810,6 +810,185 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(target.Host.Fault.IsFaulted, Is.False);
         }
 
+        [Test]
+        public void ZeroCapacityImportLazilyAttachesResetParticipantWithoutEnablingHistory()
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 0,
+                    withDurableProjection: true));
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 121);
+            Require(
+                source.Host.TryCapturePersistencePayload(
+                    out byte[] payload,
+                    out CoCoDiagnostic captured),
+                captured);
+
+            TemporalHostTestScenario target = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 0));
+            var participant =
+                target.GameObject.AddComponent<RejectingTemporalParticipant>();
+            participant.Configure(target.Binding);
+            TemporalHostTestHarness.SetRestoreBinding(target.Host, participant);
+            Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
+            StepWithActorValue(target, 221);
+
+            Assert.That(participant.AttachCount, Is.Zero);
+            Assert.That(participant.ForwardPrepareCount, Is.Zero);
+            Assert.That(participant.PublishCount, Is.Zero);
+            Assert.That(participant.CleanupCount, Is.Zero);
+
+            Require(
+                target.Host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic firstImport),
+                firstImport);
+
+            Assert.That(participant.AttachCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetPrepareCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetCommitCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetCancelCount, Is.Zero);
+            Assert.That(participant.ApplyCount, Is.EqualTo(1));
+            Assert.That(participant.CleanupCount, Is.EqualTo(1));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
+            Assert.That(target.Binding.LastAppliedValue, Is.EqualTo(121));
+            Assert.That(
+                target.Host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(target.Host.TemporalState.Capacity, Is.Zero);
+            Assert.That(target.Host.TemporalState.Count, Is.Zero);
+
+            StepWithActorValue(target, 121);
+            Assert.That(participant.ForwardPrepareCount, Is.Zero);
+            Assert.That(participant.PublishCount, Is.Zero);
+            Assert.That(participant.CleanupCount, Is.EqualTo(1));
+
+            Require(
+                target.Host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic secondImport),
+                secondImport);
+            Assert.That(participant.AttachCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetPrepareCount, Is.EqualTo(2));
+            Assert.That(participant.AuthorityResetCommitCount, Is.EqualTo(2));
+            Assert.That(participant.ApplyCount, Is.EqualTo(2));
+            Assert.That(participant.CleanupCount, Is.EqualTo(2));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(2));
+
+            Object.DestroyImmediate(target.GameObject);
+            Assert.That(participant.DetachCount, Is.EqualTo(1));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ZeroCapacityParticipantAttachmentFailureDoesNotEnterRestoreBarrier(
+            bool throws)
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 0,
+                    withDurableProjection: true));
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 131);
+            Require(
+                source.Host.TryCapturePersistencePayload(
+                    out byte[] payload,
+                    out CoCoDiagnostic captured),
+                captured);
+
+            TemporalHostTestScenario target = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 0));
+            var participant =
+                target.GameObject.AddComponent<RejectingTemporalParticipant>();
+            participant.Configure(target.Binding);
+            participant.RejectAttachment = !throws;
+            participant.ThrowAttachment = throws;
+            TemporalHostTestHarness.SetRestoreBinding(target.Host, participant);
+            Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
+            StepWithActorValue(target, 231);
+            ulong revision = target.Host.CurrentContext.Revision.Value;
+
+            Assert.That(
+                target.Host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic failure),
+                Is.False);
+
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(participant.AttachCount, Is.EqualTo(1));
+            Assert.That(
+                participant.DetachCount,
+                Is.EqualTo(throws ? 1 : 0));
+            Assert.That(participant.AuthorityResetPrepareCount, Is.Zero);
+            Assert.That(participant.ApplyCount, Is.Zero);
+            AssertAuthorityUnchanged(target, revision, 231, 0);
+            Assert.That(target.Host.Fault.IsFaulted, Is.False);
+            Assert.That(target.Host.RequiresWorldCorrection, Is.False);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ZeroCapacityParticipantResetFailureCancelsAndKeepsAttachment(
+            bool throws)
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 0,
+                    withDurableProjection: true));
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 141);
+            Require(
+                source.Host.TryCapturePersistencePayload(
+                    out byte[] payload,
+                    out CoCoDiagnostic captured),
+                captured);
+
+            TemporalHostTestScenario target = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 0));
+            var participant =
+                target.GameObject.AddComponent<RejectingTemporalParticipant>();
+            participant.Configure(target.Binding);
+            participant.RejectAuthorityReset = !throws;
+            participant.ThrowAuthorityReset = throws;
+            TemporalHostTestHarness.SetRestoreBinding(target.Host, participant);
+            Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
+            StepWithActorValue(target, 241);
+            ulong revision = target.Host.CurrentContext.Revision.Value;
+
+            Assert.That(
+                target.Host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic failure),
+                Is.False);
+
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(participant.AttachCount, Is.EqualTo(1));
+            Assert.That(participant.DetachCount, Is.Zero);
+            Assert.That(participant.AuthorityResetPrepareCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetCancelCount, Is.EqualTo(1));
+            Assert.That(participant.ApplyCount, Is.Zero);
+            AssertAuthorityUnchanged(target, revision, 241, 0);
+            Assert.That(target.Host.Fault.IsFaulted, Is.False);
+
+            participant.RejectAuthorityReset = false;
+            participant.ThrowAuthorityReset = false;
+            Require(
+                target.Host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic retry),
+                retry);
+            Assert.That(participant.AttachCount, Is.EqualTo(1));
+            Assert.That(participant.AuthorityResetCommitCount, Is.EqualTo(1));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
+        }
+
         private TemporalHostTestScenario Track(TemporalHostTestScenario scenario)
         {
             if (!_objects.Contains(scenario.Asset))
@@ -990,25 +1169,59 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private sealed class RejectingTemporalParticipant :
             MonoBehaviour,
             ICoCoContextRestoreBinding,
-            ICoCoStateGraphTemporalParticipant
+            ICoCoStateGraphTemporalParticipant,
+            ICoCoTemporalDecoratorBinding
         {
             private CoCoStateGraphHost _host;
+            private MonoBehaviour _downstreamComponent;
+            private ICoCoContextRestoreBinding _downstream;
             private bool _resetPrepared;
 
+            internal bool RejectAttachment { get; set; }
+            internal bool ThrowAttachment { get; set; }
             internal bool RejectAuthorityReset { get; set; }
+            internal bool ThrowAuthorityReset { get; set; }
+            internal int AttachCount { get; private set; }
+            internal int DetachCount { get; private set; }
             internal int AuthorityResetPrepareCount { get; private set; }
+            internal int AuthorityResetCommitCount { get; private set; }
             internal int AuthorityResetCancelCount { get; private set; }
             internal int ApplyCount { get; private set; }
+            internal int ForwardPrepareCount { get; private set; }
+            internal int PublishCount { get; private set; }
+            internal int CleanupCount { get; private set; }
+
+            MonoBehaviour ICoCoTemporalDecoratorBinding.DownstreamRestoreBinding =>
+                _downstreamComponent;
+
+            internal void Configure(MonoBehaviour downstream)
+            {
+                _downstreamComponent = downstream;
+                _downstream = downstream as ICoCoContextRestoreBinding;
+            }
 
             public bool TryApply(
                 in CoCoContextRestoreBindingContext context,
                 out CoCoDiagnostic diagnostic)
             {
                 ApplyCount++;
-                diagnostic = context.IsValid
-                    ? CoCoDiagnostic.None
-                    : ParticipantError("Restore context is invalid.");
-                return !diagnostic.IsError;
+                if (!context.IsValid ||
+                    context.ApplyKind == CoCoContextRestoreApplyKind.Confirm &&
+                    !_resetPrepared)
+                {
+                    diagnostic = ParticipantError(
+                        "Restore context is invalid or reset was not prepared.");
+                    return false;
+                }
+
+                if (_downstream != null &&
+                    !_downstream.TryApply(context, out diagnostic))
+                {
+                    return false;
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                return true;
             }
 
             bool ICoCoStateGraphTemporalParticipant.TryAttachTemporalHost(
@@ -1016,11 +1229,26 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 int historyCapacity,
                 out CoCoDiagnostic diagnostic)
             {
+                AttachCount++;
+                if (ThrowAttachment)
+                {
+                    _host = host;
+                    throw new InvalidOperationException(
+                        "Temporal attachment threw for the test.");
+                }
+
+                if (RejectAttachment ||
+                    host == null ||
+                    historyCapacity != 0 && historyCapacity < 2)
+                {
+                    diagnostic = ParticipantError(
+                        "Temporal attachment is invalid.");
+                    return false;
+                }
+
                 _host = host;
-                diagnostic = host != null && historyCapacity > 0
-                    ? CoCoDiagnostic.None
-                    : ParticipantError("Temporal attachment is invalid.");
-                return !diagnostic.IsError;
+                diagnostic = CoCoDiagnostic.None;
+                return true;
             }
 
             bool ICoCoStateGraphTemporalParticipant.IsTemporalParticipantLive(
@@ -1031,6 +1259,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 in CoCoTemporalFrameInfo candidate,
                 out CoCoDiagnostic diagnostic)
             {
+                ForwardPrepareCount++;
                 diagnostic = candidate.IsValid
                     ? CoCoDiagnostic.None
                     : ParticipantError("Forward candidate is invalid.");
@@ -1039,6 +1268,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             void ICoCoStateGraphTemporalParticipant.PublishForwardCaptureNoFail()
             {
+                PublishCount++;
             }
 
             void ICoCoStateGraphTemporalParticipant.CancelPreparedCaptureNoFail()
@@ -1051,6 +1281,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 AuthorityResetPrepareCount++;
                 _resetPrepared = targetAuthority.IsValid;
+                if (ThrowAuthorityReset)
+                {
+                    throw new InvalidOperationException(
+                        "Authority reset threw for the test.");
+                }
+
                 if (!_resetPrepared || RejectAuthorityReset)
                 {
                     diagnostic = ParticipantError(
@@ -1065,6 +1301,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             void ICoCoStateGraphTemporalParticipant
                 .CommitPreparedAuthorityResetNoFail()
             {
+                AuthorityResetCommitCount++;
                 _resetPrepared = false;
             }
 
@@ -1125,10 +1362,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             void ICoCoStateGraphTemporalParticipant.DrainPublishedCleanupNoFail()
             {
+                CleanupCount++;
             }
 
             void ICoCoStateGraphTemporalParticipant.DetachTemporalHostNoFail()
             {
+                DetachCount++;
                 _resetPrepared = false;
                 _host = null;
             }

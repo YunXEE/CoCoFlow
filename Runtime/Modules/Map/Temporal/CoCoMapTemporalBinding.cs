@@ -27,6 +27,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         private bool downstreamParticipantAttached;
         private bool lifecycleCallbackActive;
         private bool restoreCallbackActive;
+        private bool resetOnlyAttachment;
         private bool authorityResetPrepared;
         private CoCoDiagnostic lastDiagnostic;
 
@@ -63,9 +64,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                     (authorityResetPrepared
                         ? context.ApplyKind !=
                           CoCoContextRestoreApplyKind.Confirm
-                        : !runtime.TryApplyPreparedAvailabilityBarrier(
-                            context.ApplyKind,
-                            out diagnostic)))
+                        : resetOnlyAttachment ||
+                          !runtime.TryApplyPreparedAvailabilityBarrier(
+                              context.ApplyKind,
+                              out diagnostic)))
                 {
                     if (diagnostic.IsNone)
                     {
@@ -146,11 +148,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 attachedStateGraphHost != null ||
                 attachedMapHost != null ||
                 attachedRegionRuntime != null ||
+                resetOnlyAttachment ||
+                authorityResetPrepared ||
                 lifecycleCallbackActive ||
                 restoreCallbackActive ||
                 host == null ||
                 !ReferenceEquals(host, stateGraphHost) ||
-                historyCapacity < 2 ||
+                historyCapacity < 0 ||
+                historyCapacity == 1 ||
                 mapHost == null ||
                 !mapHost.IsInitialized ||
                 mapHost.Runtime == null ||
@@ -175,9 +180,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             attachedStateGraphHost = host;
             attachedMapHost = mapHost;
             attachedRegionRuntime = mapHost.Runtime;
+            resetOnlyAttachment = historyCapacity == 0;
             try
             {
-                if (!RegionTemporalRuntime.TryCreate(
+                if (!resetOnlyAttachment &&
+                    !RegionTemporalRuntime.TryCreate(
                         host,
                         attachedRegionRuntime,
                         historyCapacity,
@@ -199,10 +206,15 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                                     host,
                                     historyCapacity,
                                     out diagnostic);
+                        if (downstreamAttached)
+                        {
+                            downstreamParticipantAttached = true;
+                        }
                     }
                     catch (Exception exception)
                     {
                         downstreamAttached = false;
+                        downstreamParticipantAttached = true;
                         diagnostic = RegionErrors.TemporalConflict(
                             "The downstream Temporal participant threw during Host attachment: " +
                             exception.Message);
@@ -219,8 +231,6 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
                         return RecordFailure(diagnostic);
                     }
-
-                    downstreamParticipantAttached = true;
                 }
 
                 if (!TryValidateFrozenDownstream(
@@ -240,7 +250,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             {
                 RollBackAttachmentNoFail();
                 diagnostic = RegionErrors.TemporalProjection(
-                    "Map Temporal sidecar allocation failed during Host startup: " +
+                    "Map Temporal attachment failed during Host startup: " +
                     exception.Message);
                 return RecordFailure(diagnostic);
             }
@@ -410,7 +420,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             in CoCoTemporalFrameInfo targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
-            if (!TryEnterLifecycleCallback(
+            if (!TryEnterAuthorityResetCallback(
                     "authority reset preparation",
                     out diagnostic))
             {
@@ -420,9 +430,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             try
             {
                 if (authorityResetPrepared ||
-                    !runtime.TryPrepareAuthorityReset(
-                        targetAuthority,
-                        out diagnostic))
+                    !targetAuthority.IsValid ||
+                    (!resetOnlyAttachment &&
+                     !runtime.TryPrepareAuthorityReset(
+                         targetAuthority,
+                         out diagnostic)))
                 {
                     if (diagnostic.IsNone)
                     {
@@ -438,7 +450,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                         out diagnostic))
                 {
                     CancelDownstreamAuthorityResetNoFail();
-                    runtime.CancelPreparedAuthorityResetNoFail();
+                    runtime?.CancelPreparedAuthorityResetNoFail();
                     return RecordFailure(diagnostic);
                 }
 
@@ -448,7 +460,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                         out diagnostic))
                 {
                     CancelDownstreamAuthorityResetNoFail();
-                    runtime.CancelPreparedAuthorityResetNoFail();
+                    runtime?.CancelPreparedAuthorityResetNoFail();
                     return RecordFailure(diagnostic);
                 }
 
@@ -476,7 +488,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             .CommitPreparedAuthorityResetNoFail()
         {
             if (!authorityResetPrepared ||
-                !TryEnterNoFailLifecycleCallback(
+                !TryEnterAuthorityResetNoFailCallback(
                     "authority reset publication",
                     out CoCoDiagnostic diagnostic))
             {
@@ -487,7 +499,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             {
                 try
                 {
-                    runtime.CommitPreparedAuthorityResetNoFail();
+                    runtime?.CommitPreparedAuthorityResetNoFail();
                 }
                 catch (Exception exception)
                 {
@@ -510,7 +522,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             .CancelPreparedAuthorityResetNoFail()
         {
             if (!authorityResetPrepared ||
-                !TryEnterNoFailLifecycleCallback(
+                !TryEnterAuthorityResetNoFailCallback(
                     "authority reset cancellation",
                     out _))
             {
@@ -520,7 +532,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             try
             {
                 CancelDownstreamAuthorityResetNoFail();
-                runtime.CancelPreparedAuthorityResetNoFail();
+                runtime?.CancelPreparedAuthorityResetNoFail();
                 authorityResetPrepared = false;
             }
             catch (Exception exception)
@@ -843,7 +855,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         void ICoCoStateGraphTemporalParticipant
             .DrainPublishedCleanupNoFail()
         {
-            if (!TryEnterNoFailLifecycleCallback(
+            if (!TryEnterPublishedCleanupCallback(
                     "published cleanup drain",
                     out CoCoDiagnostic diagnostic))
             {
@@ -855,7 +867,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 DrainDownstreamCleanupNoFail();
                 try
                 {
-                    runtime.DrainPublishedCleanupNoFail();
+                    runtime?.DrainPublishedCleanupNoFail();
                 }
                 catch (Exception exception)
                 {
@@ -886,7 +898,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 return RecordFailure(diagnostic);
             }
 
-            if (!TryRequireRuntime(out diagnostic))
+            if (!TryRequireAttachment(out diagnostic))
             {
                 return RecordFailure(diagnostic);
             }
@@ -914,6 +926,65 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
             lifecycleCallbackActive = true;
             return true;
+        }
+
+        private bool TryEnterAuthorityResetCallback(
+            string operation,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (lifecycleCallbackActive || restoreCallbackActive)
+            {
+                diagnostic = RegionErrors.TemporalConflict(
+                    "Map Temporal rejected re-entry during " +
+                    operation + ".");
+                return RecordFailure(diagnostic);
+            }
+
+            if (!TryRequireAttachment(out diagnostic))
+            {
+                return RecordFailure(diagnostic);
+            }
+
+            lifecycleCallbackActive = true;
+            return true;
+        }
+
+        private bool TryEnterAuthorityResetNoFailCallback(
+            string operation,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (lifecycleCallbackActive || restoreCallbackActive)
+            {
+                diagnostic = RegionErrors.TemporalCleanup(
+                    "Map Temporal rejected cleanup re-entry during " +
+                    operation + ".");
+                return RecordFailure(diagnostic);
+            }
+
+            if (!IsAttachedRuntimeLive(attachedStateGraphHost))
+            {
+                diagnostic = RegionErrors.TemporalCleanup(
+                    "Map Temporal cannot complete " + operation +
+                    " because its attachment is no longer live.");
+                return RecordFailure(diagnostic);
+            }
+
+            lifecycleCallbackActive = true;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryEnterPublishedCleanupCallback(
+            string operation,
+            out CoCoDiagnostic diagnostic)
+        {
+            return resetOnlyAttachment
+                ? TryEnterAuthorityResetNoFailCallback(
+                    operation,
+                    out diagnostic)
+                : TryEnterNoFailLifecycleCallback(
+                    operation,
+                    out diagnostic);
         }
 
         private bool TryEnterNoFailLifecycleCallback(
@@ -945,6 +1016,28 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
+            if (!resetOnlyAttachment &&
+                runtime != null &&
+                !runtime.IsDisposed &&
+                TryRequireAttachment(out diagnostic))
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (diagnostic.IsNone)
+            {
+                diagnostic = RegionErrors.TemporalConflict(
+                    "Map Temporal Binding has no full Temporal retention runtime.");
+            }
+
+            return false;
+        }
+
+        private bool TryRequireAttachment(
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
             if (IsAttachedRuntimeLive(attachedStateGraphHost) &&
                 TryValidateFrozenDownstream(
                     attachedStateGraphHost,
@@ -966,8 +1059,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         private bool IsAttachedRuntimeLive(CoCoStateGraphHost host)
         {
-            return runtime != null &&
-                   !runtime.IsDisposed &&
+            return (resetOnlyAttachment ||
+                    (runtime != null && !runtime.IsDisposed)) &&
                    attachedStateGraphHost != null &&
                    ReferenceEquals(host, attachedStateGraphHost) &&
                    ReferenceEquals(stateGraphHost, attachedStateGraphHost) &&
@@ -1399,7 +1492,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         private void TryDetachDownstreamNoFail()
         {
-            if (attachedDownstreamParticipant == null) return;
+            if (!downstreamParticipantAttached ||
+                attachedDownstreamParticipant == null)
+            {
+                return;
+            }
 
             try
             {
@@ -1440,6 +1537,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 lifecycleCallbackActive = false;
                 restoreCallbackActive = false;
                 authorityResetPrepared = false;
+                resetOnlyAttachment = false;
                 ClearFrozenDownstream();
             }
         }
@@ -1464,6 +1562,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 attachedMapHost = null;
                 attachedRegionRuntime = null;
                 authorityResetPrepared = false;
+                resetOnlyAttachment = false;
                 ClearFrozenDownstream();
             }
         }

@@ -41,6 +41,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
             }
 
             _objects.Clear();
+            ResetStateGraphProjectBindings();
         }
 
         [UnityTest]
@@ -203,6 +204,486 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 Is.SameAs(controller));
 
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ResetOnlyAttachmentClearsOldEpochStateAndRejectsForwardCapture()
+        {
+            ResetStateGraphProjectBindings();
+            object sourceScenario =
+                CreateTemporalHostScenario(
+                    historyCapacity: 0,
+                    withDurableProjection: true);
+            UnityEngine.Object sourceAsset =
+                ReadProperty<UnityEngine.Object>(
+                    sourceScenario,
+                    "Asset");
+            GameObject sourceObject =
+                ReadProperty<GameObject>(
+                    sourceScenario,
+                    "GameObject");
+            CoCoStateGraphHost sourceHost =
+                ReadProperty<CoCoStateGraphHost>(
+                    sourceScenario,
+                    "Host");
+            _objects.Add(sourceAsset);
+            _objects.Add(sourceObject);
+            Assert.That(
+                sourceHost.TryStart(
+                    out CoCoDiagnostic sourceStart),
+                Is.True,
+                sourceStart.Message);
+            Assert.That(
+                sourceHost.TryStep(
+                    0.1d,
+                    out CoCoDiagnostic sourceStep),
+                Is.True,
+                sourceStep.Message);
+            Assert.That(
+                TryCapturePersistencePayload(
+                    sourceHost,
+                    out byte[] payload,
+                    out CoCoDiagnostic capture),
+                Is.True,
+                capture.Message);
+
+            object targetScenario =
+                CreateTemporalHostSibling(
+                    sourceScenario,
+                    historyCapacity: 0);
+            var gameObject =
+                ReadProperty<GameObject>(
+                    targetScenario,
+                    "GameObject");
+            CoCoStateGraphHost host =
+                ReadProperty<CoCoStateGraphHost>(
+                    targetScenario,
+                    "Host");
+            MonoBehaviour downstream =
+                ReadProperty<MonoBehaviour>(
+                    targetScenario,
+                    "Binding");
+            _objects.Add(gameObject);
+            gameObject.SetActive(false);
+
+            AnimatorController controller =
+                CreateControllerFixture(out _);
+            Animator animator = gameObject.AddComponent<Animator>();
+            animator.runtimeAnimatorController = controller;
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            AnimOperator animationOperator =
+                gameObject.AddComponent<AnimOperator>();
+            ConfigureOperator(
+                animationOperator,
+                animator,
+                controller,
+                host);
+            SetField(
+                animationOperator,
+                "downstreamRestoreBinding",
+                downstream);
+            SetField(host, "contextRestoreBinding", animationOperator);
+            gameObject.SetActive(true);
+
+            Assert.That(
+                animationOperator.TryRebuildBindings(
+                    out CoCoDiagnostic rebuild),
+                Is.True,
+                rebuild.Message);
+            Assert.That(
+                TryAttachTemporalParticipant(
+                    animationOperator,
+                    host,
+                    1,
+                    out CoCoDiagnostic invalidCapacity),
+                Is.False);
+            Assert.That(invalidCapacity.IsError, Is.True);
+            Assert.That(
+                host.TryStart(
+                    out CoCoDiagnostic targetStart),
+                Is.True,
+                targetStart.Message);
+            Assert.That(
+                ReadField<CoCoStateGraphHost>(
+                    animationOperator,
+                    "_attachedTemporalHost"),
+                Is.Null);
+            Assert.That(
+                ReadField<bool>(
+                    animationOperator,
+                    "_resetOnlyTemporalAttachment"),
+                Is.False);
+
+            AnimFeedbackBuffer feedback =
+                ReadField<AnimFeedbackBuffer>(
+                    animationOperator,
+                    "_feedback");
+            PoisonFeedback(feedback, 32UL);
+            SetCandidateFeedbackStamp(animationOperator, 10UL);
+            AnimPlaybackToken playbackToken =
+                CreateToken(101UL, 102UL);
+            SetActiveLayer(animationOperator, playbackToken);
+            PoisonTransitionObservation(
+                animationOperator,
+                playbackToken);
+            float[] crossFadeDurations =
+                ReadField<float[]>(
+                    animationOperator,
+                    "_normalizedCrossFadeDurations");
+            crossFadeDurations[0] = 0.5f;
+            AnimRootMotionRelay rootMotion =
+                ReadField<AnimRootMotionRelay>(
+                    animationOperator,
+                    "_rootMotionRelay");
+            rootMotion.Capture(
+                Vector3.one,
+                Quaternion.Euler(0f, 30f, 0f));
+            Assert.IsTrue(
+                AnimBindingId.TryCreate(
+                    ModulationBindingValue,
+                    out AnimBindingId modulationBindingId));
+            Assert.IsTrue(
+                CoCoActivationId.TryCreate(
+                    45UL,
+                    out CoCoActivationId modulationActivationId));
+            AnimModulationStamp[] modulationStamps =
+                ReadField<AnimModulationStamp[]>(
+                    animationOperator,
+                    "_modulationStamps");
+            modulationStamps[0] = new AnimModulationStamp(
+                modulationBindingId,
+                modulationActivationId,
+                2U);
+            var modulationAdapter =
+                new RecordingModulationAdapter();
+            SetField(
+                animationOperator,
+                "_modulationAdapter",
+                modulationAdapter);
+            var publicationFence =
+                new AnimOperator.PlaybackPublicationFence();
+            publicationFence.Invalidate(
+                new AnimPlaybackContext(
+                    ReadLayers(animationOperator)[0],
+                    ReadLayers(animationOperator)[1],
+                    ReadLayers(animationOperator)[2],
+                    ReadLayers(animationOperator)[3],
+                    false));
+            SetField(
+                animationOperator,
+                "_playbackPublicationFence",
+                publicationFence);
+
+            PlayableGraph originalGraph =
+                ReadField<PlayableGraph>(
+                    animationOperator,
+                    "_graph");
+            AnimatorControllerPlayable originalPlayable =
+                ReadField<AnimatorControllerPlayable>(
+                    animationOperator,
+                    "_controllerPlayable");
+            Assert.That(
+                TryApplyPersistencePayload(
+                    host,
+                    payload,
+                    out CoCoDiagnostic firstImport),
+                Is.True,
+                firstImport.Message);
+
+            Assert.That(
+                ReadProperty<int>(
+                    downstream,
+                    "ConfirmCount"),
+                Is.EqualTo(1));
+            Assert.That(
+                ReadField<CoCoStateGraphHost>(
+                    animationOperator,
+                    "_attachedTemporalHost"),
+                Is.SameAs(host));
+            Assert.That(
+                ReadField<bool>(
+                    animationOperator,
+                    "_resetOnlyTemporalAttachment"),
+                Is.True);
+            Assert.That(
+                host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(host.TemporalState.Count, Is.Zero);
+            Assert.That(feedback.Count, Is.Zero);
+            Assert.That(feedback.Overflowed, Is.False);
+            Assert.That(
+                ReadField<AnimFeedbackSourceStamp>(
+                    animationOperator,
+                    "_candidateFeedbackStamp").IsValid,
+                Is.False);
+            Assert.That(
+                ReadLayers(animationOperator)
+                    .All(layer =>
+                        !layer.Token.IsValid &&
+                        layer.Status == AnimPlaybackStatus.None),
+                Is.True);
+            Assert.That(
+                HasTransitionObservation(animationOperator),
+                Is.False);
+            Assert.That(
+                crossFadeDurations.All(duration => duration == 0f),
+                Is.True);
+            Assert.That(
+                modulationStamps.All(stamp => !stamp.IsValid),
+                Is.True);
+            Assert.That(
+                ReadField<bool>(rootMotion, "_captured"),
+                Is.False);
+            Assert.That(modulationAdapter.StopAllCount, Is.EqualTo(1));
+            Assert.That(
+                ReadField<AnimOperator.PlaybackPublicationFence>(
+                    animationOperator,
+                    "_playbackPublicationFence").IsActive,
+                Is.False);
+            Assert.That(
+                ReadField<PlayableGraph>(
+                    animationOperator,
+                    "_graph"),
+                Is.EqualTo(originalGraph));
+            Assert.That(
+                ReadField<AnimatorControllerPlayable>(
+                    animationOperator,
+                    "_controllerPlayable"),
+                Is.EqualTo(originalPlayable));
+            Assert.That(animationOperator.Animator, Is.SameAs(animator));
+            Assert.That(
+                animationOperator.Controller,
+                Is.SameAs(controller));
+
+            CoCoTemporalFrameInfo imported =
+                host.TemporalState.Current;
+            Assert.That(imported.IsValid, Is.True);
+            Assert.That(
+                TryPrepareForwardCapture(
+                    animationOperator,
+                    imported,
+                    out CoCoDiagnostic forwardCapture),
+                Is.False);
+            Assert.That(forwardCapture.IsError, Is.True);
+
+            PoisonFeedback(feedback, 33UL);
+            SetCandidateFeedbackStamp(animationOperator, 11UL);
+            AnimPlaybackToken retryToken =
+                CreateToken(103UL, 104UL);
+            SetActiveLayer(animationOperator, retryToken);
+            PoisonTransitionObservation(
+                animationOperator,
+                retryToken);
+            crossFadeDurations[0] = 0.75f;
+            rootMotion.Capture(
+                Vector3.one * 2f,
+                Quaternion.Euler(0f, 45f, 0f));
+            modulationStamps[0] = new AnimModulationStamp(
+                modulationBindingId,
+                modulationActivationId,
+                3U);
+            publicationFence.Invalidate(
+                new AnimPlaybackContext(
+                    ReadLayers(animationOperator)[0],
+                    ReadLayers(animationOperator)[1],
+                    ReadLayers(animationOperator)[2],
+                    ReadLayers(animationOperator)[3],
+                    false));
+            SetField(
+                animationOperator,
+                "_playbackPublicationFence",
+                publicationFence);
+            Assert.That(
+                TryPrepareAuthorityReset(
+                    animationOperator,
+                    imported,
+                    out CoCoDiagnostic prepareCancel),
+                Is.True,
+                prepareCancel.Message);
+            InvokeTemporalParticipantNoFail(
+                animationOperator,
+                "CancelPreparedAuthorityResetNoFail");
+            Assert.That(feedback.Overflowed, Is.True);
+            Assert.That(
+                ReadField<AnimFeedbackSourceStamp>(
+                    animationOperator,
+                    "_candidateFeedbackStamp").IsValid,
+                Is.True);
+            Assert.That(
+                ReadLayers(animationOperator)[0].Token,
+                Is.EqualTo(retryToken));
+            Assert.That(
+                HasTransitionObservation(animationOperator),
+                Is.True);
+            Assert.That(crossFadeDurations[0], Is.EqualTo(0.75f));
+            Assert.That(modulationStamps[0].IsValid, Is.True);
+            Assert.That(
+                ReadField<AnimOperator.PlaybackPublicationFence>(
+                    animationOperator,
+                    "_playbackPublicationFence").IsActive,
+                Is.True);
+            Assert.That(modulationAdapter.StopAllCount, Is.EqualTo(1));
+            Assert.That(
+                ReadProperty<int>(
+                    downstream,
+                    "ConfirmCount"),
+                Is.EqualTo(1));
+
+            Assert.That(
+                TryApplyPersistencePayload(
+                    host,
+                    payload,
+                    out CoCoDiagnostic secondImport),
+                Is.True,
+                secondImport.Message);
+            Assert.That(
+                ReadProperty<int>(
+                    downstream,
+                    "ConfirmCount"),
+                Is.EqualTo(2));
+            Assert.That(
+                ReadField<CoCoStateGraphHost>(
+                    animationOperator,
+                    "_attachedTemporalHost"),
+                Is.SameAs(host),
+                "A second import must reuse the first reset-only attachment.");
+            Assert.That(feedback.Count, Is.Zero);
+            Assert.That(feedback.Overflowed, Is.False);
+            Assert.That(
+                ReadField<AnimFeedbackSourceStamp>(
+                    animationOperator,
+                    "_candidateFeedbackStamp").IsValid,
+                Is.False);
+            Assert.That(
+                ReadLayers(animationOperator)
+                    .All(layer =>
+                        !layer.Token.IsValid &&
+                        layer.Status == AnimPlaybackStatus.None),
+                Is.True);
+            Assert.That(
+                HasTransitionObservation(animationOperator),
+                Is.False);
+            Assert.That(
+                crossFadeDurations.All(duration => duration == 0f),
+                Is.True);
+            Assert.That(
+                modulationStamps.All(stamp => !stamp.IsValid),
+                Is.True);
+            Assert.That(
+                ReadField<bool>(rootMotion, "_captured"),
+                Is.False);
+            Assert.That(modulationAdapter.StopAllCount, Is.EqualTo(2));
+            Assert.That(
+                ReadField<AnimOperator.PlaybackPublicationFence>(
+                    animationOperator,
+                    "_playbackPublicationFence").IsActive,
+                Is.False);
+
+            Assert.That(
+                host.TryStep(
+                    0.1d,
+                    out CoCoDiagnostic nextStep),
+                Is.True,
+                nextStep.Message);
+            Assert.That(
+                host.TemporalState.Mode,
+                Is.EqualTo(CoCoTemporalMode.Disabled));
+            Assert.That(host.TemporalState.Count, Is.Zero);
+            Assert.That(modulationAdapter.StopAllCount, Is.EqualTo(2));
+
+            Assert.That(
+                host.TryStop(
+                    out CoCoDiagnostic stop),
+                Is.True,
+                stop.Message);
+            Assert.That(
+                ReadField<bool>(
+                    animationOperator,
+                    "_resetOnlyTemporalAttachment"),
+                Is.False);
+
+            yield return null;
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void NestedResetOnlyAttachmentFailureRespectsDownstreamOwnership(
+            bool throws)
+        {
+            AnimatorController controller =
+                CreateControllerFixture(out _);
+            var gameObject =
+                new GameObject(
+                    "Pre13 Animation Nested Attachment Failure");
+            _objects.Add(gameObject);
+            gameObject.SetActive(false);
+            Animator animator = gameObject.AddComponent<Animator>();
+            animator.runtimeAnimatorController = controller;
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            CoCoStateGraphHost host =
+                gameObject.AddComponent<CoCoStateGraphHost>();
+            Type participantType = Type.GetType(
+                "CoCoFlow.Tests.Runtime.StateGraphHost.CoCoStateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
+                true);
+            var downstream =
+                (MonoBehaviour)gameObject.AddComponent(participantType);
+            SetProperty(
+                downstream,
+                "RejectAttachment",
+                !throws);
+            SetProperty(
+                downstream,
+                "ThrowAttachment",
+                throws);
+            AnimOperator animationOperator =
+                gameObject.AddComponent<AnimOperator>();
+            ConfigureOperator(
+                animationOperator,
+                animator,
+                controller,
+                host);
+            SetField(
+                animationOperator,
+                "downstreamRestoreBinding",
+                downstream);
+            SetField(host, "autoStart", false);
+            SetField(host, "contextRestoreBinding", animationOperator);
+            SetField(host, "temporalHistoryCapacity", 0);
+            gameObject.SetActive(true);
+
+            Assert.That(
+                animationOperator.TryRebuildBindings(
+                    out CoCoDiagnostic rebuild),
+                Is.True,
+                rebuild.Message);
+            Assert.That(
+                TryAttachTemporalParticipant(
+                    animationOperator,
+                    host,
+                    0,
+                    out CoCoDiagnostic failure),
+                Is.False);
+            Assert.That(failure.IsError, Is.True);
+            Assert.That(
+                ReadProperty<int>(
+                    downstream,
+                    "AttachCount"),
+                Is.EqualTo(1));
+            Assert.That(
+                ReadProperty<int>(
+                    downstream,
+                    "DetachCount"),
+                Is.EqualTo(throws ? 1 : 0));
+            Assert.That(
+                ReadField<CoCoStateGraphHost>(
+                    animationOperator,
+                    "_attachedTemporalHost"),
+                Is.Null);
+            Assert.That(
+                ReadField<bool>(
+                    animationOperator,
+                    "_resetOnlyTemporalAttachment"),
+                Is.False);
         }
 
         [UnityTest]
@@ -1202,6 +1683,133 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.IsFalse(feedback.TryAppend(record, source));
         }
 
+        private static object CreateTemporalHostScenario(
+            int historyCapacity,
+            bool withDurableProjection)
+        {
+            Type harnessType = Type.GetType(
+                "CoCoFlow.Tests.Runtime.StateGraphHost.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
+                true);
+            MethodInfo create = harnessType.GetMethod(
+                "Create",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(create, Is.Not.Null);
+            object scenario = create.Invoke(
+                null,
+                new object[]
+                {
+                    historyCapacity,
+                    false,
+                    true,
+                    withDurableProjection,
+                    null
+                });
+            Assert.That(scenario, Is.Not.Null);
+            return scenario;
+        }
+
+        private static bool TryCapturePersistencePayload(
+            CoCoStateGraphHost host,
+            out byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = typeof(CoCoStateGraphHost).GetMethod(
+                "TryCapturePersistencePayload",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            object[] arguments = { null, null };
+            bool captured = (bool)method.Invoke(host, arguments);
+            payload = (byte[])arguments[0];
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return captured;
+        }
+
+        private static bool TryApplyPersistencePayload(
+            CoCoStateGraphHost host,
+            byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = typeof(CoCoStateGraphHost).GetMethod(
+                "TryApplyPersistencePayload",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            object[] arguments = { payload, null };
+            bool applied = (bool)method.Invoke(host, arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return applied;
+        }
+
+        private static object CreateTemporalHostSibling(
+            object sourceScenario,
+            int historyCapacity)
+        {
+            Type harnessType = Type.GetType(
+                "CoCoFlow.Tests.Runtime.StateGraphHost.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
+                true);
+            MethodInfo createSibling = harnessType.GetMethod(
+                "CreateSibling",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(createSibling, Is.Not.Null);
+            object scenario = createSibling.Invoke(
+                null,
+                new[]
+                {
+                    sourceScenario,
+                    (object)historyCapacity
+                });
+            Assert.That(scenario, Is.Not.Null);
+            return scenario;
+        }
+
+        private static void ResetStateGraphProjectBindings()
+        {
+            Type bridgeType = Type.GetType(
+                "CoCoFlow.Tests.Runtime.StateGraphHost.StateGraphHostPoolingTestBridge, CoCoFlow.Tests.Runtime.StateGraphHost",
+                false);
+            MethodInfo reset = bridgeType?.GetMethod(
+                "ResetProjectBindings",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            reset?.Invoke(null, null);
+        }
+
+        private static T ReadProperty<T>(
+            object target,
+            string propertyName)
+        {
+            Assert.That(target, Is.Not.Null);
+            PropertyInfo property = target.GetType().GetProperty(
+                propertyName,
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic);
+            Assert.That(
+                property,
+                Is.Not.Null,
+                target.GetType().FullName + "." + propertyName);
+            return (T)property.GetValue(target);
+        }
+
+        private static void SetProperty(
+            object target,
+            string propertyName,
+            object value)
+        {
+            Assert.That(target, Is.Not.Null);
+            PropertyInfo property = target.GetType().GetProperty(
+                propertyName,
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic);
+            MethodInfo setter = property?.GetSetMethod(true);
+            Assert.That(
+                setter,
+                Is.Not.Null,
+                target.GetType().FullName + "." + propertyName);
+            setter.Invoke(
+                target,
+                new[] { value });
+        }
+
         private static T ReadField<T>(object target, string fieldName)
         {
             FieldInfo field = target.GetType().GetField(
@@ -1241,6 +1849,61 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 (bool)method.Invoke(participant, arguments);
             diagnostic = (CoCoDiagnostic)arguments[1];
             return prepared;
+        }
+
+        private static bool TryPrepareForwardCapture(
+            object participant,
+            in CoCoTemporalFrameInfo candidate,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryPrepareForwardCapture");
+            object[] arguments = { candidate, null };
+            bool prepared =
+                (bool)method.Invoke(participant, arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return prepared;
+        }
+
+        private static void PoisonTransitionObservation(
+            AnimOperator animationOperator,
+            AnimPlaybackToken token)
+        {
+            FieldInfo field = typeof(AnimOperator).GetField(
+                "_transitionObservations",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            var observations = (Array)field.GetValue(animationOperator);
+            Type observationType =
+                observations.GetType().GetElementType();
+            Assert.That(observationType, Is.Not.Null);
+            ConstructorInfo constructor =
+                observationType.GetConstructor(
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    null,
+                    new[] { typeof(AnimPlaybackToken), typeof(bool) },
+                    null);
+            Assert.That(constructor, Is.Not.Null);
+            observations.SetValue(
+                constructor.Invoke(new object[] { token, true }),
+                0);
+        }
+
+        private static bool HasTransitionObservation(
+            AnimOperator animationOperator)
+        {
+            FieldInfo field = typeof(AnimOperator).GetField(
+                "_transitionObservations",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            var observations = (Array)field.GetValue(animationOperator);
+            object observation = observations.GetValue(0);
+            PropertyInfo hasValue = observation.GetType().GetProperty(
+                "HasValue",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(hasValue, Is.Not.Null);
+            return (bool)hasValue.GetValue(observation);
         }
 
         private static void InvokeTemporalParticipantNoFail(

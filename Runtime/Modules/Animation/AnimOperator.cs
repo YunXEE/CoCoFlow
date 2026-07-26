@@ -75,6 +75,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private ICoCoStateGraphTemporalParticipant
             _attachedDownstreamParticipant;
         private bool _downstreamParticipantAttached;
+        private bool _resetOnlyTemporalAttachment;
         private bool _authorityResetPrepared;
         private bool _temporalCallbackActive;
         private bool _restoreCallbackActive;
@@ -669,7 +670,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 _attachedTemporalHost != null ||
                 host == null ||
                 !ReferenceEquals(host, stateGraphHost) ||
-                historyCapacity <= 0 ||
+                historyCapacity < 0 ||
+                historyCapacity == 1 ||
                 !ReferenceEquals(host.ContextRestoreBinding, this) ||
                 !CoCoStateGraphHostBoundary.Contains(host, this) ||
                 !CoCoTemporalDecoratorChain.TryValidate(
@@ -690,6 +692,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
 
             _attachedTemporalHost = host;
+            _resetOnlyTemporalAttachment = historyCapacity == 0;
             if (_attachedDownstreamParticipant != null)
             {
                 bool downstreamAttached;
@@ -701,10 +704,15 @@ namespace CoCoFlow.Runtime.Modules.Animation
                                 host,
                                 historyCapacity,
                                 out diagnostic);
+                    if (downstreamAttached)
+                    {
+                        _downstreamParticipantAttached = true;
+                    }
                 }
                 catch (Exception exception)
                 {
                     downstreamAttached = false;
+                    _downstreamParticipantAttached = true;
                     diagnostic = AnimOperatorContracts.Error(
                         "The downstream Temporal participant threw during Animation attachment: " +
                         exception.Message);
@@ -712,13 +720,13 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
                 if (!downstreamAttached || diagnostic.IsError)
                 {
-                    if (downstreamAttached)
+                    if (_downstreamParticipantAttached)
                     {
-                        _downstreamParticipantAttached = true;
                         TryDetachDownstreamNoFail();
                     }
 
                     _attachedTemporalHost = null;
+                    _resetOnlyTemporalAttachment = false;
                     ClearFrozenDownstream();
                     if (!diagnostic.IsError)
                     {
@@ -729,8 +737,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     _lastDiagnostic = diagnostic;
                     return false;
                 }
-
-                _downstreamParticipantAttached = true;
             }
 
             if (!TryValidateFrozenDownstream(
@@ -740,6 +746,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             {
                 TryDetachDownstreamNoFail();
                 _attachedTemporalHost = null;
+                _resetOnlyTemporalAttachment = false;
                 ClearFrozenDownstream();
                 _lastDiagnostic = diagnostic;
                 return false;
@@ -771,6 +778,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             diagnostic = CoCoDiagnostic.None;
             if (_attachedTemporalHost == null ||
+                _resetOnlyTemporalAttachment ||
                 !_isInitialized ||
                 _temporalCallbackActive ||
                 _restoreCallbackActive ||
@@ -829,6 +837,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         void ICoCoStateGraphTemporalParticipant.PublishForwardCaptureNoFail()
         {
+            if (_resetOnlyTemporalAttachment)
+            {
+                return;
+            }
+
             if (_downstreamParticipantAttached)
             {
                 try
@@ -847,6 +860,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         void ICoCoStateGraphTemporalParticipant.CancelPreparedCaptureNoFail()
         {
+            if (_resetOnlyTemporalAttachment)
+            {
+                return;
+            }
+
             TryCancelDownstreamCaptureNoFail();
         }
 
@@ -1056,6 +1074,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         {
             TryDetachDownstreamNoFail();
             _attachedTemporalHost = null;
+            _resetOnlyTemporalAttachment = false;
             _authorityResetPrepared = false;
             _temporalCallbackActive = false;
             _restoreCallbackActive = false;
@@ -1232,7 +1251,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private void TryDetachDownstreamNoFail()
         {
-            if (_attachedDownstreamParticipant == null) return;
+            if (!_downstreamParticipantAttached ||
+                _attachedDownstreamParticipant == null)
+            {
+                return;
+            }
 
             try
             {

@@ -16,6 +16,7 @@ namespace CoCoFlow.Runtime.Core
         private readonly ICoCoStateGraphTemporalParticipant _participant;
         private readonly CoCoTemporalHistory _history;
         private readonly CoCoContextRestoreReadLease _readLease;
+        private bool _participantAttached;
         private CoCoTemporalMode _mode;
         private CoCoTemporalFrameInfo _previewInfo;
         private CoCoContextFrameReadView _activeAuthorityView;
@@ -35,6 +36,7 @@ namespace CoCoFlow.Runtime.Core
             MonoBehaviour bindingComponent,
             ICoCoContextRestoreBinding binding,
             ICoCoStateGraphTemporalParticipant participant,
+            bool participantAttached,
             CoCoTemporalHistory history)
         {
             _host = host;
@@ -44,6 +46,7 @@ namespace CoCoFlow.Runtime.Core
             _bindingComponent = bindingComponent;
             _binding = binding;
             _participant = participant;
+            _participantAttached = participantAttached;
             _history = history;
             _readLease = new CoCoContextRestoreReadLease();
             _mode = history == null
@@ -194,17 +197,37 @@ namespace CoCoFlow.Runtime.Core
                     CoCoStateGraphHostBoundary.Contains(host, bindingComponent)
                         ? bindingComponent
                         : null;
-                var participant = capacity > 0
-                    ? activeBindingComponent as ICoCoStateGraphTemporalParticipant
-                    : null;
-                if (participant != null &&
-                    !participant.TryAttachTemporalHost(
-                        host,
-                        capacity,
-                        out diagnostic))
+                var participant =
+                    activeBindingComponent as ICoCoStateGraphTemporalParticipant;
+                bool participantAttached = false;
+                if (capacity > 0 && participant != null)
                 {
-                    history?.Dispose();
-                    return false;
+                    try
+                    {
+                        participantAttached =
+                            participant.TryAttachTemporalHost(
+                                host,
+                                capacity,
+                                out diagnostic);
+                    }
+                    catch (Exception)
+                    {
+                        TryDetachParticipantNoFail(participant);
+                        diagnostic = HistoryError(
+                            CoCoDiagnosticCode.CommitPreparationFailed,
+                            "Temporal participant attachment threw before Host publication.");
+                    }
+
+                    if (!participantAttached || diagnostic.IsError)
+                    {
+                        if (participantAttached)
+                        {
+                            TryDetachParticipantNoFail(participant);
+                        }
+
+                        history?.Dispose();
+                        return false;
+                    }
                 }
 
                 controller = new CoCoStateGraphTemporalController(
@@ -215,14 +238,15 @@ namespace CoCoFlow.Runtime.Core
                     activeBindingComponent,
                     activeBindingComponent as ICoCoContextRestoreBinding,
                     participant,
+                    participantAttached,
                     history);
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }
             catch (Exception)
             {
-                (bindingComponent as ICoCoStateGraphTemporalParticipant)
-                    ?.DetachTemporalHostNoFail();
+                TryDetachParticipantNoFail(
+                    bindingComponent as ICoCoStateGraphTemporalParticipant);
                 history?.Dispose();
                 diagnostic = HistoryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
@@ -299,17 +323,37 @@ namespace CoCoFlow.Runtime.Core
 
         internal void PublishCaptureNoFail()
         {
-            _history?.PublishCaptureNoFail();
+            if (_history == null)
+            {
+                return;
+            }
+
+            _history.PublishCaptureNoFail();
             _participant?.PublishForwardCaptureNoFail();
         }
 
         internal void CancelPreparedCapture()
         {
-            _history?.CancelPreparedCapture();
+            if (_history == null)
+            {
+                return;
+            }
+
+            _history.CancelPreparedCapture();
             _participant?.CancelPreparedCaptureNoFail();
         }
 
         internal void DrainPublishedCleanupNoFail()
+        {
+            if (_history == null)
+            {
+                return;
+            }
+
+            DrainParticipantCleanupNoFail();
+        }
+
+        private void DrainParticipantCleanupNoFail()
         {
             try
             {
@@ -344,11 +388,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_binding != null && !TryRequireLiveBinding(out diagnostic))
-            {
-                return false;
-            }
-
             if (!CoCoStateGraphPersistencePayloadCodec.TryCreateImportedTickFrame(
                     runtime.Clock,
                     envelope,
@@ -361,6 +400,20 @@ namespace CoCoFlow.Runtime.Core
                     out CoCoTemporalFrameInfo persistedInfo,
                     out diagnostic))
             {
+                return false;
+            }
+
+            if (_binding != null &&
+                (!IsBindingComponentLive ||
+                 !TryEnsurePersistenceParticipantAttached(out diagnostic) ||
+                 !TryRequireLiveBinding(out diagnostic)))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = ConfigurationError(
+                        "Persistence import requires its original live Restore Binding inside the Host boundary.");
+                }
+
                 return false;
             }
 
@@ -477,7 +530,7 @@ namespace CoCoFlow.Runtime.Core
             _previewDepth = 0;
             _hasAppliedPreviewProjection = false;
             _previewInfo = ToPublicInfo(_transaction.CurrentContext);
-            DrainPublishedCleanupNoFail();
+            DrainParticipantCleanupNoFail();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -953,13 +1006,10 @@ namespace CoCoFlow.Runtime.Core
 
             _isDisposed = true;
             ClearActiveRead();
-            try
+            if (_participantAttached)
             {
-                _participant?.DetachTemporalHostNoFail();
-            }
-            catch (Exception)
-            {
-                // Host teardown cannot be rejected by an optional participant.
+                TryDetachParticipantNoFail(_participant);
+                _participantAttached = false;
             }
 
             _history?.Dispose();
@@ -1167,10 +1217,108 @@ namespace CoCoFlow.Runtime.Core
 
         private bool IsBindingLive =>
             _binding != null &&
+            IsBindingComponentLive &&
+            (!_participantAttached ||
+             IsParticipantLiveNoThrow());
+
+        private bool IsBindingComponentLive =>
             _bindingComponent != null &&
-            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent) &&
-            (_participant == null ||
-             _participant.IsTemporalParticipantLive(_host));
+            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent);
+
+        private bool TryEnsurePersistenceParticipantAttached(
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_participant == null)
+            {
+                return true;
+            }
+
+            if (_participantAttached)
+            {
+                if (IsParticipantLiveNoThrow())
+                {
+                    return true;
+                }
+
+                diagnostic = ConfigurationError(
+                    "Persistence Restore Binding participant is no longer attached to its exact Host.");
+                return false;
+            }
+
+            bool attached = false;
+            try
+            {
+                attached = _participant.TryAttachTemporalHost(
+                    _host,
+                    0,
+                    out diagnostic);
+            }
+            catch (Exception)
+            {
+                TryDetachParticipantNoFail(_participant);
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Persistence Restore Binding participant attachment threw before the Inbox barrier.");
+                return false;
+            }
+
+            if (!attached || diagnostic.IsError)
+            {
+                if (attached)
+                {
+                    TryDetachParticipantNoFail(_participant);
+                }
+
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = HistoryError(
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "Persistence Restore Binding participant rejected reset-only attachment.");
+                }
+
+                return false;
+            }
+
+            _participantAttached = true;
+            if (IsParticipantLiveNoThrow())
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            TryDetachParticipantNoFail(_participant);
+            _participantAttached = false;
+            diagnostic = ConfigurationError(
+                "Persistence Restore Binding participant became invalid during reset-only attachment.");
+            return false;
+        }
+
+        private bool IsParticipantLiveNoThrow()
+        {
+            try
+            {
+                return _participant != null &&
+                       _participant.IsTemporalParticipantLive(_host);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void TryDetachParticipantNoFail(
+            ICoCoStateGraphTemporalParticipant participant)
+        {
+            try
+            {
+                participant?.DetachTemporalHostNoFail();
+            }
+            catch (Exception)
+            {
+                // Attachment rollback and Host teardown cannot be rejected.
+            }
+        }
 
         private void ClearActiveRead()
         {
