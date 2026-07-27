@@ -32,6 +32,8 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         private Coroutine _deferredApplyCoroutine;
         private PersistenceContextRecord _deferredApplyRecord;
+        private object _deferredApplyToken;
+        private object _consumedStateGraphApplyToken;
 
         public string StableEntityId => stableEntityId;
         public string PrefabKey => prefabKey;
@@ -58,7 +60,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             PersistenceContextOperationResult result = TryApplyDetailed(record, out _);
             if (result == PersistenceContextOperationResult.Deferred)
             {
-                return TryScheduleDeferredApply(record, out _);
+                return TryScheduleDeferredApply(record, null, out _);
             }
 
             CancelDeferredApply();
@@ -215,6 +217,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         internal bool TryScheduleDeferredApply(
             PersistenceContextRecord record,
+            object applyToken,
             out string failure)
         {
             failure = string.Empty;
@@ -232,6 +235,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             }
 
             _deferredApplyRecord = record;
+            _deferredApplyToken = applyToken;
             if (_deferredApplyCoroutine == null)
             {
                 try
@@ -241,6 +245,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 catch (Exception exception)
                 {
                     _deferredApplyRecord = null;
+                    _deferredApplyToken = null;
                     failure =
                         "StateGraph ContextFrame deferred apply could not start: " +
                         exception.Message;
@@ -319,6 +324,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             while (_deferredApplyRecord != null)
             {
                 PersistenceContextRecord record = _deferredApplyRecord;
+                object applyToken = _deferredApplyToken;
                 PersistenceContextOperationResult result = TryApplyDetailed(
                     record,
                     out string failure);
@@ -328,12 +334,19 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                     continue;
                 }
 
-                if (!ReferenceEquals(record, _deferredApplyRecord))
+                if (result == PersistenceContextOperationResult.Applied)
+                {
+                    MarkStateGraphApplyConsumed(applyToken);
+                }
+
+                if (!ReferenceEquals(record, _deferredApplyRecord) ||
+                    !ReferenceEquals(applyToken, _deferredApplyToken))
                 {
                     continue;
                 }
 
                 _deferredApplyRecord = null;
+                _deferredApplyToken = null;
                 _deferredApplyCoroutine = null;
                 if (result == PersistenceContextOperationResult.Failed)
                 {
@@ -359,10 +372,25 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         internal void CancelDeferredApply()
         {
             _deferredApplyRecord = null;
+            _deferredApplyToken = null;
             if (_deferredApplyCoroutine == null) return;
 
             StopCoroutine(_deferredApplyCoroutine);
             _deferredApplyCoroutine = null;
+        }
+
+        internal bool HasConsumedStateGraphApply(object applyToken)
+        {
+            return applyToken != null &&
+                   ReferenceEquals(applyToken, _consumedStateGraphApplyToken);
+        }
+
+        internal void MarkStateGraphApplyConsumed(object applyToken)
+        {
+            if (applyToken != null)
+            {
+                _consumedStateGraphApplyToken = applyToken;
+            }
         }
 
         private static string FormatDiagnostic(

@@ -28,7 +28,11 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             if (pendingSection != null &&
                 pendingSection.TryGetRecord(context.StableEntityId, out var record))
             {
-                ApplyRecord(context, record, false);
+                ApplyRecord(
+                    context,
+                    record,
+                    PersistenceSession.PendingDocumentApplyToken,
+                    false);
             }
         }
 
@@ -87,6 +91,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public static void ApplySection(PersistenceContextSection section)
         {
+            ApplySection(section, new object());
+        }
+
+        internal static void ApplySection(
+            PersistenceContextSection section,
+            object applyToken)
+        {
             if (section == null) return;
 
             foreach (var record in section.records)
@@ -94,7 +105,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 if (record == null || string.IsNullOrEmpty(record.stableEntityId)) continue;
                 if (Contexts.TryGetValue(record.stableEntityId, out var context) && context != null)
                 {
-                    ApplyRecord(context, record, true);
+                    ApplyRecord(context, record, applyToken, true);
                 }
             }
         }
@@ -106,8 +117,16 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         private static void ApplyRecord(
             PersistenceContext context,
             PersistenceContextRecord record,
+            object applyToken,
             bool throwOnFailure)
         {
+            bool isStateGraphRecord = record.IsStateGraphContextRecord;
+            if (isStateGraphRecord &&
+                context.HasConsumedStateGraphApply(applyToken))
+            {
+                return;
+            }
+
             PersistenceContextOperationResult result = context.TryApplyDetailed(
                 record,
                 out string failure);
@@ -116,15 +135,27 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 context.CancelDeferredApply();
             }
 
-            if (result == PersistenceContextOperationResult.Applied ||
-                result == PersistenceContextOperationResult.Unsupported)
+            if (result == PersistenceContextOperationResult.Applied)
+            {
+                if (isStateGraphRecord)
+                {
+                    context.MarkStateGraphApplyConsumed(applyToken);
+                }
+
+                return;
+            }
+
+            if (result == PersistenceContextOperationResult.Unsupported)
             {
                 return;
             }
 
             if (result == PersistenceContextOperationResult.Deferred)
             {
-                if (context.TryScheduleDeferredApply(record, out failure))
+                if (context.TryScheduleDeferredApply(
+                        record,
+                        applyToken,
+                        out failure))
                 {
                     return;
                 }

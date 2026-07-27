@@ -226,6 +226,177 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(1));
         }
 
+        [Test]
+        public void PendingStateGraphRecordIsConsumedOncePerContextAndLoadSelection()
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 3,
+                    withDurableProjection: true));
+            AttachPersistence(source, StableEntityId);
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 41);
+            PersistenceSaveDocument firstPending = PersistenceSession.Capture(0);
+            StepWithActorValue(source, 42);
+            PersistenceSaveDocument secondPending = PersistenceSession.Capture(0);
+
+            Object.DestroyImmediate(source.GameObject);
+            TemporalHostTestScenario target = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 3));
+            PersistenceContext persistence = AttachPersistence(target, StableEntityId);
+            Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
+            StepWithActorValue(target, 90);
+
+            PersistenceSession.SetPendingDocument(firstPending);
+            PersistenceSession.ApplyPendingDocument();
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    target.Host.CurrentContext,
+                    target.Ids.ActorStateSlotId),
+                Is.EqualTo(41));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
+
+            StepWithActorValue(target, 91);
+            ulong advancedRevision = target.Host.CurrentContext.Revision.Value;
+            int advancedHistoryCount = target.Host.TemporalState.Count;
+            int advancedConfirmCount = target.Binding.ConfirmCount;
+
+            persistence.enabled = false;
+            persistence.enabled = true;
+            PersistenceSession.ApplyPendingDocument();
+
+            Assert.That(target.Host.CurrentContext.Revision.Value, Is.EqualTo(advancedRevision));
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    target.Host.CurrentContext,
+                    target.Ids.ActorStateSlotId),
+                Is.EqualTo(91));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(advancedHistoryCount));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(advancedConfirmCount));
+
+            PersistenceSession.SetPendingDocument(firstPending);
+            PersistenceSession.ApplyPendingDocument();
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    target.Host.CurrentContext,
+                    target.Ids.ActorStateSlotId),
+                Is.EqualTo(41));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(advancedConfirmCount + 1));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
+
+            PersistenceSession.SetPendingDocument(secondPending);
+            PersistenceSession.ApplyPendingDocument();
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    target.Host.CurrentContext,
+                    target.Ids.ActorStateSlotId),
+                Is.EqualTo(42));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(advancedConfirmCount + 2));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
+        }
+
+        [UnityTest]
+        public IEnumerator ConsumedPendingStateGraphRecordRemainsAvailableToReplacementContext()
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 3,
+                    withDurableProjection: true));
+            AttachPersistence(source, StableEntityId);
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 43);
+            PersistenceSaveDocument pending = PersistenceSession.Capture(0);
+
+            Object.DestroyImmediate(source.GameObject);
+            PersistenceSession.SetPendingDocument(pending);
+            TemporalHostTestScenario firstTarget = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 3));
+            AttachPersistence(firstTarget, StableEntityId);
+            Require(firstTarget.Host.TryStart(out CoCoDiagnostic firstStart), firstStart);
+            yield return null;
+            yield return null;
+
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    firstTarget.Host.CurrentContext,
+                    firstTarget.Ids.ActorStateSlotId),
+                Is.EqualTo(43));
+            Assert.That(firstTarget.Binding.ConfirmCount, Is.EqualTo(1));
+
+            Object.DestroyImmediate(firstTarget.GameObject);
+            TemporalHostTestScenario replacement = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 3));
+            AttachPersistence(replacement, StableEntityId);
+            Require(replacement.Host.TryStart(out CoCoDiagnostic replacementStart), replacementStart);
+            yield return null;
+            yield return null;
+
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    replacement.Host.CurrentContext,
+                    replacement.Ids.ActorStateSlotId),
+                Is.EqualTo(43));
+            Assert.That(replacement.Binding.ConfirmCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FailedPendingStateGraphRecordDoesNotConsumeLoadSelection()
+        {
+            TemporalHostTestScenario source = Track(
+                TemporalHostTestHarness.Create(
+                    historyCapacity: 3,
+                    withDurableProjection: true));
+            AttachPersistence(source, StableEntityId);
+            Require(source.Host.TryStart(out CoCoDiagnostic sourceStart), sourceStart);
+            StepWithActorValue(source, 44);
+            PersistenceSaveDocument pending = PersistenceSession.Capture(0);
+            Assert.That(
+                pending.contextSection.TryGetRecord(
+                    StableEntityId,
+                    out PersistenceContextRecord record),
+                Is.True);
+            byte[] validPayload = GetField<byte[]>(record, "stateGraphContextPayload");
+            SetField(record, "stateGraphContextPayload", new byte[] { 0x01 });
+
+            Object.DestroyImmediate(source.GameObject);
+            TemporalHostTestScenario target = Track(
+                TemporalHostTestHarness.CreateSibling(
+                    source,
+                    historyCapacity: 3));
+            AttachPersistence(target, StableEntityId);
+            Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
+            StepWithActorValue(target, 94);
+            ulong previousRevision = target.Host.CurrentContext.Revision.Value;
+            int previousHistoryCount = target.Host.TemporalState.Count;
+
+            PersistenceSession.SetPendingDocument(pending);
+            Assert.Throws<InvalidOperationException>(
+                () => PersistenceSession.ApplyPendingDocument());
+            AssertAuthorityUnchanged(
+                target,
+                previousRevision,
+                94,
+                previousHistoryCount);
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(0));
+
+            SetField(record, "stateGraphContextPayload", validPayload);
+            PersistenceSession.ApplyPendingDocument();
+            Assert.That(
+                TemporalHostTestHarness.ReadActorValue(
+                    target.Host.CurrentContext,
+                    target.Ids.ActorStateSlotId),
+                Is.EqualTo(44));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
+        }
+
         [UnityTest]
         public IEnumerator PendingStateGraphRecordAppliesAfterManualHostStart()
         {
@@ -245,9 +416,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 TemporalHostTestHarness.CreateSibling(
                     source,
                     historyCapacity: 3));
-            AttachPersistence(target, StableEntityId);
+            PersistenceContext persistence = AttachPersistence(target, StableEntityId);
             Assert.That(target.Host.CurrentContext.IsAlive, Is.False);
 
+            persistence.enabled = false;
+            persistence.enabled = true;
             Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
             yield return null;
             yield return null;
@@ -260,6 +433,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     target.Ids.ActorStateSlotId),
                 Is.EqualTo(55));
             Assert.That(target.Binding.Value, Is.EqualTo(55));
+            Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
+            Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
+
+            ulong restoredRevision = target.Host.CurrentContext.Revision.Value;
+            persistence.enabled = false;
+            persistence.enabled = true;
+            yield return null;
+
+            Assert.That(target.Host.CurrentContext.Revision.Value, Is.EqualTo(restoredRevision));
             Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
             Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
         }
@@ -1101,6 +1283,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             field.SetValue(target, value);
+        }
+
+        private static T GetField<T>(object target, string fieldName)
+        {
+            FieldInfo field = target.GetType().GetField(
+                fieldName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null)
+            {
+                throw new MissingFieldException(
+                    target.GetType().FullName,
+                    fieldName);
+            }
+
+            return (T)field.GetValue(target);
         }
 
         private static void Require(bool succeeded, CoCoDiagnostic diagnostic)

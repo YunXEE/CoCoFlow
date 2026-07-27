@@ -97,6 +97,34 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
+        public void SelectingPendingDocumentCreatesFreshRuntimeApplyToken()
+        {
+            var document = PersistenceSaveDocument.Create(
+                0,
+                new PersistenceContextSection(),
+                new PersistenceContainerSection());
+
+            PersistenceSession.SetPendingDocument(document);
+            object firstToken = GetPrivateStaticField<object>(
+                typeof(PersistenceSession),
+                "_pendingDocumentApplyToken");
+            Assert.IsNotNull(firstToken);
+
+            PersistenceSession.SetPendingDocument(document);
+            object secondToken = GetPrivateStaticField<object>(
+                typeof(PersistenceSession),
+                "_pendingDocumentApplyToken");
+            Assert.IsNotNull(secondToken);
+            Assert.AreNotSame(firstToken, secondToken);
+
+            PersistenceSession.ClearPendingDocument();
+            Assert.IsNull(
+                GetPrivateStaticField<object>(
+                    typeof(PersistenceSession),
+                    "_pendingDocumentApplyToken"));
+        }
+
+        [Test]
         public void StateGraphContextPayloadRoundTripsAsOpaqueBase64()
         {
             string previousOverride = PersistenceFileStore.SaveDirectoryOverride;
@@ -896,6 +924,15 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             Assert.IsNotNull(field, $"Field {fieldName} was not found on {target.GetType().Name}.");
             return (T)field.GetValue(target);
+        }
+
+        private static T GetPrivateStaticField<T>(System.Type type, string fieldName)
+        {
+            var field = type.GetField(
+                fieldName,
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, $"Field {fieldName} was not found on {type.Name}.");
+            return (T)field.GetValue(null);
         }
 
         private static DeferredStateGraphHostFixture CreateDeferredStateGraphHostFixture(
