@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Modules.Localization;
 using CoCoFlow.Runtime.Modules.Localization.UI;
 using CoCoFlow.Runtime.Modules.UI;
@@ -34,6 +35,64 @@ namespace CoCoFlow.Tests.Runtime.Localization
             Assert.IsNotEmpty(widget.LastDiagnostic.Message);
 
             Object.Destroy(gameObject);
+        }
+
+        [UnityTest]
+        public IEnumerator FailedAsyncLoadWithoutTextTargetRemainsDiagnosable()
+        {
+            FieldInfo instanceField = typeof(LocalizationSettings).GetField(
+                "s_Instance",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(instanceField);
+            var previousSettings =
+                instanceField.GetValue(null) as LocalizationSettings;
+            var settings =
+                ScriptableObject.CreateInstance<LocalizationSettings>();
+            Locale english = Locale.CreateLocale("en");
+            var tableProvider = new TestStringTableProvider();
+            settings.SetAvailableLocales(new TestLocalesProvider(english));
+            settings.SetStringDatabase(new LocalizedStringDatabase
+            {
+                TableProvider = tableProvider
+            });
+            LocalizationSettings.Instance = settings;
+            settings.SetSelectedLocale(english);
+
+            var panelObject = new GameObject("FailedLocalizedPanel");
+            panelObject.AddComponent<TestPanel>();
+            var widgetObject = new GameObject(
+                "FailedLocalizedWidget",
+                typeof(RectTransform),
+                typeof(CanvasGroup));
+            widgetObject.transform.SetParent(panelObject.transform, false);
+            widgetObject.SetActive(false);
+            var widget = widgetObject.AddComponent<UIWidgetLocalizedText>();
+            SetField(
+                widget,
+                "localizedString",
+                new LocalizedString("Pre14 Failure", "Missing"));
+            widgetObject.SetActive(true);
+            LogAssert.Expect(
+                LogType.Error,
+                new Regex("Expected Pre14 localization load failure"));
+            widget.SetArguments(new { binding = "Space" });
+
+            yield return null;
+            yield return null;
+
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.MissingTextTarget,
+                widget.LastDiagnostic.Code);
+            Assert.IsNotEmpty(widget.LastDiagnostic.Message);
+
+            widgetObject.SetActive(false);
+            Object.Destroy(widgetObject);
+            Object.Destroy(panelObject);
+            LocalizationSettings.Instance = previousSettings;
+            tableProvider.Dispose();
+            Object.Destroy(settings);
+            Object.Destroy(english);
+            yield return null;
         }
 
         [Test]
@@ -199,6 +258,13 @@ namespace CoCoFlow.Tests.Runtime.Localization
                 Locale locale)
                 where TTable : LocalizationTable
             {
+                if (tableCollectionName == "Pre14 Failure")
+                {
+                    return _resourceManager.CreateCompletedOperation<TTable>(
+                        null,
+                        "Expected Pre14 localization load failure.");
+                }
+
                 if (typeof(TTable) != typeof(StringTable) ||
                     locale == null ||
                     tableCollectionName != "Pre14 Prompts")

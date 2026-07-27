@@ -11,7 +11,10 @@ Its navigation stack, input focus, pause/cursor policy, DOTween transitions, and
 Pre14 adds `UIWidgetLocalizedText` in the separate
 `CoCoFlow.Runtime.Modules.Localization.UI` assembly. It derives from
 `UIWidgetBase` but does not change `UIWidgetBase`, `UIPanelBase`, navigation, or
-`UIManager`.
+`UIManager`. Like UI V2 itself, this assembly and
+`CoCoFlow.Runtime.Modules.Input.UI` are optional extensions gated by the
+UniTask, DOTween, and UniTask.DOTween support defines. Localization Core and
+Input Core do not inherit those optional dependencies.
 
 The Widget subscribes to `LocalizedString.StringChanged` only while enabled,
 refreshes from `ResetState()`, accepts Smart String arguments, and displays its

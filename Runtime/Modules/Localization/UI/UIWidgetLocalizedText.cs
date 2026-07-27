@@ -228,9 +228,18 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
             _loadObservation = null;
 
             if (!isActiveAndEnabled ||
+                _isPresentationSuppressed ||
                 !operation.IsValid() ||
                 operation.Status != AsyncOperationStatus.Failed)
             {
+                yield break;
+            }
+
+            if (targetText == null)
+            {
+                SetDiagnostic(
+                    LocalizationDiagnosticCode.MissingTextTarget,
+                    "The localized load failed without a TMP_Text target.");
                 yield break;
             }
 

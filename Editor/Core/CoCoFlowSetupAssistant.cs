@@ -46,24 +46,37 @@ namespace CoCoFlow.Editor.Core
                 new[] { "Unity.InputSystem" },
                 "Input System runtime module."),
             new ModuleDefinition(
-                "Input Prompt",
-                new string[0],
+                "Input Prompt (UI)",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
                 new[]
                 {
                     "Unity.InputSystem",
-                    "CoCoFlow.Runtime.Modules.Input.UI"
+                    "CoCoFlow.Runtime.Modules.Input",
+                    "CoCoFlow.Runtime.Modules.Input.UI",
+                    "CoCoFlow.Runtime.Modules.Localization.UI",
+                    "CoCoFlow.Runtime.Modules.UI"
                 },
-                "Binding display, device glyph, and localized prompt presentation."),
+                "Optional UI V2 binding display, device glyph, and localized prompt presentation."),
             new ModuleDefinition(
                 "Localization",
                 new string[0],
                 new[]
                 {
                     "Unity.Localization",
-                    "CoCoFlow.Runtime.Modules.Localization",
-                    "CoCoFlow.Runtime.Modules.Localization.UI"
+                    "CoCoFlow.Runtime.Modules.Localization"
                 },
-                "Official Unity Localization integration and localized UI Widget."),
+                "Official Unity Localization core integration and diagnostics."),
+            new ModuleDefinition(
+                "Localization (UI)",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
+                new[]
+                {
+                    "Unity.Localization",
+                    "Unity.TextMeshPro",
+                    "CoCoFlow.Runtime.Modules.Localization.UI",
+                    "CoCoFlow.Runtime.Modules.UI"
+                },
+                "Optional UI V2 localized text Widget."),
             new ModuleDefinition(
                 "Camera",
                 new string[0],

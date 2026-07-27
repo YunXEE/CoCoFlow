@@ -5,7 +5,7 @@
 > **版本**：0.4.0-pre.14 · **Unity**：6000+
 >
 > Pre14 新增以 PlayerInput 为权威的项目 Intent 输入入口、Unity 官方
-> Localization、可本屏刷新的本地化输入提示，以及绝不覆盖项目代码的
+> Localization Core、可选 UI V2 本地化输入提示，以及绝不覆盖项目代码的
 > Preview-first Project Scaffold。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
@@ -494,7 +494,7 @@ Addressable Map Binding 还必须由项目实现 `IRegionAddressableSceneResolve
 | Package | Version | 当前使用者 |
 |---|---:|---|
 | Input System | 1.18.0 | Input 模块 |
-| Localization | 1.5.9 | Localization 与本地化输入提示模块 |
+| Localization | 1.5.9 | Localization Core 与可选 UI V2 提示扩展 |
 | Newtonsoft Json | 3.2.2 | Persistence 过渡期模块 |
 | Cinemachine | 3.1.6 | Camera 过渡期模块 |
 | AI Navigation | 2.0.0 | Character 与 Enemy Navigation |
@@ -513,7 +513,11 @@ UniTask 仍由 Setup Assistant 管理。启用 `COCOFLOW_UNITASK_SUPPORT` 后编
 Content、Pooling、Pooling Temporal、UI、Map 与可选 Animation waiter。
 可选 Animation modulation adapter 使用 `COCOFLOW_DOTWEEN_SUPPORT`，并且只推进
 自身拥有的 tween；Addressables adapter 还需要对应 package version define。
-Setup Assistant 只报告模块可用性，不安装独立 Pool 或 Animation 包。
+`UIWidgetLocalizedText` 与 `InputPromptPresenter` 沿用 UI V2 契约，只有
+`COCOFLOW_UNITASK_SUPPORT`、`COCOFLOW_DOTWEEN_SUPPORT` 和
+`UNITASK_DOTWEEN_SUPPORT` 同时启用时才编译；Localization Core 与 Input Core
+不依赖这些可选集成。Setup Assistant 会分开报告这些 Surface，不安装独立 Pool 或
+Animation 包。
 
 ## 安装与验证
 

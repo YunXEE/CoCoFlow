@@ -25,6 +25,11 @@ Scheme and device layout, resolves binding display strings and glyphs, exposes
 continuous reads, and publishes prompt and input-fence changes. If
 `PlayerInput.actions` is replaced while enabled, `InputRuntime` unsubscribes the
 cached old collection, fences pending input, then subscribes the replacement.
+Action/Map Disable fences after Input System has synchronously emitted its
+Canceled callbacks. Re-enabled Actions whose controls are still actuated enter
+a neutral gate: Performed/Canceled callbacks remain suppressed until every
+bound control returns to its default value, and only the next physical input is
+accepted.
 
 ## Input fence
 
@@ -50,9 +55,12 @@ persists through `IInputBindingOverrideStore` and refreshes the prompt; cancel,
 operation failure, or storage failure restores the previous overrides.
 
 `InputGlyphCatalog` resolves an exact device-layout/control-path entry first,
-then an Input System base layout. `InputPromptPresenter` falls back to the
-binding display string and passes that display as a Smart String argument to
-`UIWidgetLocalizedText`.
+then an Input System base layout. The optional UI V2
+`InputPromptPresenter` falls back to the binding display string and passes that
+display as a Smart String argument to `UIWidgetLocalizedText`. This presenter
+assembly is available only when the existing UI V2 UniTask, DOTween, and
+UniTask.DOTween support defines are all enabled; Input Core remains available
+without them.
 
 Prompt binding selection prefers the current Control Scheme binding group and
 last-used exact/base device layout, then the binding group alone, the last-used

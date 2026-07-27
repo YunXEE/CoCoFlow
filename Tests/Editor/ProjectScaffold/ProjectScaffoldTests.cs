@@ -741,6 +741,62 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
             }
         }
 
+        public static void ValidateRealGeneratedProviderDetection()
+        {
+            string workingDirectory = Directory.GetCurrentDirectory();
+            var detector = new ProjectScaffoldProviderDetector();
+            IReadOnlyList<ProjectScaffoldProviderIdentity> providers =
+                detector.FindProviders(workingDirectory);
+            ProjectScaffoldProviderIdentity[] generated = providers
+                .Where(provider => provider.TypeIdentity.Contains(
+                    "CoCoFlowProject.ProjectStateGraphBindingProvider"))
+                .ToArray();
+            if (generated.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "The real detector did not find exactly one generated " +
+                    "secondary ProjectStateGraphBindingProvider. Found: " +
+                    generated.Length);
+            }
+
+            const string secondRoot =
+                "Assets/CoCoFlowProjectPre14SecondRoot";
+            var plan = ProjectScaffoldPlanner.Build(
+                new ProjectScaffoldRequest(
+                    secondRoot,
+                    ProjectScaffoldAssemblyMode.AssemblyCSharp),
+                workingDirectory,
+                detector);
+            if (plan.ExistingProviderPaths.Count != 1 ||
+                BindingContent(plan).Contains(
+                    "public sealed class ProjectStateGraphBindingProvider"))
+            {
+                throw new InvalidOperationException(
+                    "A second Preview did not reuse the real compiled " +
+                    "Provider identity.");
+            }
+        }
+
+        public static void ValidateMultipleRealProvidersBlockApply()
+        {
+            string workingDirectory = Directory.GetCurrentDirectory();
+            var detector = new ProjectScaffoldProviderDetector();
+            var plan = ProjectScaffoldPlanner.Build(
+                new ProjectScaffoldRequest(
+                    "Assets/CoCoFlowProjectPre14MultipleProviderCheck",
+                    ProjectScaffoldAssemblyMode.AssemblyCSharp),
+                workingDirectory,
+                detector);
+            if (plan.ExistingProviderPaths.Count < 2 ||
+                plan.CanApply ||
+                !plan.Conflicts.Any(conflict => conflict.Contains(
+                    "Multiple ICoCoStateGraphProjectBindingProvider")))
+            {
+                throw new InvalidOperationException(
+                    "Two real compiled project Providers did not block Apply.");
+            }
+        }
+
         public static void CleanValidation()
         {
             if (!File.Exists(ValidationMarker))

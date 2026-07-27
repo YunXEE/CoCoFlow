@@ -13,9 +13,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
   fixed-allocation `InputCommandQueue<TCommand>`, unmanaged eight-command
   `InputCommandBatch<TCommand>`, stable-ID transactional rebinds, prompt
   snapshots, and exact/base-layout glyph lookup.
-- Official `com.unity.localization@1.5.9` integration, localization diagnostics,
-  `UIWidgetLocalizedText`, and `InputPromptPresenter`. Smart String binding
-  arguments and fallback text refresh inside the current Screen.
+- Official `com.unity.localization@1.5.9` core integration and localization
+  diagnostics, plus optional UI V2 `UIWidgetLocalizedText` and
+  `InputPromptPresenter` extensions. Smart String binding arguments and
+  fallback text refresh inside the current Screen when UI V2 support is
+  enabled.
 - Preview-first `ProjectScaffoldWindow` with an always engine-free
   `CoCoFlowProject.Graph` assembly and an Assembly-CSharp or custom-asmdef
   Unity-facing Runtime layer. The generated starter includes a real semantic
@@ -36,7 +38,9 @@ projects and does not include a migration runtime for 0.3.9 projects.
   `CoCoFlow.*`.
 - Added Action Map, rebind, source-disable, Host lifecycle, and Temporal
   Preview/restore fences so queued commands and continuous snapshots cannot
-  burst after authority resumes.
+  burst after authority resumes. Action/Map Enable and rebind restore now gate
+  actuated controls until they return to neutral, so held input cannot be
+  mistaken for a new post-fence command.
 - Added `InputAuthorityRevision` so same-frame lifecycle, Temporal, and
   Persistence restore boundaries cannot become input-transparent. Prompt
   selection now follows Control Scheme binding groups and the actual last-used
@@ -48,36 +52,29 @@ projects and does not include a migration runtime for 0.3.9 projects.
   reports staging cleanup independently from project-code rollback.
 - Updated package metadata, Setup Assistant status, docs, and validation
   exception scopes to `0.4.0-pre.14`.
+- Setup Assistant now reports default Localization Core separately from the
+  optional Localization UI and Input Prompt UI extensions, which retain the
+  three existing UI V2 support-define requirements.
 
 ### Verification
 
-- `PASS`: Unity 6000.3.20f1 focused EditMode: Input `6/6`, Scaffold `12/12`,
-  Setup/version/module/atomic-write `32/32`, and naming `1/1`; focused PlayMode:
-  Input `6/6`, Localization `3/3`, Host lifecycle `40/40`, Temporal
-  `19/19`, and Persistence `18/18`.
-- `PASS`: generated Assembly-CSharp and custom-asmdef Scaffold outputs,
-  including the no-existing-provider route, compiled in the CoCoLab host.
-  Their pure Graph Catalogs instantiated without Unity/Input references, and
-  both modes completed a generated Source → State → Operation → Operator
-  closed loop before marker-protected cleanup.
-- `PASS`: the warmed Queue/Batch loop completed 1,000 enqueue/drain cycles with
-  zero managed bytes allocated on the measured thread.
-- `PASS`: an isolated CoCoLab-derived host built a macOS Universal
-  `x86_64 + arm64` Player with IL2CPP and Standalone High Managed Stripping.
-  The host included a real generated Assembly-CSharp Scaffold plus an explicit
-  retention initializer; IL2CPP code registration contains the pure Graph,
-  Input, Input UI, Localization, and Localization UI assemblies. The unrelated
-  CoCoLab Pre6 Graph asset was isolated from this build because it has no
-  project Editor Catalog Provider.
-- `BASELINE`: package-wide PlayMode is
-  `395 PASS / 6 FAIL / 2 INCONCLUSIVE` versus exact `5bde783` at
-  `383 PASS / 6 FAIL / 2 INCONCLUSIVE`; all non-pass names are unchanged.
-  Package-wide EditMode is `625 PASS / 13 FAIL / 1 SKIP`; failures remain
-  limited to pre-existing Core boundary, Map, Pooling, and Editor validation
-  categories. The exact baseline itself varied from `9` to `11` failures
-  across immediate repeated runs, so focused deterministic gates and unchanged
-  Map/Pooling source are the regression authority rather than one unstable
-  aggregate failure count.
+- `PASS`: Unity 6000.3.20f1 focused EditMode Input `6/6`, Scaffold `12/12`,
+  and Setup Assistant module contracts `10/10`; focused PlayMode Input `11/11`
+  and Localization `4/4`.
+- `PASS`: Assembly-CSharp and custom-asmdef Scaffold outputs compiled in
+  CoCoLab. The real `TypeCache` plus `CompilationPipeline` detector recognized
+  the generated secondary Provider in `ProjectStateGraphBindings.cs`, a second
+  Preview omitted another Provider, and two real compiled Providers blocked
+  Apply.
+- `PASS`: a fresh default host with no UI V2 support defines compiled Input
+  Core, Localization Core, Setup Assistant, and Project Scaffold Editor
+  assemblies while the UI, Localization UI, and Input Prompt UI assemblies
+  remained intentionally absent.
+- `PASS`: warmed Queue/Batch and Neutral Gate polling each completed 1,000
+  iterations with zero managed bytes allocated on the measured thread.
+- Package-wide EditMode/PlayMode baseline comparison, generated runtime-loop
+  validation, and macOS Universal IL2CPP High-Stripping evidence are recorded
+  against the exact final Head in PR #30.
 - `SKIPPED`: Unity Package Validation Suite is not installed locally and was
   explicitly waived for this delivery.
 

@@ -5,8 +5,8 @@
 > **Version**: 0.4.0-pre.14 · **Unity**: 6000+
 >
 > Pre14 adds the PlayerInput-authoritative project Intent entry, official Unity
-> Localization integration, localized input prompts, and a preview-first
-> project scaffold that never overwrites project code.
+> Localization Core, optional UI V2 localized input prompts, and a
+> preview-first project scaffold that never overwrites project code.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -589,7 +589,7 @@ not define the address-to-Scene mapping.
 | Package | Version | Current owner |
 |---|---:|---|
 | Input System | 1.18.0 | Input module |
-| Localization | 1.5.9 | Localization and localized prompt modules |
+| Localization | 1.5.9 | Localization Core and optional UI V2 prompt extensions |
 | Newtonsoft Json | 3.2.2 | Persistence transitional module |
 | Cinemachine | 3.1.6 | Camera transitional module |
 | AI Navigation | 2.0.0 | Character and Enemy navigation |
@@ -609,8 +609,11 @@ Map, and the optional Animation waiter compile when
 `COCOFLOW_UNITASK_SUPPORT` is enabled. The optional Animation modulation adapter
 uses `COCOFLOW_DOTWEEN_SUPPORT`; it advances only tweens it owns. The optional
 Addressables assembly also requires the Addressables package version define.
-Setup Assistant reports module availability but does not install separate Pool
-or Animation packages.
+`UIWidgetLocalizedText` and `InputPromptPresenter` follow UI V2 and compile only
+when `COCOFLOW_UNITASK_SUPPORT`, `COCOFLOW_DOTWEEN_SUPPORT`, and
+`UNITASK_DOTWEEN_SUPPORT` are all enabled. Localization Core and Input Core
+compile without those optional integrations. Setup Assistant reports these
+surfaces separately and does not install separate Pool or Animation packages.
 
 ## Installation and Validation
 

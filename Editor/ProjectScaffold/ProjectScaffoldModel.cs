@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
+using UnityEditor.Compilation;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
     "CoCoFlow.Tests.Editor.ProjectScaffold")]
@@ -149,6 +150,8 @@ namespace CoCoFlow.Editor.ProjectScaffold
             var providerTypes = TypeCache
                 .GetTypesDerivedFrom<ICoCoStateGraphProjectBindingProvider>();
             MonoScript[] scripts = MonoImporter.GetAllRuntimeMonoScripts();
+            UnityEditor.Compilation.Assembly[] assemblies =
+                CompilationPipeline.GetAssemblies(AssembliesType.Player);
             var providers = new List<ProjectScaffoldProviderIdentity>();
             foreach (Type type in providerTypes)
             {
@@ -157,33 +160,169 @@ namespace CoCoFlow.Editor.ProjectScaffold
                     continue;
                 }
 
-                for (int index = 0; index < scripts.Length; index++)
+                if (!TryFindProjectAssemblyProvenance(
+                        type,
+                        assemblies,
+                        workingDirectory,
+                        out string path))
                 {
-                    MonoScript script = scripts[index];
-                    if (script == null || script.GetClass() != type)
-                    {
-                        continue;
-                    }
-
-                    string path = ProjectScaffoldRequest.Normalize(
-                        AssetDatabase.GetAssetPath(script));
-                    if (path.StartsWith("Assets/", StringComparison.Ordinal))
-                    {
-                        providers.Add(new ProjectScaffoldProviderIdentity(
-                            path,
-                            type.AssemblyQualifiedName));
-                    }
-
-                    break;
+                    continue;
                 }
+
+                string exactPath = FindExactProjectScript(type, scripts);
+                if (!string.IsNullOrEmpty(exactPath))
+                {
+                    path = exactPath;
+                }
+
+                providers.Add(new ProjectScaffoldProviderIdentity(
+                    path,
+                    type.AssemblyQualifiedName ??
+                    type.FullName + ", " + type.Assembly.GetName().Name));
             }
 
             return providers
+                .GroupBy(
+                    provider => provider.TypeIdentity,
+                    StringComparer.Ordinal)
+                .Select(group => group.First())
                 .OrderBy(
                     provider => provider.TypeIdentity,
                     StringComparer.Ordinal)
                 .ThenBy(provider => provider.Path, StringComparer.Ordinal)
                 .ToArray();
+        }
+
+        private static string FindExactProjectScript(
+            Type type,
+            IReadOnlyList<MonoScript> scripts)
+        {
+            for (int index = 0; index < scripts.Count; index++)
+            {
+                MonoScript script = scripts[index];
+                if (script == null || script.GetClass() != type)
+                {
+                    continue;
+                }
+
+                string path = ProjectScaffoldRequest.Normalize(
+                    AssetDatabase.GetAssetPath(script));
+                if (path.StartsWith("Assets/", StringComparison.Ordinal))
+                {
+                    return path;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static bool TryFindProjectAssemblyProvenance(
+            Type type,
+            IReadOnlyList<UnityEditor.Compilation.Assembly> assemblies,
+            string workingDirectory,
+            out string path)
+        {
+            path = string.Empty;
+            string assemblyName = type.Assembly.GetName().Name;
+            UnityEditor.Compilation.Assembly assembly = assemblies
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.name,
+                        assemblyName,
+                        StringComparison.Ordinal));
+            if (assembly == null)
+            {
+                return false;
+            }
+
+            bool hasProjectSource = assembly.sourceFiles.Any(source =>
+                TryNormalizeProjectAssetPath(
+                    source,
+                    workingDirectory,
+                    out _));
+            if (!hasProjectSource)
+            {
+                return false;
+            }
+
+            string assemblyDefinitionPath =
+                CompilationPipeline
+                    .GetAssemblyDefinitionFilePathFromAssemblyName(
+                        assemblyName);
+            if (TryNormalizeProjectAssetPath(
+                    assemblyDefinitionPath,
+                    workingDirectory,
+                    out string normalizedAssemblyDefinition))
+            {
+                path = normalizedAssemblyDefinition;
+                return true;
+            }
+
+            path = "Assets/ (" + assemblyName + " project sources)";
+            return true;
+        }
+
+        private static bool TryNormalizeProjectAssetPath(
+            string candidate,
+            string workingDirectory,
+            out string assetPath)
+        {
+            assetPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(candidate) ||
+                string.IsNullOrWhiteSpace(workingDirectory))
+            {
+                return false;
+            }
+
+            string normalizedCandidate =
+                ProjectScaffoldRequest.Normalize(candidate);
+            if (normalizedCandidate.StartsWith(
+                    "Assets/",
+                    StringComparison.Ordinal))
+            {
+                assetPath = normalizedCandidate;
+                return true;
+            }
+
+            string projectRoot;
+            string absoluteCandidate;
+            try
+            {
+                projectRoot = Path.GetFullPath(workingDirectory)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar);
+                absoluteCandidate = Path.GetFullPath(
+                    Path.IsPathRooted(candidate)
+                        ? candidate
+                        : Path.Combine(workingDirectory, candidate));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+            string prefix = projectRoot + Path.DirectorySeparatorChar;
+            StringComparison pathComparison =
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+            if (!absoluteCandidate.StartsWith(
+                    prefix,
+                    pathComparison))
+            {
+                return false;
+            }
+
+            string relative = ProjectScaffoldRequest.Normalize(
+                absoluteCandidate.Substring(prefix.Length));
+            if (!relative.StartsWith("Assets/", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            assetPath = relative;
+            return true;
         }
     }
 
