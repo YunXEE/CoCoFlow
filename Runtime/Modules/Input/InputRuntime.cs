@@ -32,7 +32,8 @@ namespace CoCoFlow.Runtime.Modules.Input
         private string _legacyBufferedAction = string.Empty;
         private string _currentControlScheme = string.Empty;
         private string _currentDeviceLayout = string.Empty;
-        private bool _isSubscribed;
+        private string _lastUsedDeviceLayout = string.Empty;
+        private InputActionAsset _subscribedActions;
 
         public PlayerInput PlayerInput => playerInput;
         public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
@@ -81,12 +82,13 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void OnEnable()
         {
-            SubscribeActions();
+            ReconcileActionSubscriptions(false);
             UpdatePresentationAuthority(true);
         }
 
         private void Update()
         {
+            ReconcileActionSubscriptions(true);
             SampleLegacyContinuousValues();
             UpdatePresentationAuthority(false);
         }
@@ -148,13 +150,11 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         public bool TryGetPrompt(
             InputActionReference actionReference,
-            int bindingIndex,
             out InputPromptSnapshot snapshot)
         {
             snapshot = default;
             if (!TryResolveAction(actionReference, out InputAction action) ||
-                bindingIndex < 0 ||
-                bindingIndex >= action.bindings.Count)
+                !TrySelectPromptBinding(action, out int bindingIndex))
             {
                 return false;
             }
@@ -337,33 +337,48 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
         }
 
-        private void SubscribeActions()
+        private void ReconcileActionSubscriptions(bool notify)
         {
-            if (_isSubscribed || Actions == null)
+            InputActionAsset next = Actions;
+            if (ReferenceEquals(_subscribedActions, next))
             {
                 return;
             }
 
-            foreach (InputActionMap map in Actions.actionMaps)
+            UnsubscribeActions();
+            _subscribedActions = next;
+            if (_subscribedActions != null)
             {
-                foreach (InputAction action in map.actions)
+                foreach (InputActionMap map in _subscribedActions.actionMaps)
                 {
-                    action.performed += OnActionPerformed;
-                    action.canceled += OnActionCanceled;
+                    foreach (InputAction action in map.actions)
+                    {
+                        action.performed += OnActionPerformed;
+                        action.canceled += OnActionCanceled;
+                    }
                 }
             }
 
-            _isSubscribed = true;
+            if (!notify)
+            {
+                return;
+            }
+
+            _lastUsedDeviceLayout = string.Empty;
+            FenceInput();
+            UpdatePresentationAuthority(true);
         }
 
         private void UnsubscribeActions()
         {
-            if (!_isSubscribed || Actions == null)
+            InputActionAsset subscribed = _subscribedActions;
+            _subscribedActions = null;
+            if (subscribed == null)
             {
                 return;
             }
 
-            foreach (InputActionMap map in Actions.actionMaps)
+            foreach (InputActionMap map in subscribed.actionMaps)
             {
                 foreach (InputAction action in map.actions)
                 {
@@ -371,12 +386,11 @@ namespace CoCoFlow.Runtime.Modules.Input
                     action.canceled -= OnActionCanceled;
                 }
             }
-
-            _isSubscribed = false;
         }
 
         private void OnActionPerformed(InputAction.CallbackContext context)
         {
+            UpdateLastUsedDevice(context.control?.device);
             _legacyBufferedAction = context.action.name;
             _legacyActionPerformed?.Invoke(context.action.name);
             ActionChanged?.Invoke(
@@ -385,6 +399,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void OnActionCanceled(InputAction.CallbackContext context)
         {
+            UpdateLastUsedDevice(context.control?.device);
             _legacyActionCanceled?.Invoke(context.action.name);
             ActionChanged?.Invoke(
                 new InputActionEvent(context.action, InputActionPhase.Canceled));
@@ -408,10 +423,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             string nextControlScheme = playerInput != null
                 ? playerInput.currentControlScheme ?? string.Empty
                 : string.Empty;
-            string nextDeviceLayout =
-                playerInput != null && playerInput.devices.Count > 0
-                    ? playerInput.devices[0].layout ?? string.Empty
-                    : string.Empty;
+            string nextDeviceLayout = ResolvePresentationDeviceLayout();
             if (!force &&
                 string.Equals(
                     _currentControlScheme,
@@ -428,6 +440,154 @@ namespace CoCoFlow.Runtime.Modules.Input
             _currentControlScheme = nextControlScheme;
             _currentDeviceLayout = nextDeviceLayout;
             PromptChanged?.Invoke();
+        }
+
+        private bool TrySelectPromptBinding(
+            InputAction action,
+            out int bindingIndex)
+        {
+            bindingIndex = -1;
+            if (action == null)
+            {
+                return false;
+            }
+
+            string bindingGroup = string.Empty;
+            InputActionAsset actions = Actions;
+            if (actions != null && !string.IsNullOrEmpty(_currentControlScheme))
+            {
+                InputControlScheme? scheme =
+                    actions.FindControlScheme(_currentControlScheme);
+                if (scheme.HasValue)
+                {
+                    bindingGroup = scheme.Value.bindingGroup ?? string.Empty;
+                }
+            }
+
+            InputBinding groupMask = string.IsNullOrEmpty(bindingGroup)
+                ? default
+                : InputBinding.MaskByGroup(bindingGroup);
+            int bestScore = -1;
+            for (int index = 0; index < action.bindings.Count; index++)
+            {
+                InputBinding binding = action.bindings[index];
+                if (binding.isPartOfComposite ||
+                    string.IsNullOrEmpty(binding.effectivePath))
+                {
+                    continue;
+                }
+
+                string display = action.GetBindingDisplayString(
+                    index,
+                    out string deviceLayout,
+                    out _);
+                if (string.IsNullOrEmpty(display))
+                {
+                    continue;
+                }
+
+                bool groupMatches =
+                    !string.IsNullOrEmpty(bindingGroup) &&
+                    groupMask.Matches(binding);
+                bool layoutMatches =
+                    LayoutMatches(_currentDeviceLayout, deviceLayout);
+                int score = groupMatches
+                    ? layoutMatches ? 3 : 2
+                    : layoutMatches ? 1 : 0;
+                if (score <= bestScore)
+                {
+                    continue;
+                }
+
+                bestScore = score;
+                bindingIndex = index;
+                if (bestScore == 3)
+                {
+                    break;
+                }
+            }
+
+            return bindingIndex >= 0;
+        }
+
+        private void UpdateLastUsedDevice(InputDevice device)
+        {
+            if (device == null || playerInput == null)
+            {
+                return;
+            }
+
+            bool paired = false;
+            for (int index = 0; index < playerInput.devices.Count; index++)
+            {
+                if (ReferenceEquals(playerInput.devices[index], device))
+                {
+                    paired = true;
+                    break;
+                }
+            }
+
+            string layout = paired ? device.layout ?? string.Empty : string.Empty;
+            if (string.IsNullOrEmpty(layout) ||
+                string.Equals(
+                    _lastUsedDeviceLayout,
+                    layout,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastUsedDeviceLayout = layout;
+            UpdatePresentationAuthority(false);
+        }
+
+        private string ResolvePresentationDeviceLayout()
+        {
+            if (playerInput == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(_lastUsedDeviceLayout))
+            {
+                for (int index = 0; index < playerInput.devices.Count; index++)
+                {
+                    string pairedLayout =
+                        playerInput.devices[index]?.layout ?? string.Empty;
+                    if (LayoutMatches(
+                            pairedLayout,
+                            _lastUsedDeviceLayout) ||
+                        LayoutMatches(
+                            _lastUsedDeviceLayout,
+                            pairedLayout))
+                    {
+                        return _lastUsedDeviceLayout;
+                    }
+                }
+            }
+
+            return playerInput.devices.Count > 0
+                ? playerInput.devices[0]?.layout ?? string.Empty
+                : string.Empty;
+        }
+
+        private static bool LayoutMatches(
+            string currentLayout,
+            string bindingLayout)
+        {
+            if (string.IsNullOrEmpty(currentLayout) ||
+                string.IsNullOrEmpty(bindingLayout))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                       currentLayout,
+                       bindingLayout,
+                       StringComparison.Ordinal) ||
+                   InputSystem.IsFirstLayoutBasedOnSecond(
+                       currentLayout,
+                       bindingLayout);
         }
 
         private void OnValidate()

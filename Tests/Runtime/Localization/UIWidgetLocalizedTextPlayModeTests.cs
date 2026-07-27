@@ -110,13 +110,29 @@ namespace CoCoFlow.Tests.Runtime.Localization
             yield return null;
             Assert.AreEqual("Appuyez sur Enter", target.text);
 
+            widget.ClearPresentation();
+            Assert.AreEqual(string.Empty, target.text);
+            Assert.IsFalse(localizedString.HasChangeHandler);
+            Assert.IsEmpty(localizedString.Arguments);
+            settings.SetSelectedLocale(english);
+            yield return null;
+            yield return null;
+            Assert.AreEqual(string.Empty, target.text);
+            widget.ResetState();
+            Assert.AreEqual(string.Empty, target.text);
+
+            widget.SetFallback("Space");
+            widget.SetArguments(new { binding = "Space" });
+            yield return null;
+            Assert.AreEqual("Press Space", target.text);
+
             widgetObject.SetActive(false);
             Assert.IsFalse(localizedString.HasChangeHandler);
 
             widgetObject.SetActive(true);
             yield return null;
             Assert.IsTrue(localizedString.HasChangeHandler);
-            Assert.AreEqual("Appuyez sur Enter", target.text);
+            Assert.AreEqual("Press Space", target.text);
 
             widgetObject.SetActive(false);
             Object.Destroy(widgetObject);

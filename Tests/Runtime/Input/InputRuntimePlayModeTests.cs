@@ -71,6 +71,8 @@ namespace CoCoFlow.Tests.Runtime.Input
                 .WithRequiredDevice("<Keyboard>");
             actions.AddControlScheme("Gamepad")
                 .WithRequiredDevice("<Gamepad>");
+            InputActionReference reference =
+                InputActionReference.Create(submit);
 
             var gameObject = new GameObject("InputAuthorityTest");
             gameObject.SetActive(false);
@@ -84,13 +86,28 @@ namespace CoCoFlow.Tests.Runtime.Input
             yield return null;
             Assert.AreEqual("Gamepad", runtime.CurrentControlScheme);
             Assert.AreEqual("Gamepad", runtime.CurrentDeviceLayout);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot gamepadPrompt));
+            Assert.AreEqual(1, gamepadPrompt.BindingIndex);
+            StringAssert.Contains(
+                "button",
+                gamepadPrompt.ControlPath.ToLowerInvariant());
 
             playerInput.SwitchCurrentControlScheme("Keyboard", keyboard);
             yield return null;
             Assert.AreEqual("Keyboard", runtime.CurrentControlScheme);
             Assert.AreEqual("Keyboard", runtime.CurrentDeviceLayout);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot keyboardPrompt));
+            Assert.AreEqual(0, keyboardPrompt.BindingIndex);
+            StringAssert.Contains(
+                "space",
+                keyboardPrompt.ControlPath.ToLowerInvariant());
 
             Object.Destroy(gameObject);
+            Object.Destroy(reference);
             Object.Destroy(actions);
             yield return null;
         }
@@ -150,7 +167,6 @@ namespace CoCoFlow.Tests.Runtime.Input
                 runtimeAction.bindings[0].effectivePath.ToLowerInvariant());
             Assert.IsTrue(runtime.TryGetPrompt(
                 reference,
-                0,
                 out InputPromptSnapshot prompt));
             StringAssert.Contains(
                 "enter",
@@ -204,6 +220,165 @@ namespace CoCoFlow.Tests.Runtime.Input
             Object.Destroy(reference);
             Object.Destroy(actions);
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator LastUsedDeviceSelectsBindingWithinOneControlScheme()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            Mouse mouse = InputSystem.AddDevice<Mouse>();
+            var actions = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            InputAction submit = map.AddAction(
+                "Submit",
+                InputActionType.Button);
+            submit.AddBinding("<Keyboard>/space")
+                .WithGroup("KeyboardMouse");
+            submit.AddBinding("<Mouse>/leftButton")
+                .WithGroup("KeyboardMouse");
+            actions.AddActionMap(map);
+            actions.AddControlScheme("KeyboardMouse")
+                .WithRequiredDevice("<Keyboard>")
+                .WithRequiredDevice("<Mouse>");
+            InputActionReference reference =
+                InputActionReference.Create(submit);
+
+            var gameObject = new GameObject("LastUsedDeviceTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            gameObject.SetActive(true);
+            yield return null;
+
+            playerInput.SwitchCurrentControlScheme(
+                "KeyboardMouse",
+                keyboard,
+                mouse);
+            Assert.IsTrue(runtime.TryResolveAction(
+                submit.id,
+                out InputAction runtimeAction));
+            runtimeAction.Enable();
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.AreEqual("Keyboard", runtime.CurrentDeviceLayout);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot keyboardPrompt));
+            Assert.AreEqual(0, keyboardPrompt.BindingIndex);
+
+            Press(mouse.leftButton);
+            InputSystem.Update();
+            Release(mouse.leftButton);
+            InputSystem.Update();
+            Assert.AreEqual("Mouse", runtime.CurrentDeviceLayout);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot mousePrompt));
+            Assert.AreEqual(1, mousePrompt.BindingIndex);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(reference);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ReplacingPlayerInputActionsReconcilesExactSubscriptions()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset first = CreateButtonAsset(
+                "First",
+                "<Keyboard>/a",
+                out InputAction firstAuthored);
+            InputActionAsset second = CreateButtonAsset(
+                "Second",
+                "<Keyboard>/b",
+                out InputAction secondAuthored);
+
+            var gameObject = new GameObject("ActionAssetReplacementTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = first;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            gameObject.SetActive(true);
+            yield return null;
+
+            int firstEvents = 0;
+            int secondEvents = 0;
+            runtime.ActionChanged += actionEvent =>
+            {
+                if (actionEvent.Action.name == "First")
+                {
+                    firstEvents++;
+                }
+                else if (actionEvent.Action.name == "Second")
+                {
+                    secondEvents++;
+                }
+            };
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                firstAuthored.id,
+                out InputAction firstRuntimeAction));
+            firstRuntimeAction.Enable();
+            Press(keyboard.aKey);
+            InputSystem.Update();
+            Release(keyboard.aKey);
+            InputSystem.Update();
+            Assert.Greater(firstEvents, 0);
+
+            playerInput.actions = second;
+            yield return null;
+            Assert.IsTrue(runtime.TryResolveAction(
+                secondAuthored.id,
+                out InputAction secondRuntimeAction));
+            firstRuntimeAction.Enable();
+            secondRuntimeAction.Enable();
+            int firstBeforeOldAssetInput = firstEvents;
+
+            Press(keyboard.aKey);
+            InputSystem.Update();
+            Release(keyboard.aKey);
+            InputSystem.Update();
+            Assert.AreEqual(firstBeforeOldAssetInput, firstEvents);
+
+            Press(keyboard.bKey);
+            InputSystem.Update();
+            Release(keyboard.bKey);
+            InputSystem.Update();
+            Assert.Greater(secondEvents, 0);
+
+            runtime.enabled = false;
+            int secondBeforeDisableInput = secondEvents;
+            Press(keyboard.bKey);
+            InputSystem.Update();
+            Release(keyboard.bKey);
+            InputSystem.Update();
+            Assert.AreEqual(secondBeforeDisableInput, secondEvents);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(first);
+            Object.Destroy(second);
+            yield return null;
+        }
+
+        private static InputActionAsset CreateButtonAsset(
+            string actionName,
+            string binding,
+            out InputAction action)
+        {
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            action = map.AddAction(
+                actionName,
+                InputActionType.Button,
+                binding);
+            asset.AddActionMap(map);
+            return asset;
         }
 
         private static void SetField(

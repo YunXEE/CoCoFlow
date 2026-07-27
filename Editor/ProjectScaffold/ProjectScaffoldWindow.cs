@@ -45,8 +45,13 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 _projectRoot);
             _assemblyMode =
                 (ProjectScaffoldAssemblyMode)EditorGUILayout.EnumPopup(
-                    "Assembly Mode",
+                    "Runtime Assembly Mode",
                     _assemblyMode);
+            EditorGUILayout.HelpBox(
+                "The mode applies only to Runtime files. Graph contracts " +
+                "always use the generated engine-free " +
+                "CoCoFlowProject.Graph assembly.",
+                MessageType.None);
             if (EditorGUI.EndChangeCheck())
             {
                 RefreshPreview();
@@ -107,15 +112,17 @@ namespace CoCoFlow.Editor.ProjectScaffold
                     GUILayout.Height(Mathf.Min(280f, lineCount * 16f)));
             }
 
-            if (_plan.ExistingProviderPaths.Count == 1)
+            if (!string.IsNullOrEmpty(_plan.IntegrationGuidance))
             {
                 EditorGUILayout.Space(8f);
                 EditorGUILayout.LabelField(
-                    "Existing Provider Integration",
+                    "Integration Checklist",
                     EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(
                     _plan.IntegrationGuidance,
-                    MessageType.Warning);
+                    _plan.ExistingProviderPaths.Count == 1
+                        ? MessageType.Warning
+                        : MessageType.Info);
             }
 
             foreach (string conflict in _plan.Conflicts)
@@ -175,6 +182,11 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 ? "Created " + result.CreatedPaths.Count +
                   " project scaffold file(s)."
                 : result.Error;
+            if (!string.IsNullOrEmpty(result.Warning))
+            {
+                resultMessage += "\nWarning: " + result.Warning;
+            }
+
             RefreshPreview();
             _lastResult = resultMessage;
         }

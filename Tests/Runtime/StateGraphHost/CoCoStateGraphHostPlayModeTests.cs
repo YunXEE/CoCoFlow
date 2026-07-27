@@ -216,6 +216,47 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
+        public void InputAuthorityRevisionAdvancesAcrossTransientLifecycleBoundaries()
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new HostTestBindingProvider(
+                ids,
+                withEvent: false);
+            Require(CoCoStateGraphProjectBindings.TryInstall(
+                provider,
+                out CoCoDiagnostic install));
+            CoCoStateGraphAsset asset = CreateAsset(
+                ids,
+                withEvent: false);
+            CoCoStateGraphHost host = CreateHost(
+                asset,
+                CoCoStateGraphDriver.Manual,
+                32);
+
+            ulong createdRevision = host.InputAuthorityRevision;
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            ulong runningRevision = host.InputAuthorityRevision;
+            Assert.That(runningRevision, Is.Not.EqualTo(createdRevision));
+
+            Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
+            ulong suspendedRevision = host.InputAuthorityRevision;
+            Assert.That(suspendedRevision, Is.Not.EqualTo(runningRevision));
+
+            Require(host.TryResume(out CoCoDiagnostic resume), resume);
+            ulong resumedRevision = host.InputAuthorityRevision;
+            Assert.That(resumedRevision, Is.Not.EqualTo(suspendedRevision));
+
+            Require(host.TryStop(out CoCoDiagnostic stop), stop);
+            ulong stoppedRevision = host.InputAuthorityRevision;
+            Assert.That(stoppedRevision, Is.Not.EqualTo(resumedRevision));
+
+            Require(host.TryDispose(out CoCoDiagnostic dispose), dispose);
+            Assert.That(
+                host.InputAuthorityRevision,
+                Is.Not.EqualTo(stoppedRevision));
+        }
+
+        [Test]
         public void SynchronousDestroyDuringStateUpdateCancelsBeforeFinalizeThenDisposes()
         {
             HostTestIds ids = HostTestIds.Create();

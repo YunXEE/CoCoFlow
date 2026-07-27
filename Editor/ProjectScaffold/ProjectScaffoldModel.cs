@@ -3,7 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Security.Cryptography;
+using System.Text;
+using CoCoFlow.Runtime.Core;
+using UnityEditor;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
     "CoCoFlow.Tests.Editor.ProjectScaffold")]
@@ -54,13 +57,15 @@ namespace CoCoFlow.Editor.ProjectScaffold
             IReadOnlyList<ProjectScaffoldFile> files,
             IReadOnlyList<string> providerPaths,
             IReadOnlyList<string> conflicts,
-            string integrationGuidance)
+            string integrationGuidance,
+            string fingerprint)
         {
             Request = request;
             Files = files;
             ExistingProviderPaths = providerPaths;
             Conflicts = conflicts;
             IntegrationGuidance = integrationGuidance ?? string.Empty;
+            Fingerprint = fingerprint ?? string.Empty;
         }
 
         public ProjectScaffoldRequest Request { get; }
@@ -68,9 +73,22 @@ namespace CoCoFlow.Editor.ProjectScaffold
         public IReadOnlyList<string> ExistingProviderPaths { get; }
         public IReadOnlyList<string> Conflicts { get; }
         public string IntegrationGuidance { get; }
+        internal string Fingerprint { get; }
         public bool CanApply => Conflicts.Count == 0 &&
                                 ExistingProviderPaths.Count <= 1 &&
-                                Files.Count > 0;
+                                Files.Count > 0 &&
+                                !string.IsNullOrEmpty(Fingerprint);
+    }
+
+    public enum ProjectScaffoldApplyFailureKind
+    {
+        None = 0,
+        InvalidPreview = 1,
+        StalePreview = 2,
+        UnsafePath = 3,
+        StagingValidation = 4,
+        PublishFailed = 5,
+        RollbackIncomplete = 6
     }
 
     public readonly struct ProjectScaffoldApplyResult
@@ -78,31 +96,121 @@ namespace CoCoFlow.Editor.ProjectScaffold
         internal ProjectScaffoldApplyResult(
             bool succeeded,
             IReadOnlyList<string> createdPaths,
-            string error)
+            ProjectScaffoldApplyFailureKind failureKind,
+            bool rollbackCompleted,
+            IReadOnlyList<string> residualPaths,
+            string error,
+            string warning)
         {
             Succeeded = succeeded;
             CreatedPaths = createdPaths ?? Array.Empty<string>();
+            FailureKind = failureKind;
+            RollbackCompleted = rollbackCompleted;
+            ResidualPaths = residualPaths ?? Array.Empty<string>();
             Error = error ?? string.Empty;
+            Warning = warning ?? string.Empty;
         }
 
         public bool Succeeded { get; }
         public IReadOnlyList<string> CreatedPaths { get; }
+        public ProjectScaffoldApplyFailureKind FailureKind { get; }
+        public bool RollbackCompleted { get; }
+        public IReadOnlyList<string> ResidualPaths { get; }
         public string Error { get; }
+        public string Warning { get; }
+    }
+
+    internal interface IProjectScaffoldProviderDetector
+    {
+        IReadOnlyList<ProjectScaffoldProviderIdentity> FindProviders(
+            string workingDirectory);
+    }
+
+    internal readonly struct ProjectScaffoldProviderIdentity
+    {
+        internal ProjectScaffoldProviderIdentity(
+            string path,
+            string typeIdentity)
+        {
+            Path = ProjectScaffoldRequest.Normalize(path);
+            TypeIdentity = typeIdentity ?? string.Empty;
+        }
+
+        internal string Path { get; }
+        internal string TypeIdentity { get; }
+    }
+
+    internal sealed class ProjectScaffoldProviderDetector :
+        IProjectScaffoldProviderDetector
+    {
+        public IReadOnlyList<ProjectScaffoldProviderIdentity> FindProviders(
+            string workingDirectory)
+        {
+            var providerTypes = TypeCache
+                .GetTypesDerivedFrom<ICoCoStateGraphProjectBindingProvider>();
+            MonoScript[] scripts = MonoImporter.GetAllRuntimeMonoScripts();
+            var providers = new List<ProjectScaffoldProviderIdentity>();
+            foreach (Type type in providerTypes)
+            {
+                if (type == null || type.IsAbstract || type.IsInterface)
+                {
+                    continue;
+                }
+
+                for (int index = 0; index < scripts.Length; index++)
+                {
+                    MonoScript script = scripts[index];
+                    if (script == null || script.GetClass() != type)
+                    {
+                        continue;
+                    }
+
+                    string path = ProjectScaffoldRequest.Normalize(
+                        AssetDatabase.GetAssetPath(script));
+                    if (path.StartsWith("Assets/", StringComparison.Ordinal))
+                    {
+                        providers.Add(new ProjectScaffoldProviderIdentity(
+                            path,
+                            type.AssemblyQualifiedName));
+                    }
+
+                    break;
+                }
+            }
+
+            return providers
+                .OrderBy(
+                    provider => provider.TypeIdentity,
+                    StringComparer.Ordinal)
+                .ThenBy(provider => provider.Path, StringComparer.Ordinal)
+                .ToArray();
+        }
     }
 
     internal static class ProjectScaffoldPlanner
     {
-        private static readonly Regex ProviderPattern = new Regex(
-            @"\bclass\s+\w+[^{;]*:\s*[^{;]*\bICoCoStateGraphProjectBindingProvider\b",
-            RegexOptions.Compiled | RegexOptions.Singleline);
 
         internal static ProjectScaffoldPlan Build(
             ProjectScaffoldRequest request,
-            string workingDirectory)
+            string workingDirectory) =>
+            Build(
+                request,
+                workingDirectory,
+                new ProjectScaffoldProviderDetector());
+
+        internal static ProjectScaffoldPlan Build(
+            ProjectScaffoldRequest request,
+            string workingDirectory,
+            IProjectScaffoldProviderDetector providerDetector)
         {
             if (request == null)
             {
                 throw new ArgumentNullException(nameof(request));
+            }
+
+            if (providerDetector == null)
+            {
+                throw new ArgumentNullException(nameof(providerDetector));
             }
 
             string root = request.ProjectRoot;
@@ -113,14 +221,20 @@ namespace CoCoFlow.Editor.ProjectScaffold
                     "The project root must be a relative path below Assets and may not contain traversal segments.");
             }
 
-            IReadOnlyList<string> providers = FindProviderPaths(workingDirectory);
-            if (providers.Count > 1)
+            IReadOnlyList<ProjectScaffoldProviderIdentity> providerIdentities =
+                providerDetector.FindProviders(workingDirectory) ??
+                Array.Empty<ProjectScaffoldProviderIdentity>();
+            string[] providers = providerIdentities
+                .Select(provider => provider.Path)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            if (providerIdentities.Count > 1)
             {
                 conflicts.Add(
                     "Multiple ICoCoStateGraphProjectBindingProvider implementations were detected.");
             }
 
-            bool generateProvider = providers.Count == 0;
+            bool generateProvider = providers.Length == 0;
             var files = ProjectScaffoldTemplates.Create(request, generateProvider).ToList();
             foreach (ProjectScaffoldFile file in files)
             {
@@ -133,15 +247,21 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 }
             }
 
-            string guidance = providers.Count == 1
+            string guidance = providers.Length == 1
                 ? ProjectScaffoldTemplates.ExistingProviderGuidance(providers[0])
-                : string.Empty;
+                : ProjectScaffoldTemplates.GeneratedProviderGuidance();
+            string fingerprint = ComputeFingerprint(
+                request,
+                files,
+                providerIdentities,
+                conflicts);
             return new ProjectScaffoldPlan(
                 request,
                 files,
                 providers,
                 conflicts,
-                guidance);
+                guidance,
+                fingerprint);
         }
 
         internal static bool IsSafeAssetRoot(string path)
@@ -159,42 +279,53 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 segment.IndexOfAny(Path.GetInvalidFileNameChars()) < 0);
         }
 
-        private static IReadOnlyList<string> FindProviderPaths(string workingDirectory)
+        private static string ComputeFingerprint(
+            ProjectScaffoldRequest request,
+            IReadOnlyList<ProjectScaffoldFile> files,
+            IReadOnlyList<ProjectScaffoldProviderIdentity> providers,
+            IReadOnlyList<string> conflicts)
         {
-            string assets = Path.Combine(workingDirectory, "Assets");
-            if (!Directory.Exists(assets))
+            var source = new StringBuilder();
+            Append(source, request.ProjectRoot);
+            Append(source, ((int)request.AssemblyMode).ToString());
+            for (int index = 0; index < providers.Count; index++)
             {
-                return Array.Empty<string>();
+                Append(source, providers[index].TypeIdentity);
+                Append(source, providers[index].Path);
             }
 
-            var providers = new List<string>();
-            foreach (string path in Directory.GetFiles(
-                         assets,
-                         "*.cs",
-                         SearchOption.AllDirectories))
+            for (int index = 0; index < conflicts.Count; index++)
             {
-                string source;
-                try
-                {
-                    source = File.ReadAllText(path);
-                }
-                catch (IOException)
-                {
-                    continue;
-                }
-
-                if (!ProviderPattern.IsMatch(source))
-                {
-                    continue;
-                }
-
-                providers.Add(ProjectScaffoldRequest.Normalize(
-                    path.Substring(workingDirectory.Length)
-                        .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+                Append(source, conflicts[index]);
             }
 
-            providers.Sort(StringComparer.Ordinal);
-            return providers;
+            for (int index = 0; index < files.Count; index++)
+            {
+                Append(source, files[index].RelativePath);
+                Append(source, files[index].Content);
+            }
+
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(
+                    Encoding.UTF8.GetBytes(source.ToString()));
+                var fingerprint = new StringBuilder(hash.Length * 2);
+                for (int index = 0; index < hash.Length; index++)
+                {
+                    fingerprint.Append(hash[index].ToString("x2"));
+                }
+
+                return fingerprint.ToString();
+            }
+        }
+
+        private static void Append(StringBuilder target, string value)
+        {
+            string normalized = value ?? string.Empty;
+            target.Append(normalized.Length);
+            target.Append(':');
+            target.Append(normalized);
+            target.Append('|');
         }
     }
 }

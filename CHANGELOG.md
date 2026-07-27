@@ -16,10 +16,11 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Official `com.unity.localization@1.5.9` integration, localization diagnostics,
   `UIWidgetLocalizedText`, and `InputPromptPresenter`. Smart String binding
   arguments and fallback text refresh inside the current Screen.
-- Preview-first `ProjectScaffoldWindow` for Assembly-CSharp or a custom asmdef.
-  It detects existing project binding providers, stages and validates all
-  output under `Library`, publishes with CreateNew semantics, and rolls back
-  only files created by the failed Apply.
+- Preview-first `ProjectScaffoldWindow` with an always engine-free
+  `CoCoFlowProject.Graph` assembly and an Assembly-CSharp or custom-asmdef
+  Unity-facing Runtime layer. The generated starter includes a real semantic
+  Intent, State, Graph-state binding, Operation Section, Operator, current Host
+  Provider wiring, and explicit scene integration checklist.
 - Same-directory validated atomic replacement with readable backups for Setup
   Assistant manifest updates.
 
@@ -36,31 +37,47 @@ projects and does not include a migration runtime for 0.3.9 projects.
 - Added Action Map, rebind, source-disable, Host lifecycle, and Temporal
   Preview/restore fences so queued commands and continuous snapshots cannot
   burst after authority resumes.
+- Added `InputAuthorityRevision` so same-frame lifecycle, Temporal, and
+  Persistence restore boundaries cannot become input-transparent. Prompt
+  selection now follows Control Scheme binding groups and the actual last-used
+  paired device; runtime Action Asset replacement unsubscribes the cached old
+  collection before accepting replacement input.
+- Scaffold Preview fingerprints now cover compiled Provider type identities,
+  request mode, conflicts, paths, and generated content. Apply rechecks
+  symlink/reparse-point safety, reports incomplete rollback residuals, and
+  reports staging cleanup independently from project-code rollback.
 - Updated package metadata, Setup Assistant status, docs, and validation
   exception scopes to `0.4.0-pre.14`.
 
 ### Verification
 
-- `PASS`: Unity 6000.3.20f1 focused EditMode: Input `6/6`, Scaffold `4/4`,
-  Setup/version/atomic-write `23/23`, and naming `1/1`; focused PlayMode:
-  Input `4/4` and Localization `3/3`.
+- `PASS`: Unity 6000.3.20f1 focused EditMode: Input `6/6`, Scaffold `12/12`,
+  Setup/version/module/atomic-write `32/32`, and naming `1/1`; focused PlayMode:
+  Input `6/6`, Localization `3/3`, Host lifecycle `40/40`, Temporal
+  `19/19`, and Persistence `18/18`.
 - `PASS`: generated Assembly-CSharp and custom-asmdef Scaffold outputs,
-  including the no-existing-provider file, compiled in the CoCoLab host and
-  were removed through the marker-protected cleanup path.
+  including the no-existing-provider route, compiled in the CoCoLab host.
+  Their pure Graph Catalogs instantiated without Unity/Input references, and
+  both modes completed a generated Source → State → Operation → Operator
+  closed loop before marker-protected cleanup.
 - `PASS`: the warmed Queue/Batch loop completed 1,000 enqueue/drain cycles with
   zero managed bytes allocated on the measured thread.
 - `PASS`: an isolated CoCoLab-derived host built a macOS Universal
   `x86_64 + arm64` Player with IL2CPP and Standalone High Managed Stripping.
-  The host included a real generated Assembly-CSharp Scaffold plus an AOT
-  RuntimeInitializer; the linker retained and IL2CPP converted the Input,
-  Input UI, Localization, and Localization UI assemblies. The original CoCoLab
-  Pre6 asset remains independently blocked first by its missing Editor Catalog
-  Provider and then by its existing DOTween author dependency-closure
-  validation.
-- `BASELINE`: package-wide EditMode is `614 PASS / 16 FAIL / 1 SKIP` versus
-  exact `5bde783` at `594 PASS / 16 FAIL / 1 SKIP`; every non-pass name is
-  identical. Package-wide PlayMode is `392 PASS / 6 FAIL / 2 INCONCLUSIVE` versus
-  `383 PASS / 6 FAIL / 2 INCONCLUSIVE`; all non-pass names are identical.
+  The host included a real generated Assembly-CSharp Scaffold plus an explicit
+  retention initializer; IL2CPP code registration contains the pure Graph,
+  Input, Input UI, Localization, and Localization UI assemblies. The unrelated
+  CoCoLab Pre6 Graph asset was isolated from this build because it has no
+  project Editor Catalog Provider.
+- `BASELINE`: package-wide PlayMode is
+  `395 PASS / 6 FAIL / 2 INCONCLUSIVE` versus exact `5bde783` at
+  `383 PASS / 6 FAIL / 2 INCONCLUSIVE`; all non-pass names are unchanged.
+  Package-wide EditMode is `625 PASS / 13 FAIL / 1 SKIP`; failures remain
+  limited to pre-existing Core boundary, Map, Pooling, and Editor validation
+  categories. The exact baseline itself varied from `9` to `11` failures
+  across immediate repeated runs, so focused deterministic gates and unchanged
+  Map/Pooling source are the regression authority rather than one unstable
+  aggregate failure count.
 - `SKIPPED`: Unity Package Validation Suite is not installed locally and was
   explicitly waived for this delivery.
 

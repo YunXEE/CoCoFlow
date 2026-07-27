@@ -10,7 +10,6 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
     {
         [SerializeField] private InputRuntime inputRuntime;
         [SerializeField] private InputActionReference action;
-        [SerializeField, Min(0)] private int bindingIndex;
         [SerializeField] private UIWidgetLocalizedText localizedText;
         [SerializeField] private Image glyphImage;
 
@@ -39,7 +38,6 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
             if (inputRuntime == null ||
                 !inputRuntime.TryGetPrompt(
                     action,
-                    bindingIndex,
                     out InputPromptSnapshot snapshot))
             {
                 Current = default;
@@ -49,7 +47,7 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
                     glyphImage.enabled = false;
                 }
 
-                localizedText?.SetArguments(new { binding = string.Empty });
+                localizedText?.ClearPresentation();
                 return;
             }
 

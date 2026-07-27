@@ -17,6 +17,7 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
         [SerializeField, TextArea] private string fallbackText = string.Empty;
 
         private bool _isSubscribed;
+        private bool _isPresentationSuppressed;
         private Coroutine _loadObservation;
 
         public LocalizationDiagnostic LastDiagnostic { get; private set; }
@@ -25,7 +26,11 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
 
         protected override void OnEnable()
         {
-            Subscribe();
+            if (!_isPresentationSuppressed)
+            {
+                Subscribe();
+            }
+
             base.OnEnable();
         }
 
@@ -37,6 +42,17 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
 
         public override void ResetState()
         {
+            if (_isPresentationSuppressed)
+            {
+                if (targetText != null)
+                {
+                    targetText.text = string.Empty;
+                }
+
+                SetDiagnostic(LocalizationDiagnosticCode.None, string.Empty);
+                return;
+            }
+
             if (targetText == null)
             {
                 SetDiagnostic(
@@ -84,7 +100,13 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
                 return;
             }
 
+            _isPresentationSuppressed = false;
             localizedString.Arguments = arguments ?? Array.Empty<object>();
+            if (!_isSubscribed && isActiveAndEnabled)
+            {
+                Subscribe();
+            }
+
             if (!_isSubscribed)
             {
                 return;
@@ -117,6 +139,25 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
             }
         }
 
+        public void ClearPresentation()
+        {
+            _isPresentationSuppressed = true;
+            StopLoadObservation();
+            Unsubscribe();
+            if (localizedString != null)
+            {
+                localizedString.Arguments = Array.Empty<object>();
+            }
+
+            fallbackText = string.Empty;
+            if (targetText != null)
+            {
+                targetText.text = string.Empty;
+            }
+
+            SetDiagnostic(LocalizationDiagnosticCode.None, string.Empty);
+        }
+
         private void Subscribe()
         {
             if (_isSubscribed || localizedString == null)
@@ -141,6 +182,11 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
 
         private void ApplyLocalizedValue(string value)
         {
+            if (_isPresentationSuppressed)
+            {
+                return;
+            }
+
             if (targetText == null)
             {
                 SetDiagnostic(
@@ -166,6 +212,7 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
         {
             StopLoadObservation();
             if (localizedString == null ||
+                _isPresentationSuppressed ||
                 !localizedString.CurrentLoadingOperationHandle.IsValid())
             {
                 return;

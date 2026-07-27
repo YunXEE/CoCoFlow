@@ -3,7 +3,7 @@
     "rootNamespace": "CoCoFlow.Editor.ProjectScaffold",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Modules.Input"
+        "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [
         "Editor"

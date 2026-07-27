@@ -22,7 +22,9 @@ StateGraph never reads an `InputAction`, device, callback, or binding path.
 `InputRuntime` uses the exact runtime Action collection owned by `PlayerInput`;
 it does not clone a second `InputActionAsset`. It reports the current Control
 Scheme and device layout, resolves binding display strings and glyphs, exposes
-continuous reads, and publishes prompt and input-fence changes.
+continuous reads, and publishes prompt and input-fence changes. If
+`PlayerInput.actions` is replaced while enabled, `InputRuntime` unsubscribes the
+cached old collection, fences pending input, then subscribes the replacement.
 
 ## Input fence
 
@@ -32,6 +34,13 @@ continuous snapshots. A generated `ProjectPlayerIntentSource` accepts callbacks
 only while its Host is Running and not Previewing. After a fence it waits for
 new physical action callbacks, so a held pre-suspend value is not replayed on
 resume.
+
+`CoCoStateGraphHost.InputAuthorityRevision` makes the boundary explicit. Every
+actual lifecycle or state-restoration authority change advances the revision,
+including same-frame Suspend/Resume and Preview/Cancel or Preview/Confirm
+pairs. The generated Source compares both lifecycle acceptance and revision,
+so returning to `Running` in the same frame cannot make an older callback valid
+again.
 
 ## Rebind and prompts
 
@@ -44,6 +53,20 @@ operation failure, or storage failure restores the previous overrides.
 then an Input System base layout. `InputPromptPresenter` falls back to the
 binding display string and passes that display as a Smart String argument to
 `UIWidgetLocalizedText`.
+
+Prompt binding selection prefers the current Control Scheme binding group and
+last-used exact/base device layout, then the binding group alone, the last-used
+device, and finally authored order. With no callback history, it falls back to
+`PlayerInput.devices`. Scheme, actual device, rebind, and Action Asset changes
+all refresh the current Screen. An invalid Snapshot clears visible text,
+fallback, glyph, and Smart arguments; late Localization callbacks remain
+suppressed until a new valid presentation is supplied.
+
+The generated `ProjectPlayerIntentSource` is the only Input-to-Graph bridge.
+It converts Unity `Vector2` and `InputCommandBatch<ProjectPlayerCommand>` into
+the engine-free `ProjectMoveValue` and `ProjectPlayerCommandBatch`. Generated
+Graph authoring contracts therefore do not reference Input System,
+`InputRuntime`, Unity types, or another CoCoFlow module.
 
 ## Compatibility
 
