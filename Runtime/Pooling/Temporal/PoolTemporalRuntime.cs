@@ -33,6 +33,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         private CoCoTickFrame _preparedTargetTickFrame;
         private int _preparedDepth;
         private bool _projectionPrepared;
+        private bool _authorityResetPrepared;
         private bool _isPreviewing;
         private bool _isDisposed;
         private bool _externalMutationActive;
@@ -51,6 +52,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool IsDisposed => _isDisposed;
         internal bool IsPreviewing => !_isDisposed && _isPreviewing;
         internal CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
+        internal bool IsAuthorityResetPrepared => _authorityResetPrepared;
 
         internal bool TryAdopt(
             CoCoTemporalEntityId entityId,
@@ -363,7 +365,95 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             if (!_isDisposed)
             {
                 _history.CancelPreparedCaptureNoFail();
+                _authorityResetPrepared = false;
             }
+        }
+
+        internal bool TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed ||
+                _isPreviewing ||
+                _projectionPrepared ||
+                _authorityResetPrepared ||
+                _externalMutationActive ||
+                _history.HasPreparedCapture ||
+                !targetAuthority.IsValid)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.PoolTemporalConflict,
+                    "Pool Temporal authority reset is not available in the current sidecar state.");
+                return RecordFailure(diagnostic);
+            }
+
+            if (!TryValidateAuthorityResetRecords(out diagnostic))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!_history.TryPrepareAuthorityReset(
+                        _records,
+                        _recordCount,
+                        targetAuthority))
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.PoolTemporalProjectionFailed,
+                        "Pool Temporal authority reset could not stage its current live baseline.");
+                    return RecordFailure(diagnostic);
+                }
+            }
+            catch (Exception)
+            {
+                _history.CancelPreparedCaptureNoFail();
+                diagnostic = Error(
+                    CoCoDiagnosticCode.PoolTemporalProjectionFailed,
+                    "Pool Temporal authority reset allocation failed before the authority barrier.");
+                return RecordFailure(diagnostic);
+            }
+
+            _authorityResetPrepared = true;
+            diagnostic = CoCoDiagnostic.None;
+            _lastDiagnostic = diagnostic;
+            return true;
+        }
+
+        internal void CommitPreparedAuthorityResetNoFail()
+        {
+            if (_isDisposed || !_authorityResetPrepared)
+            {
+                return;
+            }
+
+            _history.PublishAuthorityResetNoFail();
+            for (int index = 0; index < _recordCount; index++)
+            {
+                PoolTemporalRecord record = _records[index];
+                if (record == null || !record.IsRetained)
+                {
+                    continue;
+                }
+
+                record.ProjectedPresent = record.AuthorityPresent;
+                record.BaselinePresent = record.AuthorityPresent;
+                record.PreparedInactive = false;
+            }
+
+            _authorityResetPrepared = false;
+            _lastDiagnostic = CoCoDiagnostic.None;
+        }
+
+        internal void CancelPreparedAuthorityResetNoFail()
+        {
+            if (_isDisposed || !_authorityResetPrepared)
+            {
+                return;
+            }
+
+            _history.CancelPreparedCaptureNoFail();
+            _authorityResetPrepared = false;
         }
 
         internal bool TryBeginPreview(
@@ -417,6 +507,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 (!_isPreviewing &&
                  applyKind != CoCoContextRestoreApplyKind.Correction) ||
                 _projectionPrepared ||
+                _authorityResetPrepared ||
                 !source.IsValid ||
                 !targetTickFrame.IsValid ||
                 !TryValidateProjectionDepth(applyKind, historyDepth))
@@ -447,6 +538,11 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryApplyPreparedBeforeRestore(
             out CoCoDiagnostic diagnostic)
         {
+            if (_authorityResetPrepared)
+            {
+                return TryValidateAuthorityResetRecords(out diagnostic);
+            }
+
             if (!_projectionPrepared)
             {
                 diagnostic = Error(
@@ -520,6 +616,11 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryApplyPreparedAfterRestore(
             out CoCoDiagnostic diagnostic)
         {
+            if (_authorityResetPrepared)
+            {
+                return TryValidateAuthorityResetRecords(out diagnostic);
+            }
+
             if (!_projectionPrepared)
             {
                 diagnostic = Error(
@@ -815,6 +916,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             _recordCount = 0;
             _history.Dispose();
             ClearPreparedProjection();
+            _authorityResetPrepared = false;
             _isPreviewing = false;
         }
 
@@ -917,6 +1019,49 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                     }
 
                     return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryValidateAuthorityResetRecords(
+            out CoCoDiagnostic diagnostic)
+        {
+            for (int index = 0; index < _recordCount; index++)
+            {
+                PoolTemporalRecord record = _records[index];
+                if (record == null ||
+                    !record.IsRetained ||
+                    (!record.AuthorityPresent &&
+                     !record.ProjectedPresent &&
+                     !record.PendingActivation))
+                {
+                    continue;
+                }
+
+                if (record.Unavailable)
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.PoolTemporalEntityUnavailable,
+                        "Pool Temporal authority reset requires every retained live physical identity.");
+                    return RecordFailure(diagnostic);
+                }
+
+                if (!PoolTemporalAccess.TryGetInstance(
+                        record.Token,
+                        out _,
+                        out diagnostic))
+                {
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = Error(
+                            CoCoDiagnosticCode.PoolTemporalEntityUnavailable,
+                            "Pool Temporal authority reset requires every retained live physical identity.");
+                    }
+
+                    return RecordFailure(diagnostic);
                 }
             }
 

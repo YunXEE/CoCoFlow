@@ -301,6 +301,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             TryRegisterClaimGraph(
                 builder,
                 ids,
+                CoCoContextProjection.Temporal,
                 CoCoContextRestorePolicy.Stored,
                 CoCoContextRestorePolicy.Stored,
                 out diagnostic);
@@ -308,6 +309,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static bool TryRegisterClaimGraph(
             CoCoGraphDescriptorCatalogBuilder builder,
             OperatorCommitTestIds ids,
+            CoCoContextRestorePolicy primaryClaimRestorePolicy,
+            CoCoContextRestorePolicy secondaryClaimRestorePolicy,
+            out CoCoDiagnostic diagnostic) =>
+            TryRegisterClaimGraph(
+                builder,
+                ids,
+                CoCoContextProjection.Temporal,
+                primaryClaimRestorePolicy,
+                secondaryClaimRestorePolicy,
+                out diagnostic);
+
+        public static bool TryRegisterClaimGraph(
+            CoCoGraphDescriptorCatalogBuilder builder,
+            OperatorCommitTestIds ids,
+            CoCoContextProjection projection,
             CoCoContextRestorePolicy primaryClaimRestorePolicy,
             CoCoContextRestorePolicy secondaryClaimRestorePolicy,
             out CoCoDiagnostic diagnostic)
@@ -327,7 +343,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                    builder.TryRegisterStateSlot(
                        ids.GraphStateBlockId,
                        ids.FirstGraphStateSlotId,
-                       CoCoContextProjection.Temporal,
+                       projection,
                        CoCoContextRestorePolicy.Stored,
                        first,
                        FirstStateDefaultFingerprint,
@@ -337,7 +353,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                    builder.TryRegisterStateSlot(
                        ids.GraphStateBlockId,
                        ids.SecondGraphStateSlotId,
-                       CoCoContextProjection.Temporal,
+                       projection,
                        CoCoContextRestorePolicy.Stored,
                        second,
                        SecondStateDefaultFingerprint,
@@ -347,7 +363,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                    builder.TryRegisterStateSlot(
                        ids.GraphStateBlockId,
                        ids.PrimaryClaimStateSlotId,
-                       CoCoContextProjection.Temporal,
+                       projection,
                        primaryClaimRestorePolicy,
                        primary,
                        PrimaryClaimDefaultFingerprint,
@@ -357,7 +373,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                    builder.TryRegisterStateSlot(
                        ids.GraphStateBlockId,
                        ids.SecondaryClaimStateSlotId,
-                       CoCoContextProjection.Temporal,
+                       projection,
                        secondaryClaimRestorePolicy,
                        secondary,
                        SecondaryClaimDefaultFingerprint,

@@ -157,14 +157,24 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     {
         private readonly TemporalHostTestIds _ids;
         private readonly bool _withEvent;
+        private readonly ICoCoContextValueCodec<int> _actorCodec;
 
         internal TemporalHostBindingProvider(
             TemporalHostTestIds ids,
-            bool withEvent)
+            bool withEvent,
+            bool withDurableProjection = false,
+            ICoCoContextValueCodec<int> actorCodec = null)
         {
             _ids = ids;
             _withEvent = withEvent;
-            Catalog = BuildCatalog(ids, withEvent);
+            _actorCodec = actorCodec;
+            Catalog = BuildCatalog(
+                ids,
+                withEvent,
+                withDurableProjection,
+                actorCodec == null
+                    ? default
+                    : actorCodec.Descriptor);
         }
 
         public CoCoGraphDescriptorCatalog Catalog { get; }
@@ -215,13 +225,26 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     TemporalHostDefaults.GraphState(_ids),
                     TemporalHostDefaults.GraphStateFingerprint,
                     memoryBinding,
-                    out diagnostic) ||
-                !builder.TryBindContextSlot(
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            bool actorBound = _actorCodec == null
+                ? builder.TryBindContextSlot(
                     _ids.ActorStateBlockId,
                     _ids.ActorStateSlotId,
                     TemporalHostDefaults.ActorStateValue,
                     TemporalHostDefaults.ActorStateFingerprint,
-                    out diagnostic))
+                    out diagnostic)
+                : builder.TryBindContextSlot(
+                    _ids.ActorStateBlockId,
+                    _ids.ActorStateSlotId,
+                    TemporalHostDefaults.ActorStateValue,
+                    TemporalHostDefaults.ActorStateFingerprint,
+                    _actorCodec,
+                    out diagnostic);
+            if (!actorBound)
             {
                 return false;
             }
@@ -240,9 +263,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static CoCoGraphDescriptorCatalog BuildCatalog(
             TemporalHostTestIds ids,
-            bool withEvent)
+            bool withEvent,
+            bool withDurableProjection,
+            CoCoCodecDescriptor actorCodec)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
+            CoCoContextProjection projection = withDurableProjection
+                ? CoCoContextProjection.Temporal |
+                  CoCoContextProjection.Durable
+                : CoCoContextProjection.Temporal;
             CoCoIntentId[] intents = null;
             if (withEvent)
             {
@@ -272,7 +301,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Ensure(builder.TryRegisterStateSlot(
                 ids.GraphStateBlockId,
                 ids.GraphStateSlotId,
-                CoCoContextProjection.Temporal,
+                projection,
                 CoCoContextRestorePolicy.Stored,
                 TemporalHostDefaults.GraphState(ids),
                 TemporalHostDefaults.GraphStateFingerprint,
@@ -286,11 +315,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Ensure(builder.TryRegisterStateSlot(
                 ids.ActorStateBlockId,
                 ids.ActorStateSlotId,
-                CoCoContextProjection.Temporal,
+                projection,
                 CoCoContextRestorePolicy.Stored,
                 TemporalHostDefaults.ActorStateValue,
                 TemporalHostDefaults.ActorStateFingerprint,
-                default,
+                actorCodec,
                 null,
                 out CoCoDiagnostic actorSlot), actorSlot);
             Ensure(builder.TryRegisterState(
@@ -335,10 +364,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         internal static TemporalHostTestScenario Create(
             int historyCapacity,
             bool withEvent = false,
-            bool assignRestoreBinding = true)
+            bool assignRestoreBinding = true,
+            bool withDurableProjection = false,
+            ICoCoContextValueCodec<int> actorCodec = null)
         {
             TemporalHostTestIds ids = TemporalHostTestIds.Create();
-            var provider = new TemporalHostBindingProvider(ids, withEvent);
+            var provider = new TemporalHostBindingProvider(
+                ids,
+                withEvent,
+                withDurableProjection,
+                actorCodec);
             if (!CoCoStateGraphProjectBindings.TryInstall(
                     provider,
                     out CoCoDiagnostic install))

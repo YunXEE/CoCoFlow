@@ -39,6 +39,120 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         public IEnumerator TemporalRetainsResolvedEffectiveCapabilities() =>
             UniTask.ToCoroutine(RunEffectiveCapabilityRetentionAsync);
 
+        [UnityTest]
+        public IEnumerator AuthorityResetSeedsEmptyImportedBaselineAndDefersTemporalRelease() =>
+            UniTask.ToCoroutine(RunAuthorityResetAsync);
+
+        private static async UniTask RunAuthorityResetAsync()
+        {
+            TemporalRuntimeFixture fixture =
+                CreateFixture(FullCapabilities());
+            try
+            {
+                CaptureForward(
+                    fixture.Temporal,
+                    CreateFrame(60UL));
+                Assert.That(
+                    fixture.GameplayLease.TryUpdate(
+                        RepresentedCapabilities(),
+                        fixture.Coverage,
+                        out _,
+                        out CoCoDiagnostic update),
+                    Is.True,
+                    update.Message);
+                CaptureForward(
+                    fixture.Temporal,
+                    CreateFrame(61UL));
+                Assert.That(fixture.Temporal.HistoryCount, Is.EqualTo(2));
+                Assert.That(
+                    FindTemporalDemand(
+                            fixture.Region.CaptureSnapshot())
+                        .Capabilities.Contains(RegionCapabilityId.Full),
+                    Is.True);
+
+                CoCoTemporalFrameInfo imported = CreateFrame(70UL);
+                Assert.That(
+                    fixture.Temporal.TryPrepareAuthorityReset(
+                        imported,
+                        out CoCoDiagnostic prepareCancel),
+                    Is.True,
+                    prepareCancel.Message);
+                Assert.That(
+                    fixture.Temporal.HistoryCount,
+                    Is.EqualTo(2),
+                    "Preparing an imported baseline must not publish or release retention.");
+                fixture.Temporal.CancelPreparedAuthorityResetNoFail();
+                Assert.That(fixture.Temporal.HistoryCount, Is.EqualTo(2));
+                Assert.That(
+                    CountTemporalDemands(
+                        fixture.Region.CaptureSnapshot()),
+                    Is.EqualTo(1));
+
+                Assert.That(
+                    fixture.Temporal.TryPrepareAuthorityReset(
+                        imported,
+                        out CoCoDiagnostic prepare),
+                    Is.True,
+                    prepare.Message);
+                int transitionsBeforeCommit = fixture.Sink.RequestCount;
+                fixture.Temporal.CommitPreparedAuthorityResetNoFail();
+
+                Assert.That(fixture.Temporal.HistoryCount, Is.EqualTo(1));
+                AssertImportedEmptyHead(fixture.Temporal, imported);
+                Assert.That(
+                    ReadPendingTargetCount(fixture.Temporal),
+                    Is.Zero,
+                    "Authority reset must publish an empty future Temporal retention target.");
+                Assert.That(
+                    CountTemporalDemands(
+                        fixture.Region.CaptureSnapshot()),
+                    Is.EqualTo(1),
+                    "Publishing the baseline must not release a temporal Lease inside the authority callback.");
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.EqualTo(transitionsBeforeCommit));
+
+                fixture.Temporal.DrainPublishedCleanupNoFail();
+                RegionRuntimeSnapshot afterDrain =
+                    fixture.Region.CaptureSnapshot();
+                Assert.That(CountTemporalDemands(afterDrain), Is.Zero);
+                Assert.That(
+                    afterDrain.Demands.Count,
+                    Is.EqualTo(1),
+                    "Gameplay ownership must survive removal of the independent Temporal retention Scope.");
+                Assert.That(
+                    afterDrain.Regions[0].CommittedCapabilities
+                        .Contains(RegionCapabilityId.Represented),
+                    Is.True);
+                Assert.That(
+                    afterDrain.Regions[0].CommittedCapabilities
+                        .Contains(RegionCapabilityId.Full),
+                    Is.False,
+                    "The empty imported baseline must not reseed old effective Temporal capabilities.");
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.GreaterThanOrEqualTo(transitionsBeforeCommit),
+                    "Temporal cleanup may publish the independent gameplay resolution, but must not recreate old retention.");
+
+                fixture.Region.FlushDeferredTransitionsNoThrow();
+                Assert.That(
+                    fixture.Sink.RequestCount,
+                    Is.GreaterThanOrEqualTo(transitionsBeforeCommit));
+
+                CaptureForward(
+                    fixture.Temporal,
+                    CreateFrame(71UL));
+                Assert.That(
+                    fixture.Temporal.HistoryCount,
+                    Is.EqualTo(2),
+                    "The first post-import Tick must extend the new timeline instead of reviving old history.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
         private static async UniTask RunEffectiveCapabilityRetentionAsync()
         {
             TemporalRuntimeFixture fixture =
@@ -688,6 +802,74 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
             Assert.That(matches, Is.EqualTo(1));
             return result;
+        }
+
+        private static int CountTemporalDemands(
+            RegionRuntimeSnapshot snapshot)
+        {
+            int count = 0;
+            for (int index = 0; index < snapshot.Demands.Count; index++)
+            {
+                if (snapshot.Demands[index].OwnerId.Value.StartsWith(
+                        "cocoflow.map.temporal.",
+                        StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int ReadPendingTargetCount(
+            RegionTemporalRuntime runtime)
+        {
+            FieldInfo field = typeof(RegionTemporalRuntime).GetField(
+                "pendingTarget",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null);
+            var pending = field.GetValue(runtime) as ICollection;
+            Assert.That(pending, Is.Not.Null);
+            return pending.Count;
+        }
+
+        private static void AssertImportedEmptyHead(
+            RegionTemporalRuntime runtime,
+            in CoCoTemporalFrameInfo expected)
+        {
+            FieldInfo framesField =
+                typeof(RegionTemporalRuntime).GetField(
+                    "frames",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo headField =
+                typeof(RegionTemporalRuntime).GetField(
+                    "headIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(framesField, Is.Not.Null);
+            Assert.That(headField, Is.Not.Null);
+            var frames = (Array)framesField.GetValue(runtime);
+            int headIndex = (int)headField.GetValue(runtime);
+            object head = frames.GetValue(headIndex);
+            Assert.That(head, Is.Not.Null);
+
+            PropertyInfo infoProperty = head.GetType().GetProperty(
+                "Info",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            PropertyInfo regionsProperty = head.GetType().GetProperty(
+                "Regions",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(infoProperty, Is.Not.Null);
+            Assert.That(regionsProperty, Is.Not.Null);
+            var actual =
+                (CoCoTemporalFrameInfo)infoProperty.GetValue(head);
+            var regions =
+                regionsProperty.GetValue(head) as ICollection;
+            Assert.That(
+                actual.TickFrame,
+                Is.EqualTo(expected.TickFrame));
+            Assert.That(actual.Revision, Is.EqualTo(expected.Revision));
+            Assert.That(regions, Is.Not.Null);
+            Assert.That(regions.Count, Is.Zero);
         }
 
         private static string DemandSignature(

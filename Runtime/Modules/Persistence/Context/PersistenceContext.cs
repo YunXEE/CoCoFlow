@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
@@ -11,6 +12,14 @@ using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
+    internal enum PersistenceContextOperationResult
+    {
+        Applied = 0,
+        Deferred = 1,
+        Unsupported = 2,
+        Failed = 3
+    }
+
     [ExecuteAlways]
     public sealed class PersistenceContext :
         MonoBehaviour,
@@ -20,6 +29,11 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         [Header("Persistence")]
         [SerializeField] private string stableEntityId = string.Empty;
         [SerializeField] private string prefabKey = string.Empty;
+
+        private Coroutine _deferredApplyCoroutine;
+        private PersistenceContextRecord _deferredApplyRecord;
+        private object _deferredApplyToken;
+        private object _consumedStateGraphApplyToken;
 
         public string StableEntityId => stableEntityId;
         public string PrefabKey => prefabKey;
@@ -37,22 +51,20 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public bool TryCapture(out PersistenceContextRecord record)
         {
-            record = null;
-            if (!TryResolveContext(out var context)) return false;
-
-            bool captured = PersistenceContextAdapterRegistry.TryCapture(stableEntityId, context, out record);
-            if (captured && record != null)
-            {
-                record.prefabKey = string.IsNullOrEmpty(record.prefabKey) ? prefabKey : record.prefabKey;
-            }
-
-            return captured;
+            return TryCaptureDetailed(out record, out _) ==
+                   PersistenceContextOperationResult.Applied;
         }
 
         public bool TryApply(PersistenceContextRecord record)
         {
-            if (!TryResolveContext(out var context)) return false;
-            return PersistenceContextAdapterRegistry.TryApply(record, context);
+            PersistenceContextOperationResult result = TryApplyDetailed(record, out _);
+            if (result == PersistenceContextOperationResult.Deferred)
+            {
+                return TryScheduleDeferredApply(record, null, out _);
+            }
+
+            CancelDeferredApply();
+            return result == PersistenceContextOperationResult.Applied;
         }
 
         public void OnBeforeSerialize()
@@ -99,7 +111,295 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         private void OnDisable()
         {
+            CancelDeferredApply();
             PersistenceContextRegistry.Unregister(this);
+        }
+
+        internal PersistenceContextOperationResult TryCaptureDetailed(
+            out PersistenceContextRecord record,
+            out string failure)
+        {
+            record = null;
+            failure = string.Empty;
+
+            var host = GetComponent<CoCoStateGraphHost>();
+            if (host != null)
+            {
+                if (string.IsNullOrEmpty(stableEntityId))
+                {
+                    failure = "StateGraph capture requires a stable entity id.";
+                    return PersistenceContextOperationResult.Failed;
+                }
+
+                try
+                {
+                    bool stateGraphCaptured = host.TryCapturePersistencePayload(
+                        out byte[] payload,
+                        out CoCoDiagnostic diagnostic);
+                    if (!stateGraphCaptured || diagnostic.IsError)
+                    {
+                        failure = FormatDiagnostic(
+                            "StateGraph ContextFrame capture was rejected.",
+                            diagnostic);
+                        return PersistenceContextOperationResult.Failed;
+                    }
+
+                    if (payload == null || payload.Length == 0)
+                    {
+                        failure = "StateGraph ContextFrame capture returned an empty payload.";
+                        return PersistenceContextOperationResult.Failed;
+                    }
+
+                    record = PersistenceContextRecord.CreateStateGraphContextRecord(
+                        stableEntityId,
+                        prefabKey,
+                        payload);
+                    return PersistenceContextOperationResult.Applied;
+                }
+                catch (Exception exception)
+                {
+                    failure = "StateGraph ContextFrame capture threw: " + exception.Message;
+                    return PersistenceContextOperationResult.Failed;
+                }
+            }
+
+            if (!TryResolveContext(out var context))
+            {
+                return PersistenceContextOperationResult.Unsupported;
+            }
+
+            bool captured = PersistenceContextAdapterRegistry.TryCapture(
+                stableEntityId,
+                context,
+                out record);
+            if (!captured || record == null)
+            {
+                return PersistenceContextOperationResult.Unsupported;
+            }
+
+            record.prefabKey = string.IsNullOrEmpty(record.prefabKey)
+                ? prefabKey
+                : record.prefabKey;
+            return PersistenceContextOperationResult.Applied;
+        }
+
+        internal PersistenceContextOperationResult TryApplyDetailed(
+            PersistenceContextRecord record,
+            out string failure)
+        {
+            failure = string.Empty;
+            if (record == null)
+            {
+                return PersistenceContextOperationResult.Unsupported;
+            }
+
+            if (record.IsStateGraphContextRecord)
+            {
+                return TryApplyStateGraphRecord(record, out failure);
+            }
+
+            if (record.HasStateGraphContextPayload)
+            {
+                failure =
+                    "A StateGraph ContextFrame payload was found without its required record discriminator.";
+                return PersistenceContextOperationResult.Failed;
+            }
+
+            if (!TryResolveContext(out var context))
+            {
+                return PersistenceContextOperationResult.Unsupported;
+            }
+
+            return PersistenceContextAdapterRegistry.TryApply(record, context)
+                ? PersistenceContextOperationResult.Applied
+                : PersistenceContextOperationResult.Unsupported;
+        }
+
+        internal bool TryScheduleDeferredApply(
+            PersistenceContextRecord record,
+            object applyToken,
+            out string failure)
+        {
+            failure = string.Empty;
+            if (record == null || !record.IsStateGraphContextRecord)
+            {
+                failure = "Only a StateGraph ContextFrame record can be deferred.";
+                return false;
+            }
+
+            if (!Application.isPlaying || !isActiveAndEnabled)
+            {
+                failure =
+                    "StateGraph ContextFrame apply cannot be deferred on an inactive runtime component.";
+                return false;
+            }
+
+            _deferredApplyRecord = record;
+            _deferredApplyToken = applyToken;
+            if (_deferredApplyCoroutine == null)
+            {
+                try
+                {
+                    _deferredApplyCoroutine = StartCoroutine(ApplyDeferredWhenHostIsLive());
+                }
+                catch (Exception exception)
+                {
+                    _deferredApplyRecord = null;
+                    _deferredApplyToken = null;
+                    failure =
+                        "StateGraph ContextFrame deferred apply could not start: " +
+                        exception.Message;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private PersistenceContextOperationResult TryApplyStateGraphRecord(
+            PersistenceContextRecord record,
+            out string failure)
+        {
+            failure = string.Empty;
+            if (!record.HasUsableStateGraphContextPayload)
+            {
+                failure = "StateGraph ContextFrame record has no payload.";
+                return PersistenceContextOperationResult.Failed;
+            }
+
+            var host = GetComponent<CoCoStateGraphHost>();
+            if (host == null)
+            {
+                failure =
+                    "StateGraph ContextFrame record requires a CoCoStateGraphHost on the same GameObject.";
+                return PersistenceContextOperationResult.Failed;
+            }
+
+            switch (host.Lifecycle)
+            {
+                case CoCoRuntimeLifecycleState.Created:
+                case CoCoRuntimeLifecycleState.Stopped:
+                    return PersistenceContextOperationResult.Deferred;
+                case CoCoRuntimeLifecycleState.Disposed:
+                    failure = "StateGraph ContextFrame cannot be applied to a disposed Host.";
+                    return PersistenceContextOperationResult.Failed;
+                case CoCoRuntimeLifecycleState.Running:
+                case CoCoRuntimeLifecycleState.Suspended:
+                    break;
+                default:
+                    failure = $"StateGraph Host has unsupported lifecycle {host.Lifecycle}.";
+                    return PersistenceContextOperationResult.Failed;
+            }
+
+            if (!record.TryGetStateGraphContextPayload(out byte[] payload))
+            {
+                failure = "StateGraph ContextFrame payload became unavailable before apply.";
+                return PersistenceContextOperationResult.Failed;
+            }
+
+            try
+            {
+                bool applied = host.TryApplyPersistencePayload(
+                    payload,
+                    out CoCoDiagnostic diagnostic);
+                if (!applied || diagnostic.IsError)
+                {
+                    failure = FormatDiagnostic(
+                        "StateGraph ContextFrame apply was rejected.",
+                        diagnostic);
+                    return PersistenceContextOperationResult.Failed;
+                }
+
+                return PersistenceContextOperationResult.Applied;
+            }
+            catch (Exception exception)
+            {
+                failure = "StateGraph ContextFrame apply threw: " + exception.Message;
+                return PersistenceContextOperationResult.Failed;
+            }
+        }
+
+        private IEnumerator ApplyDeferredWhenHostIsLive()
+        {
+            while (_deferredApplyRecord != null)
+            {
+                PersistenceContextRecord record = _deferredApplyRecord;
+                object applyToken = _deferredApplyToken;
+                PersistenceContextOperationResult result = TryApplyDetailed(
+                    record,
+                    out string failure);
+                if (result == PersistenceContextOperationResult.Deferred)
+                {
+                    yield return null;
+                    continue;
+                }
+
+                if (result == PersistenceContextOperationResult.Applied)
+                {
+                    MarkStateGraphApplyConsumed(applyToken);
+                }
+
+                if (!ReferenceEquals(record, _deferredApplyRecord) ||
+                    !ReferenceEquals(applyToken, _deferredApplyToken))
+                {
+                    continue;
+                }
+
+                _deferredApplyRecord = null;
+                _deferredApplyToken = null;
+                _deferredApplyCoroutine = null;
+                if (result == PersistenceContextOperationResult.Failed)
+                {
+                    Debug.LogError(
+                        $"[PersistenceContext] Deferred StateGraph apply failed for " +
+                        $"'{stableEntityId}': {failure}",
+                        this);
+                }
+                else if (result == PersistenceContextOperationResult.Unsupported)
+                {
+                    Debug.LogError(
+                        $"[PersistenceContext] Deferred StateGraph apply became unsupported for " +
+                        $"'{stableEntityId}'.",
+                        this);
+                }
+
+                yield break;
+            }
+
+            _deferredApplyCoroutine = null;
+        }
+
+        internal void CancelDeferredApply()
+        {
+            _deferredApplyRecord = null;
+            _deferredApplyToken = null;
+            if (_deferredApplyCoroutine == null) return;
+
+            StopCoroutine(_deferredApplyCoroutine);
+            _deferredApplyCoroutine = null;
+        }
+
+        internal bool HasConsumedStateGraphApply(object applyToken)
+        {
+            return applyToken != null &&
+                   ReferenceEquals(applyToken, _consumedStateGraphApplyToken);
+        }
+
+        internal void MarkStateGraphApplyConsumed(object applyToken)
+        {
+            if (applyToken != null)
+            {
+                _consumedStateGraphApplyToken = applyToken;
+            }
+        }
+
+        private static string FormatDiagnostic(
+            string fallback,
+            in CoCoDiagnostic diagnostic)
+        {
+            return string.IsNullOrEmpty(diagnostic.Message)
+                ? fallback
+                : diagnostic.Message;
         }
 
         private bool TryResolveContext(out ICoCoContext context)
@@ -107,7 +407,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             var behaviours = GetComponents<MonoBehaviour>();
             foreach (var behaviour in behaviours)
             {
-                if (behaviour == null || ReferenceEquals(behaviour, this)) continue;
+                if (behaviour == null ||
+                    ReferenceEquals(behaviour, this) ||
+                    behaviour is CoCoStateGraphHost)
+                {
+                    continue;
+                }
 
                 var interfaces = behaviour.GetType().GetInterfaces();
                 for (int i = 0; i < interfaces.Length; i++)

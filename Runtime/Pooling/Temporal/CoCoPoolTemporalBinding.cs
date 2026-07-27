@@ -17,7 +17,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         [SerializeField] private MonoBehaviour downstreamRestoreBinding;
 
         private PoolTemporalRuntime _runtime;
+        private CoCoStateGraphHost _attachedStateGraphHost;
         private PoolRuntime _attachedPoolRuntime;
+        private bool _resetOnlyAttachment;
+        private bool _resetOnlyAuthorityResetPrepared;
         private bool _downstreamWasConfigured;
         private MonoBehaviour _attachedDownstreamComponent;
         private ICoCoContextRestoreBinding _attachedDownstreamBinding;
@@ -110,10 +113,21 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             in CoCoContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
         {
-            if (!TryRequireRuntime(out diagnostic) ||
+            if (!TryRequireAttachment(out diagnostic) ||
                 !context.IsValid ||
-                !TryValidateFrozenDownstream(stateGraphHost, out diagnostic) ||
-                !_runtime.TryApplyPreparedBeforeRestore(out diagnostic))
+                (_resetOnlyAttachment
+                    ? !_resetOnlyAuthorityResetPrepared ||
+                      context.ApplyKind !=
+                      CoCoContextRestoreApplyKind.Confirm
+                    : (_runtime.IsAuthorityResetPrepared &&
+                       context.ApplyKind !=
+                       CoCoContextRestoreApplyKind.Confirm)) ||
+                !TryValidateFrozenDownstream(
+                    _attachedStateGraphHost,
+                    out diagnostic) ||
+                (!_resetOnlyAttachment &&
+                 !_runtime.TryApplyPreparedBeforeRestore(
+                     out diagnostic)))
             {
                 if (!diagnostic.IsError)
                 {
@@ -125,7 +139,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 return false;
             }
 
-            if (!TryValidateFrozenDownstream(stateGraphHost, out diagnostic))
+            if (!TryValidateFrozenDownstream(
+                    _attachedStateGraphHost,
+                    out diagnostic))
             {
                 _lastDiagnostic = diagnostic;
                 return false;
@@ -148,7 +164,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 }
 
                 if (!TryValidateFrozenDownstream(
-                        stateGraphHost,
+                        _attachedStateGraphHost,
                         out CoCoDiagnostic livenessDiagnostic))
                 {
                     diagnostic = livenessDiagnostic;
@@ -169,8 +185,14 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 }
             }
 
-            bool completed =
-                _runtime.TryApplyPreparedAfterRestore(out diagnostic);
+            bool completed = _resetOnlyAttachment ||
+                             _runtime.TryApplyPreparedAfterRestore(
+                                 out diagnostic);
+            if (_resetOnlyAttachment)
+            {
+                diagnostic = CoCoDiagnostic.None;
+            }
+
             _lastDiagnostic = diagnostic;
             return completed;
         }
@@ -187,9 +209,14 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         {
             diagnostic = CoCoDiagnostic.None;
             if (_runtime != null ||
+                _attachedStateGraphHost != null ||
+                _attachedPoolRuntime != null ||
+                _resetOnlyAttachment ||
+                _resetOnlyAuthorityResetPrepared ||
                 host == null ||
                 !ReferenceEquals(host, stateGraphHost) ||
-                historyCapacity < 2 ||
+                historyCapacity < 0 ||
+                historyCapacity == 1 ||
                 poolHost == null ||
                 poolHost.Runtime == null ||
                 poolHost.Runtime.IsDisposed ||
@@ -212,7 +239,16 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
             try
             {
+                _attachedStateGraphHost = host;
                 _attachedPoolRuntime = poolHost.Runtime;
+                _resetOnlyAttachment = historyCapacity == 0;
+                if (_resetOnlyAttachment)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    _lastDiagnostic = diagnostic;
+                    return true;
+                }
+
                 _runtime = new PoolTemporalRuntime(
                     host,
                     _attachedPoolRuntime,
@@ -225,7 +261,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             {
                 _runtime?.Dispose();
                 _runtime = null;
+                _attachedStateGraphHost = null;
                 _attachedPoolRuntime = null;
+                _resetOnlyAttachment = false;
+                _resetOnlyAuthorityResetPrepared = false;
                 ClearFrozenDownstream();
                 diagnostic = ProjectionError(
                     "Pool Temporal sidecar allocation failed during Host startup.");
@@ -236,20 +275,35 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         bool ICoCoStateGraphTemporalParticipant.IsTemporalParticipantLive(
             CoCoStateGraphHost host) =>
-            _runtime != null &&
-            !_runtime.IsDisposed &&
+            (_resetOnlyAttachment ||
+             (_runtime != null && !_runtime.IsDisposed)) &&
+            _attachedStateGraphHost != null &&
+            ReferenceEquals(host, _attachedStateGraphHost) &&
+            ReferenceEquals(stateGraphHost, _attachedStateGraphHost) &&
             _attachedPoolRuntime != null &&
             !_attachedPoolRuntime.IsDisposed &&
-            ReferenceEquals(host, stateGraphHost) &&
             poolHost != null &&
             ReferenceEquals(poolHost.Runtime, _attachedPoolRuntime) &&
-            CoCoStateGraphHostBoundary.Contains(host, this) &&
-            TryValidateFrozenDownstream(host, out _);
+            CoCoStateGraphHostBoundary.Contains(
+                _attachedStateGraphHost,
+                this) &&
+            TryValidateFrozenDownstream(
+                _attachedStateGraphHost,
+                out _);
 
         bool ICoCoStateGraphTemporalParticipant.TryPrepareForwardCapture(
             in CoCoTemporalFrameInfo candidate,
-            out CoCoDiagnostic diagnostic) =>
-            _runtime.TryPrepareForwardCapture(candidate, out diagnostic);
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareForwardCapture(
+                candidate,
+                out diagnostic);
+        }
 
         void ICoCoStateGraphTemporalParticipant.PublishForwardCaptureNoFail() =>
             _runtime?.PublishForwardCaptureNoFail();
@@ -257,23 +311,101 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         void ICoCoStateGraphTemporalParticipant.CancelPreparedCaptureNoFail() =>
             _runtime?.CancelPreparedCaptureNoFail();
 
+        bool ICoCoStateGraphTemporalParticipant.TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireAttachment(out diagnostic) ||
+                !targetAuthority.IsValid)
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = ConflictError(
+                        "Pool Temporal authority reset requires one valid target authority.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_resetOnlyAttachment)
+            {
+                if (_resetOnlyAuthorityResetPrepared)
+                {
+                    diagnostic = ConflictError(
+                        "Pool Temporal authority reset is already prepared.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                _resetOnlyAuthorityResetPrepared = true;
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+
+            bool prepared = _runtime.TryPrepareAuthorityReset(
+                targetAuthority,
+                out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return prepared;
+        }
+
+        void ICoCoStateGraphTemporalParticipant
+            .CommitPreparedAuthorityResetNoFail()
+        {
+            if (_resetOnlyAttachment)
+            {
+                _resetOnlyAuthorityResetPrepared = false;
+                return;
+            }
+
+            _runtime?.CommitPreparedAuthorityResetNoFail();
+        }
+
+        void ICoCoStateGraphTemporalParticipant
+            .CancelPreparedAuthorityResetNoFail()
+        {
+            if (_resetOnlyAttachment)
+            {
+                _resetOnlyAuthorityResetPrepared = false;
+                return;
+            }
+
+            _runtime?.CancelPreparedAuthorityResetNoFail();
+        }
+
         bool ICoCoStateGraphTemporalParticipant.TryBeginPreview(
             int historyCount,
-            out CoCoDiagnostic diagnostic) =>
-            _runtime.TryBeginPreview(historyCount, out diagnostic);
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryBeginPreview(historyCount, out diagnostic);
+        }
 
         bool ICoCoStateGraphTemporalParticipant.TryPrepareProjection(
             CoCoContextRestoreApplyKind applyKind,
             int historyDepth,
             in CoCoTemporalFrameInfo source,
             in CoCoTickFrame targetTickFrame,
-            out CoCoDiagnostic diagnostic) =>
-            _runtime.TryPrepareProjection(
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareProjection(
                 applyKind,
                 historyDepth,
                 source,
                 targetTickFrame,
                 out diagnostic);
+        }
 
         void ICoCoStateGraphTemporalParticipant.FinishProjectionNoFail(
             bool succeeded) =>
@@ -287,11 +419,18 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         bool ICoCoStateGraphTemporalParticipant.TryPrepareBranchCapture(
             int historyDepth,
             in CoCoTemporalFrameInfo branchHead,
-            out CoCoDiagnostic diagnostic) =>
-            _runtime.TryPrepareBranchCapture(
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareBranchCapture(
                 historyDepth,
                 branchHead,
                 out diagnostic);
+        }
 
         void ICoCoStateGraphTemporalParticipant.PublishBranchCaptureNoFail() =>
             _runtime?.PublishBranchCaptureNoFail();
@@ -308,15 +447,38 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         private bool TryRequireRuntime(out CoCoDiagnostic diagnostic)
         {
-            if (_runtime != null &&
+            if (!_resetOnlyAttachment &&
+                _runtime != null &&
                 !_runtime.IsDisposed &&
+                TryRequireAttachment(out diagnostic))
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            diagnostic = ConflictError(
+                "Pool Temporal Binding is not attached to live StateGraph and Pool Hosts.");
+            _lastDiagnostic = diagnostic;
+            return false;
+        }
+
+        private bool TryRequireAttachment(
+            out CoCoDiagnostic diagnostic)
+        {
+            if ((_resetOnlyAttachment ||
+                 (_runtime != null && !_runtime.IsDisposed)) &&
+                _attachedStateGraphHost != null &&
+                ReferenceEquals(
+                    stateGraphHost,
+                    _attachedStateGraphHost) &&
                 _attachedPoolRuntime != null &&
                 !_attachedPoolRuntime.IsDisposed &&
-                stateGraphHost != null &&
                 poolHost != null &&
-                ReferenceEquals(poolHost.Runtime, _attachedPoolRuntime) &&
+                ReferenceEquals(
+                    poolHost.Runtime,
+                    _attachedPoolRuntime) &&
                 CoCoStateGraphHostBoundary.Contains(
-                    stateGraphHost,
+                    _attachedStateGraphHost,
                     this))
             {
                 diagnostic = CoCoDiagnostic.None;
@@ -334,7 +496,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         {
             if (TryRequireRuntime(out diagnostic) &&
                 TryValidateFrozenDownstream(
-                    stateGraphHost,
+                    _attachedStateGraphHost,
                     out diagnostic))
             {
                 return true;
@@ -443,7 +605,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             finally
             {
                 _runtime = null;
+                _attachedStateGraphHost = null;
                 _attachedPoolRuntime = null;
+                _resetOnlyAttachment = false;
+                _resetOnlyAuthorityResetPrepared = false;
                 ClearFrozenDownstream();
             }
         }

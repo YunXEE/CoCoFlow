@@ -272,6 +272,10 @@ namespace CoCoFlow.Runtime.Core
 
     // Optional host-scoped participant seam. It deliberately carries only Temporal
     // metadata; implementations remain responsible for their own private value history.
+    // A historyCapacity of zero is a Persistence reset-only attachment: it may stage
+    // one authority reset and Confirm projection, but must not enable forward capture,
+    // preview, branching or private Temporal history. One remains invalid; capacities
+    // of at least two retain the full Temporal contract.
     internal interface ICoCoStateGraphTemporalParticipant
     {
         bool TryAttachTemporalHost(
@@ -288,6 +292,14 @@ namespace CoCoFlow.Runtime.Core
         void PublishForwardCaptureNoFail();
 
         void CancelPreparedCaptureNoFail();
+
+        bool TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic);
+
+        void CommitPreparedAuthorityResetNoFail();
+
+        void CancelPreparedAuthorityResetNoFail();
 
         bool TryBeginPreview(
             int historyCount,

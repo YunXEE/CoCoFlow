@@ -1834,6 +1834,53 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryDecodeAndPrepareImport(
+            ReadOnlySpan<byte> source,
+            CoCoContextFrameArena arena,
+            CoCoTickFrame importedTickFrame,
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoProjectionRestoreSource restoreSource,
+            out int bytesRead,
+            out CoCoContextCommitStatus commitStatus,
+            out CoCoDiagnosticCode diagnosticCode)
+        {
+            finalized = default;
+            restoreSource = default;
+            bytesRead = 0;
+            commitStatus = CoCoContextCommitStatus.RestoreFailed;
+            if (arena == null || !_layout.IsSameInstance(arena.Layout))
+            {
+                diagnosticCode = CoCoDiagnosticCode.InvalidFrameLayout;
+                return false;
+            }
+
+            if (!TryValidateSource(
+                    source,
+                    out restoreSource,
+                    out int encodedLength,
+                    out diagnosticCode))
+            {
+                return false;
+            }
+
+            if (!arena.TryPrepareProjectionImport(
+                    this,
+                    restoreSource,
+                    source.Slice(0, encodedLength),
+                    importedTickFrame,
+                    out finalized,
+                    out commitStatus,
+                    out CoCoDiagnosticCode restoreDiagnostic))
+            {
+                diagnosticCode = restoreDiagnostic;
+                return false;
+            }
+
+            bytesRead = encodedLength;
+            diagnosticCode = CoCoDiagnosticCode.None;
+            return true;
+        }
+
         internal bool TryDecodePayload(
             ReadOnlySpan<byte> source,
             byte[] destination,
@@ -1890,7 +1937,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        private bool TryValidateSource(
+        internal bool TryValidateSource(
             ReadOnlySpan<byte> source,
             out CoCoProjectionRestoreSource restoreSource,
             out int encodedLength,
@@ -2916,6 +2963,43 @@ namespace CoCoFlow.Runtime.Core
             CoCoTickFrame resumedTickFrame,
             out CoCoFinalizedContextCommit finalized,
             out CoCoContextCommitStatus status,
+            out CoCoDiagnosticCode diagnosticCode) =>
+            TryPrepareProjectionRestoreCore(
+                codec,
+                source,
+                encoded,
+                resumedTickFrame,
+                requireSameRuntimeIdentity: true,
+                out finalized,
+                out status,
+                out diagnosticCode);
+
+        internal bool TryPrepareProjectionImport(
+            CoCoContextProjectionCodec codec,
+            CoCoProjectionRestoreSource source,
+            ReadOnlySpan<byte> encoded,
+            CoCoTickFrame importedTickFrame,
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnosticCode diagnosticCode) =>
+            TryPrepareProjectionRestoreCore(
+                codec,
+                source,
+                encoded,
+                importedTickFrame,
+                requireSameRuntimeIdentity: false,
+                out finalized,
+                out status,
+                out diagnosticCode);
+
+        private bool TryPrepareProjectionRestoreCore(
+            CoCoContextProjectionCodec codec,
+            CoCoProjectionRestoreSource source,
+            ReadOnlySpan<byte> encoded,
+            CoCoTickFrame resumedTickFrame,
+            bool requireSameRuntimeIdentity,
+            out CoCoFinalizedContextCommit finalized,
+            out CoCoContextCommitStatus status,
             out CoCoDiagnosticCode diagnosticCode)
         {
             if (_isDisposed)
@@ -2942,7 +3026,9 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (!source.IsValid || source.GraphInstanceId != _graphInstanceId)
+            if (!source.IsValid ||
+                (requireSameRuntimeIdentity &&
+                 source.GraphInstanceId != _graphInstanceId))
             {
                 finalized = default;
                 status = CoCoContextCommitStatus.GraphMismatch;
@@ -2959,8 +3045,10 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (resumedTickFrame.TimelineEpoch.Value <= source.TimelineEpoch.Value ||
-                resumedTickFrame.TimelineId != source.TimelineId ||
-                resumedTickFrame.ClockDomainId != source.ClockDomainId ||
+                (requireSameRuntimeIdentity &&
+                 resumedTickFrame.TimelineId != source.TimelineId) ||
+                (requireSameRuntimeIdentity &&
+                 resumedTickFrame.ClockDomainId != source.ClockDomainId) ||
                 resumedTickFrame.ExecutionSequence.Value <= source.ExecutionSequence.Value ||
                 (HasCurrent &&
                  resumedTickFrame.TimelineEpoch.Value <=

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using CoCoFlow.Runtime.Content;
@@ -36,6 +37,350 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         [UnityTest]
         public IEnumerator IndirectMapPoolMapDecoratorCycleIsRejectedBeforeAttach() =>
             UniTask.ToCoroutine(RunIndirectCycleRejectionAsync);
+
+        [UnityTest]
+        public IEnumerator AuthorityResetPublishesMapAndPoolBaselinesOuterToDownstream() =>
+            UniTask.ToCoroutine(RunAuthorityResetDelegationAsync);
+
+        [UnityTest]
+        public IEnumerator ResetOnlyDecoratorChainStagesWithoutPrivateHistories() =>
+            UniTask.ToCoroutine(RunResetOnlyDecoratorChainAsync);
+
+        [UnityTest]
+        public IEnumerator ResetOnlyDownstreamRejectDoesNotDetachUnownedParticipant() =>
+            UniTask.ToCoroutine(
+                () => RunResetOnlyDownstreamAttachmentFailureAsync(
+                    throws: false));
+
+        [UnityTest]
+        public IEnumerator ResetOnlyDownstreamThrowDetachesPartialAttachment() =>
+            UniTask.ToCoroutine(
+                () => RunResetOnlyDownstreamAttachmentFailureAsync(
+                    throws: true));
+
+        private static async UniTask
+            RunResetOnlyDownstreamAttachmentFailureAsync(bool throws)
+        {
+            DecoratorFixture fixture = CreateFixture(
+                historyCapacity: 0);
+            try
+            {
+                Type participantType = Type.GetType(
+                    "CoCoFlow.Tests.Runtime.StateGraphHost.CoCoStateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
+                    true);
+                var downstream =
+                    (MonoBehaviour)fixture.Scenario.Root.AddComponent(
+                        participantType);
+                SetPrivateProperty(
+                    downstream,
+                    "RejectAttachment",
+                    !throws);
+                SetPrivateProperty(
+                    downstream,
+                    "ThrowAttachment",
+                    throws);
+                SetField(
+                    fixture.MapTemporalBinding,
+                    "downstreamRestoreBinding",
+                    downstream);
+
+                Assert.That(
+                    TryAttachTemporalHost(
+                        fixture.MapTemporalBinding,
+                        fixture.Host,
+                        0,
+                        out CoCoDiagnostic failure),
+                    Is.False);
+                Assert.That(failure.IsError, Is.True);
+                Assert.That(
+                    GetProperty(
+                        downstream,
+                        "AttachCount"),
+                    Is.EqualTo(1));
+                Assert.That(
+                    GetProperty(
+                        downstream,
+                        "DetachCount"),
+                    Is.EqualTo(throws ? 1 : 0));
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "resetOnlyAttachment"),
+                    Is.False);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "runtime"),
+                    Is.Null);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask RunResetOnlyDecoratorChainAsync()
+        {
+            DecoratorFixture fixture = CreateFixture(
+                historyCapacity: 0,
+                withDurableProjection: true);
+            try
+            {
+                Assert.That(
+                    fixture.Host.TryStart(
+                        out CoCoDiagnostic start),
+                    Is.True,
+                    start.Message);
+                Assert.That(
+                    fixture.Host.TryStep(
+                        0.1d,
+                        out CoCoDiagnostic firstStep),
+                    Is.True,
+                    firstStep.Message);
+                Assert.That(
+                    TryCapturePersistencePayload(
+                        fixture.Host,
+                        out byte[] payload,
+                        out CoCoDiagnostic capture),
+                    Is.True,
+                    capture.Message);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "runtime"),
+                    Is.Null);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_runtime"),
+                    Is.Null);
+
+                Assert.That(
+                    TryAttachTemporalHost(
+                        fixture.MapTemporalBinding,
+                        fixture.Host,
+                        1,
+                        out CoCoDiagnostic invalidCapacity),
+                    Is.False);
+                Assert.That(invalidCapacity.IsError, Is.True);
+                Assert.That(
+                    TryApplyPersistencePayload(
+                        fixture.Host,
+                        payload,
+                        out CoCoDiagnostic firstImport),
+                    Is.True,
+                    firstImport.Message);
+                Assert.That(fixture.ProjectProbe.ApplyCount, Is.EqualTo(1));
+                Assert.That(
+                    fixture.ProjectProbe.ApplyKinds,
+                    Is.EqualTo(
+                        new[]
+                        {
+                            CoCoContextRestoreApplyKind.Confirm
+                        }));
+                Assert.That(
+                    fixture.ProjectProbe.MapProjectionPreparedDuringApply[0],
+                    Is.False);
+                Assert.That(
+                    fixture.ProjectProbe.PoolProjectionPreparedDuringApply[0],
+                    Is.False);
+                Assert.That(
+                    fixture.ProjectProbe.MapAvailabilityRetainedDuringApply[0],
+                    Is.False);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "resetOnlyAttachment"),
+                    Is.True);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_resetOnlyAttachment"),
+                    Is.True);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "runtime"),
+                    Is.Null);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_runtime"),
+                    Is.Null);
+
+                CoCoTemporalFrameInfo authority =
+                    fixture.Host.TemporalState.Current;
+                Assert.That(authority.IsValid, Is.True);
+                Assert.That(
+                    TryPrepareForwardCapture(
+                        fixture.MapTemporalBinding,
+                        authority,
+                        out CoCoDiagnostic forwardCapture),
+                    Is.False);
+                Assert.That(forwardCapture.IsError, Is.True);
+
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        authority,
+                        out CoCoDiagnostic prepareCancel),
+                    Is.True,
+                    prepareCancel.Message);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "authorityResetPrepared"),
+                    Is.True);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_resetOnlyAuthorityResetPrepared"),
+                    Is.True);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CancelPreparedAuthorityResetNoFail");
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "authorityResetPrepared"),
+                    Is.False);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_resetOnlyAuthorityResetPrepared"),
+                    Is.False);
+
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        authority,
+                        out CoCoDiagnostic prepareCommit),
+                    Is.True,
+                    prepareCommit.Message);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CommitPreparedAuthorityResetNoFail");
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "DrainPublishedCleanupNoFail");
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "authorityResetPrepared"),
+                    Is.False);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_resetOnlyAuthorityResetPrepared"),
+                    Is.False);
+                Assert.That(fixture.ProjectProbe.ApplyCount, Is.EqualTo(1));
+
+                Assert.That(
+                    TryApplyPersistencePayload(
+                        fixture.Host,
+                        payload,
+                        out CoCoDiagnostic secondImport),
+                    Is.True,
+                    secondImport.Message);
+                Assert.That(fixture.ProjectProbe.ApplyCount, Is.EqualTo(2));
+                Assert.That(
+                    fixture.Host.TryStop(
+                        out CoCoDiagnostic stop),
+                    Is.True,
+                    stop.Message);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "resetOnlyAttachment"),
+                    Is.False);
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_resetOnlyAttachment"),
+                    Is.False);
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask RunAuthorityResetDelegationAsync()
+        {
+            DecoratorFixture fixture = CreateFixture();
+            try
+            {
+                Assert.That(
+                    fixture.Host.TryStart(
+                        out CoCoDiagnostic start),
+                    Is.True,
+                    start.Message);
+                Assert.That(
+                    fixture.Host.TryStep(
+                        0.1d,
+                        out CoCoDiagnostic firstStep),
+                    Is.True,
+                    firstStep.Message);
+                Assert.That(
+                    fixture.Host.TryStep(
+                        0.1d,
+                        out CoCoDiagnostic secondStep),
+                    Is.True,
+                    secondStep.Message);
+
+                int mapCountBefore =
+                    ReadMapHistoryCount(fixture.MapTemporalBinding);
+                int poolCountBefore =
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding);
+                Assert.That(mapCountBefore, Is.GreaterThan(1));
+                Assert.That(poolCountBefore, Is.EqualTo(mapCountBefore));
+
+                CoCoTemporalFrameInfo imported =
+                    fixture.Host.TemporalState.Current;
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        imported,
+                        out CoCoDiagnostic prepareCancel),
+                    Is.True,
+                    prepareCancel.Message);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CancelPreparedAuthorityResetNoFail");
+                Assert.That(
+                    ReadMapHistoryCount(fixture.MapTemporalBinding),
+                    Is.EqualTo(mapCountBefore));
+                Assert.That(
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding),
+                    Is.EqualTo(poolCountBefore));
+
+                Assert.That(
+                    TryPrepareAuthorityReset(
+                        fixture.MapTemporalBinding,
+                        imported,
+                        out CoCoDiagnostic prepare),
+                    Is.True,
+                    prepare.Message);
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "CommitPreparedAuthorityResetNoFail");
+                InvokeTemporalParticipantNoFail(
+                    fixture.MapTemporalBinding,
+                    "DrainPublishedCleanupNoFail");
+
+                Assert.That(
+                    ReadMapHistoryCount(fixture.MapTemporalBinding),
+                    Is.EqualTo(1));
+                Assert.That(
+                    ReadPoolHistoryCount(fixture.PoolTemporalBinding),
+                    Is.EqualTo(1),
+                    "Map must publish authority reset to its frozen downstream Pool participant.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
 
         private static async UniTask RunDecoratorLifecycleAsync()
         {
@@ -178,9 +523,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             }
         }
 
-        private static DecoratorFixture CreateFixture()
+        private static DecoratorFixture CreateFixture(
+            int historyCapacity = 3,
+            bool withDurableProjection = false)
         {
-            ReflectedHostScenario scenario = CreateStateGraphScenario(3);
+            ReflectedHostScenario scenario =
+                CreateStateGraphScenario(
+                    historyCapacity,
+                    withDurableProjection);
 
             var systemsObject =
                 new GameObject("Pre10 Map Temporal Decorator Systems");
@@ -334,7 +684,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         }
 
         private static ReflectedHostScenario CreateStateGraphScenario(
-            int historyCapacity)
+            int historyCapacity,
+            bool withDurableProjection = false)
         {
             Type harnessType = Type.GetType(
                 "CoCoFlow.Tests.Runtime.StateGraphHost.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
@@ -345,7 +696,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             Assert.That(create, Is.Not.Null);
             object scenario = create.Invoke(
                 null,
-                new object[] { historyCapacity, false, true });
+                new object[]
+                {
+                    historyCapacity,
+                    false,
+                    true,
+                    withDurableProjection,
+                    null
+                });
             Assert.That(scenario, Is.Not.Null);
 
             return new ReflectedHostScenario(
@@ -434,6 +792,124 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         {
             object runtime = ReadPrivateField(binding, "runtime");
             return (bool)ReadPrivateField(runtime, "projectionPrepared");
+        }
+
+        private static int ReadMapHistoryCount(
+            CoCoMapTemporalBinding binding)
+        {
+            object runtime = ReadPrivateField(binding, "runtime");
+            PropertyInfo count = runtime.GetType().GetProperty(
+                "HistoryCount",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(count, Is.Not.Null);
+            return (int)count.GetValue(runtime);
+        }
+
+        private static bool TryPrepareAuthorityReset(
+            object participant,
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryPrepareAuthorityReset");
+            object[] arguments = { targetAuthority, null };
+            bool prepared = (bool)method.Invoke(
+                participant,
+                arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return prepared;
+        }
+
+        private static bool TryAttachTemporalHost(
+            object participant,
+            CoCoStateGraphHost host,
+            int historyCapacity,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryAttachTemporalHost");
+            object[] arguments = { host, historyCapacity, null };
+            bool attached = (bool)method.Invoke(
+                participant,
+                arguments);
+            diagnostic = (CoCoDiagnostic)arguments[2];
+            return attached;
+        }
+
+        private static bool TryCapturePersistencePayload(
+            CoCoStateGraphHost host,
+            out byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = typeof(CoCoStateGraphHost).GetMethod(
+                "TryCapturePersistencePayload",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            object[] arguments = { null, null };
+            bool captured = (bool)method.Invoke(host, arguments);
+            payload = (byte[])arguments[0];
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return captured;
+        }
+
+        private static bool TryApplyPersistencePayload(
+            CoCoStateGraphHost host,
+            byte[] payload,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = typeof(CoCoStateGraphHost).GetMethod(
+                "TryApplyPersistencePayload",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            object[] arguments = { payload, null };
+            bool applied = (bool)method.Invoke(host, arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return applied;
+        }
+
+        private static bool TryPrepareForwardCapture(
+            object participant,
+            in CoCoTemporalFrameInfo candidate,
+            out CoCoDiagnostic diagnostic)
+        {
+            MethodInfo method = FindTemporalParticipantMethod(
+                participant,
+                "TryPrepareForwardCapture");
+            object[] arguments = { candidate, null };
+            bool prepared = (bool)method.Invoke(
+                participant,
+                arguments);
+            diagnostic = (CoCoDiagnostic)arguments[1];
+            return prepared;
+        }
+
+        private static void InvokeTemporalParticipantNoFail(
+            object participant,
+            string methodName)
+        {
+            FindTemporalParticipantMethod(
+                    participant,
+                    methodName)
+                .Invoke(participant, null);
+        }
+
+        private static MethodInfo FindTemporalParticipantMethod(
+            object participant,
+            string methodName)
+        {
+            Assert.That(participant, Is.Not.Null);
+            MethodInfo method = participant.GetType()
+                .GetMethods(
+                    BindingFlags.Instance |
+                    BindingFlags.NonPublic)
+                .SingleOrDefault(candidate =>
+                    candidate.Name.EndsWith(
+                        "." + methodName,
+                        StringComparison.Ordinal));
+            Assert.That(method, Is.Not.Null);
+            return method;
         }
 
         private static bool IsPoolProjectionPrepared(

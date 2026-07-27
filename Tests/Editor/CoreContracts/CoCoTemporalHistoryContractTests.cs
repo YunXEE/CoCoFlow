@@ -165,6 +165,106 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void AuthorityResetPublishesOnlyImportedBaselineInvalidatesSelectionAndAllowsNextCapture()
+        {
+            TestLayout fixture = CreateLayout(350UL);
+            Assert.IsTrue(CoCoTemporalHistory.TryCreate(
+                fixture.Layout,
+                CreateFrozenCodecs(),
+                4,
+                out CoCoTemporalHistory history,
+                out CoCoDiagnosticCode diagnosticCode), diagnosticCode.ToString());
+            var arena = new CoCoContextFrameArena(GraphId(350UL), fixture.Layout, 2);
+
+            CommitForward(arena, history, fixture, Tick(1UL, 1UL, 1UL), 10, 90, 900);
+            CommitForward(arena, history, fixture, Tick(2UL, 1UL, 2UL), 20, 91, 901);
+            CommitForward(arena, history, fixture, Tick(3UL, 1UL, 3UL), 30, 92, 902);
+            Assert.IsTrue(history.TrySelect(2, out CoCoTemporalSelection oldSelection, out diagnosticCode));
+            CoCoContextRestoreReadView oldView = oldSelection.RestoreView;
+
+            Assert.IsTrue(arena.TryPrepare(
+                Tick(4UL, 2UL, 4UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            Assert.IsTrue(prepared.TryGetWriter(fixture.Block, out CoCoContextFrameWriter writer));
+            Assert.IsTrue(writer.Write(fixture.TemporalStored, 40));
+            Assert.IsTrue(writer.Write(fixture.TemporalReset, 93));
+            Assert.IsTrue(writer.Write(fixture.NonTemporalStored, 903));
+            Assert.IsTrue(prepared.TryFinalize(out CoCoFinalizedContextCommit finalized, out _));
+            Assert.IsTrue(history.TryPrepareAuthorityReset(finalized, out diagnosticCode), diagnosticCode.ToString());
+            Assert.AreEqual(3, history.Count, "Preparing the reset must not mutate published history.");
+            Assert.IsTrue(oldSelection.IsValid);
+
+            CoCoContextFrame importedBaseline = finalized.CommitNoFailUnchecked();
+            history.PublishAuthorityResetNoFail();
+
+            Assert.AreEqual(1, history.Count);
+            Assert.IsTrue(history.TryGetInfo(0, out CoCoTemporalHistoryEntryInfo baselineInfo));
+            Assert.AreEqual(importedBaseline.Header, baselineInfo.Header);
+            Assert.AreEqual(importedBaseline.Revision, baselineInfo.Revision);
+            Assert.AreEqual(importedBaseline.Origin, baselineInfo.Origin);
+            Assert.IsFalse(history.TryGetInfo(1, out _));
+            Assert.IsFalse(oldSelection.IsValid);
+            Assert.IsFalse(oldView.IsValid);
+            Assert.IsFalse(history.TrySelect(1, out _, out diagnosticCode));
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidRestoreMetadata, diagnosticCode);
+
+            CommitForward(arena, history, fixture, Tick(5UL, 2UL, 5UL), 50, 94, 904);
+
+            Assert.AreEqual(2, history.Count);
+            Assert.IsTrue(history.TryGetInfo(0, out CoCoTemporalHistoryEntryInfo nextInfo));
+            Assert.IsTrue(history.TryGetInfo(1, out CoCoTemporalHistoryEntryInfo retainedBaseline));
+            Assert.AreEqual(5UL, nextInfo.Header.Identity.Tick.Value);
+            Assert.AreEqual(baselineInfo, retainedBaseline);
+        }
+
+        [Test]
+        public void CancelledAuthorityResetLeavesPublishedHistoryAndSelectionUnchanged()
+        {
+            TestLayout fixture = CreateLayout(375UL);
+            Assert.IsTrue(CoCoTemporalHistory.TryCreate(
+                fixture.Layout,
+                CreateFrozenCodecs(),
+                3,
+                out CoCoTemporalHistory history,
+                out CoCoDiagnosticCode diagnosticCode), diagnosticCode.ToString());
+            var arena = new CoCoContextFrameArena(GraphId(375UL), fixture.Layout, 2);
+
+            CommitForward(arena, history, fixture, Tick(1UL, 1UL, 1UL), 10, 90, 900);
+            CommitForward(arena, history, fixture, Tick(2UL, 1UL, 2UL), 20, 91, 901);
+            Assert.IsTrue(history.TryGetInfo(0, out CoCoTemporalHistoryEntryInfo current));
+            Assert.IsTrue(history.TryGetInfo(1, out CoCoTemporalHistoryEntryInfo previous));
+            Assert.IsTrue(history.TrySelect(1, out CoCoTemporalSelection selection, out diagnosticCode));
+            CoCoContextRestoreReadView view = selection.RestoreView;
+
+            Assert.IsTrue(arena.TryPrepare(
+                Tick(3UL, 2UL, 3UL),
+                out CoCoPreparedContextCommit prepared,
+                out _));
+            Assert.IsTrue(prepared.TryGetWriter(fixture.Block, out CoCoContextFrameWriter writer));
+            Assert.IsTrue(writer.Write(fixture.TemporalStored, 30));
+            Assert.IsTrue(writer.Write(fixture.TemporalReset, 92));
+            Assert.IsTrue(writer.Write(fixture.NonTemporalStored, 902));
+            Assert.IsTrue(prepared.TryFinalize(out CoCoFinalizedContextCommit finalized, out _));
+            Assert.IsTrue(history.TryPrepareAuthorityReset(finalized, out diagnosticCode), diagnosticCode.ToString());
+
+            history.CancelPreparedCapture();
+            Assert.AreEqual(CoCoContextCommitStatus.Cancelled, finalized.Cancel());
+
+            Assert.AreEqual(2, history.Count);
+            Assert.IsTrue(history.TryGetInfo(0, out CoCoTemporalHistoryEntryInfo currentAfterCancel));
+            Assert.IsTrue(history.TryGetInfo(1, out CoCoTemporalHistoryEntryInfo previousAfterCancel));
+            Assert.AreEqual(current, currentAfterCancel);
+            Assert.AreEqual(previous, previousAfterCancel);
+            Assert.IsTrue(selection.IsValid);
+            Assert.IsTrue(view.IsValid);
+            Assert.IsTrue(view.TryRead(fixture.TemporalStored, out int restored));
+            Assert.AreEqual(10, restored);
+            Assert.AreEqual(2UL, arena.Current.Revision.Value);
+            Assert.AreEqual(20, arena.Current.Read(fixture.TemporalStored));
+        }
+
+        [Test]
         public void CancelledCaptureAndClearLeaveAuthorityHistoryUnchangedAndInvalidateViews()
         {
             TestLayout fixture = CreateLayout(400UL);

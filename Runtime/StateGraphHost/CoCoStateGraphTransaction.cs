@@ -932,6 +932,189 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool TryPreparePersistenceRestore(
+            CoCoStateGraphRuntime runtime,
+            CoCoContextProjectionCodec codec,
+            ReadOnlySpan<byte> encoded,
+            in CoCoTickFrame importedTickFrame,
+            CoCoTemporalHistory history,
+            out CoCoPreparedActorRestore preparedRestore,
+            out CoCoContextRestoreReadView restoreSource,
+            out CoCoProjectionRestoreSource persistedSource,
+            out CoCoTemporalFrameInfo targetAuthority,
+            out CoCoContextCommitStatus status,
+            out CoCoDiagnostic diagnostic)
+        {
+            preparedRestore = default;
+            restoreSource = default;
+            persistedSource = default;
+            targetAuthority = default;
+            diagnostic = CoCoDiagnostic.None;
+            if (_isDisposed ||
+                runtime == null ||
+                codec == null ||
+                encoded.IsEmpty ||
+                _activeToken != 0UL ||
+                _activeRestoreToken != 0UL ||
+                !importedTickFrame.IsValid)
+            {
+                status = CoCoContextCommitStatus.InvalidPreparation;
+                diagnostic = RestoreError(
+                    "Persistence import requires one live idle transaction and one valid Durable payload.");
+                return false;
+            }
+
+            if (_nextRestoreToken == ulong.MaxValue)
+            {
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError(
+                    "Actor restore transaction tokens are exhausted.");
+                return false;
+            }
+
+            CoCoFinalizedContextCommit finalizedContext;
+            try
+            {
+                if (!codec.TryDecodeAndPrepareImport(
+                        encoded,
+                        _contextArena,
+                        importedTickFrame,
+                        out finalizedContext,
+                        out persistedSource,
+                        out int bytesRead,
+                        out status,
+                        out CoCoDiagnosticCode diagnosticCode) ||
+                    bytesRead != encoded.Length)
+                {
+                    diagnostic = RestoreError(
+                        diagnosticCode,
+                        status == CoCoContextCommitStatus.DerivedRebuildFailed
+                            ? "Derived Context rebuild rejected the Persistence import candidate."
+                            : "Durable Context payload could not materialize a complete import candidate.");
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                status = CoCoContextCommitStatus.DerivedRebuildFailed;
+                diagnostic = RestoreError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Persistence Context materialization threw during restore preparation.");
+                return false;
+            }
+
+            if (!finalizedContext.TryCreateRestoreReadView(out restoreSource) ||
+                !restoreSource.IsValid ||
+                !finalizedContext.TryGetMetadata(
+                    out CoCoStateFlowFrameHeader targetHeader,
+                    out CoCoContextRevision targetRevision,
+                    out CoCoContextFrameOrigin targetOrigin))
+            {
+                finalizedContext.Cancel();
+                restoreSource = default;
+                persistedSource = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                diagnostic = RestoreError(
+                    "Persistence import candidate did not expose valid target metadata and read authority.");
+                return false;
+            }
+
+            targetAuthority = new CoCoTemporalFrameInfo(
+                targetHeader.Identity.GraphInstanceId,
+                targetHeader.TickFrame,
+                targetRevision,
+                targetOrigin);
+            if (!targetAuthority.IsValid ||
+                !runtime.TryPrepareRestore(
+                    _contextRuntime,
+                    restoreSource,
+                    importedTickFrame,
+                    out CoCoPreparedGraphRestore graphRestore,
+                    out diagnostic))
+            {
+                finalizedContext.Cancel();
+                restoreSource = default;
+                persistedSource = default;
+                targetAuthority = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = RestoreError(
+                        "Graph and Clock authority rejected the Persistence import candidate.");
+                }
+
+                return false;
+            }
+
+            ulong token = ++_nextRestoreToken;
+            CoCoClaimRestoreOverlayPolicy overlayPolicy =
+                runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended
+                    ? CoCoClaimRestoreOverlayPolicy.RebuildForSuspended
+                    : CoCoClaimRestoreOverlayPolicy.DiscardAbandonedFuture;
+            if (!_operators.TryPrepareRestore(
+                    restoreSource,
+                    _contextRuntime,
+                    token,
+                    overlayPolicy,
+                    out diagnostic))
+            {
+                graphRestore.Cancel();
+                finalizedContext.Cancel();
+                restoreSource = default;
+                persistedSource = default;
+                targetAuthority = default;
+                status = CoCoContextCommitStatus.RestoreFailed;
+                return false;
+            }
+
+            if (history != null)
+            {
+                try
+                {
+                    if (!history.TryPrepareAuthorityReset(
+                            finalizedContext,
+                            out CoCoDiagnosticCode diagnosticCode))
+                    {
+                        history.CancelPreparedCapture();
+                        _operators.CancelPreparedRestore();
+                        graphRestore.Cancel();
+                        finalizedContext.Cancel();
+                        restoreSource = default;
+                        persistedSource = default;
+                        targetAuthority = default;
+                        status = CoCoContextCommitStatus.RestoreFailed;
+                        diagnostic = RestoreError(
+                            diagnosticCode,
+                            "Temporal history could not stage the imported authority baseline.");
+                        return false;
+                    }
+                }
+                catch (Exception)
+                {
+                    history.CancelPreparedCapture();
+                    _operators.CancelPreparedRestore();
+                    graphRestore.Cancel();
+                    finalizedContext.Cancel();
+                    restoreSource = default;
+                    persistedSource = default;
+                    targetAuthority = default;
+                    status = CoCoContextCommitStatus.RestoreFailed;
+                    diagnostic = RestoreError(
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "Temporal authority reset staging threw before the Persistence authority barrier.");
+                    return false;
+                }
+            }
+
+            _preparedRestoreContext = finalizedContext;
+            _preparedGraphRestore = graphRestore;
+            _activeRestoreToken = token;
+            preparedRestore = new CoCoPreparedActorRestore(this, token);
+            status = CoCoContextCommitStatus.None;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         internal bool IsPreparedRestoreTokenCurrent(ulong token) =>
             !_isDisposed &&
             token != 0UL &&

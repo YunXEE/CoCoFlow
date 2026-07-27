@@ -69,6 +69,16 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private AnimFeedbackSourceStamp _candidateFeedbackStamp;
         private CoCoGraphInstanceId _boundGraphInstanceId;
         private PlaybackPublicationFence _playbackPublicationFence;
+        private bool _downstreamWasConfigured;
+        private MonoBehaviour _attachedDownstreamComponent;
+        private ICoCoContextRestoreBinding _attachedDownstreamBinding;
+        private ICoCoStateGraphTemporalParticipant
+            _attachedDownstreamParticipant;
+        private bool _downstreamParticipantAttached;
+        private bool _resetOnlyTemporalAttachment;
+        private bool _authorityResetPrepared;
+        private bool _temporalCallbackActive;
+        private bool _restoreCallbackActive;
         private bool _isInitialized;
         private bool _isEvaluating;
         private bool _isHeld;
@@ -399,9 +409,81 @@ namespace CoCoFlow.Runtime.Modules.Animation
             in CoCoContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
         {
-            diagnostic = AnimOperatorContracts.RestoreUnavailable();
-            _lastDiagnostic = diagnostic;
-            return false;
+            diagnostic = CoCoDiagnostic.None;
+            if (_restoreCallbackActive ||
+                _temporalCallbackActive ||
+                !_authorityResetPrepared ||
+                !context.IsValid ||
+                context.ApplyKind != CoCoContextRestoreApplyKind.Confirm ||
+                !TryValidateFrozenDownstream(
+                    _attachedTemporalHost,
+                    requireParticipantLive: true,
+                    out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = AnimOperatorContracts.RestoreUnavailable();
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            _restoreCallbackActive = true;
+            try
+            {
+                if (!_downstreamWasConfigured)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    _lastDiagnostic = diagnostic;
+                    return true;
+                }
+
+                bool applied;
+                try
+                {
+                    applied = _attachedDownstreamBinding.TryApply(
+                        context,
+                        out diagnostic);
+                }
+                catch (Exception exception)
+                {
+                    applied = false;
+                    diagnostic = AnimOperatorContracts.Error(
+                        "The downstream Restore Binding threw during Animation authority reset: " +
+                        exception.Message);
+                }
+
+                if (!TryValidateFrozenDownstream(
+                        _attachedTemporalHost,
+                        requireParticipantLive: true,
+                        out CoCoDiagnostic livenessDiagnostic))
+                {
+                    diagnostic = livenessDiagnostic;
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!applied || diagnostic.IsError)
+                {
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = AnimOperatorContracts.Error(
+                            "The downstream Restore Binding rejected Animation authority reset.");
+                    }
+
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+            finally
+            {
+                _restoreCallbackActive = false;
+            }
         }
 
         bool IAnimEventReceiver.TryReceiveSmbSignal(in AnimSmbSignal signal)
@@ -588,10 +670,15 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 _attachedTemporalHost != null ||
                 host == null ||
                 !ReferenceEquals(host, stateGraphHost) ||
-                historyCapacity <= 0 ||
+                historyCapacity < 0 ||
+                historyCapacity == 1 ||
                 !ReferenceEquals(host.ContextRestoreBinding, this) ||
                 !CoCoStateGraphHostBoundary.Contains(host, this) ||
-                !CoCoTemporalDecoratorChain.TryValidate(host, this, out diagnostic))
+                !CoCoTemporalDecoratorChain.TryValidate(
+                    host,
+                    this,
+                    out diagnostic) ||
+                !TryFreezeDownstream(host, out diagnostic))
             {
                 if (!diagnostic.IsError)
                 {
@@ -605,7 +692,68 @@ namespace CoCoFlow.Runtime.Modules.Animation
             }
 
             _attachedTemporalHost = host;
+            _resetOnlyTemporalAttachment = historyCapacity == 0;
+            if (_attachedDownstreamParticipant != null)
+            {
+                bool downstreamAttached;
+                try
+                {
+                    downstreamAttached =
+                        _attachedDownstreamParticipant
+                            .TryAttachTemporalHost(
+                                host,
+                                historyCapacity,
+                                out diagnostic);
+                    if (downstreamAttached)
+                    {
+                        _downstreamParticipantAttached = true;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    downstreamAttached = false;
+                    _downstreamParticipantAttached = true;
+                    diagnostic = AnimOperatorContracts.Error(
+                        "The downstream Temporal participant threw during Animation attachment: " +
+                        exception.Message);
+                }
+
+                if (!downstreamAttached || diagnostic.IsError)
+                {
+                    if (_downstreamParticipantAttached)
+                    {
+                        TryDetachDownstreamNoFail();
+                    }
+
+                    _attachedTemporalHost = null;
+                    _resetOnlyTemporalAttachment = false;
+                    ClearFrozenDownstream();
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = AnimOperatorContracts.Error(
+                            "The downstream Temporal participant rejected Animation attachment.");
+                    }
+
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+            }
+
+            if (!TryValidateFrozenDownstream(
+                    host,
+                    requireParticipantLive: true,
+                    out diagnostic))
+            {
+                TryDetachDownstreamNoFail();
+                _attachedTemporalHost = null;
+                _resetOnlyTemporalAttachment = false;
+                ClearFrozenDownstream();
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
             diagnostic = CoCoDiagnostic.None;
+            _lastDiagnostic = diagnostic;
             return true;
         }
 
@@ -617,20 +765,70 @@ namespace CoCoFlow.Runtime.Modules.Animation
                    ReferenceEquals(_attachedTemporalHost, host) &&
                    ReferenceEquals(host, stateGraphHost) &&
                    ReferenceEquals(host.ContextRestoreBinding, this) &&
-                   CoCoStateGraphHostBoundary.Contains(host, this);
+                   CoCoStateGraphHostBoundary.Contains(host, this) &&
+                   TryValidateFrozenDownstream(
+                       host,
+                       requireParticipantLive: true,
+                       out _);
         }
 
         bool ICoCoStateGraphTemporalParticipant.TryPrepareForwardCapture(
             in CoCoTemporalFrameInfo candidate,
             out CoCoDiagnostic diagnostic)
         {
+            diagnostic = CoCoDiagnostic.None;
             if (_attachedTemporalHost == null ||
+                _resetOnlyTemporalAttachment ||
                 !_isInitialized ||
-                !candidate.IsValid)
+                _temporalCallbackActive ||
+                _restoreCallbackActive ||
+                !candidate.IsValid ||
+                !TryValidateFrozenDownstream(
+                    _attachedTemporalHost,
+                    requireParticipantLive: true,
+                    out diagnostic))
             {
-                diagnostic = AnimOperatorContracts.Error(
-                    "AnimOperator Temporal forward-capture participant is not live.");
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = AnimOperatorContracts.Error(
+                        "AnimOperator Temporal forward-capture participant is not live.");
+                }
+
                 return false;
+            }
+
+            _temporalCallbackActive = true;
+            try
+            {
+                if (_downstreamParticipantAttached &&
+                    !_attachedDownstreamParticipant.TryPrepareForwardCapture(
+                        candidate,
+                        out diagnostic))
+                {
+                    _attachedDownstreamParticipant
+                        .CancelPreparedCaptureNoFail();
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = AnimOperatorContracts.Error(
+                            "The downstream Temporal participant rejected Animation forward capture.");
+                    }
+
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                TryCancelDownstreamCaptureNoFail();
+                diagnostic = AnimOperatorContracts.Error(
+                    "The downstream Temporal participant threw during Animation forward capture: " +
+                    exception.Message);
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+            finally
+            {
+                _temporalCallbackActive = false;
             }
 
             diagnostic = CoCoDiagnostic.None;
@@ -639,10 +837,170 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         void ICoCoStateGraphTemporalParticipant.PublishForwardCaptureNoFail()
         {
+            if (_resetOnlyTemporalAttachment)
+            {
+                return;
+            }
+
+            if (_downstreamParticipantAttached)
+            {
+                try
+                {
+                    _attachedDownstreamParticipant
+                        .PublishForwardCaptureNoFail();
+                }
+                catch (Exception exception)
+                {
+                    _lastDiagnostic = AnimOperatorContracts.Error(
+                        "The downstream Temporal participant threw while publishing Animation forward capture: " +
+                        exception.Message);
+                }
+            }
         }
 
         void ICoCoStateGraphTemporalParticipant.CancelPreparedCaptureNoFail()
         {
+            if (_resetOnlyTemporalAttachment)
+            {
+                return;
+            }
+
+            TryCancelDownstreamCaptureNoFail();
+        }
+
+        bool ICoCoStateGraphTemporalParticipant.TryPrepareAuthorityReset(
+            in CoCoTemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_attachedTemporalHost == null ||
+                !_isInitialized ||
+                _authorityResetPrepared ||
+                _temporalCallbackActive ||
+                _restoreCallbackActive ||
+                _isEvaluating ||
+                !targetAuthority.IsValid ||
+                !TryValidateFrozenDownstream(
+                    _attachedTemporalHost,
+                    requireParticipantLive: true,
+                    out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = AnimOperatorContracts.Error(
+                        "AnimOperator authority reset is not available in the current lifecycle state.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            _temporalCallbackActive = true;
+            try
+            {
+                if (_downstreamParticipantAttached &&
+                    !_attachedDownstreamParticipant.TryPrepareAuthorityReset(
+                        targetAuthority,
+                        out diagnostic))
+                {
+                    TryCancelDownstreamAuthorityResetNoFail();
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = AnimOperatorContracts.Error(
+                            "The downstream Temporal participant rejected Animation authority reset.");
+                    }
+
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!TryValidateFrozenDownstream(
+                        _attachedTemporalHost,
+                        requireParticipantLive: true,
+                        out diagnostic))
+                {
+                    TryCancelDownstreamAuthorityResetNoFail();
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                _authorityResetPrepared = true;
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                TryCancelDownstreamAuthorityResetNoFail();
+                diagnostic = AnimOperatorContracts.Error(
+                    "The downstream Temporal participant threw during Animation authority reset: " +
+                    exception.Message);
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+            finally
+            {
+                _temporalCallbackActive = false;
+            }
+        }
+
+        void ICoCoStateGraphTemporalParticipant
+            .CommitPreparedAuthorityResetNoFail()
+        {
+            if (!_authorityResetPrepared ||
+                _temporalCallbackActive ||
+                _restoreCallbackActive)
+            {
+                return;
+            }
+
+            _temporalCallbackActive = true;
+            try
+            {
+                ResetTemporalAuthorityStateNoFail();
+                if (_downstreamParticipantAttached)
+                {
+                    try
+                    {
+                        _attachedDownstreamParticipant
+                            .CommitPreparedAuthorityResetNoFail();
+                    }
+                    catch (Exception exception)
+                    {
+                        _lastDiagnostic = AnimOperatorContracts.Error(
+                            "The downstream Temporal participant threw while publishing Animation authority reset: " +
+                            exception.Message);
+                    }
+                }
+
+                _authorityResetPrepared = false;
+            }
+            finally
+            {
+                _temporalCallbackActive = false;
+            }
+        }
+
+        void ICoCoStateGraphTemporalParticipant
+            .CancelPreparedAuthorityResetNoFail()
+        {
+            if (!_authorityResetPrepared ||
+                _temporalCallbackActive ||
+                _restoreCallbackActive)
+            {
+                return;
+            }
+
+            _temporalCallbackActive = true;
+            try
+            {
+                TryCancelDownstreamAuthorityResetNoFail();
+                _authorityResetPrepared = false;
+            }
+            finally
+            {
+                _temporalCallbackActive = false;
+            }
         }
 
         bool ICoCoStateGraphTemporalParticipant.TryBeginPreview(
@@ -696,11 +1054,260 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         void ICoCoStateGraphTemporalParticipant.DrainPublishedCleanupNoFail()
         {
+            if (_downstreamParticipantAttached)
+            {
+                try
+                {
+                    _attachedDownstreamParticipant
+                        .DrainPublishedCleanupNoFail();
+                }
+                catch (Exception exception)
+                {
+                    _lastDiagnostic = AnimOperatorContracts.Error(
+                        "The downstream Temporal participant threw while draining Animation cleanup: " +
+                        exception.Message);
+                }
+            }
         }
 
         void ICoCoStateGraphTemporalParticipant.DetachTemporalHostNoFail()
         {
+            TryDetachDownstreamNoFail();
             _attachedTemporalHost = null;
+            _resetOnlyTemporalAttachment = false;
+            _authorityResetPrepared = false;
+            _temporalCallbackActive = false;
+            _restoreCallbackActive = false;
+            ClearFrozenDownstream();
+        }
+
+        private bool TryFreezeDownstream(
+            CoCoStateGraphHost host,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (ReferenceEquals(downstreamRestoreBinding, null))
+            {
+                ClearFrozenDownstream();
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (ReferenceEquals(downstreamRestoreBinding, this) ||
+                downstreamRestoreBinding == null ||
+                !(downstreamRestoreBinding is
+                    ICoCoContextRestoreBinding downstream) ||
+                !CoCoStateGraphHostBoundary.Contains(
+                    host,
+                    downstreamRestoreBinding))
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "Animation downstream Restore Binding must be a different live component inside the same StateGraph Host boundary.");
+                return false;
+            }
+
+            _downstreamWasConfigured = true;
+            _attachedDownstreamComponent = downstreamRestoreBinding;
+            _attachedDownstreamBinding = downstream;
+            _attachedDownstreamParticipant =
+                downstreamRestoreBinding as
+                    ICoCoStateGraphTemporalParticipant;
+            _downstreamParticipantAttached = false;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryValidateFrozenDownstream(
+            CoCoStateGraphHost host,
+            bool requireParticipantLive,
+            out CoCoDiagnostic diagnostic)
+        {
+            bool configuredNow =
+                !ReferenceEquals(downstreamRestoreBinding, null);
+            if (configuredNow != _downstreamWasConfigured)
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "The Animation downstream Restore Binding assignment changed after Temporal attachment.");
+                return false;
+            }
+
+            if (!_downstreamWasConfigured)
+            {
+                bool remainsEmpty =
+                    ReferenceEquals(_attachedDownstreamComponent, null) &&
+                    ReferenceEquals(_attachedDownstreamBinding, null) &&
+                    ReferenceEquals(
+                        _attachedDownstreamParticipant,
+                        null) &&
+                    !_downstreamParticipantAttached;
+                diagnostic = remainsEmpty
+                    ? CoCoDiagnostic.None
+                    : AnimOperatorContracts.Error(
+                        "The optional Animation downstream Restore Binding lost its frozen attachment state.");
+                return remainsEmpty;
+            }
+
+            if (!ReferenceEquals(
+                    downstreamRestoreBinding,
+                    _attachedDownstreamComponent) ||
+                ReferenceEquals(_attachedDownstreamComponent, null) ||
+                _attachedDownstreamComponent == null ||
+                ReferenceEquals(_attachedDownstreamComponent, this) ||
+                ReferenceEquals(_attachedDownstreamBinding, null) ||
+                !(_attachedDownstreamComponent is
+                    ICoCoContextRestoreBinding currentBinding) ||
+                !ReferenceEquals(
+                    currentBinding,
+                    _attachedDownstreamBinding) ||
+                host == null ||
+                !CoCoStateGraphHostBoundary.Contains(
+                    host,
+                    _attachedDownstreamComponent))
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "The original Animation downstream Restore Binding is no longer live inside the StateGraph Host boundary.");
+                return false;
+            }
+
+            ICoCoStateGraphTemporalParticipant currentParticipant =
+                _attachedDownstreamComponent as
+                    ICoCoStateGraphTemporalParticipant;
+            if (!ReferenceEquals(
+                    currentParticipant,
+                    _attachedDownstreamParticipant) ||
+                (_attachedDownstreamParticipant == null &&
+                 _downstreamParticipantAttached) ||
+                (_attachedDownstreamParticipant != null &&
+                 requireParticipantLive &&
+                 !_downstreamParticipantAttached))
+            {
+                diagnostic = AnimOperatorContracts.Error(
+                    "The Animation downstream Temporal participant identity changed after attachment.");
+                return false;
+            }
+
+            if (_attachedDownstreamParticipant != null &&
+                requireParticipantLive)
+            {
+                bool participantLive;
+                try
+                {
+                    participantLive =
+                        _attachedDownstreamParticipant
+                            .IsTemporalParticipantLive(host);
+                }
+                catch (Exception exception)
+                {
+                    diagnostic = AnimOperatorContracts.Error(
+                        "The Animation downstream Temporal participant threw during liveness validation: " +
+                        exception.Message);
+                    return false;
+                }
+
+                if (!participantLive)
+                {
+                    diagnostic = AnimOperatorContracts.Error(
+                        "The original Animation downstream Temporal participant is no longer live.");
+                    return false;
+                }
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private void TryCancelDownstreamCaptureNoFail()
+        {
+            if (!_downstreamParticipantAttached) return;
+
+            try
+            {
+                _attachedDownstreamParticipant
+                    .CancelPreparedCaptureNoFail();
+            }
+            catch (Exception exception)
+            {
+                _lastDiagnostic = AnimOperatorContracts.Error(
+                    "The downstream Temporal participant threw while cancelling Animation capture: " +
+                    exception.Message);
+            }
+        }
+
+        private void TryCancelDownstreamAuthorityResetNoFail()
+        {
+            if (!_downstreamParticipantAttached) return;
+
+            try
+            {
+                _attachedDownstreamParticipant
+                    .CancelPreparedAuthorityResetNoFail();
+            }
+            catch (Exception exception)
+            {
+                _lastDiagnostic = AnimOperatorContracts.Error(
+                    "The downstream Temporal participant threw while cancelling Animation authority reset: " +
+                    exception.Message);
+            }
+        }
+
+        private void TryDetachDownstreamNoFail()
+        {
+            if (!_downstreamParticipantAttached ||
+                _attachedDownstreamParticipant == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _attachedDownstreamParticipant.DetachTemporalHostNoFail();
+            }
+            catch (Exception exception)
+            {
+                _lastDiagnostic = AnimOperatorContracts.Error(
+                    "The downstream Temporal participant threw during Animation detachment: " +
+                    exception.Message);
+            }
+            finally
+            {
+                _downstreamParticipantAttached = false;
+            }
+        }
+
+        private void ClearFrozenDownstream()
+        {
+            _downstreamWasConfigured = false;
+            _attachedDownstreamComponent = null;
+            _attachedDownstreamBinding = null;
+            _attachedDownstreamParticipant = null;
+            _downstreamParticipantAttached = false;
+        }
+
+        private void ResetTemporalAuthorityStateNoFail()
+        {
+            _feedback.Clear();
+            _candidateFeedbackStamp = default;
+            _rootMotionRelay.ResetEvaluation();
+            Array.Clear(
+                _normalizedCrossFadeDurations,
+                0,
+                _normalizedCrossFadeDurations.Length);
+            Array.Clear(
+                _modulationStamps,
+                0,
+                _modulationStamps.Length);
+            try
+            {
+                _modulationAdapter?.StopAll();
+            }
+            catch (Exception exception)
+            {
+                _lastDiagnostic = AnimOperatorContracts.Error(
+                    "Animation modulation cleanup threw during authority reset: " +
+                    exception.Message);
+            }
+
+            InitializePlaybackContext();
+            CaptureCommittedPlaybackForInvalidation();
         }
 
         private bool TryPrevalidate(

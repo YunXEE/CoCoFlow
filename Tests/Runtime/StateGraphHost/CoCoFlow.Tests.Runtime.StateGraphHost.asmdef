@@ -8,6 +8,7 @@
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
         "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Persistence",
         "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
     ],
     "includePlatforms": [],
