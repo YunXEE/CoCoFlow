@@ -1,0 +1,21 @@
+{
+    "name": "CoCoFlow.Tests.Editor.ProjectScaffold",
+    "rootNamespace": "CoCoFlow.Tests.Editor.ProjectScaffold",
+    "references": [
+        "CoCoFlow.Editor.ProjectScaffold"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

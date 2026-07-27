@@ -2,12 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.11 · **Unity**：6000+
+> **版本**：0.4.0-pre.14 · **Unity**：6000+
 >
-> Pre11 用两个 State Flow Operator 取代旧 Animation facade：
-> 只处理 Parameter/Trigger 的 `AnimAutoOperator`，以及基于手动
-> `AnimatorControllerPlayable` 的 `AnimOperator`。Animator 精确重放仍明确延期，
-> 并在 Temporal 路径失败关闭。
+> Pre14 新增以 PlayerInput 为权威的项目 Intent 输入入口、Unity 官方
+> Localization、可本屏刷新的本地化输入提示，以及绝不覆盖项目代码的
+> Preview-first Project Scaffold。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -495,6 +494,7 @@ Addressable Map Binding 还必须由项目实现 `IRegionAddressableSceneResolve
 | Package | Version | 当前使用者 |
 |---|---:|---|
 | Input System | 1.18.0 | Input 模块 |
+| Localization | 1.5.9 | Localization 与本地化输入提示模块 |
 | Newtonsoft Json | 3.2.2 | Persistence 过渡期模块 |
 | Cinemachine | 3.1.6 | Camera 过渡期模块 |
 | AI Navigation | 2.0.0 | Character 与 Enemy Navigation |
@@ -526,11 +526,8 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-在已提交的 Pre11 Head 上，CoCoLab 使用 Unity `6000.3.20f1` 完成了定向验证：
-Animation PlayMode 共 33 项，31 项通过、0 项失败、2 项按设计为 inconclusive；
-Setup EditMode 9/9 通过。验证环境无法使用 Unity Package Validation Suite，且缺少
-macOS Universal IL2CPP backend；这两项发布门禁仍为 `UNVERIFIED`，因此 Pre11 尚未
-达到 merge-ready。
+Pre14 的验证证据记录在 Changelog 中。Package Validation Suite 与平台 Player
+Build 结果必须和 Input、Localization、Scaffold 的定向测试分开报告。
 
 ## 文档
 
@@ -542,6 +539,9 @@ macOS Universal IL2CPP backend；这两项发布门禁仍为 `UNVERIFIED`，因�
 - [Content 获取与所有权](Docs/ContentOwnership.md)
 - [Object Pooling 与实例所有权](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
+- [Module: Input](Docs/Module-Input.md)
+- [Module: Localization](Docs/Module-Localization.md)
+- [Project Scaffold](Docs/ProjectScaffold.md)
 - [Map Region Fidelity](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)

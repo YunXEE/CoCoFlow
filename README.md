@@ -2,12 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.11 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.14 · **Unity**: 6000+
 >
-> Pre11 replaces the legacy Animation facade with two State Flow Operators:
-> parameter/trigger-only `AnimAutoOperator` and a manual
-> `AnimatorControllerPlayable`-based `AnimOperator`. Exact Animator replay
-> remains explicitly deferred and fails closed.
+> Pre14 adds the PlayerInput-authoritative project Intent entry, official Unity
+> Localization integration, localized input prompts, and a preview-first
+> project scaffold that never overwrites project code.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -590,6 +589,7 @@ not define the address-to-Scene mapping.
 | Package | Version | Current owner |
 |---|---:|---|
 | Input System | 1.18.0 | Input module |
+| Localization | 1.5.9 | Localization and localized prompt modules |
 | Newtonsoft Json | 3.2.2 | Persistence transitional module |
 | Cinemachine | 3.1.6 | Camera transitional module |
 | AI Navigation | 2.0.0 | Character and Enemy navigation |
@@ -625,12 +625,9 @@ IL2CPP/High-Stripping checks, and Unity Package Validation Suite.
 `CoCoFlow/Setup/Setup Assistant` remains a
 dependency/support-define tool; it does not install project content.
 
-At the committed Pre11 head, focused CoCoLab validation on Unity `6000.3.20f1`
-records Animation PlayMode at 33 total / 31 passed / 0 failed / 2 intentionally
-inconclusive, and Setup EditMode at 9/9 passed. Unity Package Validation Suite is
-unavailable in the validation environment, and the macOS Universal IL2CPP
-backend is absent; those release gates remain `UNVERIFIED`, so Pre11 is not yet
-merge-ready.
+Pre14 validation evidence is recorded in the changelog. Package Validation
+Suite and platform Player-build results must still be reported independently
+from focused Input, Localization, and Scaffold tests.
 
 ## Documentation
 
@@ -642,6 +639,9 @@ merge-ready.
 - [Content Acquisition and Ownership](Docs/ContentOwnership.md)
 - [Object Pooling and Instance Ownership](Docs/ObjectPooling.md)
 - [Module: UI](Docs/Module-UI.md)
+- [Module: Input](Docs/Module-Input.md)
+- [Module: Localization](Docs/Module-Localization.md)
+- [Project Scaffold](Docs/ProjectScaffold.md)
 - [Map Region Fidelity](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)

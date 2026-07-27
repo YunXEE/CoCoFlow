@@ -5,6 +5,73 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.14] - 2026-07-27
+
+### Added
+
+- `InputRuntime` over the exact runtime `PlayerInput` Action collection,
+  fixed-allocation `InputCommandQueue<TCommand>`, unmanaged eight-command
+  `InputCommandBatch<TCommand>`, stable-ID transactional rebinds, prompt
+  snapshots, and exact/base-layout glyph lookup.
+- Official `com.unity.localization@1.5.9` integration, localization diagnostics,
+  `UIWidgetLocalizedText`, and `InputPromptPresenter`. Smart String binding
+  arguments and fallback text refresh inside the current Screen.
+- Preview-first `ProjectScaffoldWindow` for Assembly-CSharp or a custom asmdef.
+  It detects existing project binding providers, stages and validates all
+  output under `Library`, publishes with CreateNew semantics, and rolls back
+  only files created by the failed Apply.
+- Same-directory validated atomic replacement with readable backups for Setup
+  Assistant manifest updates.
+
+### Changed
+
+- Marked `InputReader`, `CoCoInputIntent`, and the retained legacy Input
+  presentation interfaces obsolete. `InputRuntime` implements those interfaces
+  explicitly for the existing UI/Camera transition only; generated project
+  input uses `ICoCoIntentFrameSource<TIntent>`.
+- Frozen module naming so only Core types use the `CoCo*` prefix. New Input,
+  Localization, and generator types use `Input*`, `Localization*`, and
+  `ProjectScaffold*`; the package namespace and asmdef identity remain
+  `CoCoFlow.*`.
+- Added Action Map, rebind, source-disable, Host lifecycle, and Temporal
+  Preview/restore fences so queued commands and continuous snapshots cannot
+  burst after authority resumes.
+- Updated package metadata, Setup Assistant status, docs, and validation
+  exception scopes to `0.4.0-pre.14`.
+
+### Verification
+
+- `PASS`: Unity 6000.3.20f1 focused EditMode: Input `6/6`, Scaffold `4/4`,
+  Setup/version/atomic-write `23/23`, and naming `1/1`; focused PlayMode:
+  Input `4/4` and Localization `3/3`.
+- `PASS`: generated Assembly-CSharp and custom-asmdef Scaffold outputs,
+  including the no-existing-provider file, compiled in the CoCoLab host and
+  were removed through the marker-protected cleanup path.
+- `PASS`: the warmed Queue/Batch loop completed 1,000 enqueue/drain cycles with
+  zero managed bytes allocated on the measured thread.
+- `PASS`: an isolated CoCoLab-derived host built a macOS Universal
+  `x86_64 + arm64` Player with IL2CPP and Standalone High Managed Stripping.
+  The host included a real generated Assembly-CSharp Scaffold plus an AOT
+  RuntimeInitializer; the linker retained and IL2CPP converted the Input,
+  Input UI, Localization, and Localization UI assemblies. The original CoCoLab
+  Pre6 asset remains independently blocked first by its missing Editor Catalog
+  Provider and then by its existing DOTween author dependency-closure
+  validation.
+- `BASELINE`: package-wide EditMode is `614 PASS / 16 FAIL / 1 SKIP` versus
+  exact `5bde783` at `594 PASS / 16 FAIL / 1 SKIP`; every non-pass name is
+  identical. Package-wide PlayMode is `392 PASS / 6 FAIL / 2 INCONCLUSIVE` versus
+  `383 PASS / 6 FAIL / 2 INCONCLUSIVE`; all non-pass names are identical.
+- `SKIPPED`: Unity Package Validation Suite is not installed locally and was
+  explicitly waived for this delivery.
+
+### Deferred
+
+- Pre15 removes the legacy Input bridge and handles the broader package naming
+  pass, Adventure Starter, and production Character/Item gameplay input.
+- Localization does not alter Content Direct/Addressables ownership. The
+  official package may bring Addressables transitively, but presentation
+  loading and gameplay content authority remain separate.
+
 ## [0.4.0-pre.11] - 2026-07-25
 
 ### Added

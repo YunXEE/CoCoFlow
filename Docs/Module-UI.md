@@ -6,6 +6,20 @@ The retained UI module now consumes Content for panel Prefab Source ownership.
 Its navigation stack, input focus, pause/cursor policy, DOTween transitions, and
 `UIManager` singleton remain transitional behavior owned by Pre12.
 
+## Localized text boundary
+
+Pre14 adds `UIWidgetLocalizedText` in the separate
+`CoCoFlow.Runtime.Modules.Localization.UI` assembly. It derives from
+`UIWidgetBase` but does not change `UIWidgetBase`, `UIPanelBase`, navigation, or
+`UIManager`.
+
+The Widget subscribes to `LocalizedString.StringChanged` only while enabled,
+refreshes from `ResetState()`, accepts Smart String arguments, and displays its
+serialized fallback when the target, Table/Entry, load, or resolved text is not
+valid. `LastDiagnostic` keeps that failure visible without reopening the
+Screen. Input prompt composition remains in `InputPromptPresenter`, not in a
+second Widget.
+
 ## Panel ownership
 
 `UIManager` receives an explicit `CoCoContentHost` and opens a

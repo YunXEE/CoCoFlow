@@ -13,6 +13,9 @@ namespace CoCoFlow.Runtime.Modules.Input
         None
     }
 
+    [Obsolete(
+        "InputReader is a legacy pre-0.4 source. " +
+        "Use InputRuntime plus a project-owned ICoCoIntentFrameSource<TIntent>.")]
     [DefaultExecutionOrder(-100)] // 保证早于 Camera/UI 的 Awake 完成注册，确保依赖输入的组件能正确获取服务
     public class InputReader : MonoBehaviour,
         IInputStateProvider, IInputEventSource, IInputModeController,

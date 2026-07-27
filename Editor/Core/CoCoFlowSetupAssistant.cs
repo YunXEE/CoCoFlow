@@ -46,6 +46,25 @@ namespace CoCoFlow.Editor.Core
                 new[] { "Unity.InputSystem" },
                 "Input System runtime module."),
             new ModuleDefinition(
+                "Input Prompt",
+                new string[0],
+                new[]
+                {
+                    "Unity.InputSystem",
+                    "CoCoFlow.Runtime.Modules.Input.UI"
+                },
+                "Binding display, device glyph, and localized prompt presentation."),
+            new ModuleDefinition(
+                "Localization",
+                new string[0],
+                new[]
+                {
+                    "Unity.Localization",
+                    "CoCoFlow.Runtime.Modules.Localization",
+                    "CoCoFlow.Runtime.Modules.Localization.UI"
+                },
+                "Official Unity Localization integration and localized UI Widget."),
+            new ModuleDefinition(
                 "Camera",
                 new string[0],
                 new[] { CinemachineAssemblyName },
@@ -297,6 +316,12 @@ namespace CoCoFlow.Editor.Core
                     EditorStyles.wordWrappedMiniLabel,
                     GUILayout.MinHeight(26f));
             }
+
+            if (GUILayout.Button("Open Project Scaffold", GUILayout.Height(26f)))
+            {
+                EditorApplication.ExecuteMenuItem(
+                    "CoCoFlow/Setup/Project Scaffold");
+            }
         }
 
         private void DrawLog()
@@ -507,8 +532,22 @@ namespace CoCoFlow.Editor.Core
 
             if (manifest.Changed)
             {
-                File.WriteAllText(ManifestPath, manifest.Root.ToJson(0) + Environment.NewLine, new UTF8Encoding(false));
-                AddLog("Updated Packages/manifest.json.");
+                string nextManifest =
+                    manifest.Root.ToJson(0) + Environment.NewLine;
+                if (!CoCoAtomicFileTransaction.TryReplaceUtf8(
+                        ManifestPath,
+                        nextManifest,
+                        IsValidManifestJson,
+                        out string backupPath,
+                        out string error))
+                {
+                    throw new IOException(
+                        "Atomic manifest replacement failed: " + error);
+                }
+
+                AddLog(
+                    "Updated Packages/manifest.json atomically. Backup: " +
+                    backupPath + ".");
             }
             else
             {
@@ -707,6 +746,14 @@ namespace CoCoFlow.Editor.Core
             status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.UniTask"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.UniTask");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
+            status.AssemblyStates["Unity.Localization"] =
+                IsAssemblyInstalled("Unity.Localization");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Input.UI"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Input.UI");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Localization"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Localization");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Localization.UI"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Localization.UI");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
             status.AssemblyStates["DOTween"] = status.DotweenInstalled;
@@ -854,6 +901,18 @@ namespace CoCoFlow.Editor.Core
                 throw new InvalidDataException("Project manifest root must be a JSON object.");
 
             return new ManifestDocument(rootObject);
+        }
+
+        private static bool IsValidManifestJson(string text)
+        {
+            try
+            {
+                return new JsonParser(text).Parse() is JsonObject;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static JsonObject GetOrCreateObject(JsonObject parent, string key, ManifestDocument manifest)
