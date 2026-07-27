@@ -1,10 +1,13 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using CoCoFlow.Runtime.Modules.Input;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.TestTools;
+using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.Input
 {
@@ -52,6 +55,152 @@ namespace CoCoFlow.Tests.Runtime.Input
 
             Object.Destroy(playerInput.actions);
             Object.Destroy(gameObject);
+        }
+
+        [UnityTest]
+        public IEnumerator ActionMapSwitchClearsOldCanceledBeforeReturning()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            var actions = ScriptableObject.CreateInstance<InputActionAsset>();
+            var gameplay = new InputActionMap("Gameplay");
+            InputAction submit = gameplay.AddAction(
+                "Submit",
+                InputActionType.Button,
+                "<Keyboard>/space");
+            var menu = new InputActionMap("Menu");
+            menu.AddAction(
+                "Confirm",
+                InputActionType.Button,
+                "<Keyboard>/enter");
+            actions.AddActionMap(gameplay);
+            actions.AddActionMap(menu);
+
+            var gameObject = new GameObject("ActionMapFenceTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            playerInput.defaultActionMap = gameplay.name;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var buffered = new List<InputActionEvent>();
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += buffered.Clear;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                submit.id,
+                out InputAction runtimeSubmit));
+            Assert.IsTrue(runtimeSubmit.enabled);
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsNotEmpty(buffered);
+
+            runtime.SwitchActionMap(menu);
+
+            Assert.IsEmpty(buffered);
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ManualDisableAndHeldEnableRequireNeutralInput()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("ManualActionFenceTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var buffered = new List<InputActionEvent>();
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += buffered.Clear;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsNotEmpty(buffered);
+
+            action.Disable();
+            Assert.IsEmpty(buffered);
+            action.Enable();
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator WarmedNeutralGatePollingAllocatesNoManagedMemory()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("NeutralGateAllocationTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            runtime.DisableActionForTransition(action);
+            runtime.RestoreActionAfterTransition(action, true);
+            for (int index = 0; index < 16; index++)
+            {
+                runtime.ReleaseNeutralActions();
+            }
+
+            _ = GC.GetAllocatedBytesForCurrentThread();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0; index < 1000; index++)
+            {
+                runtime.ReleaseNeutralActions();
+            }
+
+            long after = GC.GetAllocatedBytesForCurrentThread();
+            Assert.AreEqual(before, after);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
         }
 
         [UnityTest]
@@ -223,6 +372,106 @@ namespace CoCoFlow.Tests.Runtime.Input
         }
 
         [UnityTest]
+        public IEnumerator RebindTransitionsDoNotLeakAndHeldControlMustNeutralize()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("RebindFenceTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var store = gameObject.AddComponent<TestOverrideStore>();
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var controller = gameObject.AddComponent<InputRebindController>();
+            SetField(runtime, "bindingOverrideStore", store);
+            SetField(controller, "inputRuntime", runtime);
+            var buffered = new List<InputActionEvent>();
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += buffered.Clear;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            Guid bindingId = action.bindings[0].id;
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsNotEmpty(buffered);
+            Assert.IsTrue(controller.TryBegin(
+                action.id,
+                bindingId,
+                out string error),
+                error);
+            Assert.IsEmpty(buffered);
+
+            controller.Cancel();
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            buffered.Clear();
+
+            Assert.IsTrue(controller.TryBegin(
+                action.id,
+                bindingId,
+                out error),
+                error);
+            Press(keyboard.enterKey);
+            InputSystem.Update();
+            currentTime += 0.1;
+            InputSystem.Update();
+            Assert.IsFalse(controller.IsRebinding);
+            Assert.IsEmpty(buffered);
+            Release(keyboard.enterKey);
+            InputSystem.Update();
+            yield return null;
+            Press(keyboard.enterKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+            Release(keyboard.enterKey);
+            InputSystem.Update();
+            buffered.Clear();
+
+            store.FailSave = true;
+            Assert.IsTrue(controller.TryBegin(
+                action.id,
+                bindingId,
+                out error),
+                error);
+            Press(keyboard.tabKey);
+            InputSystem.Update();
+            currentTime += 0.1;
+            InputSystem.Update();
+            Assert.IsFalse(controller.IsRebinding);
+            Assert.IsEmpty(buffered);
+            Release(keyboard.tabKey);
+            InputSystem.Update();
+            yield return null;
+
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator LastUsedDeviceSelectsBindingWithinOneControlScheme()
         {
             Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
@@ -360,6 +609,69 @@ namespace CoCoFlow.Tests.Runtime.Input
             InputSystem.Update();
             Assert.AreEqual(secondBeforeDisableInput, secondEvents);
 
+            Object.Destroy(gameObject);
+            Object.Destroy(first);
+            Object.Destroy(second);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ReplacingActiveAssetFencesSynchronouslyAndGatesHeldControl()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset first = CreateButtonAsset(
+                "First",
+                "<Keyboard>/a",
+                out InputAction firstAuthored);
+            InputActionAsset second = CreateButtonAsset(
+                "Second",
+                "<Keyboard>/a",
+                out InputAction secondAuthored);
+            var gameObject = new GameObject("ActionAssetFenceTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.defaultActionMap = "Gameplay";
+            playerInput.actions = first;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var buffered = new List<InputActionEvent>();
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += buffered.Clear;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                firstAuthored.id,
+                out InputAction firstAction));
+            Assert.IsTrue(firstAction.enabled);
+            Press(keyboard.aKey);
+            InputSystem.Update();
+            Assert.IsNotEmpty(buffered);
+
+            playerInput.actions = second;
+
+            Assert.IsEmpty(buffered);
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+            yield return null;
+            Assert.IsTrue(runtime.TryResolveAction(
+                secondAuthored.id,
+                out InputAction secondAction));
+            Assert.IsTrue(secondAction.enabled);
+            Assert.IsEmpty(buffered);
+
+            Release(keyboard.aKey);
+            InputSystem.Update();
+            yield return null;
+            Press(keyboard.aKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Action.name == "Second" &&
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+
+            Release(keyboard.aKey);
+            InputSystem.Update();
             Object.Destroy(gameObject);
             Object.Destroy(first);
             Object.Destroy(second);

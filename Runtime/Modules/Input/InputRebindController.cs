@@ -84,8 +84,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             _action = action;
             _wasEnabled = action.enabled;
             _previousOverrideJson = inputRuntime.CaptureBindingOverrides();
-            inputRuntime.FenceInput();
-            action.Disable();
+            inputRuntime.DisableActionForTransition(action);
 
             try
             {
@@ -141,6 +140,11 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
             finally
             {
+                if (!committed)
+                {
+                    RestoreActionEnablement();
+                }
+
                 LastError = committed ? string.Empty : error;
                 DisposeOperation();
                 RebindCompleted?.Invoke(committed);
@@ -155,10 +159,9 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void RestoreActionEnablement()
         {
-            if (_wasEnabled)
-            {
-                _action?.Enable();
-            }
+            inputRuntime?.RestoreActionAfterTransition(
+                _action,
+                _wasEnabled);
         }
 
         private void DisposeOperation()

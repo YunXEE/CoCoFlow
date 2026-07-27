@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
+    "CoCoFlow.Tests.Runtime.Input")]
 
 namespace CoCoFlow.Runtime.Modules.Input
 {
@@ -34,6 +38,9 @@ namespace CoCoFlow.Runtime.Modules.Input
         private string _currentDeviceLayout = string.Empty;
         private string _lastUsedDeviceLayout = string.Empty;
         private InputActionAsset _subscribedActions;
+        private readonly List<InputAction> _neutralGatedActions =
+            new List<InputAction>(8);
+        private int _controlledTransitionDepth;
 
         public PlayerInput PlayerInput => playerInput;
         public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
@@ -82,25 +89,31 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void OnEnable()
         {
+            InputSystem.onActionChange += OnGlobalActionChange;
             ReconcileActionSubscriptions(false);
+            RefreshNeutralGates(_subscribedActions);
             UpdatePresentationAuthority(true);
         }
 
         private void Update()
         {
             ReconcileActionSubscriptions(true);
+            ReleaseNeutralActions();
             SampleLegacyContinuousValues();
             UpdatePresentationAuthority(false);
         }
 
         private void OnDisable()
         {
+            InputSystem.onActionChange -= OnGlobalActionChange;
             UnsubscribeActions();
+            _neutralGatedActions.Clear();
             FenceInput();
         }
 
         private void OnDestroy()
         {
+            InputSystem.onActionChange -= OnGlobalActionChange;
             UnsubscribeActions();
             CoCoServices.Unregister<IInputStateProvider>(this);
             CoCoServices.Unregister<IInputEventSource>(this);
@@ -183,9 +196,53 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return;
             }
 
+            SwitchActionMap(actionMap.name);
+        }
+
+        internal void DisableActionForTransition(InputAction action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
             FenceInput();
-            playerInput.SwitchCurrentActionMap(actionMap.name);
-            UpdatePresentationAuthority(true);
+            _controlledTransitionDepth++;
+            try
+            {
+                action.Disable();
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                FenceInput();
+            }
+        }
+
+        internal void RestoreActionAfterTransition(
+            InputAction action,
+            bool shouldEnable)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            _controlledTransitionDepth++;
+            try
+            {
+                if (shouldEnable && !action.enabled)
+                {
+                    action.Enable();
+                }
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                RefreshNeutralGate(action);
+                FenceInput();
+                UpdatePresentationAuthority(true);
+            }
         }
 
         public void FenceInput()
@@ -298,9 +355,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return;
             }
 
-            FenceInput();
-            playerInput.SwitchCurrentActionMap(mapName);
-            UpdatePresentationAuthority(true);
+            SwitchActionMap(mapName);
         }
 
         void IInputModeController.ClearBuffer()
@@ -346,6 +401,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
 
             UnsubscribeActions();
+            _neutralGatedActions.Clear();
             _subscribedActions = next;
             if (_subscribedActions != null)
             {
@@ -357,6 +413,8 @@ namespace CoCoFlow.Runtime.Modules.Input
                         action.canceled += OnActionCanceled;
                     }
                 }
+
+                RefreshNeutralGates(_subscribedActions);
             }
 
             if (!notify)
@@ -390,6 +448,11 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void OnActionPerformed(InputAction.CallbackContext context)
         {
+            if (ShouldSuppress(context.action))
+            {
+                return;
+            }
+
             UpdateLastUsedDevice(context.control?.device);
             _legacyBufferedAction = context.action.name;
             _legacyActionPerformed?.Invoke(context.action.name);
@@ -399,10 +462,170 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void OnActionCanceled(InputAction.CallbackContext context)
         {
+            if (ShouldSuppress(context.action))
+            {
+                return;
+            }
+
             UpdateLastUsedDevice(context.control?.device);
             _legacyActionCanceled?.Invoke(context.action.name);
             ActionChanged?.Invoke(
                 new InputActionEvent(context.action, InputActionPhase.Canceled));
+        }
+
+        private void SwitchActionMap(string mapName)
+        {
+            FenceInput();
+            _controlledTransitionDepth++;
+            try
+            {
+                playerInput.SwitchCurrentActionMap(mapName);
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                RefreshNeutralGates(Actions);
+                FenceInput();
+                UpdatePresentationAuthority(true);
+            }
+        }
+
+        private void OnGlobalActionChange(
+            object actionOrMap,
+            InputActionChange change)
+        {
+            if (_controlledTransitionDepth > 0 ||
+                !TryGetOwningAsset(actionOrMap, out InputActionAsset asset) ||
+                (!ReferenceEquals(asset, _subscribedActions) &&
+                 !ReferenceEquals(asset, Actions)))
+            {
+                return;
+            }
+
+            switch (change)
+            {
+                case InputActionChange.ActionDisabled:
+                case InputActionChange.ActionMapDisabled:
+                    FenceInput();
+                    return;
+
+                case InputActionChange.ActionEnabled:
+                    RefreshNeutralGate(actionOrMap as InputAction);
+                    FenceInput();
+                    return;
+
+                case InputActionChange.ActionMapEnabled:
+                    RefreshNeutralGates(actionOrMap as InputActionMap);
+                    FenceInput();
+                    return;
+            }
+        }
+
+        private bool ShouldSuppress(InputAction action)
+        {
+            return _controlledTransitionDepth > 0 ||
+                   (action != null && _neutralGatedActions.Contains(action));
+        }
+
+        private void RefreshNeutralGates(InputActionAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            foreach (InputActionMap map in asset.actionMaps)
+            {
+                RefreshNeutralGates(map);
+            }
+        }
+
+        private void RefreshNeutralGates(InputActionMap map)
+        {
+            if (map == null)
+            {
+                return;
+            }
+
+            foreach (InputAction action in map.actions)
+            {
+                RefreshNeutralGate(action);
+            }
+        }
+
+        private void RefreshNeutralGate(InputAction action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            bool shouldGate = action.enabled && HasActuatedControl(action);
+            int existingIndex = _neutralGatedActions.IndexOf(action);
+            if (shouldGate)
+            {
+                if (existingIndex < 0)
+                {
+                    _neutralGatedActions.Add(action);
+                }
+
+                return;
+            }
+
+            if (existingIndex >= 0)
+            {
+                _neutralGatedActions.RemoveAt(existingIndex);
+            }
+        }
+
+        internal void ReleaseNeutralActions()
+        {
+            for (int index = _neutralGatedActions.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                InputAction action = _neutralGatedActions[index];
+                if (action == null ||
+                    !action.enabled ||
+                    !HasActuatedControl(action))
+                {
+                    _neutralGatedActions.RemoveAt(index);
+                }
+            }
+        }
+
+        private static bool HasActuatedControl(InputAction action)
+        {
+            for (int index = 0; index < action.controls.Count; index++)
+            {
+                InputControl control = action.controls[index];
+                if (control != null && !control.CheckStateIsAtDefault())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetOwningAsset(
+            object actionOrMap,
+            out InputActionAsset asset)
+        {
+            if (actionOrMap is InputAction action)
+            {
+                asset = action.actionMap?.asset;
+                return asset != null;
+            }
+
+            if (actionOrMap is InputActionMap map)
+            {
+                asset = map.asset;
+                return asset != null;
+            }
+
+            asset = actionOrMap as InputActionAsset;
+            return asset != null;
         }
 
         private void SampleLegacyContinuousValues()
