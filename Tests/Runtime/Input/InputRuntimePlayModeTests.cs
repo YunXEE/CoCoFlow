@@ -37,6 +37,174 @@ namespace CoCoFlow.Tests.Runtime.Input
         }
 
         [UnityTest]
+        public IEnumerator BindingOverridesLoadAfterStoreAwakeExactlyOnce()
+        {
+            var actions = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            InputAction submit = map.AddAction(
+                "Submit",
+                InputActionType.Button,
+                "<Keyboard>/space");
+            actions.AddActionMap(map);
+            submit.ApplyBindingOverride(0, "<Keyboard>/enter");
+            string overrideJson = actions.SaveBindingOverridesAsJson();
+            actions.RemoveAllBindingOverrides();
+
+            var gameObject = new GameObject("DeferredOverrideLoadTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            playerInput.defaultActionMap = map.name;
+            var store = gameObject.AddComponent<AwakeInitializedOverrideStore>();
+            store.OverrideJson = overrideJson;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            SetField(runtime, "bindingOverrideStore", store);
+
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(store.AwakeCompleted);
+            Assert.AreEqual(0, store.PrematureLoadCount);
+            Assert.AreEqual(1, store.LoadCount);
+            Assert.IsTrue(runtime.TryResolveAction(
+                submit.id,
+                out InputAction runtimeSubmit));
+            StringAssert.Contains(
+                "enter",
+                runtimeSubmit.bindings[0].effectivePath.ToLowerInvariant());
+
+            runtime.enabled = false;
+            runtime.enabled = true;
+            yield return null;
+            Assert.AreEqual(1, store.LoadCount);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RuntimeDoesNotPreemptPerPlayerActionInitialization()
+        {
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out _);
+            var root = new GameObject("DeferredPlayerInputRoot");
+            root.SetActive(false);
+
+            var firstObject = new GameObject("FirstPlayer");
+            firstObject.transform.SetParent(root.transform);
+            var firstPlayer = firstObject.AddComponent<PlayerInput>();
+            firstPlayer.actions = actions;
+            firstPlayer.defaultActionMap = "Gameplay";
+            var firstRuntime = firstObject.AddComponent<InputRuntime>();
+
+            var secondObject = new GameObject("SecondPlayer");
+            secondObject.transform.SetParent(root.transform);
+            var secondPlayer = secondObject.AddComponent<PlayerInput>();
+            secondPlayer.actions = actions;
+            secondPlayer.defaultActionMap = "Gameplay";
+            var secondRuntime = secondObject.AddComponent<InputRuntime>();
+
+            root.SetActive(true);
+            yield return null;
+
+            InputActionAsset firstRuntimeActions = firstRuntime.Actions;
+            InputActionAsset secondRuntimeActions = secondRuntime.Actions;
+            Assert.AreSame(firstPlayer.actions, firstRuntimeActions);
+            Assert.AreSame(secondPlayer.actions, secondRuntimeActions);
+            Assert.AreNotSame(firstRuntimeActions, secondRuntimeActions);
+
+            Object.Destroy(root);
+            yield return null;
+            if (!ReferenceEquals(firstRuntimeActions, actions))
+            {
+                Object.Destroy(firstRuntimeActions);
+            }
+
+            if (!ReferenceEquals(secondRuntimeActions, actions))
+            {
+                Object.Destroy(secondRuntimeActions);
+            }
+
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator HeldContinuousValueStaysZeroUntilNeutralAndNewInput()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateMoveAsset(out InputAction authoredMove);
+            InputActionReference reference =
+                InputActionReference.Create(authoredMove);
+            var gameObject = new GameObject("ContinuousNeutralGateTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            playerInput.defaultActionMap = "Gameplay";
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            SetField(runtime, "moveAction", reference);
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredMove.id,
+                out InputAction move));
+            Press(keyboard.wKey);
+            InputSystem.Update();
+            yield return null;
+            Assert.IsTrue(runtime.TryReadValue(
+                reference,
+                out Vector2 initialValue));
+            Assert.Greater(initialValue.y, 0f);
+            Assert.Greater(runtime.MoveInput.y, 0f);
+
+            move.Disable();
+            move.Enable();
+            Assert.IsFalse(runtime.TryReadValue(
+                reference,
+                out Vector2 gatedValue));
+            Assert.AreEqual(Vector2.zero, gatedValue);
+            InputSystem.Update();
+            yield return null;
+            Assert.AreEqual(Vector2.zero, runtime.MoveInput);
+
+            Release(keyboard.wKey);
+            InputSystem.Update();
+            yield return null;
+            Assert.IsTrue(runtime.TryReadValue(
+                reference,
+                out Vector2 neutralValue));
+            Assert.AreEqual(Vector2.zero, neutralValue);
+            Assert.AreEqual(Vector2.zero, runtime.MoveInput);
+
+            Press(keyboard.wKey);
+            InputSystem.Update();
+            yield return null;
+            Assert.IsTrue(runtime.TryReadValue(
+                reference,
+                out Vector2 resumedValue));
+            Assert.Greater(resumedValue.y, 0f);
+            Assert.Greater(runtime.MoveInput.y, 0f);
+
+            runtime.enabled = false;
+            Assert.IsFalse(runtime.TryReadValue(
+                reference,
+                out Vector2 disabledValue));
+            Assert.AreEqual(Vector2.zero, disabledValue);
+            Assert.AreEqual(Vector2.zero, runtime.MoveInput);
+
+            Release(keyboard.wKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(reference);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator FencePublishesOnceAndClearsLegacySnapshots()
         {
             var gameObject = new GameObject("InputFenceTest");
@@ -116,6 +284,8 @@ namespace CoCoFlow.Tests.Runtime.Input
                 "Submit",
                 "<Keyboard>/space",
                 out InputAction authoredAction);
+            InputActionReference reference =
+                InputActionReference.Create(authoredAction);
             var gameObject = new GameObject("ManualActionFenceTest");
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
@@ -140,6 +310,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             action.Enable();
             InputSystem.Update();
             Assert.IsEmpty(buffered);
+            Assert.IsFalse(runtime.TryReadValue(
+                reference,
+                out float gatedValue));
+            Assert.AreEqual(0f, gatedValue);
 
             Release(keyboard.spaceKey);
             InputSystem.Update();
@@ -154,6 +328,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             Release(keyboard.spaceKey);
             InputSystem.Update();
             Object.Destroy(gameObject);
+            Object.Destroy(reference);
             Object.Destroy(actions);
             yield return null;
         }
@@ -380,6 +555,8 @@ namespace CoCoFlow.Tests.Runtime.Input
                 "Submit",
                 "<Keyboard>/space",
                 out InputAction authoredAction);
+            InputActionReference reference =
+                InputActionReference.Create(authoredAction);
             var gameObject = new GameObject("RebindFenceTest");
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
@@ -414,6 +591,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             controller.Cancel();
             InputSystem.Update();
             Assert.IsEmpty(buffered);
+            Assert.IsFalse(runtime.TryReadValue(
+                reference,
+                out float canceledHeldValue));
+            Assert.AreEqual(0f, canceledHeldValue);
             Release(keyboard.spaceKey);
             InputSystem.Update();
             yield return null;
@@ -468,6 +649,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             yield return null;
 
             Object.Destroy(gameObject);
+            Object.Destroy(reference);
             Object.Destroy(actions);
             yield return null;
         }
@@ -616,6 +798,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             action.ApplyBindingOverride(0, "<Keyboard>/enter");
 
             Assert.IsEmpty(buffered);
+            Assert.IsFalse(runtime.TryReadValue(
+                reference,
+                out float overriddenHeldValue));
+            Assert.AreEqual(0f, overriddenHeldValue);
             Assert.GreaterOrEqual(fenceCount, 2);
             Assert.Greater(promptCount, 0);
             Assert.AreEqual(0, store.SaveCount);
@@ -903,6 +1089,8 @@ namespace CoCoFlow.Tests.Runtime.Input
                 "Second",
                 "<Keyboard>/a",
                 out InputAction secondAuthored);
+            InputActionReference secondReference =
+                InputActionReference.Create(secondAuthored);
             var gameObject = new GameObject("ActionAssetFenceTest");
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
@@ -934,12 +1122,20 @@ namespace CoCoFlow.Tests.Runtime.Input
                 out InputAction secondAction));
             Assert.IsTrue(secondAction.enabled);
             Assert.IsEmpty(buffered);
+            Assert.IsFalse(runtime.TryReadValue(
+                secondReference,
+                out float replacementHeldValue));
+            Assert.AreEqual(0f, replacementHeldValue);
 
             Release(keyboard.aKey);
             InputSystem.Update();
             yield return null;
             Press(keyboard.aKey);
             InputSystem.Update();
+            Assert.IsTrue(runtime.TryReadValue(
+                secondReference,
+                out float replacementResumedValue));
+            Assert.Greater(replacementResumedValue, 0f);
             Assert.That(
                 buffered.Exists(inputEvent =>
                     inputEvent.Action.name == "Second" &&
@@ -949,6 +1145,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             Release(keyboard.aKey);
             InputSystem.Update();
             Object.Destroy(gameObject);
+            Object.Destroy(secondReference);
             Object.Destroy(first);
             Object.Destroy(second);
             yield return null;
@@ -965,6 +1162,20 @@ namespace CoCoFlow.Tests.Runtime.Input
                 actionName,
                 InputActionType.Button,
                 binding);
+            asset.AddActionMap(map);
+            return asset;
+        }
+
+        private static InputActionAsset CreateMoveAsset(out InputAction move)
+        {
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            move = map.AddAction("Move", InputActionType.Value);
+            move.AddCompositeBinding("2DVector")
+                .With("Up", "<Keyboard>/w")
+                .With("Down", "<Keyboard>/s")
+                .With("Left", "<Keyboard>/a")
+                .With("Right", "<Keyboard>/d");
             asset.AddActionMap(map);
             return asset;
         }
@@ -1021,6 +1232,38 @@ namespace CoCoFlow.Tests.Runtime.Input
                 AfterSuccessfulSave?.Invoke();
                 return true;
             }
+        }
+
+        private sealed class AwakeInitializedOverrideStore :
+            MonoBehaviour,
+            IInputBindingOverrideStore
+        {
+            public string OverrideJson { get; set; } = string.Empty;
+            public bool AwakeCompleted { get; private set; }
+            public int PrematureLoadCount { get; private set; }
+            public int LoadCount { get; private set; }
+
+            private void Awake()
+            {
+                AwakeCompleted = true;
+            }
+
+            public bool TryLoad(string storageKey, out string overrideJson)
+            {
+                LoadCount++;
+                if (!AwakeCompleted)
+                {
+                    PrematureLoadCount++;
+                    overrideJson = string.Empty;
+                    return false;
+                }
+
+                overrideJson = OverrideJson;
+                return true;
+            }
+
+            public bool TrySave(string storageKey, string overrideJson) =>
+                false;
         }
     }
 }

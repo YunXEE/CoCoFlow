@@ -25,11 +25,20 @@ Scheme and device layout, resolves binding display strings and glyphs, exposes
 continuous reads, and publishes prompt and input-fence changes. If
 `PlayerInput.actions` is replaced while enabled, `InputRuntime` unsubscribes the
 cached old collection, fences pending input, then subscribes the replacement.
+Early `Awake` only registers the retained compatibility services. Runtime Action
+subscription and the single persisted-override load wait until `PlayerInput` is
+active and every component has completed `Awake`, so Input initialization cannot
+preempt PlayerInput's per-player Action collection or an override Store's setup.
+Disable/Enable does not reload persisted data.
+
 Action/Map Disable fences after Input System has synchronously emitted its
 Canceled callbacks. Re-enabled Actions whose controls are still actuated enter
 a neutral gate: Performed/Canceled callbacks remain suppressed until every
 bound control returns to its default value, and only the next physical input is
-accepted.
+accepted. `TryReadValue` follows the same authority boundary: it returns
+`false/default` while the Runtime is disabled, an Action is neutral-gated, or a
+controlled transition or Binding resolution is in progress. Legacy Move, Look,
+and Zoom snapshots therefore remain zero across the same fences.
 
 `InputFenced` and `PromptChanged` are post-commit observer notifications.
 `InputRuntime` invokes every subscriber independently and logs a subscriber

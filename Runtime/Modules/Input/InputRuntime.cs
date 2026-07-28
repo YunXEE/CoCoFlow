@@ -42,6 +42,9 @@ namespace CoCoFlow.Runtime.Modules.Input
             new List<InputAction>(8);
         private int _controlledTransitionDepth;
         private int _bindingResolutionDepth;
+        private bool _runtimeInitialized;
+        private bool _bindingOverrideLoadAttempted;
+        private bool _hasStarted;
 
         public PlayerInput PlayerInput => playerInput;
         public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
@@ -80,9 +83,6 @@ namespace CoCoFlow.Runtime.Modules.Input
                 playerInput = GetComponent<PlayerInput>();
             }
 
-            LoadBindingOverrides();
-            UpdatePresentationAuthority(true);
-
             CoCoServices.Register<IInputStateProvider>(this);
             CoCoServices.Register<IInputEventSource>(this);
             CoCoServices.Register<IInputModeController>(this);
@@ -91,13 +91,25 @@ namespace CoCoFlow.Runtime.Modules.Input
         private void OnEnable()
         {
             InputSystem.onActionChange += OnGlobalActionChange;
-            ReconcileActionSubscriptions(false);
-            RefreshNeutralGates(_subscribedActions);
-            UpdatePresentationAuthority(true);
+            TryInitializeRuntime();
+        }
+
+        private void Start()
+        {
+            _hasStarted = true;
+            TryInitializeRuntime();
+            TryLoadBindingOverrides();
         }
 
         private void Update()
         {
+            TryInitializeRuntime();
+            TryLoadBindingOverrides();
+            if (!_runtimeInitialized)
+            {
+                return;
+            }
+
             ReconcileActionSubscriptions(true);
             FinalizeAbandonedBindingResolution();
             ReleaseNeutralActions();
@@ -111,6 +123,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             UnsubscribeActions();
             _neutralGatedActions.Clear();
             _bindingResolutionDepth = 0;
+            _runtimeInitialized = false;
             FenceInput();
         }
 
@@ -128,8 +141,11 @@ namespace CoCoFlow.Runtime.Modules.Input
             out TValue value)
             where TValue : struct
         {
-            if (!TryResolveAction(actionReference, out InputAction action) ||
-                !action.enabled)
+            if (!isActiveAndEnabled ||
+                !_runtimeInitialized ||
+                !TryResolveAction(actionReference, out InputAction action) ||
+                !action.enabled ||
+                ShouldSuppress(action))
             {
                 value = default;
                 return false;
@@ -332,6 +348,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         public void NotifyBindingsChanged()
         {
+            RefreshNeutralGates(Actions);
             FenceInput();
             UpdatePresentationAuthority(true);
         }
@@ -366,11 +383,47 @@ namespace CoCoFlow.Runtime.Modules.Input
             FenceInput();
         }
 
-        private void LoadBindingOverrides()
+        private void TryInitializeRuntime()
         {
+            if (_runtimeInitialized ||
+                playerInput == null ||
+                !playerInput.inputIsActive)
+            {
+                return;
+            }
+
+            InputActionAsset actions = playerInput.actions;
+            if (actions == null)
+            {
+                return;
+            }
+
+            _runtimeInitialized = true;
+            ReconcileActionSubscriptions(false);
+            TryLoadBindingOverrides();
+            RefreshNeutralGates(_subscribedActions);
+            UpdatePresentationAuthority(true);
+        }
+
+        private void TryLoadBindingOverrides()
+        {
+            if (!_hasStarted ||
+                !_runtimeInitialized ||
+                _bindingOverrideLoadAttempted)
+            {
+                return;
+            }
+
+            InputActionAsset actions = _subscribedActions;
+            if (actions == null)
+            {
+                return;
+            }
+
             IInputBindingOverrideStore store =
                 bindingOverrideStore as IInputBindingOverrideStore;
-            if (store == null || Actions == null)
+            _bindingOverrideLoadAttempted = true;
+            if (store == null)
             {
                 return;
             }
@@ -385,7 +438,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                     return;
                 }
 
-                Actions.LoadBindingOverridesFromJson(overrideJson, false);
+                actions.LoadBindingOverridesFromJson(overrideJson, false);
             }
             catch (Exception exception)
             {
@@ -497,6 +550,15 @@ namespace CoCoFlow.Runtime.Modules.Input
             object actionOrMap,
             InputActionChange change)
         {
+            if (!_runtimeInitialized)
+            {
+                TryInitializeRuntime();
+                if (!_runtimeInitialized)
+                {
+                    return;
+                }
+            }
+
             if (_controlledTransitionDepth > 0 ||
                 !TryGetOwningAsset(actionOrMap, out InputActionAsset asset) ||
                 (!ReferenceEquals(asset, _subscribedActions) &&
