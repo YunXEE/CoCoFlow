@@ -5,6 +5,103 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.14] - 2026-07-27
+
+### Added
+
+- `InputRuntime` over the exact runtime `PlayerInput` Action collection,
+  fixed-allocation `InputCommandQueue<TCommand>`, unmanaged eight-command
+  `InputCommandBatch<TCommand>`, stable-ID transactional rebinds, prompt
+  snapshots, and exact/base-layout glyph lookup.
+- Official `com.unity.localization@1.5.9` core integration and localization
+  diagnostics, plus optional UI V2 `UIWidgetLocalizedText` and
+  `InputPromptPresenter` extensions. Smart String binding arguments and
+  fallback text refresh inside the current Screen when UI V2 support is
+  enabled.
+- Preview-first `ProjectScaffoldWindow` with an always engine-free
+  `CoCoFlowProject.Graph` assembly and an Assembly-CSharp or custom-asmdef
+  Unity-facing Runtime layer. The generated starter includes a real semantic
+  Intent, State, Graph-state binding, Operation Section, Operator, current Host
+  Provider wiring, and explicit scene integration checklist.
+- Same-directory validated atomic replacement with readable backups for Setup
+  Assistant manifest updates.
+
+### Changed
+
+- Marked `InputReader`, `CoCoInputIntent`, and the retained legacy Input
+  presentation interfaces obsolete. `InputRuntime` implements those interfaces
+  explicitly for the existing UI/Camera transition only; generated project
+  input uses `ICoCoIntentFrameSource<TIntent>`.
+- Frozen module naming so only Core types use the `CoCo*` prefix. New Input,
+  Localization, and generator types use `Input*`, `Localization*`, and
+  `ProjectScaffold*`; the package namespace and asmdef identity remain
+  `CoCoFlow.*`.
+- Added Action Map, rebind, source-disable, Host lifecycle, and Temporal
+  Preview/restore fences so queued commands and continuous snapshots cannot
+  burst after authority resumes. Action/Map Enable and rebind restore now gate
+  actuated controls until they return to neutral, so held input cannot be
+  mistaken for a new post-fence command.
+- Deferred Runtime Action subscription and the one-time persisted Override load
+  until PlayerInput and Store initialization complete. Continuous reads now
+  return `false/default` during Runtime Disable, controlled transitions, Binding
+  resolution, and Neutral Gate instead of restoring held legacy snapshots.
+- Binding-control resolution now fences direct Input System override changes,
+  gates newly bound held controls, and refreshes prompts without implicitly
+  persisting project-authored overrides. Input fence and prompt observers are
+  isolated per subscriber, so an observer exception cannot roll back a
+  successful rebind or skip later observers.
+- Added `InputAuthorityRevision` so same-frame lifecycle, Temporal, and
+  Persistence restore boundaries cannot become input-transparent. Prompt
+  selection now follows Control Scheme binding groups and the actual last-used
+  paired device; runtime Action Asset replacement unsubscribes the cached old
+  collection before accepting replacement input.
+- `UIWidgetLocalizedText.SetArguments()` now restores a suppressed
+  presentation even when no `LocalizedString` is configured, immediately
+  showing the current fallback with a `MissingLocalizedString` diagnostic.
+- Scaffold Preview fingerprints now cover compiled Provider type identities,
+  request mode, conflicts, paths, and generated content. Apply rechecks
+  symlink/reparse-point safety, reports incomplete rollback residuals, and
+  reports staging cleanup independently from project-code rollback.
+- Scaffold Preview now inventories project asmdefs, reserves the fixed Graph and
+  Runtime assembly identities project-wide, rejects a second Scaffold root
+  before Provider compilation, and prevents Assembly-CSharp output from
+  inheriting an existing asmdef.
+- Updated package metadata, Setup Assistant status, docs, and validation
+  exception scopes to `0.4.0-pre.14`.
+- Setup Assistant now reports default Localization Core separately from the
+  optional Localization UI and Input Prompt UI extensions, which retain the
+  three existing UI V2 support-define requirements.
+
+### Verification
+
+- `PASS`: Unity 6000.3.20f1 focused EditMode Input `6/6`, Scaffold `20/20`,
+  Setup Assistant `23/23`, and Pre14 naming boundary `1/1`; focused PlayMode
+  Input `17/17` and Localization `5/5`.
+- `PASS`: Assembly-CSharp and custom-asmdef Scaffold outputs compiled in
+  CoCoLab. The real `TypeCache` plus `CompilationPipeline` detector recognized
+  the generated Provider in `ProjectStateGraphBindings.cs`; a second root kept
+  that Provider identity visible but was blocked by the fixed Scaffold assembly
+  identities, and two real compiled Providers also blocked Apply.
+- `PASS`: a fresh default host with no UI V2 support defines compiled Input
+  Core, Localization Core, Setup Assistant, and Project Scaffold Editor
+  assemblies while the UI, Localization UI, and Input Prompt UI assemblies
+  remained intentionally absent.
+- `PASS`: warmed Queue/Batch and Neutral Gate polling each completed 1,000
+  iterations with zero managed bytes allocated on the measured thread.
+- Package-wide EditMode/PlayMode baseline comparison, generated runtime-loop
+  validation, and macOS Universal IL2CPP High-Stripping evidence are recorded
+  against the exact final Head in PR #30.
+- `SKIPPED`: Unity Package Validation Suite is not installed locally and was
+  explicitly waived for this delivery.
+
+### Deferred
+
+- Pre15 removes the legacy Input bridge and handles the broader package naming
+  pass, Adventure Starter, and production Character/Item gameplay input.
+- Localization does not alter Content Direct/Addressables ownership. The
+  official package may bring Addressables transitively, but presentation
+  loading and gameplay content authority remain separate.
+
 ## [0.4.0-pre.11] - 2026-07-25
 
 ### Added

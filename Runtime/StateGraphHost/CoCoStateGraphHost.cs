@@ -49,6 +49,7 @@ namespace CoCoFlow.Runtime.Core
         private bool _stopAfterPublish;
         private bool _disposeAfterPublish;
         private bool _requiresWorldCorrection;
+        private ulong _inputAuthorityRevision = 1UL;
         private CommitGuard _commitGuard;
 
         public CoCoStateGraphAsset StateGraphAsset => stateGraphAsset;
@@ -84,6 +85,7 @@ namespace CoCoFlow.Runtime.Core
         public ICoCoStateFlowTrace Trace => _transaction?.Trace;
         public bool RequiresWorldCorrection => _requiresWorldCorrection;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
+        public ulong InputAuthorityRevision => _inputAuthorityRevision;
         public CoCoTemporalState TemporalState => _temporal?.State ??
             new CoCoTemporalState(
                 CoCoTemporalMode.Disabled,
@@ -481,6 +483,7 @@ namespace CoCoFlow.Runtime.Core
 
                 _acceptsEventInput = true;
                 _hasStoppedInstance = false;
+                AdvanceInputAuthorityRevision();
                 diagnostic = CoCoDiagnostic.None;
                 _lastDiagnostic = diagnostic;
                 return true;
@@ -555,9 +558,14 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AdvanceInputAuthorityRevision();
             if (_bindings.Inbox != null && !_bindings.Inbox.Suspend())
             {
-                _runtime.TryResume(out _);
+                if (_runtime.TryResume(out _))
+                {
+                    AdvanceInputAuthorityRevision();
+                }
+
                 diagnostic = CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Mailbox,
                     CoCoDiagnosticCode.MailboxUnavailable,
@@ -615,6 +623,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AdvanceInputAuthorityRevision();
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -677,6 +686,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AdvanceInputAuthorityRevision();
             DisposeInstance();
             _hasStoppedInstance = true;
             _lastDiagnostic = diagnostic;
@@ -1090,6 +1100,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AdvanceInputAuthorityRevision();
             bool succeeded;
             _isTemporalOperation = true;
             try
@@ -1537,6 +1548,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            AdvanceInputAuthorityRevision();
             bool succeeded;
             _isTemporalOperation = true;
             try
@@ -1610,6 +1622,13 @@ namespace CoCoFlow.Runtime.Core
 
         private void DisposeInstance()
         {
+            if (_runtime != null &&
+                (_runtime.Lifecycle == CoCoRuntimeLifecycleState.Running ||
+                 _runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended))
+            {
+                AdvanceInputAuthorityRevision();
+            }
+
             _acceptsEventInput = false;
             _bindings?.UnregisterRouter();
             _temporal?.Dispose();
@@ -1641,6 +1660,7 @@ namespace CoCoFlow.Runtime.Core
             DisposeInstance();
             _hasStoppedInstance = false;
             _isDisposed = true;
+            AdvanceInputAuthorityRevision();
         }
 
         private void ForceDisposeHost()
@@ -1662,11 +1682,22 @@ namespace CoCoFlow.Runtime.Core
                 {
                     _runtime.Dispose();
                 }
+
+                AdvanceInputAuthorityRevision();
             }
 
             DisposeInstance();
             _hasStoppedInstance = false;
             _isDisposed = true;
+            AdvanceInputAuthorityRevision();
+        }
+
+        private void AdvanceInputAuthorityRevision()
+        {
+            _inputAuthorityRevision =
+                _inputAuthorityRevision == ulong.MaxValue
+                    ? 1UL
+                    : _inputAuthorityRevision + 1UL;
         }
 
         private static bool TryCreateTimelineId(

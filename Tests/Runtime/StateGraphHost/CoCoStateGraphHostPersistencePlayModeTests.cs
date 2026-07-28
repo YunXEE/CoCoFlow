@@ -1143,6 +1143,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(target.Host.TryStart(out CoCoDiagnostic targetStart), targetStart);
             StepWithActorValue(target, 241);
             ulong revision = target.Host.CurrentContext.Revision.Value;
+            ulong inputRevision = target.Host.InputAuthorityRevision;
 
             Assert.That(
                 target.Host.TryApplyPersistencePayload(
@@ -1158,6 +1159,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(participant.ApplyCount, Is.Zero);
             AssertAuthorityUnchanged(target, revision, 241, 0);
             Assert.That(target.Host.Fault.IsFaulted, Is.False);
+            Assert.That(
+                target.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = target.Host.InputAuthorityRevision;
 
             participant.RejectAuthorityReset = false;
             participant.ThrowAuthorityReset = false;
@@ -1166,6 +1171,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     payload,
                     out CoCoDiagnostic retry),
                 retry);
+            Assert.That(
+                target.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
             Assert.That(participant.AttachCount, Is.EqualTo(1));
             Assert.That(participant.AuthorityResetCommitCount, Is.EqualTo(1));
             Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor.PackageManager;
 using UnityEngine;
@@ -318,6 +319,50 @@ namespace CoCoFlow.Runtime.Core.Tests
                 member.Name.IndexOf("Machine", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 member.Name.IndexOf("Node", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 member.Name.IndexOf("Optional", StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        [Test]
+        public void Pre14NonCoreTypesUseModulePrefixesAndRetireNumberedBatchName()
+        {
+            PackageInfo packageInfo =
+                PackageInfo.FindForAssembly(typeof(CoCoStateLogic).Assembly);
+            Assert.IsNotNull(packageInfo);
+
+            string[] roots =
+            {
+                "Runtime/Modules/Input",
+                "Runtime/Modules/Localization",
+                "Editor/ProjectScaffold"
+            };
+            var forbiddenPublicPrefix = new Regex(
+                @"\bpublic\s+(?:(?:sealed|readonly|static)\s+)*(?:class|struct|interface|enum)\s+(CoCo\w+)",
+                RegexOptions.Compiled);
+
+            foreach (string root in roots)
+            {
+                string absoluteRoot = Path.Combine(
+                    packageInfo.resolvedPath,
+                    root);
+                foreach (string path in Directory.GetFiles(
+                             absoluteRoot,
+                             "*.cs",
+                             SearchOption.AllDirectories))
+                {
+                    string source = File.ReadAllText(path);
+                    Match match = forbiddenPublicPrefix.Match(source);
+                    Assert.IsFalse(
+                        match.Success,
+                        $"{root} exports Core-prefixed type {match.Groups[1].Value} in {path}.");
+                    StringAssert.DoesNotContain(
+                        "InputCommandBatch8",
+                        source,
+                        path);
+                    StringAssert.DoesNotContain(
+                        "CoCoProjectScaffold",
+                        source,
+                        path);
+                }
+            }
         }
 
         private static AssemblyDefinition ReadAssemblyDefinition(string packagePath, string relativePath)

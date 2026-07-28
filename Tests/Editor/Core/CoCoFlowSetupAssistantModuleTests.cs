@@ -45,6 +45,44 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.That(module.Description, Does.Contain("not world rollback"));
         }
 
+        [Test]
+        public void LocalizationCoreIsDefaultAndUiExtensionsRequireUiV2Support()
+        {
+            ModuleView localization = FindModule("Localization");
+            Assert.That(localization.RequiredSupportDefines, Is.Empty);
+            Assert.That(
+                localization.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization"));
+            Assert.That(
+                localization.RequiredAssemblies,
+                Does.Not.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+
+            string[] uiDefines =
+            {
+                "COCOFLOW_UNITASK_SUPPORT",
+                "COCOFLOW_DOTWEEN_SUPPORT",
+                "UNITASK_DOTWEEN_SUPPORT"
+            };
+            ModuleView localizationUi = FindModule("Localization (UI)");
+            Assert.That(
+                localizationUi.RequiredSupportDefines,
+                Is.EqualTo(uiDefines));
+            Assert.That(
+                localizationUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+
+            ModuleView inputPromptUi = FindModule("Input Prompt (UI)");
+            Assert.That(
+                inputPromptUi.RequiredSupportDefines,
+                Is.EqualTo(uiDefines));
+            Assert.That(
+                inputPromptUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Input.UI"));
+            Assert.That(
+                inputPromptUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+        }
+
         [TestCase(false, false, false, false, "")]
         [TestCase(false, true, false, false, "COCOFLOW_DOTWEEN_SUPPORT")]
         [TestCase(false, true, true, false, "COCOFLOW_DOTWEEN_SUPPORT")]

@@ -1,0 +1,22 @@
+{
+    "name": "CoCoFlow.Tests.Editor.Input",
+    "rootNamespace": "CoCoFlow.Tests.Editor.Input",
+    "references": [
+        "CoCoFlow.Runtime.Modules.Input",
+        "Unity.InputSystem"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

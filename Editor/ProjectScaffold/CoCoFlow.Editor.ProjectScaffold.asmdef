@@ -1,0 +1,19 @@
+{
+    "name": "CoCoFlow.Editor.ProjectScaffold",
+    "rootNamespace": "CoCoFlow.Editor.ProjectScaffold",
+    "references": [
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraphHost"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,24 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Localization.UI",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Localization.UI",
+    "references": [
+        "CoCoFlow.Runtime.Modules.Localization",
+        "CoCoFlow.Runtime.Modules.UI",
+        "Unity.Localization",
+        "Unity.ResourceManager",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

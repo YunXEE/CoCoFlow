@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Localization",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Localization",
+    "references": [
+        "Unity.Localization"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

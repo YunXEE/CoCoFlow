@@ -192,23 +192,39 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             StepWithActorValue(scenario, 10);
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(1));
+            ulong inputRevision = scenario.Host.InputAuthorityRevision;
             Assert.That(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic tooEarly),
                 Is.False);
             Assert.That(tooEarly.IsError, Is.True);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = scenario.Host.InputAuthorityRevision;
 
             StepWithActorValue(scenario, 20);
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(2));
             Require(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
                 begin);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = scenario.Host.InputAuthorityRevision;
             Require(
                 scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
                 preview);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = scenario.Host.InputAuthorityRevision;
             Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(10));
             Require(
                 scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),
                 cancel);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
             Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(20));
         }
 
@@ -353,17 +369,29 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             ulong oldRevision = oldAuthority.Revision.Value;
             CoCoTickFrame oldTick = oldAuthority.Header.TickFrame;
             int oldUpdateCount = TemporalHostLogic.UpdateCount;
+            ulong inputRevision = scenario.Host.InputAuthorityRevision;
             Require(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin),
                 begin);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = scenario.Host.InputAuthorityRevision;
             Require(
                 scenario.Host.TryPreviewTemporal(2, out CoCoDiagnostic preview),
                 preview);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
+            inputRevision = scenario.Host.InputAuthorityRevision;
             CoCoTemporalFrameInfo source = scenario.Host.TemporalState.Preview;
 
             Require(
                 scenario.Host.TryConfirmTemporalRestore(out CoCoDiagnostic confirm),
                 confirm);
+            Assert.That(
+                scenario.Host.InputAuthorityRevision,
+                Is.Not.EqualTo(inputRevision));
 
             CoCoContextFrame restored = scenario.Host.CurrentContext;
             CoCoTickFrame restoredTick = restored.Header.TickFrame;

@@ -1,0 +1,29 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.Localization",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Localization",
+    "references": [
+        "CoCoFlow.Runtime.Modules.Localization",
+        "CoCoFlow.Runtime.Modules.Localization.UI",
+        "CoCoFlow.Runtime.Modules.UI",
+        "Unity.Localization",
+        "Unity.ResourceManager",
+        "Unity.TextMeshPro"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
