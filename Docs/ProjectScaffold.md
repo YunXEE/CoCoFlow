@@ -7,6 +7,16 @@ default root is `Assets/CoCoFlowProject/`. The selected assembly mode applies
 only to the Unity-facing Runtime layer: use regular Assembly-CSharp compilation
 or generate `CoCoFlowProject.Runtime.asmdef`.
 
+The editable root selects the first and only Scaffold location in a Unity
+project. The generated `CoCoFlowProject.Graph` and
+`CoCoFlowProject.Runtime` assembly identities are reserved project-wide; a
+second root is blocked even before a generated Provider has compiled.
+Assembly-CSharp mode is also blocked below any existing asmdef because those
+Runtime scripts would not belong to Assembly-CSharp. Custom-asmdef mode may sit
+below an ancestor asmdef, but the selected project root or Runtime directory
+must not already contain another asmdef. The generated Graph directory must be
+free of another asmdef in both modes.
+
 The Graph layer is always isolated in the generated
 `CoCoFlowProject.Graph.asmdef` with `noEngineReferences: true`. It references
 only the pure Contracts, StateFlow, and StateGraph assemblies. It never
@@ -38,8 +48,10 @@ Custom-asmdef mode additionally creates
 Apply always follows one sequence:
 
 1. Build a complete Preview of every target path.
-2. Block if any target exists, a generated path crosses a symlink/junction, or
-   multiple compiled project binding providers are found.
+2. Block if any target exists, a generated path crosses a symlink/junction,
+   either reserved Scaffold assembly identity already exists, the requested
+   Runtime assembly ownership is invalid, or multiple compiled project binding
+   providers are found.
 3. Ask for explicit confirmation.
 4. Rebuild the Preview and compare its SHA-256 fingerprint. Any request,
    Provider, conflict, path, or generated-content change requires confirmation
@@ -51,7 +63,8 @@ Apply always follows one sequence:
    residual path that could not be removed.
 
 The generator never overwrites a project file. A second Apply is blocked by the
-existing targets.
+project-wide reserved assembly identity even if it uses another root; the same
+root is additionally blocked by its existing targets.
 
 ## Provider behavior
 

@@ -241,6 +241,129 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
         }
 
         [Test]
+        public void ReservedAssemblyIdentityBlocksAlternateRootBeforeCompilation()
+        {
+            ProjectScaffoldPlan first = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(first, _project);
+            Assert.IsTrue(result.Succeeded, result.Error);
+
+            ProjectScaffoldPlan second = Build(
+                "Assets/AlternateCoCoFlowProject",
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+
+            Assert.IsFalse(second.CanApply);
+            Assert.IsTrue(second.Conflicts.Any(conflict =>
+                conflict.Contains("reserved Scaffold identity") &&
+                conflict.Contains("CoCoFlowProject.Graph")));
+            Assert.IsEmpty(second.ExistingProviderPaths);
+        }
+
+        [TestCase("CoCoFlowProject.Graph")]
+        [TestCase("CoCoFlowProject.Runtime")]
+        public void ReservedAssemblyIdentityAtAnyPathBlocksPreview(
+            string assemblyName)
+        {
+            WriteAsmdef(
+                "Assets/Existing/" + assemblyName + ".asmdef",
+                assemblyName);
+
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("reserved Scaffold identity") &&
+                conflict.Contains(assemblyName)));
+        }
+
+        [Test]
+        public void AssemblyCSharpRejectsAncestorAsmdefAndCustomModeAllowsIt()
+        {
+            WriteAsmdef(
+                "Assets/Feature/Feature.Runtime.asmdef",
+                "Feature.Runtime");
+            const string nestedRoot = "Assets/Feature/GeneratedProject";
+
+            ProjectScaffoldPlan assemblyCSharp = Build(
+                nestedRoot,
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            Assert.IsFalse(assemblyCSharp.CanApply);
+            Assert.IsTrue(assemblyCSharp.Conflicts.Any(conflict =>
+                conflict.Contains("Assembly-CSharp mode") &&
+                conflict.Contains("Assets/Feature/Feature.Runtime.asmdef")));
+
+            ProjectScaffoldPlan custom = Build(
+                nestedRoot,
+                ProjectScaffoldAssemblyMode.CustomAssemblyDefinition);
+            Assert.IsTrue(
+                custom.CanApply,
+                string.Join("\n", custom.Conflicts));
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(custom, _project);
+            Assert.IsTrue(result.Succeeded, result.Error);
+        }
+
+        [Test]
+        public void CustomModeRejectsAssemblyDefinitionAtProjectRoot()
+        {
+            const string customRoot = "Assets/Feature/GeneratedProject";
+            WriteAsmdef(
+                customRoot + "/Existing.Runtime.asmdef",
+                "Existing.Runtime");
+
+            ProjectScaffoldPlan plan = Build(
+                customRoot,
+                ProjectScaffoldAssemblyMode.CustomAssemblyDefinition);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("cannot own the generated Runtime files") &&
+                conflict.Contains("Existing.Runtime.asmdef")));
+        }
+
+        [TestCase(ProjectScaffoldAssemblyMode.AssemblyCSharp)]
+        [TestCase(ProjectScaffoldAssemblyMode.CustomAssemblyDefinition)]
+        public void ExistingGraphDirectoryAsmdefBlocksBothModes(
+            ProjectScaffoldAssemblyMode mode)
+        {
+            WriteAsmdef(
+                ProjectScaffoldRequest.DefaultRoot +
+                "/Graph/Existing.Graph.asmdef",
+                "Existing.Graph");
+
+            ProjectScaffoldPlan plan = Build(mode);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("Graph directory already contains") &&
+                conflict.Contains("Existing.Graph.asmdef")));
+        }
+
+        [Test]
+        public void AssemblyDefinitionChangeAfterPreviewRequiresFreshConfirmation()
+        {
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            WriteAsmdef(
+                "Assets/Project.Runtime.asmdef",
+                "Feature.Runtime");
+
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(plan, _project);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(
+                ProjectScaffoldApplyFailureKind.StalePreview,
+                result.FailureKind);
+            Assert.IsFalse(Directory.Exists(Path.Combine(
+                _project,
+                ProjectScaffoldRequest.DefaultRoot,
+                "Runtime")));
+        }
+
+        [Test]
         public void InjectedPublishFailureRollsBackOnlyFilesFromThatApply()
         {
             string sentinel = Path.Combine(_project, "Assets", "Keep.txt");
@@ -436,12 +559,28 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
 
         private ProjectScaffoldPlan Build(
             ProjectScaffoldAssemblyMode mode) =>
+            Build(ProjectScaffoldRequest.DefaultRoot, mode);
+
+        private ProjectScaffoldPlan Build(
+            string root,
+            ProjectScaffoldAssemblyMode mode) =>
             ProjectScaffoldPlanner.Build(
                 new ProjectScaffoldRequest(
-                    ProjectScaffoldRequest.DefaultRoot,
+                    root,
                     mode),
                 _project,
                 _providerDetector);
+
+        private void WriteAsmdef(string relativePath, string assemblyName)
+        {
+            string path = Path.Combine(
+                _project,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(
+                path,
+                "{\n  \"name\": \"" + assemblyName + "\"\n}\n");
+        }
 
         private ProjectScaffoldWriter CreateWriter() =>
             new ProjectScaffoldWriter(
@@ -755,7 +894,7 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
             {
                 throw new InvalidOperationException(
                     "The real detector did not find exactly one generated " +
-                    "secondary ProjectStateGraphBindingProvider. Found: " +
+                    "ProjectStateGraphBindingProvider. Found: " +
                     generated.Length);
             }
 
@@ -767,13 +906,16 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
                     ProjectScaffoldAssemblyMode.AssemblyCSharp),
                 workingDirectory,
                 detector);
-            if (plan.ExistingProviderPaths.Count != 1 ||
+            if (plan.CanApply ||
+                !plan.ExistingProviderPaths.Contains(generated[0].Path) ||
+                !plan.Conflicts.Any(conflict => conflict.Contains(
+                    "reserved Scaffold identity")) ||
                 BindingContent(plan).Contains(
                     "public sealed class ProjectStateGraphBindingProvider"))
             {
                 throw new InvalidOperationException(
-                    "A second Preview did not reuse the real compiled " +
-                    "Provider identity.");
+                    "A second Preview did not retain the real Provider " +
+                    "identity while blocking the duplicate Scaffold assembly.");
             }
         }
 

@@ -8,6 +8,7 @@ using System.Text;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEditor.Compilation;
+using UnityEngine;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
     "CoCoFlow.Tests.Editor.ProjectScaffold")]
@@ -139,6 +140,23 @@ namespace CoCoFlow.Editor.ProjectScaffold
 
         internal string Path { get; }
         internal string TypeIdentity { get; }
+    }
+
+    internal readonly struct ProjectScaffoldAssemblyIdentity
+    {
+        internal ProjectScaffoldAssemblyIdentity(
+            string path,
+            string assemblyName,
+            string absolutePath)
+        {
+            Path = ProjectScaffoldRequest.Normalize(path);
+            AssemblyName = assemblyName ?? string.Empty;
+            AbsolutePath = absolutePath ?? string.Empty;
+        }
+
+        internal string Path { get; }
+        internal string AssemblyName { get; }
+        internal string AbsolutePath { get; }
     }
 
     internal sealed class ProjectScaffoldProviderDetector :
@@ -328,6 +346,16 @@ namespace CoCoFlow.Editor.ProjectScaffold
 
     internal static class ProjectScaffoldPlanner
     {
+        private const string GraphAssemblyName = "CoCoFlowProject.Graph";
+        private const string RuntimeAssemblyName = "CoCoFlowProject.Runtime";
+
+        [Serializable]
+        private sealed class AssemblyDefinitionJson
+        {
+            [SerializeField] private string name;
+
+            internal string Name => name;
+        }
 
         internal static ProjectScaffoldPlan Build(
             ProjectScaffoldRequest request,
@@ -358,6 +386,17 @@ namespace CoCoFlow.Editor.ProjectScaffold
             {
                 conflicts.Add(
                     "The project root must be a relative path below Assets and may not contain traversal segments.");
+            }
+
+            IReadOnlyList<ProjectScaffoldAssemblyIdentity> assemblyIdentities =
+                InspectAssemblyDefinitions(workingDirectory, conflicts);
+            if (IsSafeAssetRoot(root))
+            {
+                AddAssemblyConflicts(
+                    request,
+                    workingDirectory,
+                    assemblyIdentities,
+                    conflicts);
             }
 
             IReadOnlyList<ProjectScaffoldProviderIdentity> providerIdentities =
@@ -393,6 +432,7 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 request,
                 files,
                 providerIdentities,
+                assemblyIdentities,
                 conflicts);
             return new ProjectScaffoldPlan(
                 request,
@@ -422,6 +462,7 @@ namespace CoCoFlow.Editor.ProjectScaffold
             ProjectScaffoldRequest request,
             IReadOnlyList<ProjectScaffoldFile> files,
             IReadOnlyList<ProjectScaffoldProviderIdentity> providers,
+            IReadOnlyList<ProjectScaffoldAssemblyIdentity> assemblies,
             IReadOnlyList<string> conflicts)
         {
             var source = new StringBuilder();
@@ -431,6 +472,12 @@ namespace CoCoFlow.Editor.ProjectScaffold
             {
                 Append(source, providers[index].TypeIdentity);
                 Append(source, providers[index].Path);
+            }
+
+            for (int index = 0; index < assemblies.Count; index++)
+            {
+                Append(source, assemblies[index].AssemblyName);
+                Append(source, assemblies[index].Path);
             }
 
             for (int index = 0; index < conflicts.Count; index++)
@@ -457,6 +504,216 @@ namespace CoCoFlow.Editor.ProjectScaffold
                 return fingerprint.ToString();
             }
         }
+
+        private static IReadOnlyList<ProjectScaffoldAssemblyIdentity>
+            InspectAssemblyDefinitions(
+                string workingDirectory,
+                ICollection<string> conflicts)
+        {
+            var identities = new List<ProjectScaffoldAssemblyIdentity>();
+            string projectRoot;
+            string assetsRoot;
+            try
+            {
+                projectRoot = Path.GetFullPath(workingDirectory)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar);
+                assetsRoot = Path.Combine(projectRoot, "Assets");
+            }
+            catch (Exception exception)
+            {
+                conflicts.Add(
+                    "Project assembly inspection failed: " +
+                    exception.Message);
+                return identities;
+            }
+
+            if (!Directory.Exists(assetsRoot))
+            {
+                conflicts.Add(
+                    "Project assembly inspection failed because Assets does not exist.");
+                return identities;
+            }
+
+            var pending = new Stack<string>();
+            pending.Push(assetsRoot);
+            try
+            {
+                while (pending.Count > 0)
+                {
+                    string directory = pending.Pop();
+                    FileAttributes directoryAttributes =
+                        File.GetAttributes(directory);
+                    if ((directoryAttributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    foreach (string file in Directory.EnumerateFiles(
+                                 directory,
+                                 "*.asmdef",
+                                 SearchOption.TopDirectoryOnly))
+                    {
+                        string relativePath = ProjectScaffoldRequest.Normalize(
+                            file.Substring(projectRoot.Length + 1));
+                        string content = File.ReadAllText(file, Encoding.UTF8);
+                        AssemblyDefinitionJson definition =
+                            JsonUtility.FromJson<AssemblyDefinitionJson>(content);
+                        if (definition == null ||
+                            string.IsNullOrWhiteSpace(definition.Name))
+                        {
+                            conflicts.Add(
+                                "Assembly definition inspection failed for " +
+                                relativePath + ": the name is missing.");
+                            continue;
+                        }
+
+                        identities.Add(new ProjectScaffoldAssemblyIdentity(
+                            relativePath,
+                            definition.Name,
+                            Path.GetFullPath(file)));
+                    }
+
+                    foreach (string child in Directory.EnumerateDirectories(
+                                 directory,
+                                 "*",
+                                 SearchOption.TopDirectoryOnly))
+                    {
+                        FileAttributes childAttributes =
+                            File.GetAttributes(child);
+                        if ((childAttributes & FileAttributes.ReparsePoint) == 0)
+                        {
+                            pending.Push(child);
+                        }
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                conflicts.Add(
+                    "Project assembly inspection failed: " +
+                    exception.Message);
+            }
+
+            return identities
+                .OrderBy(identity => identity.Path, StringComparer.Ordinal)
+                .ThenBy(
+                    identity => identity.AssemblyName,
+                    StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static void AddAssemblyConflicts(
+            ProjectScaffoldRequest request,
+            string workingDirectory,
+            IReadOnlyList<ProjectScaffoldAssemblyIdentity> assemblies,
+            ICollection<string> conflicts)
+        {
+            string projectRoot = Path.GetFullPath(workingDirectory)
+                .TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+            string assetsRoot = Path.Combine(projectRoot, "Assets");
+            string scaffoldRoot = Path.GetFullPath(Path.Combine(
+                projectRoot,
+                request.ProjectRoot.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar)));
+            string graphRoot = Path.Combine(scaffoldRoot, "Graph");
+            string runtimeRoot = Path.Combine(scaffoldRoot, "Runtime");
+
+            foreach (ProjectScaffoldAssemblyIdentity assembly in assemblies)
+            {
+                if (string.Equals(
+                        assembly.AssemblyName,
+                        GraphAssemblyName,
+                        StringComparison.Ordinal) ||
+                    string.Equals(
+                        assembly.AssemblyName,
+                        RuntimeAssemblyName,
+                        StringComparison.Ordinal))
+                {
+                    conflicts.Add(
+                        "A project assembly definition already uses the reserved Scaffold identity '" +
+                        assembly.AssemblyName + "' at " + assembly.Path +
+                        ". Only one CoCoFlow Project Scaffold may exist per Unity project.");
+                }
+            }
+
+            foreach (ProjectScaffoldAssemblyIdentity assembly in assemblies)
+            {
+                if (PathsEqual(
+                        Path.GetDirectoryName(assembly.AbsolutePath),
+                        graphRoot))
+                {
+                    conflicts.Add(
+                        "The generated Graph directory already contains an assembly definition at " +
+                        assembly.Path + ".");
+                }
+            }
+
+            if (request.AssemblyMode ==
+                ProjectScaffoldAssemblyMode.AssemblyCSharp)
+            {
+                var ancestorDirectories = new HashSet<string>(
+                    Path.DirectorySeparatorChar == '\\'
+                        ? StringComparer.OrdinalIgnoreCase
+                        : StringComparer.Ordinal);
+                string current = runtimeRoot;
+                while (!string.IsNullOrEmpty(current))
+                {
+                    ancestorDirectories.Add(current);
+                    if (PathsEqual(current, assetsRoot))
+                    {
+                        break;
+                    }
+
+                    current = Path.GetDirectoryName(current);
+                }
+
+                foreach (ProjectScaffoldAssemblyIdentity assembly in assemblies)
+                {
+                    string assemblyDirectory =
+                        Path.GetDirectoryName(assembly.AbsolutePath);
+                    if (ancestorDirectories.Contains(assemblyDirectory))
+                    {
+                        conflicts.Add(
+                            "Assembly-CSharp mode cannot generate Runtime files below the assembly definition at " +
+                            assembly.Path + ".");
+                    }
+                }
+
+                return;
+            }
+
+            foreach (ProjectScaffoldAssemblyIdentity assembly in assemblies)
+            {
+                string assemblyDirectory =
+                    Path.GetDirectoryName(assembly.AbsolutePath);
+                if (PathsEqual(assemblyDirectory, scaffoldRoot) ||
+                    PathsEqual(assemblyDirectory, runtimeRoot))
+                {
+                    conflicts.Add(
+                        "Custom assembly mode cannot own the generated Runtime files because the project root or Runtime directory already contains an assembly definition at " +
+                        assembly.Path + ".");
+                }
+            }
+        }
+
+        private static bool PathsEqual(string left, string right) =>
+            string.Equals(
+                Path.GetFullPath(left ?? string.Empty)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(right ?? string.Empty)
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar),
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal);
 
         private static void Append(StringBuilder target, string value)
         {

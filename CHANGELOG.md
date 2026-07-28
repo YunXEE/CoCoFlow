@@ -41,6 +41,10 @@ projects and does not include a migration runtime for 0.3.9 projects.
   burst after authority resumes. Action/Map Enable and rebind restore now gate
   actuated controls until they return to neutral, so held input cannot be
   mistaken for a new post-fence command.
+- Deferred Runtime Action subscription and the one-time persisted Override load
+  until PlayerInput and Store initialization complete. Continuous reads now
+  return `false/default` during Runtime Disable, controlled transitions, Binding
+  resolution, and Neutral Gate instead of restoring held legacy snapshots.
 - Binding-control resolution now fences direct Input System override changes,
   gates newly bound held controls, and refreshes prompts without implicitly
   persisting project-authored overrides. Input fence and prompt observers are
@@ -58,6 +62,10 @@ projects and does not include a migration runtime for 0.3.9 projects.
   request mode, conflicts, paths, and generated content. Apply rechecks
   symlink/reparse-point safety, reports incomplete rollback residuals, and
   reports staging cleanup independently from project-code rollback.
+- Scaffold Preview now inventories project asmdefs, reserves the fixed Graph and
+  Runtime assembly identities project-wide, rejects a second Scaffold root
+  before Provider compilation, and prevents Assembly-CSharp output from
+  inheriting an existing asmdef.
 - Updated package metadata, Setup Assistant status, docs, and validation
   exception scopes to `0.4.0-pre.14`.
 - Setup Assistant now reports default Localization Core separately from the
@@ -66,14 +74,14 @@ projects and does not include a migration runtime for 0.3.9 projects.
 
 ### Verification
 
-- `PASS`: Unity 6000.3.20f1 focused EditMode Input `6/6`, Scaffold `12/12`,
+- `PASS`: Unity 6000.3.20f1 focused EditMode Input `6/6`, Scaffold `20/20`,
   Setup Assistant `23/23`, and Pre14 naming boundary `1/1`; focused PlayMode
-  Input `14/14` and Localization `5/5`.
+  Input `17/17` and Localization `5/5`.
 - `PASS`: Assembly-CSharp and custom-asmdef Scaffold outputs compiled in
   CoCoLab. The real `TypeCache` plus `CompilationPipeline` detector recognized
-  the generated secondary Provider in `ProjectStateGraphBindings.cs`, a second
-  Preview omitted another Provider, and two real compiled Providers blocked
-  Apply.
+  the generated Provider in `ProjectStateGraphBindings.cs`; a second root kept
+  that Provider identity visible but was blocked by the fixed Scaffold assembly
+  identities, and two real compiled Providers also blocked Apply.
 - `PASS`: a fresh default host with no UI V2 support defines compiled Input
   Core, Localization Core, Setup Assistant, and Project Scaffold Editor
   assemblies while the UI, Localization UI, and Input Prompt UI assemblies
