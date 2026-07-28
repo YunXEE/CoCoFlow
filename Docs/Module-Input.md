@@ -1,6 +1,6 @@
 # Module: Input
 
-> Pre14 contract: `0.4.0-pre.14` · Updated 2026-07-27
+> Pre14 contract: `0.4.0-pre.14` · Updated 2026-07-28
 
 The Input module turns Input System actions into project-owned semantic Intent.
 `PlayerInput`, its runtime `InputActionAsset`, `InputUser`, devices, Control
@@ -31,6 +31,11 @@ a neutral gate: Performed/Canceled callbacks remain suppressed until every
 bound control returns to its default value, and only the next physical input is
 accepted.
 
+`InputFenced` and `PromptChanged` are post-commit observer notifications.
+`InputRuntime` invokes every subscriber independently and logs a subscriber
+exception with the Runtime as its Unity context. An observer failure therefore
+cannot interrupt a fence, rebind commit, prompt refresh, or a later subscriber.
+
 ## Input fence
 
 Action Map changes, rebind changes, source disable, Host suspension, Temporal
@@ -53,6 +58,15 @@ again.
 System IDs. It snapshots the previous override JSON before starting. Completion
 persists through `IInputBindingOverrideStore` and refreshes the prompt; cancel,
 operation failure, or storage failure restores the previous overrides.
+
+Project code may also use the official Input System
+`ApplyBindingOverride`/`RemoveBindingOverride` APIs directly. Binding-control
+resolution is treated as a fenced transaction: callbacks are suppressed while
+controls are being rebuilt, the affected Action enters a neutral gate, and the
+current prompt is refreshed when resolution completes. These direct,
+programmatic override changes are intentionally transient and never call
+`IInputBindingOverrideStore`; durable overrides must go through
+`InputRebindController`.
 
 `InputGlyphCatalog` resolves an exact device-layout/control-path entry first,
 then an Input System base layout. The optional UI V2

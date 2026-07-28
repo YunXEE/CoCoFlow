@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Modules.Input;
 using NUnit.Framework;
 using UnityEngine;
@@ -472,6 +473,281 @@ namespace CoCoFlow.Tests.Runtime.Input
         }
 
         [UnityTest]
+        public IEnumerator BoundarySubscriberFailuresDoNotAbortRebindCommit()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("RebindObserverIsolationTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var store = gameObject.AddComponent<TestOverrideStore>();
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var controller = gameObject.AddComponent<InputRebindController>();
+            SetField(runtime, "bindingOverrideStore", store);
+            SetField(controller, "inputRuntime", runtime);
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            Guid bindingId = action.bindings[0].id;
+            bool throwFence = false;
+            bool throwPrompt = false;
+            int fenceFollowerCount = 0;
+            int promptFollowerCount = 0;
+            bool? completion = null;
+            runtime.InputFenced += () =>
+            {
+                if (!throwFence)
+                {
+                    return;
+                }
+
+                throwFence = false;
+                throw new InvalidOperationException(
+                    "Expected InputFenced subscriber failure.");
+            };
+            runtime.InputFenced += () => fenceFollowerCount++;
+            runtime.PromptChanged += () =>
+            {
+                if (!throwPrompt)
+                {
+                    return;
+                }
+
+                throwPrompt = false;
+                throw new InvalidOperationException(
+                    "Expected PromptChanged subscriber failure.");
+            };
+            runtime.PromptChanged += () => promptFollowerCount++;
+            controller.RebindCompleted += succeeded => completion = succeeded;
+            store.AfterSuccessfulSave = () =>
+            {
+                throwFence = true;
+                throwPrompt = true;
+            };
+
+            Assert.IsTrue(controller.TryBegin(
+                action.id,
+                bindingId,
+                out string error),
+                error);
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected InputFenced subscriber failure"));
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected PromptChanged subscriber failure"));
+            Press(keyboard.enterKey);
+            InputSystem.Update();
+            currentTime += 0.1;
+            InputSystem.Update();
+            yield return null;
+            Release(keyboard.enterKey);
+            InputSystem.Update();
+
+            Assert.IsFalse(controller.IsRebinding);
+            Assert.IsEmpty(controller.LastError);
+            Assert.AreEqual(true, completion);
+            Assert.Greater(fenceFollowerCount, 0);
+            Assert.Greater(promptFollowerCount, 0);
+            StringAssert.Contains(
+                "enter",
+                action.bindings[0].effectivePath.ToLowerInvariant());
+            Assert.AreEqual(
+                runtime.CaptureBindingOverrides(),
+                store.StoredJson);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ExternalBindingOverridesFenceRefreshAndRequireNeutralInput()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            InputActionReference reference =
+                InputActionReference.Create(authoredAction);
+            var gameObject = new GameObject("ExternalBindingOverrideTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var store = gameObject.AddComponent<TestOverrideStore>();
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            SetField(runtime, "bindingOverrideStore", store);
+            var buffered = new List<InputActionEvent>();
+            int fenceCount = 0;
+            int promptCount = 0;
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += () =>
+            {
+                fenceCount++;
+                buffered.Clear();
+            };
+            runtime.PromptChanged += () => promptCount++;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            buffered.Clear();
+            fenceCount = 0;
+            promptCount = 0;
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsNotEmpty(buffered);
+            Press(keyboard.enterKey);
+            InputSystem.Update();
+
+            action.ApplyBindingOverride(0, "<Keyboard>/enter");
+
+            Assert.IsEmpty(buffered);
+            Assert.GreaterOrEqual(fenceCount, 2);
+            Assert.Greater(promptCount, 0);
+            Assert.AreEqual(0, store.SaveCount);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot enterPrompt));
+            StringAssert.Contains(
+                "enter",
+                enterPrompt.BindingDisplay.ToLowerInvariant());
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+
+            Release(keyboard.enterKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            yield return null;
+            Assert.IsTrue(action.enabled);
+            Assert.IsTrue(keyboard.enterKey.CheckStateIsAtDefault());
+            Assert.AreEqual(InputActionPhase.Waiting, action.phase);
+            Press(keyboard.enterKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+            Release(keyboard.enterKey);
+            InputSystem.Update();
+            buffered.Clear();
+            fenceCount = 0;
+            promptCount = 0;
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            action.RemoveBindingOverride(0);
+
+            Assert.IsEmpty(buffered);
+            Assert.GreaterOrEqual(fenceCount, 2);
+            Assert.Greater(promptCount, 0);
+            Assert.AreEqual(0, store.SaveCount);
+            Assert.IsTrue(runtime.TryGetPrompt(
+                reference,
+                out InputPromptSnapshot spacePrompt));
+            StringAssert.Contains(
+                "space",
+                spacePrompt.BindingDisplay.ToLowerInvariant());
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            yield return null;
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(reference);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator UnpairedBindingChangeNotificationRecoversNextFrame()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("BindingChangeRecoveryTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var runtime = gameObject.AddComponent<InputRuntime>();
+            var buffered = new List<InputActionEvent>();
+            int fenceCount = 0;
+            int promptCount = 0;
+            runtime.ActionChanged += buffered.Add;
+            runtime.InputFenced += () =>
+            {
+                fenceCount++;
+                buffered.Clear();
+            };
+            runtime.PromptChanged += () => promptCount++;
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(runtime.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            buffered.Clear();
+            fenceCount = 0;
+            promptCount = 0;
+
+            InvokeGlobalActionChange(
+                runtime,
+                actions,
+                InputActionChange.BoundControlsAboutToChange);
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsEmpty(buffered);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            Assert.GreaterOrEqual(fenceCount, 2);
+            Assert.Greater(promptCount, 0);
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.That(
+                buffered.Exists(inputEvent =>
+                    inputEvent.Phase == InputActionPhase.Performed),
+                Is.True);
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator LastUsedDeviceSelectsBindingWithinOneControlScheme()
         {
             Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
@@ -705,12 +981,26 @@ namespace CoCoFlow.Tests.Runtime.Input
             field.SetValue(target, value);
         }
 
+        private static void InvokeGlobalActionChange(
+            InputRuntime runtime,
+            object actionOrMap,
+            InputActionChange change)
+        {
+            MethodInfo method = typeof(InputRuntime).GetMethod(
+                "OnGlobalActionChange",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(method);
+            method.Invoke(runtime, new[] { actionOrMap, (object)change });
+        }
+
         private sealed class TestOverrideStore :
             MonoBehaviour,
             IInputBindingOverrideStore
         {
             public bool FailSave { get; set; }
             public int SaveCount { get; private set; }
+            public string StoredJson => _json;
+            public System.Action AfterSuccessfulSave { get; set; }
             private string _json = string.Empty;
 
             public bool TryLoad(string storageKey, out string overrideJson)
@@ -728,6 +1018,7 @@ namespace CoCoFlow.Tests.Runtime.Input
                 }
 
                 _json = overrideJson;
+                AfterSuccessfulSave?.Invoke();
                 return true;
             }
         }

@@ -41,6 +41,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         private readonly List<InputAction> _neutralGatedActions =
             new List<InputAction>(8);
         private int _controlledTransitionDepth;
+        private int _bindingResolutionDepth;
 
         public PlayerInput PlayerInput => playerInput;
         public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
@@ -98,6 +99,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         private void Update()
         {
             ReconcileActionSubscriptions(true);
+            FinalizeAbandonedBindingResolution();
             ReleaseNeutralActions();
             SampleLegacyContinuousValues();
             UpdatePresentationAuthority(false);
@@ -108,6 +110,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             InputSystem.onActionChange -= OnGlobalActionChange;
             UnsubscribeActions();
             _neutralGatedActions.Clear();
+            _bindingResolutionDepth = 0;
             FenceInput();
         }
 
@@ -251,7 +254,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             MoveInput = Vector2.zero;
             LookInput = Vector2.zero;
             ZoomInput = Vector2.zero;
-            InputFenced?.Invoke();
+            PublishBoundaryEvent(InputFenced, nameof(InputFenced));
         }
 
         public string CaptureBindingOverrides()
@@ -504,6 +507,26 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             switch (change)
             {
+                case InputActionChange.BoundControlsAboutToChange:
+                    _bindingResolutionDepth++;
+                    FenceInput();
+                    return;
+
+                case InputActionChange.BoundControlsChanged:
+                    RefreshNeutralGatesForChange(actionOrMap);
+                    if (_bindingResolutionDepth > 0)
+                    {
+                        _bindingResolutionDepth--;
+                    }
+
+                    FenceInput();
+                    if (_bindingResolutionDepth == 0)
+                    {
+                        UpdatePresentationAuthority(true);
+                    }
+
+                    return;
+
                 case InputActionChange.ActionDisabled:
                 case InputActionChange.ActionMapDisabled:
                     FenceInput();
@@ -524,7 +547,43 @@ namespace CoCoFlow.Runtime.Modules.Input
         private bool ShouldSuppress(InputAction action)
         {
             return _controlledTransitionDepth > 0 ||
+                   _bindingResolutionDepth > 0 ||
                    (action != null && _neutralGatedActions.Contains(action));
+        }
+
+        private void FinalizeAbandonedBindingResolution()
+        {
+            if (_bindingResolutionDepth <= 0)
+            {
+                return;
+            }
+
+            _bindingResolutionDepth = 0;
+            RefreshNeutralGates(Actions);
+            FenceInput();
+            UpdatePresentationAuthority(true);
+        }
+
+        private void RefreshNeutralGatesForChange(object actionOrMap)
+        {
+            switch (actionOrMap)
+            {
+                case InputAction action:
+                    RefreshNeutralGate(action);
+                    return;
+
+                case InputActionMap map:
+                    RefreshNeutralGates(map);
+                    return;
+
+                case InputActionAsset asset:
+                    RefreshNeutralGates(asset);
+                    return;
+
+                default:
+                    RefreshNeutralGates(Actions);
+                    return;
+            }
         }
 
         private void RefreshNeutralGates(InputActionAsset asset)
@@ -662,7 +721,31 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             _currentControlScheme = nextControlScheme;
             _currentDeviceLayout = nextDeviceLayout;
-            PromptChanged?.Invoke();
+            PublishBoundaryEvent(PromptChanged, nameof(PromptChanged));
+        }
+
+        private void PublishBoundaryEvent(Action subscribers, string eventName)
+        {
+            if (subscribers == null)
+            {
+                return;
+            }
+
+            foreach (Delegate subscriber in subscribers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action)subscriber).Invoke();
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(
+                        new InvalidOperationException(
+                            $"[InputRuntime] {eventName} subscriber failed.",
+                            exception),
+                        this);
+                }
+            }
         }
 
         private bool TrySelectPromptBinding(
