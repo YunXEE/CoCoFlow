@@ -95,12 +95,24 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
 
         public void SetArguments(params object[] arguments)
         {
-            if (localizedString == null)
+            _isPresentationSuppressed = false;
+            if (targetText == null)
             {
+                SetDiagnostic(
+                    LocalizationDiagnosticCode.MissingTextTarget,
+                    "UIWidgetLocalizedText requires a TMP_Text target.");
                 return;
             }
 
-            _isPresentationSuppressed = false;
+            if (localizedString == null)
+            {
+                targetText.text = fallbackText;
+                SetDiagnostic(
+                    LocalizationDiagnosticCode.MissingLocalizedString,
+                    "UIWidgetLocalizedText requires a LocalizedString reference.");
+                return;
+            }
+
             localizedString.Arguments = arguments ?? Array.Empty<object>();
             if (!_isSubscribed && isActiveAndEnabled)
             {

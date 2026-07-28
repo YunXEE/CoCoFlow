@@ -41,11 +41,19 @@ projects and does not include a migration runtime for 0.3.9 projects.
   burst after authority resumes. Action/Map Enable and rebind restore now gate
   actuated controls until they return to neutral, so held input cannot be
   mistaken for a new post-fence command.
+- Binding-control resolution now fences direct Input System override changes,
+  gates newly bound held controls, and refreshes prompts without implicitly
+  persisting project-authored overrides. Input fence and prompt observers are
+  isolated per subscriber, so an observer exception cannot roll back a
+  successful rebind or skip later observers.
 - Added `InputAuthorityRevision` so same-frame lifecycle, Temporal, and
   Persistence restore boundaries cannot become input-transparent. Prompt
   selection now follows Control Scheme binding groups and the actual last-used
   paired device; runtime Action Asset replacement unsubscribes the cached old
   collection before accepting replacement input.
+- `UIWidgetLocalizedText.SetArguments()` now restores a suppressed
+  presentation even when no `LocalizedString` is configured, immediately
+  showing the current fallback with a `MissingLocalizedString` diagnostic.
 - Scaffold Preview fingerprints now cover compiled Provider type identities,
   request mode, conflicts, paths, and generated content. Apply rechecks
   symlink/reparse-point safety, reports incomplete rollback residuals, and
@@ -59,8 +67,8 @@ projects and does not include a migration runtime for 0.3.9 projects.
 ### Verification
 
 - `PASS`: Unity 6000.3.20f1 focused EditMode Input `6/6`, Scaffold `12/12`,
-  and Setup Assistant module contracts `10/10`; focused PlayMode Input `11/11`
-  and Localization `4/4`.
+  Setup Assistant `23/23`, and Pre14 naming boundary `1/1`; focused PlayMode
+  Input `14/14` and Localization `5/5`.
 - `PASS`: Assembly-CSharp and custom-asmdef Scaffold outputs compiled in
   CoCoLab. The real `TypeCache` plus `CompilationPipeline` detector recognized
   the generated secondary Provider in `ProjectStateGraphBindings.cs`, a second

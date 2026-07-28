@@ -204,6 +204,54 @@ namespace CoCoFlow.Tests.Runtime.Localization
             yield return null;
         }
 
+        [UnityTest]
+        public IEnumerator NullLocalizedStringRestoresFallbackAfterClearPresentation()
+        {
+            var panelObject = new GameObject("FallbackLocalizedPanel");
+            panelObject.AddComponent<TestPanel>();
+            var widgetObject = new GameObject(
+                "FallbackLocalizedWidget",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(CanvasGroup));
+            widgetObject.transform.SetParent(panelObject.transform, false);
+            widgetObject.SetActive(false);
+            var target = widgetObject.AddComponent<TextMeshProUGUI>();
+            var widget = widgetObject.AddComponent<UIWidgetLocalizedText>();
+            SetField(widget, "targetText", target);
+            SetField(widget, "localizedString", null);
+            widgetObject.SetActive(true);
+            yield return null;
+
+            widget.ClearPresentation();
+            widget.SetFallback("Press Space");
+            widget.SetArguments(new { binding = "Space" });
+
+            Assert.AreEqual("Press Space", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.MissingLocalizedString,
+                widget.LastDiagnostic.Code);
+
+            widget.ResetState();
+            Assert.AreEqual("Press Space", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.MissingLocalizedString,
+                widget.LastDiagnostic.Code);
+
+            widgetObject.SetActive(false);
+            widgetObject.SetActive(true);
+            yield return null;
+            Assert.AreEqual("Press Space", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.MissingLocalizedString,
+                widget.LastDiagnostic.Code);
+
+            widgetObject.SetActive(false);
+            Object.Destroy(widgetObject);
+            Object.Destroy(panelObject);
+            yield return null;
+        }
+
         private static void SetField(
             object target,
             string name,

@@ -1,6 +1,6 @@
 # Module: Localization
 
-> Pre14 contract: `0.4.0-pre.14` · Updated 2026-07-27
+> Pre14 contract: `0.4.0-pre.14` · Updated 2026-07-28
 
 CoCoFlow depends directly on Unity's official
 `com.unity.localization@1.5.9`. Localization remains a presentation module:
@@ -29,6 +29,10 @@ The Widget references one `LocalizedString` and one `TMP_Text`. Enable
 subscribes to `StringChanged`, Disable unsubscribes, and `ResetState()` requests
 an immediate refresh. `SetArguments` replaces Smart String arguments, allowing
 prompts such as `Press {binding}` to update in the current Screen.
+Supplying new arguments also ends a previous `ClearPresentation()` suppression.
+If no `LocalizedString` is configured, the Widget immediately displays the
+current fallback and reports `MissingLocalizedString`; Reset and
+Disable/Enable preserve that presentation.
 
 `LastDiagnostic` distinguishes a missing target, missing LocalizedString,
 invalid Table/Entry, load failure, and empty result. Every invalid result uses
