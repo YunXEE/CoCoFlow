@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "packageName": "com.yunxee.cocoflow",
+  "unityEditors": [
+    "6000.3.20f1",
+    "6000.5.5f1"
+  ],
+  "packageMinimum": {
+    "target": "6000.3",
+    "enforcement": "report-only",
+    "owner": "PR 15.07, final verification in PR 17.05"
+  },
+  "artifactRoot": ".ci-artifacts",
+  "maxTrackedFileBytes": 20971520,
+  "forbiddenRootNames": [
+    "Library",
+    "Temp",
+    "Obj",
+    "Build",
+    "Builds",
+    "Logs",
+    "UserSettings",
+    "MemoryCaptures",
+    "Recordings",
+    ".vs",
+    ".idea"
+  ],
+  "forbiddenExtensions": [
+    ".7z",
+    ".aab",
+    ".apk",
+    ".app",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".gz",
+    ".mdb",
+    ".opendb",
+    ".pdb",
+    ".so",
+    ".tar",
+    ".unitypackage",
+    ".vc.db",
+    ".zip"
+  ]
+}
