@@ -1,4 +1,5 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,22 +11,11 @@ class TemporaryRepositoryTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.policy = {
-            "schemaVersion": 1,
-            "packageName": "com.yunxee.cocoflow",
-            "packageMinimum": {
-                "target": "6000.3",
-                "owner": "later",
-            },
-            "maxTrackedFileBytes": 1024 * 1024,
-            "forbiddenRootNames": ["Library", "Obj"],
-            "forbiddenExtensions": [".dll"],
-        }
 
     def tearDown(self):
         self.temporary.cleanup()
 
-    def write(self, relative, content):
+    def write(self, relative, content=""):
         path = self.root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -42,9 +32,13 @@ class TemporaryRepositoryTest(unittest.TestCase):
         with self.assertRaises(ci.DuplicateJsonKey):
             ci.load_json_strict(path)
 
+    def test_semver_rejects_numeric_prerelease_leading_zero(self):
+        self.assertTrue(ci.is_strict_semver("0.4.0-pre.15"))
+        self.assertFalse(ci.is_strict_semver("0.4.0-pre.015"))
+
     def test_meta_checker_detects_missing_meta_and_duplicate_guid(self):
-        self.write("Runtime/One.cs", "class One {}")
-        self.write("Runtime/Two.cs", "class Two {}")
+        self.write("Runtime/One.cs")
+        self.write("Runtime/Two.cs")
         self.meta("Runtime/Two.cs", "1" * 32)
         self.write("Runtime.meta", "fileFormatVersion: 2\nguid: {0}\n".format("2" * 32))
         self.write("Other.meta", "fileFormatVersion: 2\nguid: {0}\n".format("1" * 32))
@@ -55,179 +49,124 @@ class TemporaryRepositoryTest(unittest.TestCase):
             "Runtime.meta",
             "Other.meta",
         ]
-        validator = ci.RepositoryValidator(self.root, self.policy, tracked)
+        validator = ci.RepositoryValidator(self.root, tracked)
         validator.check_meta_and_guids()
         codes = {finding.code for finding in validator.findings}
         self.assertIn("missing-meta", codes)
         self.assertIn("duplicate-guid", codes)
 
-    def test_path_checker_detects_case_collision_and_forbidden_files(self):
-        self.write("Runtime/Thing.cs", "")
-        self.write("runtime/thing.cs", "")
-        self.write("Library/cache.bin", "")
-        self.write("Runtime/native.dll", "")
-        tracked = [
-            "Runtime/Thing.cs",
-            "runtime/thing.cs",
-            "Library/cache.bin",
-            "Runtime/native.dll",
-        ]
-        validator = ci.RepositoryValidator(self.root, self.policy, tracked)
+    def test_path_checker_handles_case_and_compound_forbidden_ending(self):
+        self.write("Runtime/Thing.cs")
+        self.write("runtime/thing.cs")
+        self.write("Runtime/cache.vc.db")
+        tracked = ["Runtime/Thing.cs", "runtime/thing.cs", "Runtime/cache.vc.db"]
+        validator = ci.RepositoryValidator(self.root, tracked)
         validator.check_paths_and_forbidden_files()
         codes = {finding.code for finding in validator.findings}
         self.assertIn("case-collision", codes)
-        self.assertIn("forbidden-root", codes)
-        self.assertIn("forbidden-extension", codes)
+        self.assertIn("forbidden-ending", codes)
 
-    def test_assembly_checker_rejects_runtime_to_editor_and_duplicates(self):
-        runtime = {
-            "name": "CoCoFlow.Runtime.Sample",
-            "references": [
-                "CoCoFlow.Editor.Sample",
-                "CoCoFlow.Editor.Sample",
-            ],
-        }
-        editor = {
-            "name": "CoCoFlow.Editor.Sample",
-            "references": [],
-            "includePlatforms": ["Editor"],
-        }
-        self.write_json("Runtime/Sample.asmdef", runtime)
-        self.write_json("Editor/Sample.asmdef", editor)
-        tracked = ["Runtime/Sample.asmdef", "Editor/Sample.asmdef"]
-        validator = ci.RepositoryValidator(self.root, self.policy, tracked)
+    def test_assembly_names_collide_case_insensitively(self):
+        self.write_json("Runtime/One.asmdef", {"name": "CoCoFlow.Runtime.One"})
+        self.write_json("Runtime/Two.asmdef", {"name": "cocoflow.runtime.one"})
+        validator = ci.RepositoryValidator(
+            self.root, ["Runtime/One.asmdef", "Runtime/Two.asmdef"]
+        )
         validator.check_assemblies()
-        codes = {finding.code for finding in validator.findings}
-        self.assertIn("runtime-editor-reference", codes)
-        self.assertIn("asmdef-duplicate-reference", codes)
-
-
-class EditorGuardTests(unittest.TestCase):
-    def test_guarded_unity_editor_is_accepted(self):
-        source = """#if UNITY_EDITOR
-using UnityEditor;
-#endif
-class Fine {}
-"""
-        self.assertEqual([], ci.find_unguarded_unity_editor(source))
-
-    def test_unguarded_and_or_guard_are_rejected(self):
-        source = """using UnityEditor;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-UnityEditor.EditorApplication.isPlaying = false;
-#endif
-"""
-        self.assertEqual([1, 3], ci.find_unguarded_unity_editor(source))
-
-    def test_comments_and_strings_are_ignored(self):
-        source = """// UnityEditor
-var text = "UnityEditor";
-/* UnityEditor */
-"""
-        self.assertEqual([], ci.find_unguarded_unity_editor(source))
-
-
-class ReleasePolicyTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
-        self.policy = {"packageName": "com.yunxee.cocoflow"}
-
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def write_release(self, version, changelog=True, prerelease_exception=False):
-        (self.root / "package.json").write_text(
-            json.dumps({"name": "com.yunxee.cocoflow", "version": version}),
-            encoding="utf-8",
-        )
-        heading = "## [{0}] - 2026-07-29\n".format(version) if changelog else "# Changes\n"
-        (self.root / "CHANGELOG.md").write_text(heading, encoding="utf-8")
-        message = "Version tag must not have a pre-release tag" if prerelease_exception else "Company name"
-        (self.root / "ValidationExceptions.json").write_text(
-            json.dumps(
-                {
-                    "ErrorExceptions": [
-                        {
-                            "PackageVersion": version,
-                            "ExceptionMessage": message,
-                        }
-                    ],
-                    "WarningExceptions": [],
-                }
-            ),
-            encoding="utf-8",
+        self.assertIn(
+            "asmdef-duplicate-name",
+            {finding.code for finding in validator.findings},
         )
 
-    def test_valid_dev_release_passes(self):
-        self.write_release("0.4.0")
-        findings = ci.release_findings(
-            self.root,
-            self.policy,
-            "dev/0.4.0",
-            "master",
-            "YunXEE/CoCoFlow",
-            "YunXEE/CoCoFlow",
-            set(),
+    def test_runtime_cannot_reference_include_platform_editor_assembly(self):
+        self.write_json(
+            "Runtime/Main.asmdef",
+            {"name": "CoCoFlow.Runtime.Main", "references": ["CoCoFlow.Tools"]},
         )
-        self.assertEqual([], findings)
+        self.write_json(
+            "Tools/Tools.asmdef",
+            {
+                "name": "CoCoFlow.Tools",
+                "references": [],
+                "includePlatforms": ["Editor"],
+            },
+        )
+        validator = ci.RepositoryValidator(
+            self.root, ["Runtime/Main.asmdef", "Tools/Tools.asmdef"]
+        )
+        validator.check_assemblies()
+        self.assertIn(
+            "runtime-editor-reference",
+            {finding.code for finding in validator.findings},
+        )
 
-    def test_prerelease_missing_changelog_and_tag_collision_fail(self):
-        self.write_release("0.4.0-pre.15", changelog=False, prerelease_exception=True)
-        findings = ci.release_findings(
-            self.root,
-            self.policy,
-            "dev/0.4.0",
-            "master",
-            existing_tags={"v0.4.0-pre.15"},
+    def test_external_guid_reference_is_not_a_false_error(self):
+        self.write_json(
+            "Runtime/Main.asmdef",
+            {"name": "CoCoFlow.Runtime.Main", "references": ["GUID:" + "a" * 32]},
         )
-        codes = {finding.code for finding in findings}
-        self.assertIn("release-version", codes)
-        self.assertIn("release-version-branch", codes)
-        self.assertIn("release-changelog", codes)
-        self.assertIn("release-tag", codes)
-        self.assertIn("release-prerelease-exception", codes)
+        validator = ci.RepositoryValidator(self.root, ["Runtime/Main.asmdef"])
+        validator.check_assemblies()
+        self.assertNotIn(
+            "asmdef-guid-reference",
+            {finding.code for finding in validator.findings},
+        )
 
-    def test_fork_and_invalid_head_fail(self):
-        self.write_release("0.4.0")
-        findings = ci.release_findings(
-            self.root,
-            self.policy,
-            "feature/release",
-            "master",
-            "someone/fork",
-            "YunXEE/CoCoFlow",
-            set(),
-        )
-        codes = {finding.code for finding in findings}
-        self.assertIn("release-fork", codes)
-        self.assertIn("release-head", codes)
+
+class GitSnapshotTests(unittest.TestCase):
+    def test_materialize_head_excludes_dirty_and_untracked_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            output = Path(temporary) / "snapshot"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "ci@example.invalid"],
+                cwd=str(root),
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "CI"],
+                cwd=str(root),
+                check=True,
+            )
+            tracked = root / "tracked.txt"
+            tracked.write_text("committed", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=str(root), check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=str(root), check=True)
+            tracked.write_text("dirty", encoding="utf-8")
+            (root / "untracked.txt").write_text("untracked", encoding="utf-8")
+
+            sha = ci.materialize_head(root, output)
+
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=str(root), text=True
+                ).strip(),
+                sha,
+            )
+            self.assertEqual("committed", (output / "tracked.txt").read_text(encoding="utf-8"))
+            self.assertFalse((output / "untracked.txt").exists())
 
 
 class UnityHarnessTests(unittest.TestCase):
-    def test_manifest_uses_file_uri_and_testables(self):
+    def test_manifest_uses_snapshot_file_uri_and_testables(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "package"
+            package = Path(temporary) / "package"
             host = Path(temporary) / "host"
-            root.mkdir()
-            ci.create_clean_host(host, root, "com.yunxee.cocoflow", "6000.3.20f1")
-            self.assertTrue((host / "Assets").is_dir())
+            package.mkdir()
+            ci.create_clean_host(host, package, "6000.3.20f1")
             manifest = json.loads(
                 (host / "Packages/manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(
-                ["com.yunxee.cocoflow"],
-                manifest["testables"],
-            )
-            package_uri = manifest["dependencies"]["com.yunxee.cocoflow"]
-            self.assertTrue(package_uri.startswith("file:"))
-            self.assertNotIn("\\", package_uri)
+            self.assertEqual([ci.PACKAGE_NAME], manifest["testables"])
+            self.assertTrue(manifest["dependencies"][ci.PACKAGE_NAME].startswith("file:"))
             self.assertEqual(
                 "1.0.0",
                 manifest["dependencies"]["com.unity.modules.animation"],
             )
 
-    def test_test_command_does_not_add_quit(self):
+    def test_test_command_does_not_quit_before_results_are_written(self):
         command = ci.unity_command(
             Path("/Unity"),
             Path("/host"),
@@ -237,6 +176,24 @@ class UnityHarnessTests(unittest.TestCase):
         )
         self.assertIn("-runTests", command)
         self.assertNotIn("-quit", command)
+
+    def test_missing_or_malformed_result_is_invalid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "result.xml"
+            self.assertFalse(ci.parse_unity_test_result(result)["valid"])
+            result.write_text("<test-run", encoding="utf-8")
+            self.assertFalse(ci.parse_unity_test_result(result)["valid"])
+
+    def test_valid_nonempty_result_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "result.xml"
+            result.write_text(
+                '<test-run total="2" passed="2" failed="0" inconclusive="0" skipped="0" result="Passed" />',
+                encoding="utf-8",
+            )
+            parsed = ci.parse_unity_test_result(result)
+            self.assertTrue(parsed["valid"])
+            self.assertEqual(2, parsed["total"])
 
 
 if __name__ == "__main__":

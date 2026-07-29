@@ -376,10 +376,6 @@ intact even when their proposed model is superseded.
 
 ### Static
 
-- Automatic `CI Static / gate` result/link:
-- `Release Metadata / gate` result/link, or `N/A` when the PR does not target
-  `master`:
-
 - [ ] `git diff --check`
 - [ ] All changed JSON and asmdef files parse successfully.
 - [ ] Dead-link, obsolete-term, and forbidden-dependency scans were reviewed.
@@ -402,13 +398,6 @@ intact even when their proposed model is superseded.
 - Host project/revision:
 - Package reference/tag/commit:
 - Final PR Head SHA under test:
-
-| OS | Exact Unity version | EditMode | PlayMode | Final Head SHA | Result/log |
-|---|---|---|---|---|---|
-| macOS | `6000.3.20f1` | PASS / FAIL / UNVERIFIED | PASS / FAIL / UNVERIFIED | | |
-| macOS | `6000.5.5f1` | PASS / FAIL / UNVERIFIED | PASS / FAIL / UNVERIFIED | | |
-| Windows | `6000.3.20f1` | PASS / FAIL / UNVERIFIED | PASS / FAIL / UNVERIFIED | | |
-| Windows | `6000.5.5f1` | PASS / FAIL / UNVERIFIED | PASS / FAIL / UNVERIFIED | | |
 
 - [ ] Clean package import completed without Console compile errors.
 - [ ] Core contract EditMode tests passed.
@@ -511,9 +500,6 @@ links that allow a reviewer to verify the checks above.
 - macOS Universal IL2CPP + High Stripping artifact/log:
 - Unity Package Validation Suite result/log:
 - asmdef/JSON/GUID/dependency/hot-path audit summary:
-- `CI Static / gate` URL:
-- `Release Metadata / gate` URL or `N/A`:
-- Local Unity matrix summary/artifact path:
 
 If any fix changes the Head after evidence was captured, mark the affected
 evidence stale and rerun it. A green run from an earlier commit is not final-head

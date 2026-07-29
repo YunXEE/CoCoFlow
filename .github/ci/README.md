@@ -1,32 +1,36 @@
 # CoCoFlow CI baseline
 
-This directory contains the license-free repository checks used by GitHub
-Actions and the local clean-host Unity test entry point. The policy is explicit:
-GitHub-hosted runners run deterministic static checks, while Unity tests run on
-a maintainer-controlled machine with an already activated Editor.
+PR 15.01 has two deliberately small responsibilities:
 
-## Static validation
+1. GitHub Actions runs deterministic package checks on Ubuntu and Windows.
+2. The maintainer can run the real Unity matrix from a clean snapshot of the
+   exact checked-out commit.
 
-From the package root:
+Release version/tag/notes policy is not implemented here. PR 17.05 owns the
+release workflow, where that policy can be tested against a real release
+candidate. PR 15.08 owns required-check rulesets.
+
+## Automatic PR checks
 
 ```bash
-python3 .github/ci/cocoflow_ci.py static
 python3 -m unittest discover -s .github/ci -p "test_*.py" -v
+python3 .github/ci/cocoflow_ci.py static
 ```
 
-On Windows, `py -3` can replace `python3`. The validator reads the package
-surface from `git ls-files`; local caches and unrelated untracked files are not
-part of the result.
+The static command reads `git ls-files` and checks:
 
-The static report covers strict JSON parsing, package and validation-exception
-metadata, case-insensitive path collisions, forbidden generated/binary files,
-Unity `.meta`/GUID integrity, asmdef/asmref references, Editor platform
-isolation, and guarded `UnityEditor` use in Runtime source.
+- strict JSON and required package metadata;
+- case-insensitive path collisions and forbidden tracked artifacts;
+- Unity `.meta`/GUID integrity;
+- asmdef/asmref names, references, and Runtime-to-Editor assembly boundaries;
+- `git diff --check` when a base commit is supplied.
 
-`policy.json` is the single maintenance point for the exact Unity Editor pins.
-Changing either pin requires a dedicated maintenance PR and a new clean-host
-baseline. The frozen `6000.3` package minimum remains report-only in PR 15.01;
-PR 15.07 owns the metadata change and PR 17.05 owns final verification.
+It intentionally does not parse C# preprocessor expressions. The Unity compiler
+and package tests are the authority for source-level compilation.
+
+`CI Static / gate` is the stable aggregate check name. The workflow uses
+read-only permissions, exact action SHAs, cancellation for superseded runs, and
+short artifact retention.
 
 ## Local Unity clean-host matrix
 
@@ -42,9 +46,8 @@ Windows:
 py -3 .github/ci/cocoflow_ci.py unity-matrix
 ```
 
-The command discovers the conventional Unity Hub installation paths for
-`6000.3.20f1` and `6000.5.5f1`. A non-standard installation can be supplied
-without changing policy:
+The exact maintained Editors are `6000.3.20f1` and `6000.5.5f1`. For
+non-standard Unity Hub locations:
 
 ```bash
 python3 .github/ci/cocoflow_ci.py unity-matrix \
@@ -52,44 +55,17 @@ python3 .github/ci/cocoflow_ci.py unity-matrix \
   --editor 6000.5.5f1=/path/to/Unity
 ```
 
-For each Editor, the command creates a disposable project under the operating
-system temporary directory, references this checkout through a local `file:`
-dependency, enables the standard built-in Unity modules, adds the package to
-`testables`, imports/compiles, then runs EditMode and PlayMode separately. Test
-XML, logs, and a SHA-bound summary are written under:
+The runner exports `git archive HEAD` into a temporary package snapshot, so
+dirty or untracked local files cannot contaminate evidence labelled with the
+commit SHA. For each Editor it creates a disposable host, imports the package,
+then runs EditMode and PlayMode separately. A missing, malformed, or empty NUnit
+result is a failure even if Unity exits with code 0.
+
+Logs, NUnit XML, package locks, and the SHA-bound summary are written to:
 
 ```text
-.ci-artifacts/<final-head>/<os>/<unity-version>/
+.ci-artifacts/<head-sha>/<os>/<unity-version>/
 ```
 
-The disposable host is removed by default. `--keep-host` is available only for
-debugging a failed import or test run. The command never copies, activates, or
-stores a Unity license.
-
-## Release metadata
-
-The release command is normally invoked by `release-policy.yml` for a PR into
-`master`:
-
-```bash
-python3 .github/ci/cocoflow_ci.py release \
-  --head-ref dev/0.4.0 \
-  --base-ref master \
-  --head-repository YunXEE/CoCoFlow \
-  --repository YunXEE/CoCoFlow
-```
-
-It rejects unrelated/fork heads, prerelease package versions, branch/version
-mismatches, missing dated CHANGELOG entries, stale validation exceptions, and
-an already-existing immutable release tag.
-
-## GitHub checks and evidence
-
-- `CI Static / gate` aggregates the Ubuntu and Windows static jobs.
-- `Release Metadata / gate` exists only on PRs targeting `master`.
-- Reports are retained briefly as workflow artifacts.
-- Local Unity results are evidence, not GitHub status checks.
-
-Repository rulesets are intentionally not configured by PR 15.01. PR 15.08
-will make the stable check names required after the workflows have run
-successfully on real PRs.
+The host is deleted by default. `--keep-host` copies it beside the evidence for
+debugging. The runner never copies, activates, or stores a Unity license.

@@ -31,6 +31,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch upstream PR base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags --depth=1 "https://github.com/${BASE_REPOSITORY}.git" "$BASE_SHA"
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -69,6 +76,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch upstream PR base
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 "https://github.com/$env:BASE_REPOSITORY.git" "$env:BASE_SHA"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
