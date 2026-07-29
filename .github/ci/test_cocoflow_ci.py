@@ -211,6 +211,7 @@ class UnityHarnessTests(unittest.TestCase):
             host = Path(temporary) / "host"
             root.mkdir()
             ci.create_clean_host(host, root, "com.yunxee.cocoflow", "6000.3.20f1")
+            self.assertTrue((host / "Assets").is_dir())
             manifest = json.loads(
                 (host / "Packages/manifest.json").read_text(encoding="utf-8")
             )
@@ -221,6 +222,10 @@ class UnityHarnessTests(unittest.TestCase):
             package_uri = manifest["dependencies"]["com.yunxee.cocoflow"]
             self.assertTrue(package_uri.startswith("file:"))
             self.assertNotIn("\\", package_uri)
+            self.assertEqual(
+                "1.0.0",
+                manifest["dependencies"]["com.unity.modules.animation"],
+            )
 
     def test_test_command_does_not_add_quit(self):
         command = ci.unity_command(

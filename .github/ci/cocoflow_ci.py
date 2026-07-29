@@ -23,6 +23,38 @@ SCRIPT_PATH = Path(__file__).resolve()
 DEFAULT_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_POLICY = SCRIPT_PATH.with_name("policy.json")
 JSON_SUFFIXES = {".json", ".asmdef", ".asmref", ".inputactions"}
+STANDARD_BUILTIN_MODULES = (
+    "com.unity.modules.ai",
+    "com.unity.modules.androidjni",
+    "com.unity.modules.animation",
+    "com.unity.modules.assetbundle",
+    "com.unity.modules.audio",
+    "com.unity.modules.cloth",
+    "com.unity.modules.director",
+    "com.unity.modules.imageconversion",
+    "com.unity.modules.imgui",
+    "com.unity.modules.jsonserialize",
+    "com.unity.modules.particlesystem",
+    "com.unity.modules.physics",
+    "com.unity.modules.physics2d",
+    "com.unity.modules.screencapture",
+    "com.unity.modules.terrain",
+    "com.unity.modules.terrainphysics",
+    "com.unity.modules.tilemap",
+    "com.unity.modules.ui",
+    "com.unity.modules.uielements",
+    "com.unity.modules.umbra",
+    "com.unity.modules.unityanalytics",
+    "com.unity.modules.unitywebrequest",
+    "com.unity.modules.unitywebrequestassetbundle",
+    "com.unity.modules.unitywebrequestaudio",
+    "com.unity.modules.unitywebrequesttexture",
+    "com.unity.modules.unitywebrequestwww",
+    "com.unity.modules.vehicles",
+    "com.unity.modules.video",
+    "com.unity.modules.wind",
+    "com.unity.modules.xr",
+)
 SEMVER_PATTERN = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
@@ -806,14 +838,20 @@ def local_package_uri(root: Path) -> str:
 
 
 def create_clean_host(host: Path, root: Path, package_name: str, unity_version: str) -> None:
+    assets = host / "Assets"
     packages = host / "Packages"
     settings = host / "ProjectSettings"
+    assets.mkdir(parents=True, exist_ok=True)
     packages.mkdir(parents=True, exist_ok=True)
     settings.mkdir(parents=True, exist_ok=True)
+    dependencies = {
+        module: "1.0.0" for module in STANDARD_BUILTIN_MODULES
+    }
+    dependencies[package_name] = local_package_uri(root)
     write_json(
         packages / "manifest.json",
         {
-            "dependencies": {package_name: local_package_uri(root)},
+            "dependencies": dependencies,
             "testables": [package_name],
         },
     )

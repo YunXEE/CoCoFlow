@@ -54,9 +54,9 @@ python3 .github/ci/cocoflow_ci.py unity-matrix \
 
 For each Editor, the command creates a disposable project under the operating
 system temporary directory, references this checkout through a local `file:`
-dependency, adds the package to `testables`, imports/compiles, then runs
-EditMode and PlayMode separately. Test XML, logs, and a SHA-bound summary are
-written under:
+dependency, enables the standard built-in Unity modules, adds the package to
+`testables`, imports/compiles, then runs EditMode and PlayMode separately. Test
+XML, logs, and a SHA-bound summary are written under:
 
 ```text
 .ci-artifacts/<final-head>/<os>/<unity-version>/

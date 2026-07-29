@@ -1,0 +1,118 @@
+name: CI Static
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - "dev/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-static-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-ubuntu:
+    name: Static / Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Run validator unit tests
+        run: python -m unittest discover -s .github/ci -p "test_*.py" -v
+
+      - name: Validate tracked package
+        run: >-
+          python .github/ci/cocoflow_ci.py static
+          --base-ref "$COCOFLOW_BASE_SHA"
+          --report .ci-artifacts/static/ubuntu/report.json
+
+      - name: Upload static report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-static-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/static/ubuntu/report.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
+
+  static-windows:
+    name: Static / Windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Run validator unit tests
+        run: python -m unittest discover -s .github/ci -p "test_*.py" -v
+
+      - name: Validate tracked package
+        shell: pwsh
+        run: >-
+          python .github/ci/cocoflow_ci.py static
+          --base-ref "$env:COCOFLOW_BASE_SHA"
+          --report .ci-artifacts/static/windows/report.json
+
+      - name: Upload static report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-static-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/static/windows/report.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7
+
+  gate:
+    name: CI Static / gate
+    if: ${{ always() }}
+    needs:
+      - static-ubuntu
+      - static-windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every static job to succeed
+        env:
+          UBUNTU_RESULT: ${{ needs.static-ubuntu.result }}
+          WINDOWS_RESULT: ${{ needs.static-windows.result }}
+        run: |
+          if [[ "$UBUNTU_RESULT" != "success" || "$WINDOWS_RESULT" != "success" ]]; then
+            echo "Static prerequisites did not all succeed."
+            echo "Ubuntu: $UBUNTU_RESULT"
+            echo "Windows: $WINDOWS_RESULT"
+            exit 1
+          fi
+          echo "Ubuntu and Windows static validation succeeded."
