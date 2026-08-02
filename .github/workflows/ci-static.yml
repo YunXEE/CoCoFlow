@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 10
     env:
       COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      COCOFLOW_MISSING_BASE: ${{ github.event_name == 'pull_request' && 'error' || 'notice' }}
     steps:
       - name: Check out exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,6 +51,7 @@ jobs:
         run: >-
           python .github/ci/cocoflow_ci.py static
           --base-ref "$COCOFLOW_BASE_SHA"
+          --missing-base "$COCOFLOW_MISSING_BASE"
           --report .ci-artifacts/static/ubuntu/report.json
 
       - name: Upload static report
@@ -68,6 +70,7 @@ jobs:
     timeout-minutes: 10
     env:
       COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      COCOFLOW_MISSING_BASE: ${{ github.event_name == 'pull_request' && 'error' || 'notice' }}
     steps:
       - name: Check out exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,6 +103,7 @@ jobs:
         run: >-
           python .github/ci/cocoflow_ci.py static
           --base-ref "$env:COCOFLOW_BASE_SHA"
+          --missing-base "$env:COCOFLOW_MISSING_BASE"
           --report .ci-artifacts/static/windows/report.json
 
       - name: Upload static report

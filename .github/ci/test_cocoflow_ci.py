@@ -1,8 +1,10 @@
+import argparse
 import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cocoflow_ci as ci
 
@@ -31,6 +33,13 @@ class TemporaryRepositoryTest(unittest.TestCase):
         path = self.write("duplicate.json", '{"value": 1, "value": 2}')
         with self.assertRaises(ci.DuplicateJsonKey):
             ci.load_json_strict(path)
+
+    def test_strict_json_rejects_non_finite_constants(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+                path = self.write("constant.json", '{"value": ' + constant + "}")
+                with self.assertRaises(ci.InvalidJsonConstant):
+                    ci.load_json_strict(path)
 
     def test_semver_rejects_numeric_prerelease_leading_zero(self):
         self.assertTrue(ci.is_strict_semver("0.4.0-pre.15"))
@@ -112,6 +121,15 @@ class TemporaryRepositoryTest(unittest.TestCase):
             {finding.code for finding in validator.findings},
         )
 
+    def test_missing_diff_base_uses_selected_severity(self):
+        error_validator = ci.RepositoryValidator(self.root, [])
+        error_validator.check_diff("f" * 40, "error")
+        self.assertEqual("error", error_validator.findings[0].level)
+
+        notice_validator = ci.RepositoryValidator(self.root, [])
+        notice_validator.check_diff("f" * 40, "notice")
+        self.assertEqual("notice", notice_validator.findings[0].level)
+
 
 class GitSnapshotTests(unittest.TestCase):
     def test_materialize_head_excludes_dirty_and_untracked_files(self):
@@ -184,7 +202,7 @@ class UnityHarnessTests(unittest.TestCase):
             result.write_text("<test-run", encoding="utf-8")
             self.assertFalse(ci.parse_unity_test_result(result)["valid"])
 
-    def test_valid_nonempty_result_is_accepted(self):
+    def test_valid_zero_debt_result_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:
             result = Path(temporary) / "result.xml"
             result.write_text(
@@ -194,6 +212,77 @@ class UnityHarnessTests(unittest.TestCase):
             parsed = ci.parse_unity_test_result(result)
             self.assertTrue(parsed["valid"])
             self.assertEqual(2, parsed["total"])
+            self.assertTrue(ci.unity_test_passed(0, parsed))
+
+    def test_failed_and_inconclusive_results_do_not_pass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "result.xml"
+            fixtures = (
+                '<test-run total="2" passed="1" failed="1" inconclusive="0" skipped="0" result="Failed(Child)" />',
+                '<test-run total="2" passed="1" failed="0" inconclusive="1" skipped="0" result="Passed" />',
+            )
+            for contents in fixtures:
+                with self.subTest(contents=contents):
+                    result.write_text(contents, encoding="utf-8")
+                    parsed = ci.parse_unity_test_result(result)
+                    self.assertTrue(parsed["valid"])
+                    self.assertFalse(ci.unity_test_passed(0, parsed))
+
+    def test_invalid_result_shape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "result.xml"
+            fixtures = (
+                '<not-a-test-run total="1" passed="1" failed="0" inconclusive="0" skipped="0" result="Passed" />',
+                '<test-run total="1" passed="1" result="Passed" />',
+                '<test-run total="2" passed="1" failed="0" inconclusive="0" skipped="0" result="Passed" />',
+            )
+            for contents in fixtures:
+                with self.subTest(contents=contents):
+                    result.write_text(contents, encoding="utf-8")
+                    self.assertFalse(ci.parse_unity_test_result(result)["valid"])
+
+    def test_old_result_is_removed_before_a_new_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = Path(temporary) / "result.xml"
+            result.write_text(
+                '<test-run total="1" passed="1" failed="0" inconclusive="0" skipped="0" result="Passed" />',
+                encoding="utf-8",
+            )
+            ci.clear_previous_result(result)
+            parsed = ci.parse_unity_test_result(result)
+            self.assertFalse(parsed["available"])
+            self.assertFalse(ci.unity_test_passed(0, parsed))
+
+    def test_keep_host_preserves_import_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root"
+            artifact_root = Path(temporary) / "artifacts"
+            root.mkdir()
+            editor_arguments = []
+            for version in ci.UNITY_VERSIONS:
+                executable = Path(temporary) / version / "Unity"
+                executable.parent.mkdir()
+                executable.write_text("", encoding="utf-8")
+                editor_arguments.append(version + "=" + str(executable))
+            args = argparse.Namespace(
+                editor=editor_arguments,
+                artifact_root=artifact_root,
+                keep_host=True,
+            )
+
+            def materialize(_root, destination):
+                destination.mkdir(parents=True)
+                return "a" * 40
+
+            failed_import = subprocess.CompletedProcess([], 1)
+            with mock.patch.object(ci, "materialize_head", side_effect=materialize):
+                with mock.patch.object(ci, "run_command", return_value=failed_import):
+                    self.assertEqual(1, ci.run_unity_matrix(args, root))
+
+            system = ci.platform.system().lower()
+            for version in ci.UNITY_VERSIONS:
+                retained = artifact_root / ("a" * 40) / system / ("host-" + version)
+                self.assertTrue((retained / "Packages/manifest.json").is_file())
 
 
 if __name__ == "__main__":

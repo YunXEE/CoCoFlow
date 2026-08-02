@@ -92,6 +92,10 @@ class DuplicateJsonKey(ValueError):
     pass
 
 
+class InvalidJsonConstant(ValueError):
+    pass
+
+
 @dataclass
 class Finding:
     level: str
@@ -110,9 +114,17 @@ def _reject_duplicate_keys(pairs: Sequence[Tuple[str, Any]]) -> Dict[str, Any]:
     return result
 
 
+def _reject_json_constant(value: str) -> None:
+    raise InvalidJsonConstant("non-finite JSON constant: {0}".format(value))
+
+
 def load_json_strict(path: Path) -> Any:
     with path.open(encoding="utf-8-sig") as handle:
-        return json.load(handle, object_pairs_hook=_reject_duplicate_keys)
+        return json.load(
+            handle,
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -213,7 +225,9 @@ class RepositoryValidator:
     ) -> None:
         self.findings.append(Finding(level, code, message, path, line))
 
-    def validate(self, base_ref: Optional[str]) -> List[Finding]:
+    def validate(
+        self, base_ref: Optional[str], missing_base: str = "error"
+    ) -> List[Finding]:
         self.check_required_files()
         self.check_json_files()
         self.check_package_metadata()
@@ -221,7 +235,7 @@ class RepositoryValidator:
         self.check_meta_and_guids()
         self.check_assemblies()
         if base_ref is not None:
-            self.check_diff(base_ref)
+            self.check_diff(base_ref, missing_base)
         return self.findings
 
     def check_required_files(self) -> None:
@@ -237,7 +251,13 @@ class RepositoryValidator:
                 continue
             try:
                 load_json_strict(self.root / relative)
-            except (OSError, UnicodeError, json.JSONDecodeError, DuplicateJsonKey) as error:
+            except (
+                OSError,
+                UnicodeError,
+                json.JSONDecodeError,
+                DuplicateJsonKey,
+                InvalidJsonConstant,
+            ) as error:
                 self.add("error", "json", str(error), relative, getattr(error, "lineno", None))
 
     def check_package_metadata(self) -> None:
@@ -424,14 +444,18 @@ class RepositoryValidator:
             if PurePosixPath(relative).parts[0] == "Runtime" and target in editor_assemblies:
                 self.add("error", "runtime-editor-asmref", "Runtime asmref targets an Editor assembly", relative)
 
-    def check_diff(self, base_ref: str) -> None:
+    def check_diff(self, base_ref: str, missing_base: str = "error") -> None:
         base_ref = base_ref.strip()
         if not base_ref or re.fullmatch(r"0+", base_ref):
             self.add("notice", "diff-check", "base ref is unavailable; repository checks still ran")
             return
         exists = run_command(["git", "cat-file", "-e", base_ref + "^{commit}"], self.root)
         if exists.returncode:
-            self.add("error", "diff-base", "base commit is not present locally: {0}".format(base_ref))
+            self.add(
+                missing_base,
+                "diff-base",
+                "base commit is not present locally: {0}".format(base_ref),
+            )
             return
         result = run_command(["git", "diff", "--check", base_ref + "..HEAD"], self.root)
         if result.returncode:
@@ -524,18 +548,46 @@ def parse_unity_test_result(path: Path) -> Dict[str, Any]:
         root = ET.parse(str(path)).getroot()
     except (ET.ParseError, OSError) as error:
         return {"available": True, "valid": False, "parseError": str(error)}
+    if root.tag != "test-run":
+        return {
+            "available": True,
+            "valid": False,
+            "parseError": "result XML root must be test-run",
+        }
     counts: Dict[str, Any] = {"available": True}
     try:
         for key in ("total", "passed", "failed", "inconclusive", "skipped"):
-            counts[key] = int(root.attrib.get(key, "0"))
-    except ValueError as error:
+            counts[key] = int(root.attrib[key])
+    except (KeyError, ValueError) as error:
         counts.update({"valid": False, "parseError": str(error)})
         return counts
     counts["result"] = root.attrib.get("result")
-    counts["valid"] = counts["total"] > 0
+    counts["valid"] = (
+        counts["total"] > 0
+        and all(counts[key] >= 0 for key in ("passed", "failed", "inconclusive", "skipped"))
+        and counts["passed"]
+        + counts["failed"]
+        + counts["inconclusive"]
+        + counts["skipped"]
+        == counts["total"]
+    )
     if not counts["valid"]:
-        counts["parseError"] = "result XML contains no tests"
+        counts["parseError"] = "result XML contains invalid test counts"
     return counts
+
+
+def unity_test_passed(exit_code: int, result: Dict[str, Any]) -> bool:
+    return (
+        exit_code == 0
+        and result.get("valid") is True
+        and result.get("result") == "Passed"
+        and result.get("failed") == 0
+        and result.get("inconclusive") == 0
+    )
+
+
+def clear_previous_result(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 def parse_editor_overrides(values: Sequence[str]) -> Dict[str, Path]:
@@ -570,47 +622,51 @@ def run_unity_matrix(args: argparse.Namespace, root: Path) -> int:
             version_artifacts.mkdir(parents=True, exist_ok=True)
             version_result: Dict[str, Any] = {"editor": str(executable) if executable else None}
             summary["versions"][version] = version_result
-            if executable is None or not executable.is_file():
-                version_result["status"] = "FAIL"
-                version_result["error"] = "Unity Editor is not installed"
-                all_passed = False
-                continue
-            host = workspace / ("host-" + version)
-            create_clean_host(host, package_snapshot, version)
-            import_log = version_artifacts / "import.log"
-            imported = run_command(unity_command(executable, host, import_log), root, capture=False)
-            version_result["importExitCode"] = imported.returncode
-            if imported.returncode:
-                version_result["status"] = "FAIL"
-                all_passed = False
-                continue
-            lock = host / "Packages/packages-lock.json"
-            if lock.is_file():
-                shutil.copy2(lock, version_artifacts / "packages-lock.json")
-            mode_passed = True
-            for mode in ("EditMode", "PlayMode"):
-                result_path = version_artifacts / (mode.lower() + "-results.xml")
-                log_path = version_artifacts / (mode.lower() + ".log")
-                process = run_command(
-                    unity_command(executable, host, log_path, mode.lower(), result_path),
-                    root,
-                    capture=False,
-                )
-                parsed = parse_unity_test_result(result_path)
-                passed = process.returncode == 0 and parsed.get("valid") is True
-                version_result[mode] = {
-                    "exitCode": process.returncode,
-                    "passed": passed,
-                    "result": parsed,
-                }
-                mode_passed = mode_passed and passed
-            version_result["status"] = "PASS" if mode_passed else "FAIL"
-            all_passed = all_passed and mode_passed
-            if args.keep_host:
-                retained = artifact_root / sha / system / ("host-" + version)
-                if retained.exists():
-                    shutil.rmtree(retained)
-                shutil.copytree(host, retained)
+            host: Optional[Path] = None
+            try:
+                if executable is None or not executable.is_file():
+                    version_result["status"] = "FAIL"
+                    version_result["error"] = "Unity Editor is not installed"
+                    all_passed = False
+                    continue
+                host = workspace / ("host-" + version)
+                create_clean_host(host, package_snapshot, version)
+                import_log = version_artifacts / "import.log"
+                imported = run_command(unity_command(executable, host, import_log), root, capture=False)
+                version_result["importExitCode"] = imported.returncode
+                if imported.returncode:
+                    version_result["status"] = "FAIL"
+                    all_passed = False
+                    continue
+                lock = host / "Packages/packages-lock.json"
+                if lock.is_file():
+                    shutil.copy2(lock, version_artifacts / "packages-lock.json")
+                mode_passed = True
+                for mode in ("EditMode", "PlayMode"):
+                    result_path = version_artifacts / (mode.lower() + "-results.xml")
+                    log_path = version_artifacts / (mode.lower() + ".log")
+                    clear_previous_result(result_path)
+                    process = run_command(
+                        unity_command(executable, host, log_path, mode.lower(), result_path),
+                        root,
+                        capture=False,
+                    )
+                    parsed = parse_unity_test_result(result_path)
+                    passed = unity_test_passed(process.returncode, parsed)
+                    version_result[mode] = {
+                        "exitCode": process.returncode,
+                        "passed": passed,
+                        "result": parsed,
+                    }
+                    mode_passed = mode_passed and passed
+                version_result["status"] = "PASS" if mode_passed else "FAIL"
+                all_passed = all_passed and mode_passed
+            finally:
+                if args.keep_host and host is not None and host.exists():
+                    retained = artifact_root / sha / system / ("host-" + version)
+                    if retained.exists():
+                        shutil.rmtree(retained)
+                    shutil.copytree(host, retained)
         write_json(artifact_root / sha / system / "summary.json", summary)
     return 0 if all_passed else 1
 
@@ -647,6 +703,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     static = subparsers.add_parser("static", help="validate the tracked package")
     static.add_argument("--base-ref")
+    static.add_argument(
+        "--missing-base", choices=("error", "notice"), default="error"
+    )
     static.add_argument("--report", type=Path)
     unity = subparsers.add_parser("unity-matrix", help="run clean-host Unity tests locally")
     unity.add_argument("--editor", action="append", default=[], metavar="VERSION=PATH")
@@ -661,7 +720,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.command == "static":
             validator = RepositoryValidator(root)
-            findings = validator.validate(args.base_ref)
+            findings = validator.validate(args.base_ref, args.missing_base)
             print_findings(findings)
             emit_annotations(findings)
             if args.report:
