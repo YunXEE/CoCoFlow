@@ -23,6 +23,7 @@ jobs:
     env:
       COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       COCOFLOW_MISSING_BASE: ${{ github.event_name == 'pull_request' && 'error' || 'notice' }}
+      COCOFLOW_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
     steps:
       - name: Check out exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +38,7 @@ jobs:
         env:
           BASE_REPOSITORY: ${{ github.repository }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git fetch --no-tags --depth=1 "https://github.com/${BASE_REPOSITORY}.git" "$BASE_SHA"
+        run: git fetch --no-tags "https://github.com/${BASE_REPOSITORY}.git" "$BASE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -52,6 +53,7 @@ jobs:
           python .github/ci/cocoflow_ci.py static
           --base-ref "$COCOFLOW_BASE_SHA"
           --missing-base "$COCOFLOW_MISSING_BASE"
+          --diff-mode "$COCOFLOW_DIFF_MODE"
           --report .ci-artifacts/static/ubuntu/report.json
 
       - name: Upload static report
@@ -71,6 +73,7 @@ jobs:
     env:
       COCOFLOW_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       COCOFLOW_MISSING_BASE: ${{ github.event_name == 'pull_request' && 'error' || 'notice' }}
+      COCOFLOW_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'merge-base' || 'direct' }}
     steps:
       - name: Check out exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,7 +90,7 @@ jobs:
           BASE_REPOSITORY: ${{ github.repository }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch --no-tags --depth=1 "https://github.com/$env:BASE_REPOSITORY.git" "$env:BASE_SHA"
+          git fetch --no-tags "https://github.com/$env:BASE_REPOSITORY.git" "$env:BASE_SHA"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Python
@@ -104,6 +107,7 @@ jobs:
           python .github/ci/cocoflow_ci.py static
           --base-ref "$env:COCOFLOW_BASE_SHA"
           --missing-base "$env:COCOFLOW_MISSING_BASE"
+          --diff-mode "$env:COCOFLOW_DIFF_MODE"
           --report .ci-artifacts/static/windows/report.json
 
       - name: Upload static report

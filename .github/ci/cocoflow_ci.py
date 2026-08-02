@@ -189,7 +189,10 @@ class RepositoryValidator:
         self.findings.append(Finding(level, code, message, path, line))
 
     def validate(
-        self, base_ref: Optional[str], missing_base: str = "error"
+        self,
+        base_ref: Optional[str],
+        missing_base: str = "error",
+        diff_mode: str = "direct",
     ) -> List[Finding]:
         self.check_required_files()
         self.check_json_files()
@@ -198,7 +201,7 @@ class RepositoryValidator:
         self.check_meta_and_guids()
         self.check_assemblies()
         if base_ref is not None:
-            self.check_diff(base_ref, missing_base)
+            self.check_diff(base_ref, missing_base, diff_mode)
         return self.findings
 
     def check_required_files(self) -> None:
@@ -275,7 +278,8 @@ class RepositoryValidator:
                 self.add("error", "case-collision", "case-insensitive collision with {0!r}".format(previous), relative)
             else:
                 folded_paths[folded] = relative
-            if any(part.casefold() in FORBIDDEN_ROOTS for part in PurePosixPath(relative).parts):
+            parts = PurePosixPath(relative).parts
+            if parts and parts[0].casefold() in FORBIDDEN_ROOTS:
                 self.add("error", "forbidden-root", "generated or machine-local root is tracked", relative)
             if folded.endswith(FORBIDDEN_ENDINGS):
                 self.add("error", "forbidden-ending", "generated or binary artifact is tracked", relative)
@@ -428,16 +432,16 @@ class RepositoryValidator:
                     "references must use either assembly names or GUIDs, not both",
                     relative,
                 )
-            if PurePosixPath(relative).parts[0] == "Runtime":
+            if name not in editor_assemblies:
                 for target in resolved:
                     if target in editor_assemblies:
-                        self.add("error", "runtime-editor-reference", "Runtime assembly references Editor assembly {0}".format(target), relative)
+                        self.add("error", "runtime-editor-reference", "non-Editor assembly references Editor assembly {0}".format(target), relative)
                 precompiled = data.get("precompiledReferences", [])
                 if isinstance(precompiled, list) and any(
                     isinstance(value, str) and "unityeditor" in value.casefold()
                     for value in precompiled
                 ):
-                    self.add("error", "runtime-editor-precompiled", "Runtime assembly includes a UnityEditor precompiled reference", relative)
+                    self.add("error", "runtime-editor-precompiled", "non-Editor assembly includes a UnityEditor precompiled reference", relative)
 
         for relative in (path for path in self.tracked if path.lower().endswith(".asmref")):
             try:
@@ -455,7 +459,12 @@ class RepositoryValidator:
             if PurePosixPath(relative).parts[0] == "Runtime" and target in editor_assemblies:
                 self.add("error", "runtime-editor-asmref", "Runtime asmref targets an Editor assembly", relative)
 
-    def check_diff(self, base_ref: str, missing_base: str = "error") -> None:
+    def check_diff(
+        self,
+        base_ref: str,
+        missing_base: str = "error",
+        diff_mode: str = "direct",
+    ) -> None:
         base_ref = base_ref.strip()
         if not base_ref or re.fullmatch(r"0+", base_ref):
             self.add("notice", "diff-check", "base ref is unavailable; repository checks still ran")
@@ -468,7 +477,10 @@ class RepositoryValidator:
                 "base commit is not present locally: {0}".format(base_ref),
             )
             return
-        result = run_command(["git", "diff", "--check", base_ref + "..HEAD"], self.root)
+        separator = "..." if diff_mode == "merge-base" else ".."
+        result = run_command(
+            ["git", "diff", "--check", base_ref + separator + "HEAD"], self.root
+        )
         if result.returncode:
             self.add("error", "diff-check", (result.stdout + result.stderr).strip() or "git diff --check failed")
 
@@ -552,6 +564,9 @@ def build_parser() -> argparse.ArgumentParser:
     static.add_argument(
         "--missing-base", choices=("error", "notice"), default="error"
     )
+    static.add_argument(
+        "--diff-mode", choices=("direct", "merge-base"), default="direct"
+    )
     static.add_argument("--report", type=Path)
     unity_result = subparsers.add_parser(
         "unity-result", help="validate one NUnit XML file produced by a local Unity test run"
@@ -566,7 +581,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.command == "static":
             validator = RepositoryValidator(root)
-            findings = validator.validate(args.base_ref, args.missing_base)
+            findings = validator.validate(
+                args.base_ref, args.missing_base, args.diff_mode
+            )
             print_findings(findings)
             emit_annotations(findings)
             if args.report:

@@ -1,4 +1,5 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -85,6 +86,19 @@ class TemporaryRepositoryTest(unittest.TestCase):
         self.assertIn("case-collision", codes)
         self.assertIn("forbidden-ending", codes)
 
+    def test_generated_directory_names_are_forbidden_only_at_package_root(self):
+        self.write("Library/cache.bin")
+        self.write("Runtime/Library/Foo.cs")
+        tracked = ["Library/cache.bin", "Runtime/Library/Foo.cs"]
+        validator = ci.RepositoryValidator(self.root, tracked)
+        validator.check_paths_and_forbidden_files()
+        forbidden = [
+            finding.path
+            for finding in validator.findings
+            if finding.code == "forbidden-root"
+        ]
+        self.assertEqual(["Library/cache.bin"], forbidden)
+
     def test_assembly_names_collide_case_insensitively(self):
         self.write_json("Runtime/One.asmdef", {"name": "CoCoFlow.Runtime.One"})
         self.write_json("Runtime/Two.asmdef", {"name": "cocoflow.runtime.one"})
@@ -118,6 +132,32 @@ class TemporaryRepositoryTest(unittest.TestCase):
             "runtime-editor-reference",
             {finding.code for finding in validator.findings},
         )
+
+    def test_non_editor_assembly_outside_runtime_cannot_use_editor_dependencies(self):
+        self.write_json(
+            "Tests/Runtime/Main.asmdef",
+            {
+                "name": "CoCoFlow.Tests.Runtime.Main",
+                "references": ["CoCoFlow.Tools"],
+                "includePlatforms": [],
+                "precompiledReferences": ["UnityEditor.CoreModule.dll"],
+            },
+        )
+        self.write_json(
+            "Tools/Tools.asmdef",
+            {
+                "name": "CoCoFlow.Tools",
+                "references": [],
+                "includePlatforms": ["Editor"],
+            },
+        )
+        validator = ci.RepositoryValidator(
+            self.root, ["Tests/Runtime/Main.asmdef", "Tools/Tools.asmdef"]
+        )
+        validator.check_assemblies()
+        codes = {finding.code for finding in validator.findings}
+        self.assertIn("runtime-editor-reference", codes)
+        self.assertIn("runtime-editor-precompiled", codes)
 
     def test_external_guid_reference_is_not_a_false_error(self):
         self.write_json(
@@ -187,6 +227,43 @@ class TemporaryRepositoryTest(unittest.TestCase):
         notice_validator = ci.RepositoryValidator(self.root, [])
         notice_validator.check_diff("f" * 40, "notice")
         self.assertEqual("notice", notice_validator.findings[0].level)
+
+    def test_merge_base_diff_ignores_changes_only_on_updated_base(self):
+        def git(*arguments):
+            result = subprocess.run(
+                ["git"] + list(arguments),
+                cwd=str(self.root),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+        git("init", "-b", "base")
+        git("config", "user.email", "ci-test@example.invalid")
+        git("config", "user.name", "CoCoFlow CI Test")
+        git("config", "core.autocrlf", "false")
+        self.write("shared.txt", "trailing space \n")
+        git("add", "shared.txt")
+        git("commit", "-m", "base")
+        git("checkout", "-b", "feature")
+        self.write("feature.txt", "feature\n")
+        git("add", "feature.txt")
+        git("commit", "-m", "feature")
+        git("checkout", "base")
+        self.write("shared.txt", "clean\n")
+        git("add", "shared.txt")
+        git("commit", "-m", "upstream fix")
+        git("checkout", "feature")
+
+        direct = ci.RepositoryValidator(self.root, [])
+        direct.check_diff("base", "error", "direct")
+        self.assertIn("diff-check", {finding.code for finding in direct.findings})
+
+        merge_base = ci.RepositoryValidator(self.root, [])
+        merge_base.check_diff("base", "error", "merge-base")
+        self.assertEqual([], merge_base.findings)
 
 
 class UnityResultTests(unittest.TestCase):

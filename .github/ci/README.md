@@ -27,11 +27,12 @@ The static command reads `git ls-files` and checks:
 - asmdef/asmref names, references, and Runtime-to-Editor assembly boundaries;
 - `git diff --check` when a base commit is supplied.
 
-A PR must have its comparison base locally; an unavailable PR base is an error.
+A PR must have its comparison base and enough upstream history locally; an
+unavailable PR base is an error. PRs run `git diff --check` from the merge base,
+so changes made only on an updated target branch are not attributed to the PR.
 For a push, an unreachable historical `before` commit is a notice because the
 complete repository checks still run and a force-pushed commit may no longer be
-fetchable. Normal pushes still run `git diff --check` against their available
-base.
+fetchable. Normal pushes compare the `before` and `HEAD` trees directly.
 
 It intentionally does not parse C# preprocessor expressions. The Unity compiler
 and package tests are the authority for source-level compilation.
