@@ -6,6 +6,7 @@
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
+/[Oo]bj.meta
 /[Bb]uild/
 /[Bb]uilds/
 /[Ll]ogs/
@@ -76,3 +77,8 @@ crashlytics-build.properties
 *.DS_Store
 .idea/
 
+# Local CI evidence
+/.ci-artifacts/
+
+# Local Codex workspace configuration
+/.codex/
