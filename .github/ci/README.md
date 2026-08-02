@@ -62,14 +62,18 @@ run_unity_test() {
   [[ $unity_status -eq 0 && $result_status -eq 0 ]]
 }
 
+matrix_status=0
+
 run_unity_test /Users/UnityDev/CoCoFlow_Test_6000_3 6000.3.20f1 EditMode \
-  "$RESULT_ROOT/6000.3.20f1/editmode.xml"
+  "$RESULT_ROOT/6000.3.20f1/editmode.xml" || matrix_status=1
 run_unity_test /Users/UnityDev/CoCoFlow_Test_6000_3 6000.3.20f1 PlayMode \
-  "$RESULT_ROOT/6000.3.20f1/playmode.xml"
+  "$RESULT_ROOT/6000.3.20f1/playmode.xml" || matrix_status=1
 run_unity_test /Users/UnityDev/CoCoFlow_Test_6000_5 6000.5.5f1 EditMode \
-  "$RESULT_ROOT/6000.5.5f1/editmode.xml"
+  "$RESULT_ROOT/6000.5.5f1/editmode.xml" || matrix_status=1
 run_unity_test /Users/UnityDev/CoCoFlow_Test_6000_5 6000.5.5f1 PlayMode \
-  "$RESULT_ROOT/6000.5.5f1/playmode.xml"
+  "$RESULT_ROOT/6000.5.5f1/playmode.xml" || matrix_status=1
+
+[[ $matrix_status -eq 0 ]]
 ```
 
 Both the Unity command and the result reader must exit zero. The reader accepts
