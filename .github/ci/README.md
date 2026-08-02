@@ -3,8 +3,9 @@
 PR 15.01 has two deliberately small responsibilities:
 
 1. GitHub Actions runs deterministic package checks on Ubuntu and Windows.
-2. The maintainer can run the real Unity matrix from a clean snapshot of the
-   exact checked-out commit.
+2. The maintainer runs the real Unity matrix locally in manually created,
+   persistent validation projects and records evidence for the exact checked-out
+   commit.
 
 Release version/tag/notes policy is not implemented here. PR 17.05 owns the
 release workflow, where that policy can be tested against a real release
@@ -39,44 +40,83 @@ and package tests are the authority for source-level compilation.
 read-only permissions, exact action SHAs, cancellation for superseded runs, and
 short artifact retention.
 
-## Local Unity clean-host matrix
+## Local Unity validation projects
 
-macOS:
+Unity projects are created and maintained by the user, not by this repository or
+the Python validator. Each project uses its matching Editor patch, references the
+CoCoFlow checkout as a local package, and lists `com.yunxee.cocoflow` in the
+manifest's `testables` array.
 
-```bash
-python3 .github/ci/cocoflow_ci.py unity-matrix
-```
-
-Windows:
-
-```powershell
-py -3 .github/ci/cocoflow_ci.py unity-matrix
-```
-
-The exact maintained Editors are `6000.3.20f1` and `6000.5.5f1`. For
-non-standard Unity Hub locations:
+The maintained local projects on macOS are:
 
 ```bash
-python3 .github/ci/cocoflow_ci.py unity-matrix \
-  --editor 6000.3.20f1=/path/to/Unity \
-  --editor 6000.5.5f1=/path/to/Unity
+HOST_6000_3=/Users/UnityDev/CoCoFlow_Test_6000_3
+HOST_6000_5=/Users/UnityDev/CoCoFlow_Test_6000_5
 ```
 
-The runner exports `git archive HEAD` into a temporary package snapshot, so
-dirty or untracked local files cannot contaminate evidence labelled with the
-commit SHA. For each Editor it creates a disposable host, imports the package,
-then runs EditMode and PlayMode separately. Before each mode it removes the old
-result at the SHA-bound path, so a rerun cannot consume stale XML. `PASS` requires
-Unity exit code 0, a new structurally valid NUnit `test-run`, `result="Passed"`,
-zero Failed, and zero Inconclusive. Missing, malformed, empty, failed, or
-inconclusive results fail the matrix.
+Before collecting evidence, confirm that the package checkout is on the intended
+Final Head, has no package-visible local changes, and that the two project files
+pin `6000.3.20f1` and `6000.5.5f1`. Use Unity CLI first:
 
-Logs, NUnit XML, package locks, and the SHA-bound summary are written to:
+```bash
+HEAD_SHA=$(git rev-parse HEAD)
+RESULT_ROOT="$PWD/.ci-artifacts/$HEAD_SHA/manual-hosts-cli"
+mkdir -p "$RESULT_ROOT/6000.3.20f1" "$RESULT_ROOT/6000.5.5f1"
 
-```text
-.ci-artifacts/<head-sha>/<os>/<unity-version>/
+rm -f "$RESULT_ROOT/6000.3.20f1/editmode.xml"
+unity test "$HOST_6000_3" --mode EditMode \
+  --editor-version 6000.3.20f1 \
+  --output "$RESULT_ROOT/6000.3.20f1/editmode.xml" --timeout 1800
+python3 .github/ci/cocoflow_ci.py unity-result \
+  "$RESULT_ROOT/6000.3.20f1/editmode.xml"
+
+rm -f "$RESULT_ROOT/6000.3.20f1/playmode.xml"
+unity test "$HOST_6000_3" --mode PlayMode \
+  --editor-version 6000.3.20f1 \
+  --output "$RESULT_ROOT/6000.3.20f1/playmode.xml" --timeout 1800
+python3 .github/ci/cocoflow_ci.py unity-result \
+  "$RESULT_ROOT/6000.3.20f1/playmode.xml"
+
+rm -f "$RESULT_ROOT/6000.5.5f1/editmode.xml"
+unity test "$HOST_6000_5" --mode EditMode \
+  --editor-version 6000.5.5f1 \
+  --output "$RESULT_ROOT/6000.5.5f1/editmode.xml" --timeout 1800
+python3 .github/ci/cocoflow_ci.py unity-result \
+  "$RESULT_ROOT/6000.5.5f1/editmode.xml"
+
+rm -f "$RESULT_ROOT/6000.5.5f1/playmode.xml"
+unity test "$HOST_6000_5" --mode PlayMode \
+  --editor-version 6000.5.5f1 \
+  --output "$RESULT_ROOT/6000.5.5f1/playmode.xml" --timeout 1800
+python3 .github/ci/cocoflow_ci.py unity-result \
+  "$RESULT_ROOT/6000.5.5f1/playmode.xml"
 ```
 
-The host is deleted by default. `--keep-host` copies it beside the evidence for
-debugging, including import and compilation failures. The runner never copies,
-activates, or stores a Unity license.
+`unity test` refreshes its output file. If Unity CLI is unavailable or fails
+because of CLI infrastructure rather than package compilation/tests, remove the
+old XML first and use the matching Editor's official `-batchmode -runTests`
+arguments as a fallback. Do not fall back merely because a package test or
+compilation failed.
+
+Example fallback for one mode:
+
+```bash
+rm -f "$RESULT_ROOT/6000.3.20f1/editmode.xml"
+"/Applications/Unity/Hub/Editor/6000.3.20f1/Unity.app/Contents/MacOS/Unity" \
+  -batchmode -nographics -projectPath "$HOST_6000_3" \
+  -runTests -testPlatform EditMode \
+  -testResults "$RESULT_ROOT/6000.3.20f1/editmode.xml" \
+  -logFile "$RESULT_ROOT/6000.3.20f1/editmode.log"
+python3 .github/ci/cocoflow_ci.py unity-result \
+  "$RESULT_ROOT/6000.3.20f1/editmode.xml"
+```
+
+The Unity command itself and `unity-result` must both exit zero. The XML validator
+requires a structurally valid NUnit `test-run`, `result="Passed"`, zero Failed,
+zero Inconclusive, non-negative counters, and at least one test. Missing,
+malformed, empty, failed, or inconclusive results are not PASS. Compilation
+failure with no fresh XML is recorded as a failure, not as an unverified success.
+
+The projects are reusable validation hosts, so they are not evidence of a fresh
+package install by themselves. PR 15.08 and the release gate still require a
+separately prepared clean-host run at their frozen checkpoints.

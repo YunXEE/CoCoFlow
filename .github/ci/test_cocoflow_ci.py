@@ -1,10 +1,7 @@
-import argparse
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import cocoflow_ci as ci
 
@@ -131,72 +128,7 @@ class TemporaryRepositoryTest(unittest.TestCase):
         self.assertEqual("notice", notice_validator.findings[0].level)
 
 
-class GitSnapshotTests(unittest.TestCase):
-    def test_materialize_head_excludes_dirty_and_untracked_files(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "source"
-            output = Path(temporary) / "snapshot"
-            root.mkdir()
-            subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "ci@example.invalid"],
-                cwd=str(root),
-                check=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "CI"],
-                cwd=str(root),
-                check=True,
-            )
-            tracked = root / "tracked.txt"
-            tracked.write_text("committed", encoding="utf-8")
-            subprocess.run(["git", "add", "tracked.txt"], cwd=str(root), check=True)
-            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=str(root), check=True)
-            tracked.write_text("dirty", encoding="utf-8")
-            (root / "untracked.txt").write_text("untracked", encoding="utf-8")
-
-            sha = ci.materialize_head(root, output)
-
-            self.assertEqual(
-                subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], cwd=str(root), text=True
-                ).strip(),
-                sha,
-            )
-            self.assertEqual("committed", (output / "tracked.txt").read_text(encoding="utf-8"))
-            self.assertFalse((output / "untracked.txt").exists())
-
-
-class UnityHarnessTests(unittest.TestCase):
-    def test_manifest_uses_snapshot_file_uri_and_testables(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            package = Path(temporary) / "package"
-            host = Path(temporary) / "host"
-            package.mkdir()
-            ci.create_clean_host(host, package, "6000.3.20f1")
-            manifest = json.loads(
-                (host / "Packages/manifest.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual([ci.PACKAGE_NAME], manifest["testables"])
-            package_uri = manifest["dependencies"][ci.PACKAGE_NAME]
-            self.assertEqual("file:" + package.resolve().as_posix(), package_uri)
-            self.assertFalse(package_uri.startswith("file://"))
-            self.assertEqual(
-                "1.0.0",
-                manifest["dependencies"]["com.unity.modules.animation"],
-            )
-
-    def test_test_command_does_not_quit_before_results_are_written(self):
-        command = ci.unity_command(
-            Path("/Unity"),
-            Path("/host"),
-            Path("/log"),
-            "editmode",
-            Path("/result.xml"),
-        )
-        self.assertIn("-runTests", command)
-        self.assertNotIn("-quit", command)
-
+class UnityResultTests(unittest.TestCase):
     def test_missing_or_malformed_result_is_invalid(self):
         with tempfile.TemporaryDirectory() as temporary:
             result = Path(temporary) / "result.xml"
@@ -214,7 +146,7 @@ class UnityHarnessTests(unittest.TestCase):
             parsed = ci.parse_unity_test_result(result)
             self.assertTrue(parsed["valid"])
             self.assertEqual(2, parsed["total"])
-            self.assertTrue(ci.unity_test_passed(0, parsed))
+            self.assertTrue(ci.unity_test_passed(parsed))
 
     def test_failed_and_inconclusive_results_do_not_pass(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -228,7 +160,7 @@ class UnityHarnessTests(unittest.TestCase):
                     result.write_text(contents, encoding="utf-8")
                     parsed = ci.parse_unity_test_result(result)
                     self.assertTrue(parsed["valid"])
-                    self.assertFalse(ci.unity_test_passed(0, parsed))
+                    self.assertFalse(ci.unity_test_passed(parsed))
 
     def test_invalid_result_shape_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -243,48 +175,26 @@ class UnityHarnessTests(unittest.TestCase):
                     result.write_text(contents, encoding="utf-8")
                     self.assertFalse(ci.parse_unity_test_result(result)["valid"])
 
-    def test_old_result_is_removed_before_a_new_run(self):
+    def test_unity_result_command_returns_nonzero_for_missing_or_debt(self):
         with tempfile.TemporaryDirectory() as temporary:
-            result = Path(temporary) / "result.xml"
+            root = Path(temporary)
+            self.assertEqual(1, ci.main(["--root", str(root), "unity-result", "missing.xml"]))
+            result = root / "failed.xml"
+            result.write_text(
+                '<test-run total="1" passed="0" failed="1" inconclusive="0" skipped="0" result="Failed" />',
+                encoding="utf-8",
+            )
+            self.assertEqual(1, ci.main(["--root", str(root), "unity-result", "failed.xml"]))
+
+    def test_unity_result_command_accepts_zero_debt_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = root / "passed.xml"
             result.write_text(
                 '<test-run total="1" passed="1" failed="0" inconclusive="0" skipped="0" result="Passed" />',
                 encoding="utf-8",
             )
-            ci.clear_previous_result(result)
-            parsed = ci.parse_unity_test_result(result)
-            self.assertFalse(parsed["available"])
-            self.assertFalse(ci.unity_test_passed(0, parsed))
-
-    def test_keep_host_preserves_import_failures(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "root"
-            artifact_root = Path(temporary) / "artifacts"
-            root.mkdir()
-            editor_arguments = []
-            for version in ci.UNITY_VERSIONS:
-                executable = Path(temporary) / version / "Unity"
-                executable.parent.mkdir()
-                executable.write_text("", encoding="utf-8")
-                editor_arguments.append(version + "=" + str(executable))
-            args = argparse.Namespace(
-                editor=editor_arguments,
-                artifact_root=artifact_root,
-                keep_host=True,
-            )
-
-            def materialize(_root, destination):
-                destination.mkdir(parents=True)
-                return "a" * 40
-
-            failed_import = subprocess.CompletedProcess([], 1)
-            with mock.patch.object(ci, "materialize_head", side_effect=materialize):
-                with mock.patch.object(ci, "run_command", return_value=failed_import):
-                    self.assertEqual(1, ci.run_unity_matrix(args, root))
-
-            system = ci.platform.system().lower()
-            for version in ci.UNITY_VERSIONS:
-                retained = artifact_root / ("a" * 40) / system / ("host-" + version)
-                self.assertTrue((retained / "Packages/manifest.json").is_file())
+            self.assertEqual(0, ci.main(["--root", str(root), "unity-result", "passed.xml"]))
 
 
 if __name__ == "__main__":

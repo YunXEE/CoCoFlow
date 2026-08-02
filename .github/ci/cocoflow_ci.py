@@ -4,16 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
-import platform
 import re
-import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -22,7 +17,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_NAME = "com.yunxee.cocoflow"
-UNITY_VERSIONS = ("6000.3.20f1", "6000.5.5f1")
 JSON_SUFFIXES = {".json", ".asmdef", ".asmref", ".inputactions"}
 PACKAGE_ROOT_FILES = {
     "CHANGELOG.md",
@@ -54,40 +48,6 @@ SEMVER_PATTERN = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 UNITY_VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
-STANDARD_BUILTIN_MODULES = (
-    "ai",
-    "androidjni",
-    "animation",
-    "assetbundle",
-    "audio",
-    "cloth",
-    "director",
-    "imageconversion",
-    "imgui",
-    "jsonserialize",
-    "particlesystem",
-    "physics",
-    "physics2d",
-    "screencapture",
-    "terrain",
-    "terrainphysics",
-    "tilemap",
-    "ui",
-    "uielements",
-    "umbra",
-    "unityanalytics",
-    "unitywebrequest",
-    "unitywebrequestassetbundle",
-    "unitywebrequestaudio",
-    "unitywebrequesttexture",
-    "unitywebrequestwww",
-    "vehicles",
-    "video",
-    "wind",
-    "xr",
-)
-
-
 class DuplicateJsonKey(ValueError):
     pass
 
@@ -462,85 +422,6 @@ class RepositoryValidator:
             self.add("error", "diff-check", (result.stdout + result.stderr).strip() or "git diff --check failed")
 
 
-def local_package_uri(root: Path) -> str:
-    return "file:{0}".format(root.resolve().as_posix())
-
-
-def create_clean_host(host: Path, package_root: Path, unity_version: str) -> None:
-    (host / "Assets").mkdir(parents=True)
-    (host / "Packages").mkdir()
-    dependencies = {PACKAGE_NAME: local_package_uri(package_root)}
-    dependencies.update(
-        {"com.unity.modules." + module: "1.0.0" for module in STANDARD_BUILTIN_MODULES}
-    )
-    write_json(
-        host / "Packages/manifest.json",
-        {"dependencies": dependencies, "testables": [PACKAGE_NAME]},
-    )
-    project_version = host / "ProjectSettings/ProjectVersion.txt"
-    project_version.parent.mkdir(parents=True, exist_ok=True)
-    project_version.write_text("m_EditorVersion: {0}\n".format(unity_version), encoding="utf-8")
-
-
-def materialize_head(root: Path, destination: Path) -> str:
-    sha = git_output(root, "rev-parse", "HEAD")
-    archive = subprocess.run(
-        ["git", "archive", "--format=tar", "HEAD"],
-        cwd=str(root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if archive.returncode:
-        raise RuntimeError(archive.stderr.decode(errors="replace").strip())
-    destination.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
-        for member in bundle.getmembers():
-            path = PurePosixPath(member.name)
-            if path.is_absolute() or ".." in path.parts:
-                raise RuntimeError("unsafe path in git archive: {0}".format(member.name))
-        bundle.extractall(destination)
-    return sha
-
-
-def unity_executable(version: str, overrides: Dict[str, Path]) -> Optional[Path]:
-    if version in overrides:
-        return overrides[version]
-    system = platform.system()
-    if system == "Darwin":
-        candidate = Path("/Applications/Unity/Hub/Editor") / version / "Unity.app/Contents/MacOS/Unity"
-    elif system == "Windows":
-        candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Unity/Hub/Editor" / version / "Editor/Unity.exe"
-    else:
-        candidate = Path.home() / "Unity/Hub/Editor" / version / "Editor/Unity"
-    return candidate if candidate.is_file() else None
-
-
-def unity_command(
-    executable: Path,
-    host: Path,
-    log: Path,
-    mode: Optional[str] = None,
-    result: Optional[Path] = None,
-) -> List[str]:
-    command = [
-        str(executable),
-        "-batchmode",
-        "-nographics",
-        "-projectPath",
-        str(host),
-        "-logFile",
-        str(log),
-    ]
-    if mode:
-        command.extend(["-runTests", "-testPlatform", mode])
-        if result:
-            command.extend(["-testResults", str(result)])
-    else:
-        command.append("-quit")
-    return command
-
-
 def parse_unity_test_result(path: Path) -> Dict[str, Any]:
     if not path.is_file():
         return {"available": False, "valid": False, "parseError": "result XML is missing"}
@@ -576,99 +457,13 @@ def parse_unity_test_result(path: Path) -> Dict[str, Any]:
     return counts
 
 
-def unity_test_passed(exit_code: int, result: Dict[str, Any]) -> bool:
+def unity_test_passed(result: Dict[str, Any]) -> bool:
     return (
-        exit_code == 0
-        and result.get("valid") is True
+        result.get("valid") is True
         and result.get("result") == "Passed"
         and result.get("failed") == 0
         and result.get("inconclusive") == 0
     )
-
-
-def clear_previous_result(path: Path) -> None:
-    path.unlink(missing_ok=True)
-
-
-def parse_editor_overrides(values: Sequence[str]) -> Dict[str, Path]:
-    result: Dict[str, Path] = {}
-    for value in values:
-        if "=" not in value:
-            raise ValueError("--editor must use VERSION=/path/to/Unity")
-        version, path = value.split("=", 1)
-        result[version] = Path(path).expanduser().resolve()
-    return result
-
-
-def run_unity_matrix(args: argparse.Namespace, root: Path) -> int:
-    overrides = parse_editor_overrides(args.editor)
-    artifact_root = root / args.artifact_root
-    system = platform.system().lower()
-    with tempfile.TemporaryDirectory(prefix="cocoflow-ci-") as temporary:
-        workspace = Path(temporary)
-        package_snapshot = workspace / "package"
-        sha = materialize_head(root, package_snapshot)
-        summary: Dict[str, Any] = {
-            "head": sha,
-            "source": "git archive HEAD",
-            "dirtyWorkingTreeIgnored": True,
-            "os": system,
-            "versions": {},
-        }
-        all_passed = True
-        for version in UNITY_VERSIONS:
-            executable = unity_executable(version, overrides)
-            version_artifacts = artifact_root / sha / system / version
-            version_artifacts.mkdir(parents=True, exist_ok=True)
-            version_result: Dict[str, Any] = {"editor": str(executable) if executable else None}
-            summary["versions"][version] = version_result
-            host: Optional[Path] = None
-            try:
-                if executable is None or not executable.is_file():
-                    version_result["status"] = "FAIL"
-                    version_result["error"] = "Unity Editor is not installed"
-                    all_passed = False
-                    continue
-                host = workspace / ("host-" + version)
-                create_clean_host(host, package_snapshot, version)
-                import_log = version_artifacts / "import.log"
-                imported = run_command(unity_command(executable, host, import_log), root, capture=False)
-                version_result["importExitCode"] = imported.returncode
-                if imported.returncode:
-                    version_result["status"] = "FAIL"
-                    all_passed = False
-                    continue
-                lock = host / "Packages/packages-lock.json"
-                if lock.is_file():
-                    shutil.copy2(lock, version_artifacts / "packages-lock.json")
-                mode_passed = True
-                for mode in ("EditMode", "PlayMode"):
-                    result_path = version_artifacts / (mode.lower() + "-results.xml")
-                    log_path = version_artifacts / (mode.lower() + ".log")
-                    clear_previous_result(result_path)
-                    process = run_command(
-                        unity_command(executable, host, log_path, mode.lower(), result_path),
-                        root,
-                        capture=False,
-                    )
-                    parsed = parse_unity_test_result(result_path)
-                    passed = unity_test_passed(process.returncode, parsed)
-                    version_result[mode] = {
-                        "exitCode": process.returncode,
-                        "passed": passed,
-                        "result": parsed,
-                    }
-                    mode_passed = mode_passed and passed
-                version_result["status"] = "PASS" if mode_passed else "FAIL"
-                all_passed = all_passed and mode_passed
-            finally:
-                if args.keep_host and host is not None and host.exists():
-                    retained = artifact_root / sha / system / ("host-" + version)
-                    if retained.exists():
-                        shutil.rmtree(retained)
-                    shutil.copytree(host, retained)
-        write_json(artifact_root / sha / system / "summary.json", summary)
-    return 0 if all_passed else 1
 
 
 def github_escape(value: str) -> str:
@@ -707,10 +502,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--missing-base", choices=("error", "notice"), default="error"
     )
     static.add_argument("--report", type=Path)
-    unity = subparsers.add_parser("unity-matrix", help="run clean-host Unity tests locally")
-    unity.add_argument("--editor", action="append", default=[], metavar="VERSION=PATH")
-    unity.add_argument("--artifact-root", type=Path, default=Path(".ci-artifacts"))
-    unity.add_argument("--keep-host", action="store_true")
+    unity_result = subparsers.add_parser(
+        "unity-result", help="validate one NUnit XML file produced by a local Unity test run"
+    )
+    unity_result.add_argument("result", type=Path)
     return parser
 
 
@@ -733,7 +528,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     },
                 )
             return 1 if any(finding.level == "error" for finding in findings) else 0
-        return run_unity_matrix(args, root)
+        result_path = args.result if args.result.is_absolute() else root / args.result
+        result = parse_unity_test_result(result_path)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0 if unity_test_passed(result) else 1
     except (OSError, RuntimeError, ValueError) as error:
         print("ERROR: {0}".format(error), file=sys.stderr)
         return 2
