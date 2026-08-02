@@ -47,12 +47,14 @@ class TemporaryRepositoryTest(unittest.TestCase):
         self.write("Runtime/Two.cs")
         self.meta("Runtime/Two.cs", "1" * 32)
         self.write("Runtime.meta", "fileFormatVersion: 2\nguid: {0}\n".format("2" * 32))
+        self.write("Other")
         self.write("Other.meta", "fileFormatVersion: 2\nguid: {0}\n".format("1" * 32))
         tracked = [
             "Runtime/One.cs",
             "Runtime/Two.cs",
             "Runtime/Two.cs.meta",
             "Runtime.meta",
+            "Other",
             "Other.meta",
         ]
         validator = ci.RepositoryValidator(self.root, tracked)
@@ -60,6 +62,17 @@ class TemporaryRepositoryTest(unittest.TestCase):
         codes = {finding.code for finding in validator.findings}
         self.assertIn("missing-meta", codes)
         self.assertIn("duplicate-guid", codes)
+
+    def test_meta_checker_detects_orphan_meta(self):
+        self.write("Runtime/Deleted.cs.meta", "fileFormatVersion: 2\nguid: {0}\n".format("1" * 32))
+        (self.root / "Empty").mkdir()
+        self.write("Empty.meta", "fileFormatVersion: 2\nguid: {0}\n".format("2" * 32))
+        validator = ci.RepositoryValidator(
+            self.root, ["Runtime/Deleted.cs.meta", "Empty.meta"]
+        )
+        validator.check_meta_and_guids()
+        codes = [finding.code for finding in validator.findings]
+        self.assertEqual(2, codes.count("orphan-meta"))
 
     def test_path_checker_handles_case_and_compound_forbidden_ending(self):
         self.write("Runtime/Thing.cs")
@@ -113,10 +126,58 @@ class TemporaryRepositoryTest(unittest.TestCase):
         )
         validator = ci.RepositoryValidator(self.root, ["Runtime/Main.asmdef"])
         validator.check_assemblies()
-        self.assertNotIn(
-            "asmdef-guid-reference",
+        self.assertEqual([], validator.findings)
+
+    def test_assembly_reference_syntax_and_format_are_validated(self):
+        self.write_json(
+            "Runtime/Main.asmdef",
+            {
+                "name": "CoCoFlow.Runtime.Main",
+                "references": ["", "GUID:not-a-guid", "GUID:" + "a" * 32, "External.Name"],
+            },
+        )
+        validator = ci.RepositoryValidator(self.root, ["Runtime/Main.asmdef"])
+        validator.check_assemblies()
+        codes = [finding.code for finding in validator.findings]
+        self.assertEqual(2, codes.count("assembly-reference-syntax"))
+        self.assertIn("asmdef-mixed-reference-format", codes)
+
+    def test_local_assembly_prefix_is_matched_case_insensitively(self):
+        self.write_json(
+            "Runtime/Main.asmdef",
+            {
+                "name": "CoCoFlow.Runtime.Main",
+                "references": ["cocoflow.Runtime.Core"],
+            },
+        )
+        self.write_json(
+            "Runtime/Core.asmdef",
+            {"name": "CoCoFlow.Runtime.Core", "references": []},
+        )
+        validator = ci.RepositoryValidator(
+            self.root, ["Runtime/Main.asmdef", "Runtime/Core.asmdef"]
+        )
+        validator.check_assemblies()
+        self.assertIn(
+            "asmdef-reference-case",
             {finding.code for finding in validator.findings},
         )
+
+    def test_package_unity_requires_major_minor(self):
+        self.write_json(
+            "package.json",
+            {
+                "name": ci.PACKAGE_NAME,
+                "version": "0.4.0-pre.15",
+                "unity": "6000.3.20",
+            },
+        )
+        self.write_json("ValidationExceptions.json", {})
+        validator = ci.RepositoryValidator(
+            self.root, ["package.json", "ValidationExceptions.json"]
+        )
+        validator.check_package_metadata()
+        self.assertIn("package-unity", {finding.code for finding in validator.findings})
 
     def test_missing_diff_base_uses_selected_severity(self):
         error_validator = ci.RepositoryValidator(self.root, [])

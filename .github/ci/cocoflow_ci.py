@@ -42,12 +42,15 @@ FORBIDDEN_ENDINGS = (
 )
 MAX_TRACKED_FILE_BYTES = 20 * 1024 * 1024
 GUID_PATTERN = re.compile(r"^guid:\s*([0-9a-fA-F]{32})\s*$", re.MULTILINE)
+ASSEMBLY_GUID_REFERENCE_PATTERN = re.compile(r"^GUID:[0-9a-fA-F]{32}$")
 SEMVER_PATTERN = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
-UNITY_VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+UNITY_VERSION_PATTERN = re.compile(r"^\d+\.\d+$")
+
+
 class DuplicateJsonKey(ValueError):
     pass
 
@@ -236,7 +239,7 @@ class RepositoryValidator:
             self.add("error", "package-version", "version is not strict SemVer", "package.json")
         unity = package.get("unity")
         if not isinstance(unity, str) or not UNITY_VERSION_PATTERN.fullmatch(unity):
-            self.add("error", "package-unity", "unity must be numeric major.minor or major.minor.patch", "package.json")
+            self.add("error", "package-unity", "unity must be numeric major.minor", "package.json")
         elif unity != "6000.3":
             self.add(
                 "warning",
@@ -299,6 +302,18 @@ class RepositoryValidator:
         for relative in self.tracked:
             if not relative.endswith(".meta"):
                 continue
+            owner = relative[:-5]
+            owner_prefix = owner.rstrip("/") + "/"
+            has_tracked_owner = owner in self.tracked_set or any(
+                tracked.startswith(owner_prefix) for tracked in self.tracked
+            )
+            if not has_tracked_owner:
+                self.add(
+                    "error",
+                    "orphan-meta",
+                    "tracked .meta has no matching tracked asset or existing directory",
+                    relative,
+                )
             try:
                 text = (self.root / relative).read_text(encoding="utf-8", errors="replace")
             except OSError as error:
@@ -343,10 +358,31 @@ class RepositoryValidator:
                 if match:
                     guid_to_name[match.group(1).lower()] = name
 
-        def resolve(reference: str, relative: str) -> Optional[str]:
-            if reference.startswith("GUID:"):
+        def reference_form(reference: str, relative: str) -> Optional[str]:
+            if not reference or reference != reference.strip():
+                self.add(
+                    "error",
+                    "assembly-reference-syntax",
+                    "assembly reference must be a non-empty trimmed string",
+                    relative,
+                )
+                return None
+            if reference.casefold().startswith("guid:"):
+                if not ASSEMBLY_GUID_REFERENCE_PATTERN.fullmatch(reference):
+                    self.add(
+                        "error",
+                        "assembly-reference-syntax",
+                        "GUID reference must use GUID: followed by 32 hexadecimal characters",
+                        relative,
+                    )
+                    return None
+                return "guid"
+            return "name"
+
+        def resolve(reference: str, relative: str, form: str) -> Optional[str]:
+            if form == "guid":
                 return guid_to_name.get(reference[5:].lower())
-            if reference.startswith("CoCoFlow."):
+            if reference.casefold().startswith("cocoflow."):
                 actual = folded_names.get(reference.casefold())
                 if actual is None:
                     self.add("error", "asmdef-local-reference", "local assembly reference cannot be resolved: {0}".format(reference), relative)
@@ -371,15 +407,27 @@ class RepositoryValidator:
                 self.add("error", "asmdef-references", "references must be an array of strings", relative)
                 continue
             seen: Set[str] = set()
+            forms: Set[str] = set()
             resolved: List[str] = []
             for reference in references:
                 folded = reference.casefold()
                 if folded in seen:
                     self.add("error", "asmdef-duplicate-reference", "duplicate assembly reference {0!r}".format(reference), relative)
                 seen.add(folded)
-                target = resolve(reference, relative)
+                form = reference_form(reference, relative)
+                if form is None:
+                    continue
+                forms.add(form)
+                target = resolve(reference, relative, form)
                 if target:
                     resolved.append(target)
+            if len(forms) > 1:
+                self.add(
+                    "error",
+                    "asmdef-mixed-reference-format",
+                    "references must use either assembly names or GUIDs, not both",
+                    relative,
+                )
             if PurePosixPath(relative).parts[0] == "Runtime":
                 for target in resolved:
                     if target in editor_assemblies:
@@ -397,10 +445,13 @@ class RepositoryValidator:
             except Exception:
                 continue
             reference = data.get("reference") if isinstance(data, dict) else None
-            if not isinstance(reference, str) or not reference:
-                self.add("error", "asmref-reference", "asmref reference must be a non-empty string", relative)
+            if not isinstance(reference, str):
+                self.add("error", "asmref-reference", "asmref reference must be a string", relative)
                 continue
-            target = resolve(reference, relative)
+            form = reference_form(reference, relative)
+            if form is None:
+                continue
+            target = resolve(reference, relative, form)
             if PurePosixPath(relative).parts[0] == "Runtime" and target in editor_assemblies:
                 self.add("error", "runtime-editor-asmref", "Runtime asmref targets an Editor assembly", relative)
 
