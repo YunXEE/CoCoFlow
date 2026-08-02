@@ -178,7 +178,9 @@ class UnityHarnessTests(unittest.TestCase):
                 (host / "Packages/manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual([ci.PACKAGE_NAME], manifest["testables"])
-            self.assertTrue(manifest["dependencies"][ci.PACKAGE_NAME].startswith("file:"))
+            package_uri = manifest["dependencies"][ci.PACKAGE_NAME]
+            self.assertEqual("file:" + package.resolve().as_posix(), package_uri)
+            self.assertFalse(package_uri.startswith("file://"))
             self.assertEqual(
                 "1.0.0",
                 manifest["dependencies"]["com.unity.modules.animation"],

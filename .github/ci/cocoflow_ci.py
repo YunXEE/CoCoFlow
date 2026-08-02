@@ -463,7 +463,7 @@ class RepositoryValidator:
 
 
 def local_package_uri(root: Path) -> str:
-    return root.resolve().as_uri()
+    return "file:{0}".format(root.resolve().as_posix())
 
 
 def create_clean_host(host: Path, package_root: Path, unity_version: str) -> None:
