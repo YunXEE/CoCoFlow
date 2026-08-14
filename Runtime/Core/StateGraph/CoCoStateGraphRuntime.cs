@@ -2470,7 +2470,7 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
         {
             CoCoOperationSectionRegistry registry = operationFrame.Registry;
-            CoCoGraphOperationProvidesManifest manifest = graph.OperationProvides;
+            CoCoGraphOperationProvisionManifest manifest = graph.OperationProvides;
             if (registry == null ||
                 operationFrame.GraphInstanceId != graphInstanceId ||
                 !registry.IsFrozen ||
@@ -2485,7 +2485,7 @@ namespace CoCoFlow.Runtime.Core
 
             for (int provideIndex = 0; provideIndex < manifest.Provides.Count; provideIndex++)
             {
-                CoCoGraphOperationProvideRequirement provide = manifest.Provides[provideIndex];
+                CoCoGraphOperationProvision provide = manifest.Provides[provideIndex];
                 bool matched = false;
                 for (int sectionIndex = 0; sectionIndex < registry.Sections.Count; sectionIndex++)
                 {

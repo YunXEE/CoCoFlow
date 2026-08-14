@@ -79,11 +79,11 @@ namespace CoCoFlow.Runtime.Modules.Map
         public RegionCapabilitySet CommittedEffectiveCapabilities { get; }
     }
 
-    public sealed class RegionRuntimeRegionSnapshot
+    public sealed class RegionRuntimeRegionState
     {
         private readonly ReadOnlyCollection<RegionChunkRuntimeSnapshot> chunks;
 
-        internal RegionRuntimeRegionSnapshot(
+        internal RegionRuntimeRegionState(
             RegionId regionId,
             long desiredGeneration,
             long committedGeneration,
@@ -158,13 +158,13 @@ namespace CoCoFlow.Runtime.Modules.Map
     public sealed class RegionRuntimeSnapshot
     {
         private readonly ReadOnlyCollection<RegionDemandRuntimeSnapshot> demands;
-        private readonly ReadOnlyCollection<RegionRuntimeRegionSnapshot> regions;
+        private readonly ReadOnlyCollection<RegionRuntimeRegionState> regions;
 
         internal RegionRuntimeSnapshot(
             bool isShuttingDown,
             bool isDisposed,
             IList<RegionDemandRuntimeSnapshot> demands,
-            IList<RegionRuntimeRegionSnapshot> regions,
+            IList<RegionRuntimeRegionState> regions,
             CoCoDiagnostic lastDiagnostic)
         {
             IsShuttingDown = isShuttingDown;
@@ -176,16 +176,16 @@ namespace CoCoFlow.Runtime.Modules.Map
                         ? new List<RegionDemandRuntimeSnapshot>()
                         : new List<RegionDemandRuntimeSnapshot>(demands));
             this.regions =
-                new ReadOnlyCollection<RegionRuntimeRegionSnapshot>(
+                new ReadOnlyCollection<RegionRuntimeRegionState>(
                     regions == null
-                        ? new List<RegionRuntimeRegionSnapshot>()
-                        : new List<RegionRuntimeRegionSnapshot>(regions));
+                        ? new List<RegionRuntimeRegionState>()
+                        : new List<RegionRuntimeRegionState>(regions));
         }
 
         public bool IsShuttingDown { get; }
         public bool IsDisposed { get; }
         public IReadOnlyList<RegionDemandRuntimeSnapshot> Demands => demands;
-        public IReadOnlyList<RegionRuntimeRegionSnapshot> Regions => regions;
+        public IReadOnlyList<RegionRuntimeRegionState> Regions => regions;
         public CoCoDiagnostic LastDiagnostic { get; }
     }
 
@@ -444,7 +444,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                     right.RegionId.Value));
             var demandSnapshots = new List<RegionDemandRuntimeSnapshot>();
             var regionSnapshots =
-                new List<RegionRuntimeRegionSnapshot>(orderedStates.Count);
+                new List<RegionRuntimeRegionState>(orderedStates.Count);
 
             for (int stateIndex = 0;
                  stateIndex < orderedStates.Count;
@@ -529,7 +529,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 }
 
                 regionSnapshots.Add(
-                    new RegionRuntimeRegionSnapshot(
+                    new RegionRuntimeRegionState(
                         state.RegionId,
                         state.DesiredGeneration,
                         state.CommittedGeneration,

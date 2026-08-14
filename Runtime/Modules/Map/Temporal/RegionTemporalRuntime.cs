@@ -569,7 +569,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                  regionIndex < snapshot.Regions.Count;
                  regionIndex++)
             {
-                RegionRuntimeRegionSnapshot source =
+                RegionRuntimeRegionState source =
                     snapshot.Regions[regionIndex];
                 if (source.Faulted ||
                     source.BlockedCleanup ||
@@ -698,7 +698,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
 
             var current =
-                new Dictionary<RegionId, RegionRuntimeRegionSnapshot>();
+                new Dictionary<RegionId, RegionRuntimeRegionState>();
             for (int index = 0; index < snapshot.Regions.Count; index++)
             {
                 current[snapshot.Regions[index].RegionId] =
@@ -713,7 +713,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                     frame.Regions[regionIndex];
                 if (!current.TryGetValue(
                         required.RegionId,
-                        out RegionRuntimeRegionSnapshot available) ||
+                        out RegionRuntimeRegionState available) ||
                     available.Faulted ||
                     available.BlockedCleanup ||
                     !available.CommittedEffectiveCapabilities.IsSupersetOf(

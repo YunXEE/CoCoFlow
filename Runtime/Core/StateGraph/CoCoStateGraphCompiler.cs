@@ -89,7 +89,7 @@ namespace CoCoFlow.Runtime.Core
                 _eventAdapterDeclarations =
                     new List<ICoCoGraphEventToIntentDeclarationRegistration>();
             private CoCoIntentRequirementManifest _intentManifest;
-            private CoCoGraphOperationProvidesManifest _operationManifest;
+            private CoCoGraphOperationProvisionManifest _operationManifest;
             private CoCoContextFrameStateRequirementManifest _contextManifest;
             private int _structuralDiagnosticCount;
 
@@ -1348,7 +1348,7 @@ namespace CoCoFlow.Runtime.Core
                     declarations);
             }
 
-            private CoCoGraphOperationProvidesManifest BuildOperationManifest()
+            private CoCoGraphOperationProvisionManifest BuildOperationManifest()
             {
                 CoCoOperationSectionId[] ids = Sorted(_operationProvides);
                 var registrations = new ICoCoGraphOperationRegistration[ids.Length];
@@ -1361,7 +1361,7 @@ namespace CoCoFlow.Runtime.Core
                     }
                 }
 
-                return new CoCoGraphOperationProvidesManifest(
+                return new CoCoGraphOperationProvisionManifest(
                     CoCoGraphLayoutIdentity.Create(
                         _source.GraphId,
                         _catalog.Fingerprint,

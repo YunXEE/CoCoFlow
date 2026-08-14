@@ -496,7 +496,7 @@ namespace CoCoFlow.Runtime.Core
         {
             requirement = default;
             if (_isFrozen || semanticFingerprint == 0UL ||
-                !TryFindOperation(sectionId, out CoCoGraphOperationProvideRequirement compiled) ||
+                !TryFindOperation(sectionId, out CoCoGraphOperationProvision compiled) ||
                 compiled.Mode != mode ||
                 compiled.SectionType != typeof(TSection) ||
                 compiled.ViewFactoryType != viewFactory?.GetType() ||
@@ -1326,9 +1326,9 @@ namespace CoCoFlow.Runtime.Core
 
         private bool TryFindOperation(
             CoCoOperationSectionId sectionId,
-            out CoCoGraphOperationProvideRequirement requirement)
+            out CoCoGraphOperationProvision requirement)
         {
-            IReadOnlyList<CoCoGraphOperationProvideRequirement> provides =
+            IReadOnlyList<CoCoGraphOperationProvision> provides =
                 _graph.OperationProvides.Provides;
             for (int index = 0; index < provides.Count; index++)
             {

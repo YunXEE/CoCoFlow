@@ -24,7 +24,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             Assert.IsTrue(result.Succeeded);
             CoCoIntentRequirementManifest intents = result.Graph.IntentRequirements;
-            CoCoGraphOperationProvidesManifest operations = result.Graph.OperationProvides;
+            CoCoGraphOperationProvisionManifest operations = result.Graph.OperationProvides;
             CoCoContextFrameStateRequirementManifest context = result.Graph.ContextStateRequirements;
 
             Assert.IsNotNull(intents);
@@ -158,7 +158,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.DoesNotThrow(() => Parallel.For(0, 100, _ =>
             {
                 CoCoIntentRequirement intent = graph.IntentRequirements.Requirements[0];
-                CoCoGraphOperationProvideRequirement operation = graph.OperationProvides.Provides[0];
+                CoCoGraphOperationProvision operation = graph.OperationProvides.Provides[0];
                 CoCoContextStateSlotRequirement slot = graph.ContextStateRequirements.Blocks[0].Slots[0];
                 Assert.AreEqual(typeof(TestIntentReducerFactory), intent.ReducerFactoryType);
                 Assert.AreEqual(101UL, intent.ReducerFactorySemanticFingerprint);

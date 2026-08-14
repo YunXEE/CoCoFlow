@@ -28,7 +28,7 @@ intact even when their proposed model is superseded.
 - [ ] There is no cross-Layer reference, transition, signal, call, message, or
       state-query entry point.
 - [ ] StateLogic remains pure C# and does not expose Unity objects, Animator,
-      Playable, EventBus, EventAgent, EventEnvelope, EventRouter, or EventInbox
+      Playable, EventBus, CoCoEventAgent, EventEnvelope, EventRouter, or EventInbox
       types.
 - [ ] StateGraph reads only the current frozen IntentFrame and Previous
       ContextFrame; it cannot observe an Outcome produced during the same Tick.
@@ -353,7 +353,7 @@ intact even when their proposed model is superseded.
       Layer/subtree duplication, save, reload, and domain reload without runtime
       regeneration; otherwise Evidence marks this gate N/A and names the owning
       Pre.
-- [ ] Inbox, IntentFrame, EventAgent subscriptions, deduplication windows, and
+- [ ] Inbox, IntentFrame, CoCoEventAgent subscriptions, deduplication windows, and
       unpublished Outbox candidates are excluded from persistence.
 - [ ] This PR can be reverted without leaving a partially migrated package or
       silently changing serialized identity.

@@ -92,7 +92,7 @@ public label, category, discovery, or reflection-based runtime API.
 The overlay shows only the three manifests already produced by compilation:
 
 - `CoCoIntentRequirementManifest`;
-- `CoCoGraphOperationProvidesManifest`;
+- `CoCoGraphOperationProvisionManifest`;
 - `CoCoContextFrameStateRequirementManifest`.
 
 Event-to-Intent declarations remain part of the Intent manifest and do not form

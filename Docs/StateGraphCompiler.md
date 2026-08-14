@@ -218,7 +218,7 @@ One successful compile produces three deterministic, deduplicated manifests:
   stable identity, value and Reducer types, capacity, and dense index. It also
   carries a non-null collection of the Graph's static Event-to-Intent
   declarations; this does not create a fourth Manifest.
-- `CoCoGraphOperationProvidesManifest`: the OperationFrame Sections the Graph
+- `CoCoGraphOperationProvisionManifest`: the OperationFrame Sections the Graph
   can produce, including each Section's complete immutable Shape.
 - `CoCoContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
   Slot state required to resume graph evaluation deterministically.

@@ -59,7 +59,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         controller.CleanupCount(
                             "sensitive",
                             RegionParticipantCleanupReason.Replaced));
-                    RegionRuntimeRegionSnapshot snapshot =
+                    RegionRuntimeRegionState snapshot =
                         harness.OnlyRegionSnapshot();
                     Assert.AreEqual(1, snapshot.ReusedNodeCount);
                     Assert.AreEqual(0, snapshot.CandidateNodeCount);
@@ -120,7 +120,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     Assert.IsTrue(
                         effective.Contains(
                             RegionCapabilityId.Full));
-                    RegionRuntimeRegionSnapshot snapshot =
+                    RegionRuntimeRegionState snapshot =
                         harness.OnlyRegionSnapshot();
                     Assert.AreEqual(
                         RegionTierId.Full,
@@ -232,7 +232,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     Assert.AreEqual(
                         RegionTierId.Background,
                         controller.CommitTier("east"));
-                    RegionRuntimeRegionSnapshot snapshot =
+                    RegionRuntimeRegionState snapshot =
                         harness.OnlyRegionSnapshot();
                     RegionChunkRuntimeSnapshot westSnapshot =
                         FindChunkSnapshot(snapshot, west);
@@ -3322,7 +3322,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         }
 
         private static RegionChunkRuntimeSnapshot FindChunkSnapshot(
-            RegionRuntimeRegionSnapshot region,
+            RegionRuntimeRegionState region,
             RegionChunkId chunkId)
         {
             for (int index = 0;
@@ -3516,7 +3516,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 return scope;
             }
 
-            internal RegionRuntimeRegionSnapshot OnlyRegionSnapshot()
+            internal RegionRuntimeRegionState OnlyRegionSnapshot()
             {
                 RegionRuntimeSnapshot snapshot = Runtime.CaptureSnapshot();
                 Assert.AreEqual(1, snapshot.Regions.Count);

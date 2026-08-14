@@ -202,7 +202,7 @@ namespace CoCoFlow.Editor.Modules.Map
                  index < snapshot.Regions.Count;
                  index++)
             {
-                RegionRuntimeRegionSnapshot region =
+                RegionRuntimeRegionState region =
                     snapshot.Regions[index];
                 DrawRegion(
                     region,
@@ -213,7 +213,7 @@ namespace CoCoFlow.Editor.Modules.Map
         }
 
         private void DrawRegion(
-            RegionRuntimeRegionSnapshot region,
+            RegionRuntimeRegionState region,
             RegionTransitionMonitorRegionSnapshot transition)
         {
             string key = region.RegionId.Value;
@@ -468,7 +468,7 @@ namespace CoCoFlow.Editor.Modules.Map
                   nodeId.SlotId.Value;
 
         private static string RegionHeading(
-            RegionRuntimeRegionSnapshot region)
+            RegionRuntimeRegionState region)
         {
             string state = region.Faulted
                 ? "Faulted"

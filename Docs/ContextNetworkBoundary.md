@@ -336,7 +336,7 @@ Router Callback 只能校验、路由、去重和入队；不能调用 StateGrap
 - 音效、VFX、日志等可丢表现 Event 继续使用普通 EventBus，不进入 gameplay Inbox。
 
 Host 完成全部启动检查后才最后注册 Router；Stop/Dispose 首先注销。一个 Domain 的
-最后 Host 离开时，Router 释放其 internal EventAgent subscription。Router callback
+最后 Host 离开时，Router 释放其 internal CoCoEventAgent subscription。Router callback
 只接收原子 `CoCoEventPacket<TEvent>` 并校验、入队，不调用 Runtime、Operator 或 Context；
 它不使用旧 `PublishWithEnvelope`。Pre5 只在复合提交成功后通过 Host internal
 outbound seam 发布 EventOutbox；发布期间的 Destroy/Stop/Dispose 请求在完成整个
@@ -449,7 +449,7 @@ Core 不依赖具体网络框架。网络 Adapter 只能：
 StateLogic 和 Layer 的程序集/API 表面不得引用：
 
 - CoCoEventBus
-- EventAgent
+- CoCoEventAgent
 - EventEnvelope/EventPacket
 - EventRouter
 - EventInbox/EventOutbox
@@ -474,7 +474,7 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
   静态 declaration、包含完整 Shape 的 Graph Operation Provides、ContextFrame State
   Requirement、不可变 compiled lookup，以及 Editor/build-time 完整依赖闭包验证。
 - **Pre4**：已交付纯 StateGraph Runtime、每 Actor 独占状态、Host、Clock/Driver、实际
-  Event-to-Intent Adapter coverage/binding、internal EventRouter、EventAgent 订阅、
+  Event-to-Intent Adapter coverage/binding、internal EventRouter、CoCoEventAgent 订阅、
   Inbox 注册、staged Tick 与生命周期。
 - **Pre5**：已交付 Host 显式 Operator 列表、Graph/Claim/Operator/Actor/Derived producer
   ownership、ContextFrame 复合 Commit、committed EventOutbox Publish、immutable Trace、

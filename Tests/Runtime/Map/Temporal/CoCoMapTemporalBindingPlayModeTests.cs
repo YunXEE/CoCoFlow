@@ -1209,7 +1209,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
             for (int index = 0; index < snapshot.Regions.Count; index++)
             {
-                RegionRuntimeRegionSnapshot regionSnapshot =
+                RegionRuntimeRegionState regionSnapshot =
                     snapshot.Regions[index];
                 if (regionSnapshot.RegionId == regionId)
                 {

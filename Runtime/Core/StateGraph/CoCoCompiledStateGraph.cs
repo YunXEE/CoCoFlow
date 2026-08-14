@@ -176,7 +176,7 @@ namespace CoCoFlow.Runtime.Core
             ulong catalogFingerprint,
             CoCoCompiledStateLayer[] layers,
             CoCoIntentRequirementManifest intentRequirements,
-            CoCoGraphOperationProvidesManifest operationProvides,
+            CoCoGraphOperationProvisionManifest operationProvides,
             CoCoContextFrameStateRequirementManifest contextStateRequirements)
         {
             SchemaVersion = schemaVersion;
@@ -202,7 +202,7 @@ namespace CoCoFlow.Runtime.Core
         public ulong CatalogFingerprint { get; }
         public IReadOnlyList<CoCoCompiledStateLayer> Layers => _readOnlyLayers;
         public CoCoIntentRequirementManifest IntentRequirements { get; }
-        public CoCoGraphOperationProvidesManifest OperationProvides { get; }
+        public CoCoGraphOperationProvisionManifest OperationProvides { get; }
         public CoCoContextFrameStateRequirementManifest ContextStateRequirements { get; }
 
         public bool TryGetLayer(CoCoLayerId layerId, out CoCoCompiledStateLayer layer)

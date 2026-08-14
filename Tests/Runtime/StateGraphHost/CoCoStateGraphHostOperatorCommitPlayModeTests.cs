@@ -3308,8 +3308,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private sealed class PublishLifecycleListener :
-            IEventListener<CoCoEventPacket<OperatorCommitEventA>>,
-            IEventListener<CoCoEventPacket<OperatorCommitEventB>>
+            ICoCoEventListener<CoCoEventPacket<OperatorCommitEventA>>,
+            ICoCoEventListener<CoCoEventPacket<OperatorCommitEventB>>
         {
             private readonly CoCoStateGraphHost _host;
             private readonly bool _requestLifecycle;

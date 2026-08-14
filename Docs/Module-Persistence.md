@@ -15,7 +15,7 @@ The module does not allocate runtime gameplay IDs, does not drive frame-level ga
 
 For the 0.4 target, Persistence may only capture a Durable projection derived
 from a committed ContextFrame. It must not capture an IntentFrame, EventInbox,
-EventAgent subscription, unpublished EventOutbox, intermediate Layer, Operator
+CoCoEventAgent subscription, unpublished EventOutbox, intermediate Layer, Operator
 Outcome, or partially processed Tick.
 
 Pre2's ContextFrame projection Codec is an internal feasibility spike. It only
@@ -299,7 +299,7 @@ For Persistence V2, Pre13 additionally owns:
   Actor ContextFrame is reconstructed
 - conversion of cross-save pending actions into Actor pending state or world facts
 
-It explicitly does not persist EventInbox, IntentFrame, EventAgent subscriptions,
+It explicitly does not persist EventInbox, IntentFrame, CoCoEventAgent subscriptions,
 deduplication windows, or unpublished EventOutbox candidates.
 
 Runtime-generated prefab clones can receive temporary IDs, but cross-save reconstruction of arbitrary spawned entities requires a future spawn contract using fields such as `prefabKey` and a spawn/container record.

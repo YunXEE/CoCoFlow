@@ -31,7 +31,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         private CanvasGroup _canvasGroup;
         private RectTransform _rectTransform;
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
         private ContentId _sourceContentId;
         private bool _hasSourceOwnership;
 

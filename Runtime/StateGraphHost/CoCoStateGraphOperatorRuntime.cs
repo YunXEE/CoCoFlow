@@ -1223,7 +1223,7 @@ namespace CoCoFlow.Runtime.Core
                  provideIndex < graph.OperationProvides.Count;
                  provideIndex++)
             {
-                CoCoGraphOperationProvideRequirement provided =
+                CoCoGraphOperationProvision provided =
                     graph.OperationProvides.Provides[provideIndex];
                 bool covered = false;
                 for (int operatorIndex = 0; operatorIndex < bindings.Length && !covered; operatorIndex++)
@@ -1496,7 +1496,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         private static bool Matches(
-            CoCoGraphOperationProvideRequirement provided,
+            CoCoGraphOperationProvision provided,
             CoCoOperationSectionRequirement required)
         {
             return required.IsValid &&

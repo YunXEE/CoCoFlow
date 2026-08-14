@@ -447,7 +447,7 @@ cannot substitute a different order.
 
 Host startup registers with its Router only after every other startup check has
 succeeded. Stop and Dispose unregister first; the final Host leaving a Domain
-releases the internal EventAgent subscription. Router callbacks only validate
+releases the internal CoCoEventAgent subscription. Router callbacks only validate
 and enqueue. Packets received after a Step seals its Inbox are visible no
 earlier than the next accepted Tick.
 
@@ -509,7 +509,7 @@ Actor capture, Event, Trace, Outbox, OperationSequence, or EventSequence work.
 
 This is same-session, same-GraphInstance, exact-layout restoration. Temporal
 payloads are not durable documents or stable wire identities. They do not restore
-Inbox contents, IntentFrame, EventAgent subscription, unpublished Outbox,
+Inbox contents, IntentFrame, CoCoEventAgent subscription, unpublished Outbox,
 half-executed Operator work, another Actor, or already delivered cross-Actor
 consequences.
 
