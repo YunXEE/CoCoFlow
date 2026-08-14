@@ -90,7 +90,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 ((IList<CoCoIntentRequirement>)graph.IntentRequirements.Requirements).Add(
                     graph.IntentRequirements.Requirements[0]));
             Assert.Throws<NotSupportedException>(() =>
-                ((IList<CoCoGraphOperationProvideRequirement>)graph.OperationProvides.Provides).Add(
+                ((IList<CoCoGraphOperationProvision>)graph.OperationProvides.Provides).Add(
                     graph.OperationProvides.Provides[0]));
             Assert.Throws<NotSupportedException>(() =>
                 ((IList<CoCoContextStateBlockRequirement>)graph.ContextStateRequirements.Blocks).Add(

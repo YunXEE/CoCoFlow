@@ -6,7 +6,7 @@ using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Editor.Core
 {
-    public class CoCoLoggerWindow : EditorWindow, IEventListener<CoCoLogEvent>
+    public class CoCoLoggerWindow : EditorWindow, ICoCoEventListener<CoCoLogEvent>
     {
         // ==========================================
         // 颜色配置区

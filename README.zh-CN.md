@@ -57,7 +57,7 @@ Envelope、Router 或 Mailbox。
 | `Temporal projection` | 从已 Finalize 且成功的 Context candidate 捕获、由 Host 独占的固定容量历史 payload；只含投影的 Stored 字节与不可变源元数据，不是被 Retain 的 ContextFrame。 |
 | `EventInbox` | 一个 GraphRuntimeInstance 的待处理跨 Object gameplay 输入，不是事实存储。 |
 | `EventOutbox` | Operator 执行期间产生的跨 Object 输出候选，只有 ContextFrame Commit 成功后才发布。 |
-| `EventAgent` | 只负责 EventBus 订阅生命周期；不路由、不排队、不拥有也不持久化消息。 |
+| `CoCoEventAgent` | 只负责 EventBus 订阅生命周期；不路由、不排队、不拥有也不持久化消息。 |
 
 `IntentFrame`、`OperationFrame` 和 `ContextFrame` 不是别名，不能互相替代。
 Inbox、raw Envelope、当前 IntentFrame 和尚未发布的 Outbox 候选都不会混入
@@ -251,7 +251,7 @@ Tick）按确定依赖顺序重建所有 Derived Slot。Finalize 失败会放弃
 ContextFrame 继续保持权威。
 
 Restore 永远落在一个完成的 Commit Boundary。它不会恢复 Inbox、IntentFrame、
-EventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，或已经交付给
+CoCoEventAgent 订阅、未发布 Event、执行一半的 Operator、其他 Actor，或已经交付给
 其他 Actor 的后果。
 
 普通 `ContextFrame.Retain()`/`Release()` 仍可用于 generation-scoped 长期读取。
@@ -336,7 +336,7 @@ ContextFrame State。
 - 音效、VFX、日志等纯表现事件可以继续使用普通 EventBus，不进入 gameplay Inbox。
 
 Host 在所有 Binding 与 Operator coverage 检查成功后才最后注册 Router；
-Stop/Dispose 首先注销。Domain 最后一个 Host 离开时释放 internal EventAgent
+Stop/Dispose 首先注销。Domain 最后一个 Host 离开时释放 internal CoCoEventAgent
 subscription。EventOutbox 条目在复合提交前只是预分配候选；提交时才为同一
 GraphInstance/Epoch 分配连续 EventSequence 区间。发布保留 Host Operator 顺序与每个
 Operator 的 append 顺序，且 Callback 只能观察完整的新权威。
@@ -460,7 +460,7 @@ Tests                    契约、架构与过渡期回归测试
 
 Core Contract 与 State Flow 表面不得依赖 Gameplay、表现模块、Editor、项目代码、
 Animator、Playable、特定网络框架或持久化后端。StateLogic/Layer API 不得暴露
-EventBus、EventAgent、EventEnvelope、EventRouter 或 EventInbox 依赖。
+EventBus、CoCoEventAgent、EventEnvelope、EventRouter 或 EventInbox 依赖。
 
 对于注册进 StateGraph 的作者代码，Editor Analyze 与 Player build preflight 会遍历
 完整的已解析程序集依赖闭包。所有可达自定义程序集都必须是与引擎隔离的 asmdef；

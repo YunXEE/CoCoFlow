@@ -10,7 +10,7 @@ namespace CoCoFlow.Runtime.Modules.UI
     public abstract class UIIndicatorBase : MonoBehaviour
     {
         private CanvasGroup _canvasGroup;
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
 
         public string LastReceivedDataLog { get; private set; } = "None";
 

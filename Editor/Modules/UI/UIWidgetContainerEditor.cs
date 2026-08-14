@@ -41,7 +41,7 @@ namespace CoCoFlow.Editor.Modules.UI
             EditorGUILayout.PropertyField(modeProp);
 
             // 核心分流：根据模式显示不同的数据源配置
-            if (modeProp.enumValueIndex == (int)WidgetContainerMode.Static)
+            if (modeProp.enumValueIndex == (int)UIWidgetContainerMode.Static)
             {
                 EditorGUILayout.HelpBox("静态模式：请将需要参与排版的 Widget 手动拖入下方列表。未在列表中的子物体（如背景、特效）将被忽略。", MessageType.Info);
                 EditorGUILayout.PropertyField(managedItemsProp, new GUIContent("Managed Widgets (受控元素列表)"), true);
@@ -57,18 +57,18 @@ namespace CoCoFlow.Editor.Modules.UI
             EditorGUILayout.PropertyField(layoutTypeProp);
             EditorGUILayout.PropertyField(anchorProp, new GUIContent("Alignment (阵列锚点)"));
 
-            WidgetContainerLayout currentLayout = (WidgetContainerLayout)layoutTypeProp.enumValueIndex;
+            UIWidgetContainerLayout currentLayout = (UIWidgetContainerLayout)layoutTypeProp.enumValueIndex;
 
-            if (currentLayout == WidgetContainerLayout.Grid)
+            if (currentLayout == UIWidgetContainerLayout.Grid)
             {
                 EditorGUILayout.PropertyField(gridColumnsProp, new GUIContent("Columns (列数)"));
                 EditorGUILayout.PropertyField(spacingProp, new GUIContent("Spacing (X/Y 间距)"));
             }
-            else if (currentLayout == WidgetContainerLayout.Column)
+            else if (currentLayout == UIWidgetContainerLayout.Column)
             {
                 EditorGUILayout.PropertyField(spacingProp, new GUIContent("Vertical Spacing (垂直间距)"));
             }
-            else if (currentLayout == WidgetContainerLayout.Row)
+            else if (currentLayout == UIWidgetContainerLayout.Row)
             {
                 EditorGUILayout.PropertyField(spacingProp, new GUIContent("Horizontal Spacing (水平间距)"));
             }
@@ -97,7 +97,7 @@ namespace CoCoFlow.Editor.Modules.UI
             if (serializedObject.ApplyModifiedProperties())
             {
                 // 如果在 Inspector 中增删了数组元素或修改了参数，立即重新排版
-                if (!Application.isPlaying && container.Mode == WidgetContainerMode.Static)
+                if (!Application.isPlaying && container.Mode == UIWidgetContainerMode.Static)
                 {
                     container.ApplyLayout();
                 }

@@ -159,7 +159,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 CreateFixture(FullRequirementOnly());
             try
             {
-                RegionRuntimeRegionSnapshot committed =
+                RegionRuntimeRegionState committed =
                     fixture.Region.CaptureSnapshot().Regions[0];
                 Assert.That(
                     committed.CommittedCapabilities.Count,

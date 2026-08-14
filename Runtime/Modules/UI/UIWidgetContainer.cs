@@ -3,9 +3,9 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
-    public enum WidgetContainerLayout { Column, Row, Grid }
-    public enum WidgetContainerMode { Static, Dynamic }
-    public enum WidgetContainerAnchor
+    public enum UIWidgetContainerLayout { Column, Row, Grid }
+    public enum UIWidgetContainerMode { Static, Dynamic }
+    public enum UIWidgetContainerAnchor
     {
         TopLeft, TopCenter, TopRight,
         MiddleLeft, Center, MiddleRight,
@@ -17,9 +17,9 @@ namespace CoCoFlow.Runtime.Modules.UI
     public class UIWidgetContainer : MonoBehaviour
     {
         [Header("Mode & Rules")]
-        [SerializeField] private WidgetContainerMode mode = WidgetContainerMode.Static;
+        [SerializeField] private UIWidgetContainerMode mode = UIWidgetContainerMode.Static;
 
-        public WidgetContainerMode Mode => mode;
+        public UIWidgetContainerMode Mode => mode;
 
         [Tooltip("仅在动态模式下生效，预先挖好的坑位数量")]
         [Min(1)] [SerializeField] private int placeholderCount = 5;
@@ -28,8 +28,8 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private List<RectTransform> managedItems = new List<RectTransform>();
 
         [Header("Alignment Settings")]
-        [SerializeField] private WidgetContainerLayout layoutType = WidgetContainerLayout.Column;
-        [SerializeField] private WidgetContainerAnchor anchor = WidgetContainerAnchor.Center;
+        [SerializeField] private UIWidgetContainerLayout layoutType = UIWidgetContainerLayout.Column;
+        [SerializeField] private UIWidgetContainerAnchor anchor = UIWidgetContainerAnchor.Center;
         [SerializeField] private Vector2 spacing = new Vector2(10, 10);
         [SerializeField] private Vector2 cellSize = new Vector2(100, 50);
         [Min(1)] [SerializeField] private int gridColumns = 3;
@@ -45,7 +45,7 @@ namespace CoCoFlow.Runtime.Modules.UI
         /// </summary>
         public void ApplyLayout()
         {
-            if (mode == WidgetContainerMode.Dynamic || managedItems == null) return;
+            if (mode == UIWidgetContainerMode.Dynamic || managedItems == null) return;
 
             var rects = CalculateLayoutRects();
             int slotIndex = 0;
@@ -71,7 +71,7 @@ namespace CoCoFlow.Runtime.Modules.UI
         /// </summary>
         private int GetLayoutCount()
         {
-            if (mode == WidgetContainerMode.Dynamic) return placeholderCount;
+            if (mode == UIWidgetContainerMode.Dynamic) return placeholderCount;
 
             int count = 0;
             if (managedItems != null)
@@ -97,17 +97,17 @@ namespace CoCoFlow.Runtime.Modules.UI
             float totalWidth = 0f;
             float totalHeight = 0f;
 
-            if (layoutType == WidgetContainerLayout.Column)
+            if (layoutType == UIWidgetContainerLayout.Column)
             {
                 totalWidth = cellSize.x;
                 totalHeight = (elementCount * cellSize.y) + ((elementCount - 1) * spacing.y);
             }
-            else if (layoutType == WidgetContainerLayout.Row)
+            else if (layoutType == UIWidgetContainerLayout.Row)
             {
                 totalWidth = (elementCount * cellSize.x) + ((elementCount - 1) * spacing.x);
                 totalHeight = cellSize.y;
             }
-            else if (layoutType == WidgetContainerLayout.Grid)
+            else if (layoutType == UIWidgetContainerLayout.Grid)
             {
                 int rows = Mathf.CeilToInt((float)elementCount / gridColumns);
                 int actualCols = Mathf.Min(elementCount, gridColumns);
@@ -121,15 +121,15 @@ namespace CoCoFlow.Runtime.Modules.UI
 
             switch (anchor)
             {
-                case WidgetContainerAnchor.TopLeft:      startX = cRect.xMin; startY = cRect.yMax; break;
-                case WidgetContainerAnchor.TopCenter:    startX = cRect.center.x - (totalWidth / 2f); startY = cRect.yMax; break;
-                case WidgetContainerAnchor.TopRight:     startX = cRect.xMax - totalWidth; startY = cRect.yMax; break;
-                case WidgetContainerAnchor.MiddleLeft:   startX = cRect.xMin; startY = cRect.center.y + (totalHeight / 2f); break;
-                case WidgetContainerAnchor.Center:       startX = cRect.center.x - (totalWidth / 2f); startY = cRect.center.y + (totalHeight / 2f); break;
-                case WidgetContainerAnchor.MiddleRight:  startX = cRect.xMax - totalWidth; startY = cRect.center.y + (totalHeight / 2f); break;
-                case WidgetContainerAnchor.BottomLeft:   startX = cRect.xMin; startY = cRect.yMin + totalHeight; break;
-                case WidgetContainerAnchor.BottomCenter: startX = cRect.center.x - (totalWidth / 2f); startY = cRect.yMin + totalHeight; break;
-                case WidgetContainerAnchor.BottomRight:  startX = cRect.xMax - totalWidth; startY = cRect.yMin + totalHeight; break;
+                case UIWidgetContainerAnchor.TopLeft:      startX = cRect.xMin; startY = cRect.yMax; break;
+                case UIWidgetContainerAnchor.TopCenter:    startX = cRect.center.x - (totalWidth / 2f); startY = cRect.yMax; break;
+                case UIWidgetContainerAnchor.TopRight:     startX = cRect.xMax - totalWidth; startY = cRect.yMax; break;
+                case UIWidgetContainerAnchor.MiddleLeft:   startX = cRect.xMin; startY = cRect.center.y + (totalHeight / 2f); break;
+                case UIWidgetContainerAnchor.Center:       startX = cRect.center.x - (totalWidth / 2f); startY = cRect.center.y + (totalHeight / 2f); break;
+                case UIWidgetContainerAnchor.MiddleRight:  startX = cRect.xMax - totalWidth; startY = cRect.center.y + (totalHeight / 2f); break;
+                case UIWidgetContainerAnchor.BottomLeft:   startX = cRect.xMin; startY = cRect.yMin + totalHeight; break;
+                case UIWidgetContainerAnchor.BottomCenter: startX = cRect.center.x - (totalWidth / 2f); startY = cRect.yMin + totalHeight; break;
+                case UIWidgetContainerAnchor.BottomRight:  startX = cRect.xMax - totalWidth; startY = cRect.yMin + totalHeight; break;
             }
 
             // 3. 生成每个坑位
@@ -140,15 +140,15 @@ namespace CoCoFlow.Runtime.Modules.UI
             {
                 rects.Add(new Rect(currentX, currentY - cellSize.y, cellSize.x, cellSize.y));
 
-                if (layoutType == WidgetContainerLayout.Column)
+                if (layoutType == UIWidgetContainerLayout.Column)
                 {
                     currentY -= (cellSize.y + spacing.y);
                 }
-                else if (layoutType == WidgetContainerLayout.Row)
+                else if (layoutType == UIWidgetContainerLayout.Row)
                 {
                     currentX += (cellSize.x + spacing.x);
                 }
-                else if (layoutType == WidgetContainerLayout.Grid)
+                else if (layoutType == UIWidgetContainerLayout.Grid)
                 {
                     currentX += (cellSize.x + spacing.x);
                     if ((i + 1) % gridColumns == 0) // 换行
@@ -164,7 +164,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 #if UNITY_EDITOR
         private void Update()
         {
-            if (!Application.isPlaying && mode == WidgetContainerMode.Static)
+            if (!Application.isPlaying && mode == UIWidgetContainerMode.Static)
             {
                 ApplyLayout();
             }

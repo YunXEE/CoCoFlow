@@ -61,9 +61,9 @@ namespace CoCoFlow.Runtime.Core
             _eventAdapterDeclarations;
     }
 
-    public sealed class CoCoGraphOperationProvideRequirement
+    public sealed class CoCoGraphOperationProvision
     {
-        internal CoCoGraphOperationProvideRequirement(ICoCoGraphOperationRegistration registration)
+        internal CoCoGraphOperationProvision(ICoCoGraphOperationRegistration registration)
         {
             SectionId = registration.SectionId;
             Mode = registration.Mode;
@@ -81,19 +81,19 @@ namespace CoCoFlow.Runtime.Core
         public ulong ViewFactorySemanticFingerprint { get; }
     }
 
-    public sealed class CoCoGraphOperationProvidesManifest
+    public sealed class CoCoGraphOperationProvisionManifest
     {
-        private readonly IReadOnlyList<CoCoGraphOperationProvideRequirement> _provides;
+        private readonly IReadOnlyList<CoCoGraphOperationProvision> _provides;
 
-        internal CoCoGraphOperationProvidesManifest(
+        internal CoCoGraphOperationProvisionManifest(
             CoCoFrameLayoutId layoutId,
             ICoCoGraphOperationRegistration[] registrations)
         {
             LayoutId = layoutId;
-            var provides = new CoCoGraphOperationProvideRequirement[registrations.Length];
+            var provides = new CoCoGraphOperationProvision[registrations.Length];
             for (int index = 0; index < registrations.Length; index++)
             {
-                provides[index] = new CoCoGraphOperationProvideRequirement(registrations[index]);
+                provides[index] = new CoCoGraphOperationProvision(registrations[index]);
             }
 
             _provides = Array.AsReadOnly(provides);
@@ -101,7 +101,7 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoFrameLayoutId LayoutId { get; }
         public int Count => _provides.Count;
-        public IReadOnlyList<CoCoGraphOperationProvideRequirement> Provides => _provides;
+        public IReadOnlyList<CoCoGraphOperationProvision> Provides => _provides;
     }
 
     public sealed class CoCoContextStateSlotRequirement

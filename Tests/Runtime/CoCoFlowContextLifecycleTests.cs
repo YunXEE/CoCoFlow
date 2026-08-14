@@ -763,7 +763,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         public void SpecializedCharacterContextCanDriveControllerDecision()
         {
             var root = new GameObject("Specialized Character Context Test");
-            var agent = new EventAgent();
+            var agent = new CoCoEventAgent();
             var eventReceived = false;
 
             try
@@ -1517,7 +1517,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         public void ItemLifeCycleWritesProviderContextAndPublishesItemEvents()
         {
             var root = new GameObject("Item Lifecycle Test");
-            var agent = new EventAgent();
+            var agent = new CoCoEventAgent();
             var openedEvents = 0;
             var consumedEvents = 0;
             var openedEventMatches = false;
@@ -1613,7 +1613,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         public void ItemLifeCyclePublishesIntentActorBeforeClearingIntent()
         {
             var root = new GameObject("Item Lifecycle Intent Actor Test");
-            var agent = new EventAgent();
+            var agent = new CoCoEventAgent();
             string openedSourceEntityId = string.Empty;
             string consumedSourceEntityId = string.Empty;
 
@@ -1738,7 +1738,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         [Test]
         public void EventBusPublishesTypedEventAndEnvelopeForNetworkBridge()
         {
-            var agent = new EventAgent();
+            var agent = new CoCoEventAgent();
             var typedObserved = false;
             var envelopeObserved = false;
 
@@ -2002,7 +2002,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         public void ItemStateUsesExistingControllerAndProvider()
         {
             var root = new GameObject("Item Context State Test");
-            var agent = new EventAgent();
+            var agent = new CoCoEventAgent();
             var openedMatchesState = false;
             var consumedMatchesState = false;
 

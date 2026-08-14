@@ -767,7 +767,7 @@ namespace CoCoFlow.Editor.StateGraph
                     lines.Add($"Intent  {requirement.ValueType.Name}  {requirement.IntentId}");
                 }
 
-                foreach (CoCoGraphOperationProvideRequirement requirement in
+                foreach (CoCoGraphOperationProvision requirement in
                          analysisResult.Graph.OperationProvides.Provides)
                 {
                     lines.Add($"Operation  {requirement.SectionType.Name}  {requirement.SectionId}");

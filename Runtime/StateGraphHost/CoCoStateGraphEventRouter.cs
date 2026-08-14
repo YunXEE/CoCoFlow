@@ -208,7 +208,7 @@ namespace CoCoFlow.Runtime.Core
     {
         private readonly Dictionary<Type, ICoCoStateGraphEventRoute> _routes =
             new Dictionary<Type, ICoCoStateGraphEventRoute>();
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
         private int _referenceCount;
 
         public CoCoStateGraphDomainRouter(CoCoEventDomainId domainId)

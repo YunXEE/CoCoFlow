@@ -59,7 +59,7 @@ StateGraph never reads a raw callback, envelope, Router, or mailbox.
 | `Temporal projection` | A Host-owned, fixed-capacity history payload captured from a finalized successful Context candidate. It contains only projected Stored bytes plus immutable source metadata; it is not a retained ContextFrame. |
 | `EventInbox` | Pending cross-Object gameplay input for one GraphRuntimeInstance. It is not fact storage. |
 | `EventOutbox` | Cross-Object output candidates produced during Operator execution. They are published only after ContextFrame commit succeeds. |
-| `EventAgent` | A helper for EventBus subscription lifetime only. It does not route, queue, own, or persist messages. |
+| `CoCoEventAgent` | A helper for EventBus subscription lifetime only. It does not route, queue, own, or persist messages. |
 
 An `IntentFrame`, an `OperationFrame`, and a `ContextFrame` are not aliases and
 cannot substitute for one another. Inbox contents, raw envelopes, the current
@@ -300,7 +300,7 @@ successful Tick, including a no-op Tick. Failed finalization abandons the
 candidate and leaves the previous ContextFrame authoritative.
 
 Restore always lands on a completed commit boundary. It does not restore an
-Inbox, IntentFrame, EventAgent subscription, unpublished Event, half-executed
+Inbox, IntentFrame, CoCoEventAgent subscription, unpublished Event, half-executed
 Operator, other Actor, or an already delivered cross-Actor consequence.
 
 Normal `ContextFrame.Retain()` and `Release()` remain valid for callers that need
@@ -406,7 +406,7 @@ must persist is committed as ContextFrame state.
 
 Host startup registers only after every binding and Operator-coverage check
 succeeds; Stop and Dispose unregister first. The final Host leaving a Domain
-releases its internal EventAgent subscription. EventOutbox entries remain
+releases its internal CoCoEventAgent subscription. EventOutbox entries remain
 preallocated candidates until the composite commit assigns one contiguous
 per-GraphInstance/Epoch EventSequence range. Publication then preserves Host
 Operator order and per-Operator append order, and every callback observes the
@@ -548,7 +548,7 @@ Tests                    contract, architecture, and transition regressions
 Core contract and State Flow surfaces must not depend on Gameplay,
 presentation modules, Editor code, project code, Animator, Playables, a network
 framework, or a persistence backend. StateLogic and Layer APIs must expose no
-EventBus, EventAgent, EventEnvelope, EventRouter, or EventInbox dependency.
+EventBus, CoCoEventAgent, EventEnvelope, EventRouter, or EventInbox dependency.
 
 For registered StateGraph author code, Editor Analyze and Player build preflight
 walk the complete resolved assembly dependency closure. Every reachable custom
