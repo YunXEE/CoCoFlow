@@ -44,21 +44,29 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void RemovedGenericStateAndControllerTypesDoNotExist()
+        public void LegacyMonoStateTypesDoNotExist()
         {
-            var coreAssembly = typeof(CoCoStateController).Assembly;
+            var coreAssembly = typeof(CoCoServices).Assembly;
+            string[] retiredTypeNames =
+            {
+                "CoCoStateController",
+                "CoCoStateBase",
+                "CoCoStateDefinition",
+                "CoCoStateLayer",
+                "CoCoStateChildMachine",
+                "CoCoStateContextAccess",
+                "CoCoStateContextDependency",
+                "CoCoStateOperationDependency",
+                "CoCoStateTransitionTarget",
+                "CoCoStateDefinitionBuilder"
+            };
 
-            Assert.IsNull(coreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoState`1"));
-            Assert.IsNull(coreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateController`1"));
-        }
-
-        [Test]
-        public void StateBaseDoesNotExposeNestedStateLayers()
-        {
-            Assert.IsNull(typeof(CoCoStateBase).GetProperty(
-                "StateLayers",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-            Assert.IsNull(FindPrivateField(typeof(CoCoStateBase), "stateLayers"));
+            foreach (string retiredTypeName in retiredTypeNames)
+            {
+                Assert.IsNull(
+                    coreAssembly.GetType($"CoCoFlow.Runtime.Core.{retiredTypeName}"),
+                    retiredTypeName);
+            }
         }
 
         [Test]
@@ -80,485 +88,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void LegacyStateChangesStatesWithoutContext()
-        {
-            var root = new GameObject("Legacy State Test");
-            try
-            {
-                var first = root.AddComponent<LegacyTestStateA>();
-                var second = root.AddComponent<LegacyTestStateB>();
-                var controller = root.AddComponent<CoCoStateController>();
-                var mainLayer = new CoCoStateLayer(
-                    "Main",
-                    first,
-                    new CoCoStateBase[] { first, second });
-                controller.SetStateLayers(new[] { mainLayer });
-
-                controller.ChangeState<LegacyTestStateA>();
-                Assert.IsTrue(first.Initialized);
-                Assert.IsTrue(first.Entered);
-
-                controller.ChangeState<LegacyTestStateB>();
-                Assert.IsTrue(first.Exited);
-                Assert.IsTrue(second.Initialized);
-                Assert.IsTrue(second.Entered);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ControllerOnlyRegistersExplicitStateLayerStates()
-        {
-            var root = new GameObject("Explicit State Registration Test");
-            try
-            {
-                var state = root.AddComponent<LegacyTestStateA>();
-                var controller = root.AddComponent<CoCoStateController>();
-
-                LogAssert.Expect(
-                    LogType.Warning,
-                    new Regex("未注册的状态: LegacyTestStateA"));
-                controller.ChangeState<LegacyTestStateA>();
-
-                Assert.IsFalse(state.Initialized);
-                Assert.IsFalse(state.Entered);
-
-                var mainLayer = new CoCoStateLayer(
-                    "Main",
-                    state,
-                    new CoCoStateBase[] { state });
-                controller.SetStateLayers(new[] { mainLayer });
-                controller.ChangeState<LegacyTestStateA>();
-
-                Assert.IsTrue(state.Initialized);
-                Assert.IsTrue(state.Entered);
-                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(mainLayer));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ExistingControllerPassesProviderContextToStateLifecycle()
-        {
-            var root = new GameObject("Single Controller Context Test");
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var state = root.AddComponent<ContextLifecycleState>();
-                var controller = root.AddComponent<CoCoStateController>();
-                var mainLayer = new CoCoStateLayer(
-                    "Main",
-                    state,
-                    new CoCoStateBase[] { state });
-
-                controller.SetContextProvider(provider);
-                controller.SetStateLayers(new[] { mainLayer });
-                controller.ChangeState<ContextLifecycleState>();
-                controller.UpdateState();
-                controller.FixedUpdateState();
-                controller.ExitState();
-
-                Assert.AreSame(provider.Context, controller.Context);
-                Assert.AreSame(provider.Context, state.EnterContext);
-                Assert.AreSame(provider.Context, state.UpdateContext);
-                Assert.AreSame(provider.Context, state.FixedUpdateContext);
-                Assert.AreSame(provider.Context, state.ExitContext);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ContextOverrideIsRestoredAfterSingleTick()
-        {
-            var root = new GameObject("Context Override Restore Test");
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var source = root.AddComponent<TestCharacterContextSource>();
-                source.Configure(10, Vector2.up, true);
-                provider.SetContextSources(new MonoBehaviour[] { source });
-
-                var state = root.AddComponent<ContextLifecycleState>();
-                var controller = root.AddComponent<CoCoStateController>();
-                var mainLayer = new CoCoStateLayer(
-                    "Main",
-                    state,
-                    new CoCoStateBase[] { state });
-                var overrideContext = new TestCharacterContext();
-
-                controller.SetContextProvider(provider);
-                controller.SetStateLayers(new[] { mainLayer });
-
-                controller.UpdateState(overrideContext);
-
-                Assert.AreSame(overrideContext, state.UpdateContext);
-                Assert.AreSame(provider.Context, controller.Context);
-                Assert.AreEqual(Vector2.zero, provider.Context.Intent.move);
-
-                controller.UpdateState();
-
-                Assert.AreSame(provider.Context, state.UpdateContext);
-                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
-                Assert.IsTrue(provider.Context.Intent.attack);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ControllerRequiresLayerWhenStateTypeExistsInMultipleLayers()
-        {
-            var root = new GameObject("Ambiguous State Layer Test");
-            try
-            {
-                var first = root.AddComponent<LegacyTestStateA>();
-                var second = root.AddComponent<LegacyTestStateA>();
-                var controller = root.AddComponent<CoCoStateController>();
-                var firstLayer = new CoCoStateLayer(
-                    "First",
-                    first,
-                    new CoCoStateBase[] { first });
-                var secondLayer = new CoCoStateLayer(
-                    "Second",
-                    second,
-                    new CoCoStateBase[] { second });
-
-                controller.SetStateLayers(new[] { firstLayer, secondLayer });
-
-                Assert.IsFalse(controller.IfHasState<LegacyTestStateA>());
-                Assert.IsTrue(controller.IfHasState<LegacyTestStateA>(firstLayer));
-                Assert.IsTrue(controller.IfHasState<LegacyTestStateA>(secondLayer));
-
-                LogAssert.Expect(
-                    LogType.Warning,
-                    new Regex("多个 State Layer.*LegacyTestStateA"));
-                controller.ChangeState<LegacyTestStateA>();
-
-                Assert.IsFalse(first.Entered);
-                Assert.IsFalse(second.Entered);
-
-                controller.ChangeState<LegacyTestStateA>(secondLayer);
-
-                Assert.IsFalse(first.Entered);
-                Assert.IsTrue(second.Entered);
-                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(secondLayer));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void LayerAwareEvaluateStateTypeCanDriveDuplicateStateTypesPerLayer()
-        {
-            var root = new GameObject("Layer Aware Evaluation Test");
-            try
-            {
-                var first = root.AddComponent<LegacyTestStateA>();
-                var second = root.AddComponent<LegacyTestStateA>();
-                var controller = root.AddComponent<LayerAwareDecisionStateController>();
-                var firstLayer = new CoCoStateLayer(
-                    "First",
-                    null,
-                    new CoCoStateBase[] { first });
-                var secondLayer = new CoCoStateLayer(
-                    "Second",
-                    null,
-                    new CoCoStateBase[] { second });
-
-                controller.Configure(firstLayer, secondLayer);
-                controller.SetStateLayers(new[] { firstLayer, secondLayer });
-
-                controller.UpdateState();
-
-                Assert.IsTrue(first.Entered);
-                Assert.IsTrue(second.Entered);
-                Assert.AreSame(first, controller.GetCurrentState(firstLayer));
-                Assert.AreSame(second, controller.GetCurrentState(secondLayer));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void UpdateStateSkipsTransitionEvaluationForUpdateDisabledLayers()
-        {
-            var root = new GameObject("Update Disabled Layer Transition Test");
-            try
-            {
-                var first = root.AddComponent<LegacyTestStateA>();
-                var second = root.AddComponent<LegacyTestStateB>();
-                var controller = root.AddComponent<TransitionDecisionStateController>();
-                var layer = new CoCoStateLayer(
-                    "FixedOnly",
-                    first,
-                    new CoCoStateBase[] { first, second },
-                    0,
-                    false,
-                    true);
-
-                controller.SelectSecondState = true;
-                controller.SetStateLayers(new[] { layer });
-
-                controller.UpdateState();
-
-                Assert.IsNull(controller.GetCurrentState(layer));
-                Assert.AreEqual(0, controller.EvaluationCount);
-
-                controller.FixedUpdateState();
-
-                Assert.AreEqual(typeof(LegacyTestStateB), controller.GetCurrentStateType(layer));
-                Assert.AreEqual(1, controller.EvaluationCount);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void FixedUpdateStateSkipsTransitionEvaluationForFixedUpdateDisabledLayers()
-        {
-            var root = new GameObject("FixedUpdate Disabled Layer Transition Test");
-            try
-            {
-                var first = root.AddComponent<LegacyTestStateA>();
-                var second = root.AddComponent<LegacyTestStateB>();
-                var controller = root.AddComponent<TransitionDecisionStateController>();
-                var layer = new CoCoStateLayer(
-                    "UpdateOnly",
-                    first,
-                    new CoCoStateBase[] { first, second },
-                    0,
-                    true,
-                    false);
-
-                controller.SetStateLayers(new[] { layer });
-
-                controller.UpdateState();
-
-                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(layer));
-                Assert.AreEqual(1, controller.EvaluationCount);
-
-                controller.SelectSecondState = true;
-                controller.FixedUpdateState();
-
-                Assert.AreEqual(typeof(LegacyTestStateA), controller.GetCurrentStateType(layer));
-                Assert.AreEqual(1, controller.EvaluationCount);
-
-                controller.UpdateState();
-
-                Assert.AreEqual(typeof(LegacyTestStateB), controller.GetCurrentStateType(layer));
-                Assert.AreEqual(2, controller.EvaluationCount);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void UpdateStateDoesNotRestartExplicitlyExitedLayers()
-        {
-            var root = new GameObject("Explicit Exit Restart Test");
-            var log = new System.Collections.Generic.List<string>();
-
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var state = root.AddComponent<OrderedLifecycleState>();
-                var controller = root.AddComponent<CoCoStateController>();
-                var layer = new CoCoStateLayer(
-                    "Main",
-                    state,
-                    new CoCoStateBase[] { state });
-                state.Configure("main", log);
-                controller.SetContextProvider(provider);
-                controller.SetStateLayers(new[] { layer });
-
-                controller.UpdateState();
-                controller.ExitState();
-                controller.UpdateState();
-                controller.FixedUpdateState();
-
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "main.enter",
-                        "main.update",
-                        "main.exit"
-                    },
-                    log);
-                Assert.IsNull(controller.GetCurrentState(layer));
-
-                controller.EnterState();
-
-                Assert.AreSame(state, controller.GetCurrentState(layer));
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "main.enter",
-                        "main.update",
-                        "main.exit",
-                        "main.enter"
-                    },
-                    log);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ControllerRunsExplicitStateLayersInOrderWithSharedContext()
-        {
-            var root = new GameObject("State Layer Controller Test");
-            var log = new System.Collections.Generic.List<string>();
-
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var rootState = root.AddComponent<OrderedLifecycleState>();
-                var rootController = root.AddComponent<CoCoStateController>();
-                rootState.Configure("root", log);
-                rootController.SetContextProvider(provider);
-
-                var childAState = root.AddComponent<OrderedLifecycleState>();
-                childAState.Configure("child-a", log);
-
-                var childBState = root.AddComponent<OrderedLifecycleState>();
-                childBState.Configure("child-b", log);
-
-                rootController.SetStateLayers(new[]
-                {
-                    new CoCoStateLayer("main", rootState, new CoCoStateBase[] { rootState }, 0),
-                    new CoCoStateLayer("child-b", childBState, new CoCoStateBase[] { childBState }, 20),
-                    new CoCoStateLayer("empty", null, null, 15),
-                    new CoCoStateLayer("child-a", childAState, new CoCoStateBase[] { childAState }, 10)
-                });
-
-                rootController.EnterState();
-                rootController.UpdateState();
-                rootController.FixedUpdateState();
-                rootController.ExitState();
-
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "root.enter",
-                        "child-a.enter",
-                        "child-b.enter",
-                        "root.update",
-                        "child-a.update",
-                        "child-b.update",
-                        "root.fixed",
-                        "child-a.fixed",
-                        "child-b.fixed",
-                        "child-b.exit",
-                        "child-a.exit",
-                        "root.exit"
-                    },
-                    log);
-                Assert.AreSame(provider.Context, rootState.EnterContext);
-                Assert.AreSame(provider.Context, childAState.EnterContext);
-                Assert.AreSame(provider.Context, childBState.EnterContext);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ControllerRunsHfsmChildMachinesInsideOneStateLayer()
-        {
-            var root = new GameObject("HFSM State Layer Test");
-            var log = new System.Collections.Generic.List<string>();
-
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var parentA = root.AddComponent<HfsmParentAState>();
-                var parentB = root.AddComponent<HfsmParentBState>();
-                var childA = root.AddComponent<HfsmChildAState>();
-                var childB = root.AddComponent<HfsmChildBState>();
-                var leafA = root.AddComponent<HfsmLeafAState>();
-                var leafB = root.AddComponent<HfsmLeafBState>();
-                parentA.Configure("parent-a", log);
-                parentB.Configure("parent-b", log);
-                childA.Configure("child-a", log);
-                childB.Configure("child-b", log);
-                leafA.Configure("leaf-a", log);
-                leafB.Configure("leaf-b", log);
-
-                var controller = root.AddComponent<CoCoStateController>();
-                controller.SetContextProvider(provider);
-                var layer = new CoCoStateLayer(
-                    "main",
-                    parentA,
-                    new CoCoStateBase[] { parentA, parentB },
-                    0,
-                    true,
-                    true,
-                    new[]
-                    {
-                        new CoCoStateChildMachine(parentA, childA, new CoCoStateBase[] { childA, childB }),
-                        new CoCoStateChildMachine(childA, leafA, new CoCoStateBase[] { leafA, leafB })
-                    });
-                controller.SetStateLayers(new[] { layer });
-
-                controller.EnterState();
-                controller.UpdateState();
-                childA.RequestChange<HfsmChildBState>();
-                controller.UpdateState();
-                parentA.RequestChange<HfsmParentBState>();
-                Assert.AreSame(parentB, controller.GetCurrentState(layer));
-                controller.ExitState();
-
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "parent-a.enter",
-                        "child-a.enter",
-                        "leaf-a.enter",
-                        "parent-a.update",
-                        "child-a.update",
-                        "leaf-a.update",
-                        "leaf-a.exit",
-                        "child-a.exit",
-                        "child-b.enter",
-                        "parent-a.update",
-                        "child-b.update",
-                        "child-b.exit",
-                        "parent-a.exit",
-                        "parent-b.enter",
-                        "parent-b.exit"
-                    },
-                    log);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void CharacterContextProviderWritesSourcesByPriorityBeforeStateTick()
+        public void CharacterContextProviderWritesSourcesByPriority()
         {
             var root = new GameObject("Character Context Sources Test");
             try
@@ -568,11 +98,9 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 low.Configure(10, Vector2.right, false);
                 var high = root.AddComponent<TestCharacterContextSource>();
                 high.Configure(50, Vector2.up, true);
-                var controller = root.AddComponent<CoCoStateController>();
 
                 provider.SetContextSources(new MonoBehaviour[] { high, null, low });
-                controller.SetContextProvider(provider);
-                controller.UpdateState();
+                provider.ResolveContextFrame(provider.Context);
 
                 Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
                 Assert.IsTrue(provider.Context.Intent.attack);
@@ -687,17 +215,14 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 var provider = root.AddComponent<CharacterContextProvider>();
                 var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
-                var controller = root.AddComponent<CoCoStateController>();
-                SetPrivateField(controller, "autoUpdate", false);
 
                 driver.SetContextProvider(provider);
                 driver.SetInputIntentSource(source);
                 provider.SetContextSources(new MonoBehaviour[] { driver });
-                controller.SetContextProvider(provider);
 
                 source.Intent.performedAction = "Attack";
                 source.Intent.performedSequence = 1;
-                controller.UpdateState();
+                provider.ResolveContextFrame(provider.Context);
 
                 Assert.IsTrue(driver.IsProviderDriven);
                 Assert.IsTrue(provider.Context.Intent.attack);
@@ -756,50 +281,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 UnityEngine.Object.DestroyImmediate(config);
                 UnityEngine.Object.DestroyImmediate(splineRoot);
                 UnityEngine.Object.DestroyImmediate(enemy);
-            }
-        }
-
-        [Test]
-        public void SpecializedCharacterContextCanDriveControllerDecision()
-        {
-            var root = new GameObject("Specialized Character Context Test");
-            var agent = new CoCoEventAgent();
-            var eventReceived = false;
-
-            try
-            {
-                var provider = root.AddComponent<TestCharacterProvider>();
-                var idle = root.AddComponent<CharacterIdleTestState>();
-                var attack = root.AddComponent<CharacterAttackTestState>();
-                var controller = root.AddComponent<TestDecisionStateController>();
-                var mainLayer = new CoCoStateLayer(
-                    "Main",
-                    idle,
-                    new CoCoStateBase[] { idle, attack });
-                controller.SetContextProvider(provider);
-                controller.SetStateLayers(new[] { mainLayer });
-
-                provider.Context.Lifecycle.TransitionTo(CoCoLifecycleState.Active);
-                provider.Context.Intent.attack = true;
-
-                agent.Subscribe<TestCharacterDamagedEvent>((ref TestCharacterDamagedEvent evt) =>
-                {
-                    eventReceived = evt.Context == provider.Context;
-                });
-
-                controller.UpdateState();
-
-                Assert.AreEqual(typeof(CharacterAttackTestState), controller.GetCurrentStateType(mainLayer));
-                Assert.IsTrue(eventReceived);
-                Assert.IsTrue(provider.Context.Resources.IsDead);
-                Assert.AreEqual((int)CharacterSemanticState.Dead, provider.Context.SemanticStateId);
-                Assert.AreEqual(CoCoLifecycleState.Disabled, provider.Context.Lifecycle.State);
-                Assert.AreEqual(1, provider.Context.DecisionStamp);
-            }
-            finally
-            {
-                agent.UnsubscribeAll();
-                UnityEngine.Object.DestroyImmediate(root);
             }
         }
 
@@ -888,10 +369,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             {
                 var provider = root.AddComponent<CharacterContextProvider>();
                 var lifecycle = root.AddComponent<CharacterLifeCycle>();
-                var characterController = root.AddComponent<CoCoStateController>();
                 var navigationContext = provider.Context.Navigation;
-
-                characterController.SetContextProvider(provider);
 
                 navigationContext.TryClaimControl("EnemySpline");
                 navigationContext.SetDestination(
@@ -901,7 +379,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                     CharacterNavigationMode.Patrol);
 
                 Assert.AreSame(provider.Context, lifecycle.Context);
-                Assert.AreSame(provider.Context, characterController.Context);
                 Assert.AreSame(provider.Context.Navigation, navigationContext);
                 Assert.IsFalse(typeof(ICoCoContext).IsAssignableFrom(typeof(CharacterNavigationContext)));
                 Assert.IsNull(typeof(CharacterContext).Assembly.GetType(
@@ -1971,7 +1448,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             {
                 var provider = root.AddComponent<CharacterContextProvider>();
                 var lifecycle = root.AddComponent<CharacterLifeCycle>();
-                var controller = root.AddComponent<CoCoStateController>();
                 lifecycle.SetContextProvider(provider);
                 lifecycle.OnDeath += () => deathEventReceived = true;
 
@@ -1979,7 +1455,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
                 Assert.IsFalse(typeof(ICoCoContextProvider<CharacterContext>).IsAssignableFrom(typeof(CharacterLifeCycle)));
                 Assert.AreSame(provider.Context, lifecycle.Context);
-                Assert.AreSame(provider.Context, controller.Context);
                 Assert.IsTrue(deathEventReceived);
                 Assert.IsTrue(lifecycle.IsDead);
                 Assert.AreEqual(0f, lifecycle.CurrentHealth);
@@ -1994,65 +1469,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void ItemStateUsesExistingControllerAndProvider()
-        {
-            var root = new GameObject("Item Context State Test");
-            var agent = new CoCoEventAgent();
-            var openedMatchesState = false;
-            var consumedMatchesState = false;
-
-            try
-            {
-                var provider = root.AddComponent<ItemContextProvider>();
-                provider.Context.Payload.itemId = "item.test";
-                provider.Context.SetLocked();
-
-                var state = root.AddComponent<ItemIntentTestState>();
-                var controller = root.AddComponent<CoCoStateController>();
-                controller.SetContextProvider(provider);
-                controller.SetStateLayers(new[]
-                {
-                    new CoCoStateLayer("Main", state, new CoCoStateBase[] { state })
-                });
-                controller.ChangeState<ItemIntentTestState>();
-
-                agent.Subscribe<ItemOpenedEvent>((ref ItemOpenedEvent evt) =>
-                {
-                    openedMatchesState = evt.Context == provider.Context &&
-                                         evt.Context.ItemState == ItemSemanticState.Opened;
-                });
-                agent.Subscribe<ItemConsumedEvent>((ref ItemConsumedEvent evt) =>
-                {
-                    consumedMatchesState = evt.Context == provider.Context &&
-                                           evt.Context.Lifecycle.State == CoCoLifecycleState.Consumed;
-                });
-
-                provider.Context.Intent.openRequested = true;
-                controller.UpdateState();
-                Assert.AreEqual(ItemSemanticState.Locked, provider.Context.ItemState);
-
-                provider.Context.Intent.unlockRequested = true;
-                provider.Context.Intent.openRequested = true;
-                controller.UpdateState();
-
-                Assert.AreEqual(ItemSemanticState.Opened, provider.Context.ItemState);
-                Assert.IsTrue(openedMatchesState);
-
-                provider.Context.Intent.useRequested = true;
-                controller.UpdateState();
-
-                Assert.AreEqual(ItemSemanticState.Consumed, provider.Context.ItemState);
-                Assert.AreEqual(CoCoLifecycleState.Consumed, provider.Context.Lifecycle.State);
-                Assert.IsTrue(consumedMatchesState);
-            }
-            finally
-            {
-                agent.UnsubscribeAll();
                 UnityEngine.Object.DestroyImmediate(root);
             }
         }
@@ -2077,63 +1493,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
         #region Internal Logic
 
-
-        private sealed class LegacyTestStateA : CoCoStateBase
-        {
-            public bool Initialized { get; private set; }
-            public bool Entered { get; private set; }
-            public bool Exited { get; private set; }
-
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .UsesOperation<CoCoStateController>("Legacy lifecycle callback test")
-                    .CanTransitionTo<LegacyTestStateB>("Legacy state switch test");
-            }
-
-            public override void Init(CoCoStateController targetController)
-            {
-                base.Init(targetController);
-                Initialized = true;
-            }
-
-            public override void Enter()
-            {
-                base.Enter();
-                Entered = true;
-            }
-
-            public override void Exit()
-            {
-                base.Exit();
-                Exited = true;
-            }
-        }
-
-        private sealed class LegacyTestStateB : CoCoStateBase
-        {
-            public bool Initialized { get; private set; }
-            public bool Entered { get; private set; }
-
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .UsesOperation<CoCoStateController>("Legacy lifecycle callback test")
-                    .CanTransitionTo<LegacyTestStateA>("Legacy state switch test");
-            }
-
-            public override void Init(CoCoStateController targetController)
-            {
-                base.Init(targetController);
-                Initialized = true;
-            }
-
-            public override void Enter()
-            {
-                base.Enter();
-                Entered = true;
-            }
-        }
 
         private sealed class TestCharacterContext : CharacterContext
         {
@@ -2247,298 +1606,6 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             {
                 context.Intent.move = _move;
                 context.Intent.attack = _attack;
-            }
-        }
-
-        private sealed class OrderedLifecycleState : CoCoStateBase
-        {
-            private string _name;
-            private System.Collections.Generic.List<string> _log;
-
-            public ICoCoContext EnterContext { get; private set; }
-
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .ReadsContext<CoCoEntityContext>("Lifecycle")
-                    .UsesOperation<CoCoStateController>("Ordered lifecycle callback test");
-            }
-
-            public void Configure(
-                string stateName,
-                System.Collections.Generic.List<string> log)
-            {
-                _name = stateName;
-                _log = log;
-            }
-
-            public override void Enter(ICoCoContext context)
-            {
-                EnterContext = context;
-                _log.Add($"{_name}.enter");
-            }
-
-            public override void OnStateUpdate(ICoCoContext context)
-            {
-                _log.Add($"{_name}.update");
-            }
-
-            public override void OnStateFixedUpdate(ICoCoContext context)
-            {
-                _log.Add($"{_name}.fixed");
-            }
-
-            public override void Exit(ICoCoContext context)
-            {
-                _log.Add($"{_name}.exit");
-            }
-        }
-
-        private sealed class ContextLifecycleState : CoCoStateBase
-        {
-            public ICoCoContext EnterContext { get; private set; }
-            public ICoCoContext UpdateContext { get; private set; }
-            public ICoCoContext FixedUpdateContext { get; private set; }
-            public ICoCoContext ExitContext { get; private set; }
-
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .ReadsContext<CoCoEntityContext>("Lifecycle")
-                    .UsesOperation<CoCoStateController>("Context lifecycle callback test");
-            }
-
-            public override void Enter(ICoCoContext context)
-            {
-                base.Enter(context);
-                EnterContext = context;
-            }
-
-            public override void OnStateUpdate(ICoCoContext context)
-            {
-                base.OnStateUpdate(context);
-                UpdateContext = context;
-            }
-
-            public override void OnStateFixedUpdate(ICoCoContext context)
-            {
-                base.OnStateFixedUpdate(context);
-                FixedUpdateContext = context;
-            }
-
-            public override void Exit(ICoCoContext context)
-            {
-                base.Exit(context);
-                ExitContext = context;
-            }
-        }
-
-        private abstract class HfsmLifecycleState : CoCoStateBase
-        {
-            private string _name;
-            private System.Collections.Generic.List<string> _log;
-
-            public void Configure(
-                string stateName,
-                System.Collections.Generic.List<string> log)
-            {
-                _name = stateName;
-                _log = log;
-            }
-
-            public void RequestChange<TState>() where TState : CoCoStateBase
-            {
-                ChangeState<TState>();
-            }
-
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .UsesOperation<CoCoStateController>("HFSM lifecycle callback test");
-            }
-
-            public override void Enter(ICoCoContext context)
-            {
-                _log.Add($"{_name}.enter");
-            }
-
-            public override void OnStateUpdate(ICoCoContext context)
-            {
-                _log.Add($"{_name}.update");
-            }
-
-            public override void Exit(ICoCoContext context)
-            {
-                _log.Add($"{_name}.exit");
-            }
-        }
-
-        private sealed class HfsmParentAState : HfsmLifecycleState { }
-
-        private sealed class HfsmParentBState : HfsmLifecycleState { }
-
-        private sealed class HfsmChildAState : HfsmLifecycleState { }
-
-        private sealed class HfsmChildBState : HfsmLifecycleState { }
-
-        private sealed class HfsmLeafAState : HfsmLifecycleState { }
-
-        private sealed class HfsmLeafBState : HfsmLifecycleState { }
-
-        private sealed class TestDecisionStateController : CoCoStateController
-        {
-            protected override Type EvaluateStateType(ICoCoContext context)
-            {
-                if (context is not TestCharacterContext characterContext)
-                {
-                    return typeof(CharacterIdleTestState);
-                }
-
-                if (characterContext.Intent.attack)
-                {
-                    characterContext.DecisionStamp++;
-                    return typeof(CharacterAttackTestState);
-                }
-
-                return typeof(CharacterIdleTestState);
-            }
-        }
-
-        private sealed class TransitionDecisionStateController : CoCoStateController
-        {
-            public bool SelectSecondState { get; set; }
-            public int EvaluationCount { get; private set; }
-
-            protected override Type EvaluateStateType(ICoCoContext context)
-            {
-                EvaluationCount++;
-                return SelectSecondState
-                    ? typeof(LegacyTestStateB)
-                    : typeof(LegacyTestStateA);
-            }
-        }
-
-        private sealed class LayerAwareDecisionStateController : CoCoStateController
-        {
-            private CoCoStateLayer _firstLayer;
-            private CoCoStateLayer _secondLayer;
-
-            public void Configure(
-                CoCoStateLayer firstLayer,
-                CoCoStateLayer secondLayer)
-            {
-                _firstLayer = firstLayer;
-                _secondLayer = secondLayer;
-            }
-
-            protected override Type EvaluateStateType(
-                CoCoStateLayer layer,
-                ICoCoContext context)
-            {
-                if (ReferenceEquals(layer, _firstLayer) ||
-                    ReferenceEquals(layer, _secondLayer))
-                {
-                    return typeof(LegacyTestStateA);
-                }
-
-                return null;
-            }
-        }
-
-        private sealed class CharacterIdleTestState : CoCoStateBase
-        {
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .ReadsContext<CharacterContext>("Intent.attack")
-                    .CanTransitionTo<CharacterAttackTestState>("Attack intent")
-                    .CanTransitionTo<CharacterIdleTestState>("No attack intent");
-            }
-        }
-
-        private struct TestCharacterDamagedEvent
-        {
-            public CharacterContext Context;
-        }
-
-        private sealed class CharacterAttackTestState : CoCoStateBase
-        {
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .ReadsContext<CharacterContext>("Resources")
-                    .WritesContext<CharacterContext>("Resources.CurrentHealth")
-                    .WritesContext<CharacterContext>("Lifecycle")
-                    .UsesOperation<CoCoStateController>("Decision state transition test");
-            }
-
-            public override void Enter(ICoCoContext context)
-            {
-                base.Enter(context);
-                var characterContext = (CharacterContext)context;
-
-                characterContext.Resources.ApplyDamage(characterContext.Resources.MaxHealth);
-                if (characterContext.Resources.IsDead)
-                {
-                    characterContext.MarkDeadDisabled();
-                }
-
-                var evt = new TestCharacterDamagedEvent { Context = characterContext };
-                CoCoEventBus.Publish(ref evt);
-            }
-        }
-
-        private sealed class ItemIntentTestState : CoCoStateBase
-        {
-            protected override void DefineState(CoCoStateDefinitionBuilder builder)
-            {
-                builder
-                    .ReadsContext<ItemContext>("Intent")
-                    .ReadsContext<ItemContext>("ItemState")
-                    .WritesContext<ItemContext>("ItemState")
-                    .WritesContext<ItemContext>("Intent")
-                    .UsesOperation<CoCoStateController>("Item intent state test");
-            }
-
-            public override void OnStateUpdate(ICoCoContext context)
-            {
-                base.OnStateUpdate(context);
-                var itemContext = (ItemContext)context;
-
-                if (itemContext.Intent.unlockRequested &&
-                    itemContext.ItemState == ItemSemanticState.Locked)
-                {
-                    itemContext.SetAvailable();
-                }
-
-                if (itemContext.Intent.openRequested &&
-                    itemContext.ItemState == ItemSemanticState.Available)
-                {
-                    itemContext.SetOpening();
-                    itemContext.SetOpened();
-                    var evt = new ItemOpenedEvent
-                    {
-                        Context = itemContext,
-                        ItemId = itemContext.Payload.itemId,
-                        EventSequence = itemContext.NextEventSequence()
-                    };
-                    CoCoEventBus.Publish(ref evt);
-                }
-
-                if (itemContext.Intent.useRequested &&
-                    itemContext.ItemState == ItemSemanticState.Opened)
-                {
-                    itemContext.SetConsumed();
-                    var evt = new ItemConsumedEvent
-                    {
-                        Context = itemContext,
-                        ItemId = itemContext.Payload.itemId,
-                        EventSequence = itemContext.NextEventSequence()
-                    };
-                    CoCoEventBus.Publish(ref evt);
-                }
-
-                itemContext.Intent.Clear();
             }
         }
 

@@ -180,10 +180,6 @@ namespace CoCoFlow.Runtime.Core.Tests
             {
                 AssertPublicSurfaceHasNoForbiddenTransport(graphType);
             }
-
-            Assembly runtimeCoreAssembly = Assembly.Load("CoCoFlow.Runtime.Core");
-            Type stateLayer = runtimeCoreAssembly.GetType("CoCoFlow.Runtime.Core.CoCoStateLayer", true);
-            AssertPublicSurfaceHasNoForbiddenTransport(stateLayer);
         }
 
         [Test]
