@@ -61,6 +61,11 @@ PersistenceSaveLoadSystem
 | `PersistenceCharacterContextAdapter` | Captures/restores durable `CharacterContext` facts such as identity, lifecycle, semantic/action state, event sequence, motion, and health. |
 | `PersistenceItemContextAdapter` | Captures/restores durable `ItemContext` facts such as identity, lifecycle, item state, and payload. |
 
+`CharacterContext` and `ItemContext` are optional types supplied by the
+`Samples~/Gameplay` source handoff. Their reflection-based adapters remain in
+the formal Persistence Runtime so the package compiles without importing the
+sample and can recognize those Context types when a project includes them.
+
 `PersistenceContext` should be placed on scene entities that need state-machine restoration. It looks for a same-GameObject `ICoCoContextProvider<TContext>` and delegates capture/apply to registered adapters.
 
 The Context path intentionally excludes:
@@ -160,7 +165,7 @@ A minimal scene uses the following MonoBehaviours:
 | Scene runtime root | `PersistenceContainerStore` | Owns active container section and catalog reference. |
 | Scene runtime root | project installer or bootstrap | Assigns a `PersistenceContainerCatalog` and materializes startup containers. |
 | Persistent entity root | `PersistenceContext` | Provides stable scene identity and captures/applies Context. |
-| Persistent entity root | `ICoCoContextProvider<TContext>` implementation | Owns the actual runtime Context, such as `CharacterContextProvider` or `ItemContextProvider`. |
+| Persistent entity root | `ICoCoContextProvider<TContext>` implementation | Owns the actual runtime Context. Optional `CharacterContextProvider` and `ItemContextProvider` implementations come from `Samples~/Gameplay`. |
 | Entity or operation object | `PersistenceContainerBridge` | Publishes commands from legacy gameplay code. |
 
 For prefabs, `PersistenceContext.stableEntityId` should remain empty. Scene instances generate or receive stable IDs; prefab assets should not share a serialized scene-instance ID.

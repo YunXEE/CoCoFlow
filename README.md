@@ -533,7 +533,7 @@ Runtime/Animation        engine-independent Animation Operation and feedback con
 Runtime/Modules/Animation  Animator Controller Operators, SMB bridge, and optional adapters
 Runtime/Modules/Map      transactional Region fidelity, demand, participants, and adapters
 Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
-Runtime/Gameplay         transitional gameplay implementations
+Samples~/Gameplay        source handoff for optional Character, Enemy, and Item implementations
 Runtime/Modules          other transitional presentation and service modules
 Editor/StateGraph        constrained graph authoring and diagnostics
 Editor/StateGraphHost    Host Inspector and committed runtime debugger

@@ -446,7 +446,7 @@ Runtime/Animation        与引擎隔离的 Animation Operation 与 feedback 契
 Runtime/Modules/Animation  Animator Controller Operator、SMB bridge 与可选 adapter
 Runtime/Modules/Map      事务式 Region fidelity、demand、participant 与 adapter
 Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
-Runtime/Gameplay         过渡期 gameplay 实现
+Samples~/Gameplay        可选 Character、Enemy、Item 实现的源码交接区
 Runtime/Modules          其他过渡期表现与服务模块
 Editor/StateGraph        受限图创作与 diagnostics
 Editor/StateGraphHost    Host Inspector 与 committed runtime debugger
