@@ -158,7 +158,7 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
                         "Graph/" + pureName,
                         StringComparison.Ordinal));
                 StringAssert.DoesNotContain("UnityEngine", file.Content);
-                StringAssert.DoesNotContain("InputRuntime", file.Content);
+                StringAssert.DoesNotContain("InputReader", file.Content);
                 StringAssert.DoesNotContain(
                     "InputCommandBatch",
                     file.Content);
@@ -171,6 +171,7 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
                 file.RelativePath.EndsWith(
                     "Runtime/ProjectPlayerIntentSource.cs",
                     StringComparison.Ordinal));
+            StringAssert.Contains("InputReader", source.Content);
             StringAssert.Contains("InputCommandBatch", source.Content);
             StringAssert.Contains("ProjectPlayerCommandBatch", source.Content);
             StringAssert.Contains("ProjectMoveValue", source.Content);

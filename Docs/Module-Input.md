@@ -1,9 +1,10 @@
 # Module: Input
 
-> Pre14 contract: `0.4.0-pre.14` · Updated 2026-07-28
+> PR15.05 contract · Updated 2026-08-16
 
-The Input module turns Input System actions into project-owned semantic Intent.
-`PlayerInput`, its runtime `InputActionAsset`, `InputUser`, devices, Control
+The Input module owns the physical Input System boundary that project adapters
+turn into project-owned semantic Intent. `PlayerInput`, its runtime
+`InputActionAsset`, `InputUser`, devices, Control
 Scheme, bindings, and rebind overrides remain the physical-input authority.
 StateGraph never reads an `InputAction`, device, callback, or binding path.
 
@@ -19,14 +20,14 @@ StateGraph never reads an `InputAction`, device, callback, or binding path.
 - One frozen project Intent is shared read-only by every relevant State/Layer;
   there is no per-State consume API.
 
-`InputRuntime` uses the exact runtime Action collection owned by `PlayerInput`;
+`InputReader` uses the exact runtime Action collection owned by `PlayerInput`;
 it does not clone a second `InputActionAsset`. It reports the current Control
 Scheme and device layout, resolves binding display strings and glyphs, exposes
 continuous reads, and publishes prompt and input-fence changes. If
-`PlayerInput.actions` is replaced while enabled, `InputRuntime` unsubscribes the
+`PlayerInput.actions` is replaced while enabled, `InputReader` unsubscribes the
 cached old collection, fences pending input, then subscribes the replacement.
-Early `Awake` only registers the retained compatibility services. Runtime Action
-subscription and the single persisted-override load wait until `PlayerInput` is
+`InputReader` does not register an Input service. Runtime Action subscription
+and the single persisted-override load wait until `PlayerInput` is
 active and every component has completed `Awake`, so Input initialization cannot
 preempt PlayerInput's per-player Action collection or an override Store's setup.
 Disable/Enable does not reload persisted data.
@@ -36,14 +37,16 @@ Canceled callbacks. Re-enabled Actions whose controls are still actuated enter
 a neutral gate: Performed/Canceled callbacks remain suppressed until every
 bound control returns to its default value, and only the next physical input is
 accepted. `TryReadValue` follows the same authority boundary: it returns
-`false/default` while the Runtime is disabled, an Action is neutral-gated, or a
-controlled transition or Binding resolution is in progress. Legacy Move, Look,
-and Zoom snapshots therefore remain zero across the same fences.
+`false/default` while the Reader is disabled, an Action is neutral-gated, or a
+controlled transition or Binding resolution is in progress. The convenience
+Move, Look, and Zoom snapshots therefore remain zero across the same fences.
 
-`InputFenced` and `PromptChanged` are post-commit observer notifications.
-`InputRuntime` invokes every subscriber independently and logs a subscriber
-exception with the Runtime as its Unity context. An observer failure therefore
-cannot interrupt a fence, rebind commit, prompt refresh, or a later subscriber.
+`ActionChanged` is the authoritative physical Action notification. It is
+published before the familiar string `OnActionPerformed` and
+`OnActionCanceled` notifications. All three notifications, plus `InputFenced`
+and `PromptChanged`, invoke every subscriber independently and log subscriber
+exceptions with the Reader as their Unity context. An observer failure cannot
+skip a later subscriber or interrupt a fence, rebind commit, or prompt refresh.
 
 ## Input fence
 
@@ -97,12 +100,15 @@ The generated `ProjectPlayerIntentSource` is the only Input-to-Graph bridge.
 It converts Unity `Vector2` and `InputCommandBatch<ProjectPlayerCommand>` into
 the engine-free `ProjectMoveValue` and `ProjectPlayerCommandBatch`. Generated
 Graph authoring contracts therefore do not reference Input System,
-`InputRuntime`, Unity types, or another CoCoFlow module.
+`InputReader`, Unity types, or another CoCoFlow module.
 
-## Compatibility
+## Consumer boundary
 
-`InputReader`, `CoCoInputIntent`, `IInputStateProvider`,
-`IInputEventSource`, and `IInputModeController` are obsolete transition
-surfaces. `InputRuntime` implements the three interfaces explicitly for the
-retained UI/Camera consumers. New project code and generated scaffold code use
-`ICoCoIntentFrameSource<TIntent>` instead.
+`InputReader` is the only package physical-input authority. UI, Camera, and the
+Gameplay Sample bind it and their relevant `InputActionReference` values
+explicitly; they do not resolve Input through `CoCoServices`. The retired Core
+input intent/services and the fixed map enum/constants no longer exist.
+
+Generated project code still converts `InputReader` output into a project-owned
+`ICoCoIntentFrameSource<TIntent>`. StateGraph never consumes `InputReader`, raw
+Input System Actions, or string convenience events directly.

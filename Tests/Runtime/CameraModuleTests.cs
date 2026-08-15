@@ -1,24 +1,30 @@
+using System;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Camera;
+using CoCoFlow.Runtime.Modules.Input;
 using NUnit.Framework;
 using Unity.Cinemachine;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 {
-    public class CameraModuleTests
+    public class CameraModuleTests : InputTestFixture
     {
         [SetUp]
-        public void SetUp()
+        public override void Setup()
         {
+            base.Setup();
             CoCoServices.ClearAll();
         }
 
         [TearDown]
-        public void TearDown()
+        public override void TearDown()
         {
             CoCoServices.ClearAll();
+            base.TearDown();
         }
 
         [Test]
@@ -356,13 +362,14 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         {
             var root = new GameObject("Aim Coupler Input Test");
             var aimCore = new GameObject("Aim Core");
+            LookInputFixture input = null;
             try
             {
                 aimCore.transform.SetParent(root.transform);
-                var input = root.AddComponent<TestInputStateProvider>();
+                input = CreateLookInput(Vector2.right);
                 var coupler = aimCore.AddComponent<CameraAimCoupler>();
-                coupler.SetInputStateProvider(input);
-                input.LookInputValue = Vector2.right;
+                coupler.SetInputReader(input.Reader);
+                coupler.SetLookAction(input.Reference);
 
                 SampleInput(coupler, 1f);
 
@@ -372,6 +379,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
+                input?.Destroy();
                 Object.DestroyImmediate(aimCore);
                 Object.DestroyImmediate(root);
             }
@@ -383,18 +391,19 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             var root = new GameObject("Aim Coupler Decoupled Test");
             var aimCore = new GameObject("Aim Core");
             var syncTarget = new GameObject("Sync Target");
+            LookInputFixture input = null;
             try
             {
                 aimCore.transform.SetParent(root.transform);
                 syncTarget.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
                 var expectedTargetRotation = syncTarget.transform.rotation;
 
-                var input = root.AddComponent<TestInputStateProvider>();
+                input = CreateLookInput(Vector2.right);
                 var coupler = aimCore.AddComponent<CameraAimCoupler>();
-                coupler.SetInputStateProvider(input);
+                coupler.SetInputReader(input.Reader);
+                coupler.SetLookAction(input.Reference);
                 coupler.SetSyncTarget(syncTarget.transform);
                 coupler.SetCoupled(false);
-                input.LookInputValue = Vector2.right;
 
                 SampleInput(coupler, 1f);
 
@@ -404,6 +413,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
+                input?.Destroy();
                 Object.DestroyImmediate(syncTarget);
                 Object.DestroyImmediate(aimCore);
                 Object.DestroyImmediate(root);
@@ -476,23 +486,24 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         {
             var root = new GameObject("Aim Coupler Ancestor No Input Test");
             var aimCore = new GameObject("Aim Core");
+            LookInputFixture input = null;
             try
             {
                 aimCore.transform.SetParent(root.transform);
-                var input = root.AddComponent<TestInputStateProvider>();
+                input = CreateLookInput(Vector2.right);
                 var coupler = aimCore.AddComponent<CameraAimCoupler>();
-                coupler.SetInputStateProvider(input);
+                coupler.SetInputReader(input.Reader);
+                coupler.SetLookAction(input.Reference);
                 coupler.SetSyncTarget(root.transform);
                 coupler.SetCoupled(true);
 
-                input.LookInputValue = Vector2.right;
                 SampleInput(coupler, 0.25f);
 
                 var expectedRootRotation = root.transform.rotation;
                 var expectedAimWorldRotation = aimCore.transform.rotation;
                 var expectedAimLocalRotation = aimCore.transform.localRotation;
 
-                input.LookInputValue = Vector2.zero;
+                input.SetValue(Vector2.zero);
                 SampleInput(coupler, 1f);
 
                 AssertQuaternionApproximately(
@@ -507,6 +518,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
+                input?.Destroy();
                 Object.DestroyImmediate(aimCore);
                 Object.DestroyImmediate(root);
             }
@@ -665,6 +677,45 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             method.Invoke(coupler, new object[] { deltaTime });
         }
 
+        private LookInputFixture CreateLookInput(Vector2 value)
+        {
+            Gamepad gamepad = InputSystem.AddDevice<Gamepad>();
+            var actions = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            InputAction look = map.AddAction(
+                "Look",
+                InputActionType.Value,
+                "<Gamepad>/rightStick");
+            look.ChangeBinding(0).WithGroup("Gamepad");
+            actions.AddActionMap(map);
+            actions.AddControlScheme("Gamepad")
+                .WithRequiredDevice("<Gamepad>");
+            InputActionReference reference = InputActionReference.Create(look);
+            var inputObject = new GameObject("Camera Input Reader");
+            inputObject.SetActive(false);
+            PlayerInput playerInput = inputObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            playerInput.defaultActionMap = map.name;
+            playerInput.defaultControlScheme = "Gamepad";
+            InputReader reader = inputObject.AddComponent<InputReader>();
+            inputObject.SetActive(true);
+            playerInput.ActivateInput();
+            reader.enabled = false;
+            reader.enabled = true;
+            Assert.IsTrue(reader.TryResolveAction(look.id, out InputAction runtimeLook));
+            runtimeLook.Enable();
+
+            var fixture = new LookInputFixture(
+                inputObject,
+                actions,
+                reference,
+                reader,
+                gamepad,
+                next => Set(gamepad.rightStick, next));
+            fixture.SetValue(value);
+            return fixture;
+        }
+
         private static void AssertQuaternionApproximately(
             Quaternion expected,
             Quaternion actual)
@@ -747,12 +798,55 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
         }
 
-        private sealed class TestInputStateProvider : MonoBehaviour, IInputStateProvider
+        private sealed class LookInputFixture
         {
-            public Vector2 MoveInput => Vector2.zero;
-            public Vector2 LookInput => LookInputValue;
-            public Vector2 ZoomInput => Vector2.zero;
-            public Vector2 LookInputValue { get; set; }
+            private readonly GameObject _gameObject;
+            private readonly InputActionAsset _actions;
+            private readonly Gamepad _gamepad;
+            private readonly Action<Vector2> _setValue;
+
+            public LookInputFixture(
+                GameObject gameObject,
+                InputActionAsset actions,
+                InputActionReference reference,
+                InputReader reader,
+                Gamepad gamepad,
+                Action<Vector2> setValue)
+            {
+                _gameObject = gameObject;
+                _actions = actions;
+                Reference = reference;
+                Reader = reader;
+                _gamepad = gamepad;
+                _setValue = setValue;
+            }
+
+            public InputActionReference Reference { get; }
+            public InputReader Reader { get; }
+
+            public void SetValue(Vector2 value)
+            {
+                Assert.AreEqual(1, Reader.PlayerInput.devices.Count);
+                Assert.AreSame(_gamepad, Reader.PlayerInput.devices[0]);
+                _setValue(value);
+                Assert.AreEqual(value, _gamepad.rightStick.ReadValue());
+                Assert.IsTrue(Reader.TryResolveAction(
+                    Reference,
+                    out InputAction runtimeLook));
+                Assert.AreEqual(1, runtimeLook.controls.Count);
+                Assert.AreSame(_gamepad.rightStick, runtimeLook.controls[0]);
+                Assert.IsTrue(
+                    Reader.TryReadValue(Reference, out Vector2 sampled),
+                    "The explicit Look Action must be readable from InputReader.");
+                Assert.AreEqual(value, sampled);
+            }
+
+            public void Destroy()
+            {
+                Object.DestroyImmediate(_gameObject);
+                Object.DestroyImmediate(Reference);
+                Object.DestroyImmediate(_actions);
+            }
         }
     }
 }

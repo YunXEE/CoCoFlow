@@ -8,7 +8,7 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
     [DisallowMultipleComponent]
     public sealed class InputPromptPresenter : MonoBehaviour
     {
-        [SerializeField] private InputRuntime inputRuntime;
+        [SerializeField] private InputReader inputReader;
         [SerializeField] private InputActionReference action;
         [SerializeField] private UIWidgetLocalizedText localizedText;
         [SerializeField] private Image glyphImage;
@@ -17,9 +17,9 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
 
         private void OnEnable()
         {
-            if (inputRuntime != null)
+            if (inputReader != null)
             {
-                inputRuntime.PromptChanged += Refresh;
+                inputReader.PromptChanged += Refresh;
             }
 
             Refresh();
@@ -27,16 +27,16 @@ namespace CoCoFlow.Runtime.Modules.Input.UI
 
         private void OnDisable()
         {
-            if (inputRuntime != null)
+            if (inputReader != null)
             {
-                inputRuntime.PromptChanged -= Refresh;
+                inputReader.PromptChanged -= Refresh;
             }
         }
 
         public void Refresh()
         {
-            if (inputRuntime == null ||
-                !inputRuntime.TryGetPrompt(
+            if (inputReader == null ||
+                !inputReader.TryGetPrompt(
                     action,
                     out InputPromptSnapshot snapshot))
             {

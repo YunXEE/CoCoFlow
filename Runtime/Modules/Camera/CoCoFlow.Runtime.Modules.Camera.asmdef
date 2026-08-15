@@ -3,7 +3,9 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Camera",
     "references": [
         "Unity.Cinemachine",
-        "CoCoFlow.Runtime.Core"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Input",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

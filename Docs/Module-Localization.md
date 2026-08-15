@@ -42,5 +42,5 @@ the Widget reports `MissingTextTarget` without dereferencing the missing target
 or throwing from its observation coroutine.
 
 Localization does not own input binding selection. `InputPromptPresenter`
-obtains the current display string and optional glyph from `InputRuntime`, then
+obtains the current display string and optional glyph from `InputReader`, then
 passes the display string into this Widget.

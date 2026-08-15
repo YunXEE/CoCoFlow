@@ -1,5 +1,7 @@
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Input;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace CoCoFlow.Runtime.Gameplay.Character
 {
@@ -13,19 +15,21 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         [SerializeField] private MonoBehaviour contextProvider;
 
         [Header("Input Source")]
-        [SerializeField] private MonoBehaviour inputIntentSource;
+        [SerializeField] private InputReader inputReader;
+        [SerializeField] private InputActionReference moveAction;
+        [SerializeField] private InputActionReference lookAction;
+        [SerializeField] private InputActionReference jumpAction;
+        [SerializeField] private InputActionReference attackAction;
+        [SerializeField] private InputActionReference interactAction;
+        [SerializeField] private InputActionReference useSkillAction;
         [SerializeField] private int sourcePriority = 30;
         [SerializeField] private bool updateAutomatically = true;
 
-        [Header("Action Names")]
-        [SerializeField] private string jumpActionName = "Jump";
-        [SerializeField] private string attackActionName = "Attack";
-        [SerializeField] private string interactActionName = "Interact";
-        [SerializeField] private string useSkillActionName = "UseSkill";
-
         private CharacterContext _context;
-        private ICoCoIntentSource<CoCoInputIntent> _inputIntentSource;
-        private int _lastPerformedSequence;
+        private bool _pendingJump;
+        private bool _pendingAttack;
+        private bool _pendingInteract;
+        private bool _pendingUseSkill;
         private bool _isProviderDriven;
 
         #region Public API
@@ -35,10 +39,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
 
         public void WriteToContext(CharacterContext context)
         {
-            var source = InputIntentSource;
-            if (context == null || source?.Intent == null) return;
+            if (context == null || inputReader == null) return;
 
-            ApplyInputIntent(context, source.Intent);
+            ApplyInput(context);
         }
 
         public void SetProviderDriven(bool providerDriven)
@@ -52,11 +55,22 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             _context = null;
         }
 
-        public void SetInputIntentSource(MonoBehaviour source)
+        public void SetInputReader(InputReader reader)
         {
-            inputIntentSource = source;
-            _inputIntentSource = null;
-            _lastPerformedSequence = 0;
+            if (ReferenceEquals(inputReader, reader)) return;
+
+            if (isActiveAndEnabled)
+            {
+                UnsubscribeInput();
+            }
+
+            inputReader = reader;
+            ClearPendingInput();
+
+            if (isActiveAndEnabled)
+            {
+                SubscribeInput();
+            }
         }
 
         #endregion
@@ -64,12 +78,21 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         #region Internal Logic
 
         private CharacterContext Context => ResolveContext();
-        private ICoCoIntentSource<CoCoInputIntent> InputIntentSource => ResolveInputIntentSource();
 
         private void Awake()
         {
             ResolveContext();
-            ResolveInputIntentSource();
+        }
+
+        private void OnEnable()
+        {
+            SubscribeInput();
+        }
+
+        private void OnDisable()
+        {
+            UnsubscribeInput();
+            ClearPendingInput();
         }
 
         private void Update()
@@ -83,38 +106,46 @@ namespace CoCoFlow.Runtime.Gameplay.Character
         private bool SampleInput()
         {
             var targetContext = Context;
-            var source = InputIntentSource;
-            if (targetContext == null || source?.Intent == null) return false;
+            if (targetContext == null || inputReader == null) return false;
 
-            ApplyInputIntent(targetContext, source.Intent);
+            ApplyInput(targetContext);
             return true;
         }
 
-        private void ApplyInputIntent(
-            CharacterContext targetContext,
-            CoCoInputIntent inputIntent)
+        private void ApplyInput(CharacterContext targetContext)
         {
-            if (targetContext == null || inputIntent == null) return;
+            if (targetContext == null || inputReader == null) return;
 
             var characterIntent = targetContext.Intent;
-            characterIntent.move = inputIntent.move;
-            characterIntent.look = inputIntent.look;
+            characterIntent.move = inputReader.TryReadValue(
+                moveAction,
+                out Vector2 move)
+                ? move
+                : Vector2.zero;
+            characterIntent.look = inputReader.TryReadValue(
+                lookAction,
+                out Vector2 look)
+                ? look
+                : Vector2.zero;
             characterIntent.ClearDiscrete();
+            characterIntent.jump = _pendingJump;
+            characterIntent.attack = _pendingAttack;
+            characterIntent.interact = _pendingInteract;
+            characterIntent.useSkill = _pendingUseSkill;
+            ClearPendingInput();
+        }
 
-            if (inputIntent.performedSequence == _lastPerformedSequence)
+        private void HandleActionChanged(InputActionEvent actionEvent)
+        {
+            if (actionEvent.Phase != InputActionPhase.Performed)
             {
                 return;
             }
 
-            _lastPerformedSequence = inputIntent.performedSequence;
-
-            var performedAction = inputIntent.performedAction;
-            if (string.IsNullOrEmpty(performedAction)) return;
-
-            characterIntent.jump = IsAction(performedAction, jumpActionName);
-            characterIntent.attack = IsAction(performedAction, attackActionName);
-            characterIntent.interact = IsAction(performedAction, interactActionName);
-            characterIntent.useSkill = IsAction(performedAction, useSkillActionName);
+            _pendingJump |= Matches(jumpAction, actionEvent.Action);
+            _pendingAttack |= Matches(attackAction, actionEvent.Action);
+            _pendingInteract |= Matches(interactAction, actionEvent.Action);
+            _pendingUseSkill |= Matches(useSkillAction, actionEvent.Action);
         }
 
         private CharacterContext ResolveContext()
@@ -143,23 +174,34 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             return null;
         }
 
-        private ICoCoIntentSource<CoCoInputIntent> ResolveInputIntentSource()
+        private void SubscribeInput()
         {
-            if (_inputIntentSource != null) return _inputIntentSource;
-
-            if (inputIntentSource is ICoCoIntentSource<CoCoInputIntent> explicitSource)
+            if (inputReader == null)
             {
-                _inputIntentSource = explicitSource;
-                return _inputIntentSource;
+                return;
             }
 
-            if (CoCoServices.TryGet(out ICoCoIntentSource<CoCoInputIntent> serviceSource))
+            inputReader.ActionChanged += HandleActionChanged;
+            inputReader.InputFenced += ClearPendingInput;
+        }
+
+        private void UnsubscribeInput()
+        {
+            if (inputReader == null)
             {
-                _inputIntentSource = serviceSource;
-                return _inputIntentSource;
+                return;
             }
 
-            return null;
+            inputReader.ActionChanged -= HandleActionChanged;
+            inputReader.InputFenced -= ClearPendingInput;
+        }
+
+        private void ClearPendingInput()
+        {
+            _pendingJump = false;
+            _pendingAttack = false;
+            _pendingInteract = false;
+            _pendingUseSkill = false;
         }
 
         private static bool TryGetContextFromProvider(
@@ -176,10 +218,14 @@ namespace CoCoFlow.Runtime.Gameplay.Character
             return false;
         }
 
-        private static bool IsAction(string actionName, string expectedActionName)
+        private static bool Matches(
+            InputActionReference reference,
+            InputAction action)
         {
-            return !string.IsNullOrEmpty(expectedActionName) &&
-                   string.Equals(actionName, expectedActionName, System.StringComparison.Ordinal);
+            return reference != null &&
+                   reference.action != null &&
+                   action != null &&
+                   reference.action.id == action.id;
         }
 
         private void OnValidate()
@@ -189,10 +235,6 @@ namespace CoCoFlow.Runtime.Gameplay.Character
                 contextProvider = null;
             }
 
-            if (ReferenceEquals(inputIntentSource, this))
-            {
-                inputIntentSource = null;
-            }
         }
 
         private void Reset()
@@ -208,12 +250,9 @@ namespace CoCoFlow.Runtime.Gameplay.Character
                     contextProvider = behaviour;
                 }
 
-                if (inputIntentSource == null &&
-                    behaviour is ICoCoIntentSource<CoCoInputIntent>)
-                {
-                    inputIntentSource = behaviour;
-                }
             }
+
+            inputReader = GetComponent<InputReader>();
         }
 
         #endregion
