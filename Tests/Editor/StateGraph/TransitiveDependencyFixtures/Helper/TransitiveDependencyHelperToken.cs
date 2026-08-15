@@ -1,21 +1,21 @@
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper
 {
     /// <summary>
-    /// Keeps the fixture's legacy dependency observable without exposing a legacy type to the
-    /// author assembly that consumes this token.
+    /// Keeps the fixture's forbidden Core dependency observable without exposing a Core type to
+    /// the author assembly that consumes this token.
     /// </summary>
     public readonly struct TransitiveDependencyHelperToken
     {
-        private readonly CoCoStateContextAccess _access;
+        private readonly CoCoLifecycleState _state;
 
-        private TransitiveDependencyHelperToken(CoCoStateContextAccess access)
+        private TransitiveDependencyHelperToken(CoCoLifecycleState state)
         {
-            _access = access;
+            _state = state;
         }
 
-        public int Value => (int)_access;
+        public int Value => (int)_state;
 
         public static TransitiveDependencyHelperToken Create() =>
-            new TransitiveDependencyHelperToken(CoCoStateContextAccess.Read);
+            new TransitiveDependencyHelperToken(CoCoLifecycleState.Uninitialized);
     }
 }

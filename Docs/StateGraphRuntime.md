@@ -40,8 +40,8 @@ compatible components inside the Host boundary, but never assigns or saves a
 suggestion until the user confirms it. All configuration is read-only while the
 Host is Running.
 
-The Runtime never scans old `CoCoStateController` instances, Context providers,
-children, or the scene. Intent Sources, Event-to-Intent Adapters, and Operators
+The Runtime never discovers bindings by scanning components, children, or the
+scene. Intent Sources, Event-to-Intent Adapters, and Operators
 are serialized as explicit ordered Host references. Runtime validation rejects
 null or destroyed entries, incompatible types, duplicate references, duplicate
 stable IDs, entries outside the Host transform scope, and entries hidden behind

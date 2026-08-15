@@ -161,8 +161,7 @@ A minimal scene uses the following MonoBehaviours:
 | Scene runtime root | project installer or bootstrap | Assigns a `PersistenceContainerCatalog` and materializes startup containers. |
 | Persistent entity root | `PersistenceContext` | Provides stable scene identity and captures/applies Context. |
 | Persistent entity root | `ICoCoContextProvider<TContext>` implementation | Owns the actual runtime Context, such as `CharacterContextProvider` or `ItemContextProvider`. |
-| Persistent entity root or child | `CoCoStateController` | Legacy Mono-State restoration through the old Context path. |
-| Entity or operation object | `PersistenceContainerBridge` | Publishes commands from legacy gameplay code or Mono State scripts. |
+| Entity or operation object | `PersistenceContainerBridge` | Publishes commands from legacy gameplay code. |
 
 For prefabs, `PersistenceContext.stableEntityId` should remain empty. Scene instances generate or receive stable IDs; prefab assets should not share a serialized scene-instance ID.
 
