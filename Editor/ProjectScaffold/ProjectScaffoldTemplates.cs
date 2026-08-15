@@ -239,7 +239,7 @@ namespace CoCoFlowProject
         MonoBehaviour,
         ICoCoIntentFrameSource<ProjectPlayerIntent>
     {
-        [SerializeField] private InputRuntime inputRuntime;
+        [SerializeField] private InputReader inputReader;
         [SerializeField] private CoCoStateGraphHost host;
         [SerializeField] private InputActionReference moveAction;
         [SerializeField] private InputActionReference interactAction;
@@ -262,13 +262,13 @@ namespace CoCoFlowProject
 
         private void OnEnable()
         {
-            if (inputRuntime == null)
+            if (inputReader == null)
             {
                 return;
             }
 
-            inputRuntime.ActionChanged += OnActionChanged;
-            inputRuntime.InputFenced += Fence;
+            inputReader.ActionChanged += OnActionChanged;
+            inputReader.InputFenced += Fence;
             Fence();
             _observedInputAuthorityRevision =
                 host != null ? host.InputAuthorityRevision : 0UL;
@@ -282,10 +282,10 @@ namespace CoCoFlowProject
 
         private void OnDisable()
         {
-            if (inputRuntime != null)
+            if (inputReader != null)
             {
-                inputRuntime.ActionChanged -= OnActionChanged;
-                inputRuntime.InputFenced -= Fence;
+                inputReader.ActionChanged -= OnActionChanged;
+                inputReader.InputFenced -= Fence;
             }
 
             Fence();
@@ -295,7 +295,7 @@ namespace CoCoFlowProject
             in CoCoTickFrame tickFrame,
             out ProjectPlayerIntent intent)
         {
-            if (!SynchronizeAcceptance() || inputRuntime == null)
+            if (!SynchronizeAcceptance() || inputReader == null)
             {
                 Fence();
                 intent = default;
@@ -305,7 +305,7 @@ namespace CoCoFlowProject
             Vector2 move = Vector2.zero;
             if (_continuousArmed)
             {
-                inputRuntime.TryReadValue(moveAction, out move);
+                inputReader.TryReadValue(moveAction, out move);
             }
 
             InputCommandBatch<ProjectPlayerCommand> inputBatch = default;
@@ -396,8 +396,8 @@ namespace CoCoFlowProject
             InputAction candidate)
         {
             return candidate != null &&
-                   inputRuntime != null &&
-                   inputRuntime.TryResolveAction(reference, out InputAction action) &&
+                   inputReader != null &&
+                   inputReader.TryResolveAction(reference, out InputAction action) &&
                    action.id == candidate.id;
         }
 

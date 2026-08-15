@@ -12,7 +12,7 @@ Camera 是 CoCoFlow 的本地表现层相机模块，只服务 3D 第三人称�
 
 - `CameraDirector`：场景级调度器，只负责注册 rig、过滤 active/available、按 priority 仲裁 winner。
 - `CameraRig`：挂在玩家、观战对象、cutscene anchor 或特殊镜头对象上，内部持有项目自定义的 mode id -> virtual camera 条目，并产出当前 virtual camera。
-- `CameraAimCoupler`：挂在 AimCore 上，读取 `IInputStateProvider.LookInput` 旋转 AimCore，并可把 AimCore 的旋转同步给一个绑定 Transform。同步目标是 AimCore 祖先时只搬运水平 yaw，并回写 AimCore 本地旋转，避免父子层级二次叠加。
+- `CameraAimCoupler`：挂在 AimCore 上，通过显式绑定的 `InputReader` 与 Look `InputActionReference` 旋转 AimCore，并可把 AimCore 的旋转同步给一个绑定 Transform。同步目标是 AimCore 祖先时只搬运水平 yaw，并回写 AimCore 本地旋转，避免父子层级二次叠加。
 
 旧 0.3.9 核心原则：Mono State 脚本决定玩法状态，`CameraRig` 暴露表现
 参数，`CameraDirector` 只仲裁谁生效。0.4 StateLogic 只能产生已声明的 Camera
@@ -22,7 +22,7 @@ OperationFrame Section，由 Camera Operator 执行。
 
 ```mermaid
 flowchart TD
-  Input["InputReader / IInputStateProvider"] -->|"LookInput"| AimCore["AimCore / CameraAimCoupler"]
+  Input["InputReader + Look Action"] -->|"TryReadValue"| AimCore["AimCore / CameraAimCoupler"]
   State["Legacy Mono state script / 业务脚本"] -->|"SetMode(modeId) / SetPriority"| PlayerRig["Player CameraRig"]
   State -->|"SetCoupled(true/false)"| AimCore
   State -->|"SetActive / SetPriority"| OtherRig["Spectate / Cutscene CameraRig"]
@@ -46,7 +46,7 @@ flowchart TD
 | `CameraDirector` | 场景里的本地相机调度器。默认注册成 `ICameraDirector` 服务，接受任意数量的 `CameraRig`，按 priority 选择当前 rig。 |
 | `CameraRig` | 相机表现单元。保存 rig id、priority、active、当前 mode id 和任意数量的手动配置相机条目。 |
 | `CameraRigCameraEntry` | `CameraRig` 的一条相机配置：项目自定义 `Mode Id` + 一台 `CinemachineVirtualCameraBase`。Mode id 没有框架含义，例如 `Explore`、`Aim`、`BossCombat`、`Dialogue`。 |
-| `CameraAimCoupler` | AimCore 末端脚本。显式绑定 `IInputStateProvider`，读取 Look 输入旋转自身；`Coupled` 开启时同步旋转给绑定 Transform。非祖先目标会收到完整 world rotation；祖先目标会收到水平 yaw，并让 AimCore 保持原 world aim。 |
+| `CameraAimCoupler` | AimCore 末端脚本。显式绑定 `InputReader` 和 Look Action，读取 Look 输入旋转自身；`Coupled` 开启时同步旋转给绑定 Transform。非祖先目标会收到完整 world rotation；祖先目标会收到水平 yaw，并让 AimCore 保持原 world aim。 |
 | `ICameraDirector` | 给项目业务层或表现 adapter 使用的轻接口。提供 rig 注册、激活、priority 调整、暂停调度和 active rig 事件。 |
 
 ## Scene 组装
@@ -80,7 +80,7 @@ CutsceneAnchor / SpectateAnchor / BossCameraAnchor
 
 1. `Main Camera` 挂 `Camera` 和 `CinemachineBrain`。
 2. 场景里建一个 `CameraSystem`，挂 `CameraDirector`，保持 `Register As Service` 开启。
-3. 玩家 prefab 内建 `AimCore`，在 AimCore 上挂 `CameraAimCoupler`，显式绑定实现 `IInputStateProvider` 的输入源和可选同步目标。
+3. 玩家 prefab 内建 `AimCore`，在 AimCore 上挂 `CameraAimCoupler`，显式绑定 `InputReader`、Look Action 和可选同步目标。
 4. 玩家 prefab 上挂 `CameraRig`，在 `Cameras` 列表里按需要新增条目，例如 `Explore`、`Aim`、`BossCombat`、`Dialogue`，并把对应 Cinemachine virtual camera 拖到条目的 `Camera` 字段。
 5. 在每台 Cinemachine virtual camera Inspector 里直接配置 Follow/LookAt/ThirdPersonFollow target，例如指向 `AimCore` 或其子节点；`CameraRig` 不会运行时重绑 target。
 6. 玩家 spawn 后，让本地玩家 rig 保持 active，并设置默认 priority，例如 `70`。
@@ -169,7 +169,7 @@ Priority 是声明式抢占权。Director 每次刷新时只看 active rig：
 
 这接近 Cinemachine ThirdPerson with Aimmode demo 的关键思路：相机绕的是玩家内部的 aim core，而不是让全局 camera orbit 状态机直接驱动玩家。
 
-`CameraAimCoupler` 不做 fallback：不会自动找 `InputReader`、父级 Root、`CameraRig` 或 Cinemachine camera。缺少 `inputStateProvider` 时不读取输入也不旋转；缺少 `syncTarget` 时只旋转 AimCore，不同步任何对象。
+`CameraAimCoupler` 不做 fallback：不会自动找 `InputReader`、Look Action、父级 Root、`CameraRig` 或 Cinemachine camera。缺少 `inputReader` 或 `lookAction` 时不读取输入也不旋转；缺少 `syncTarget` 时只旋转 AimCore，不同步任何对象。
 
 ## 外部权威边界
 

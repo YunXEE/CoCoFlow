@@ -1,9 +1,10 @@
 using System;
-using System.Reflection;
+using System.Linq;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Input;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 {
@@ -48,47 +49,40 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         }
 
         [Test]
-        public void InputReaderIsCoreIntentSourceWithoutGameplayOrStateAuthority()
+        public void InputReaderIsTheOnlyInputAuthorityWithoutCoreBridge()
         {
             var inputReaderType = typeof(InputReader);
-            var intentSourceType = typeof(ICoCoIntentSource<CoCoInputIntent>);
+            var inputAssembly = inputReaderType.Assembly;
+            var coreAssembly = typeof(CoCoServices).Assembly;
             var referencedAssemblies = inputReaderType.Assembly.GetReferencedAssemblies();
 
-            Assert.IsTrue(intentSourceType.IsAssignableFrom(inputReaderType));
-            Assert.IsNull(inputReaderType.GetMethod(
-                "ChangeState",
-                BindingFlags.Instance |
-                BindingFlags.Public |
-                BindingFlags.NonPublic));
+            Assert.IsTrue(inputReaderType.IsSealed);
+            RequireComponent requirement = inputReaderType
+                .GetCustomAttributes(typeof(RequireComponent), false)
+                .Cast<RequireComponent>()
+                .Single();
+            Assert.AreSame(typeof(PlayerInput), requirement.m_Type0);
+            Assert.IsFalse(referencedAssemblies.Any(assemblyName =>
+                assemblyName.Name == "CoCoFlow.Runtime.Core"));
+            Assert.IsNull(inputAssembly.GetType(
+                "CoCoFlow.Runtime.Modules.Input.InputRuntime"));
+            Assert.IsNull(inputAssembly.GetType(
+                "CoCoFlow.Runtime.Modules.Input.InputMapType"));
 
-            foreach (var assemblyName in referencedAssemblies)
+            string[] retiredCoreInputTypes =
             {
-                Assert.AreNotEqual(
-                    "CoCoFlow.Runtime.Gameplay.Character",
-                    assemblyName.Name,
-                    "Input module must not depend on Character gameplay.");
-            }
-
-            var intent = new CoCoInputIntent
-            {
-                move = Vector2.right,
-                look = Vector2.up,
-                zoom = Vector2.one,
-                performedAction = "Attack",
-                canceledAction = "Aim",
-                performedSequence = 10,
-                canceledSequence = 4
+                "CoCoInputIntent",
+                "IInputStateProvider",
+                "IInputEventSource",
+                "IInputModeController",
+                "InputMapNames"
             };
-
-            intent.ClearDiscrete();
-            Assert.AreEqual(Vector2.right, intent.move);
-            Assert.AreEqual(string.Empty, intent.performedAction);
-            Assert.AreEqual(string.Empty, intent.canceledAction);
-
-            intent.Clear();
-            Assert.AreEqual(Vector2.zero, intent.move);
-            Assert.AreEqual(0, intent.performedSequence);
-            Assert.AreEqual(0, intent.canceledSequence);
+            foreach (string retiredTypeName in retiredCoreInputTypes)
+            {
+                Assert.IsNull(coreAssembly.GetType(
+                    $"CoCoFlow.Runtime.Core.{retiredTypeName}"),
+                    retiredTypeName);
+            }
         }
     }
 }

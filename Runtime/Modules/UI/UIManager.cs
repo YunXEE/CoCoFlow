@@ -5,6 +5,8 @@ using CoCoFlow.Runtime.Content;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Input;
+using UnityEngine.InputSystem;
 
 namespace CoCoFlow.Runtime.Modules.UI
 {
@@ -28,14 +30,12 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private CoCoContentHost contentHost;
 
         [Header("Input Integration")]
-        [SerializeField] private string pauseActionName = "Pause";
-        [SerializeField] private string cancelActionName = "Cancel";
+        [SerializeField] private InputReader inputReader;
+        [SerializeField] private InputActionReference pauseAction;
+        [SerializeField] private InputActionReference cancelAction;
+        [SerializeField] private string playerActionMapName = "Player";
+        [SerializeField] private string uiActionMapName = "UI";
         [SerializeField] private ContentReference pausePanelSource;
-
-        private IInputEventSource _inputEvents;
-        private IInputModeController _inputMode;
-        private IDisposable _inputEventsWait;
-        private IDisposable _inputModeWait;
 
         private readonly Stack<UIPanelBase> _panelStack = new Stack<UIPanelBase>();
         private readonly CancellationTokenSource _destroyCts = new CancellationTokenSource();
@@ -85,26 +85,28 @@ namespace CoCoFlow.Runtime.Modules.UI
                 return;
             }
 
-            _inputEventsWait = CoCoServices.WaitFor<IInputEventSource>(svc =>
-            {
-                if (_isDestroyed) return;
-                _inputEvents = svc;
-                _inputEvents.OnActionPerformed += HandleUIInput;
-            });
+        }
 
-            _inputModeWait = CoCoServices.WaitFor<IInputModeController>(svc =>
+        private void OnEnable()
+        {
+            if (inputReader != null)
             {
-                if (!_isDestroyed) _inputMode = svc;
-            });
+                inputReader.ActionChanged += HandleUIInput;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (inputReader != null)
+            {
+                inputReader.ActionChanged -= HandleUIInput;
+            }
         }
 
         private void OnDestroy()
         {
             _isDestroyed = true;
             _destroyCts.Cancel();
-            _inputEventsWait?.Dispose();
-            _inputModeWait?.Dispose();
-            if (_inputEvents != null) _inputEvents.OnActionPerformed -= HandleUIInput;
             _pendingPanelScope?.Dispose();
             _pendingPanelScope = null;
             DestroyOpenPanels();
@@ -313,15 +315,22 @@ namespace CoCoFlow.Runtime.Modules.UI
             }
         }
 
-        private void HandleUIInput(string actionName)
+        private void HandleUIInput(InputActionEvent actionEvent)
         {
-            if (_isTransitioning || _isDestroyed) return;
+            if (_isTransitioning ||
+                _isDestroyed ||
+                actionEvent.Phase != InputActionPhase.Performed)
+            {
+                return;
+            }
 
-            if (actionName == pauseActionName && _panelStack.Count == 0)
+            if (Matches(pauseAction, actionEvent.Action) &&
+                _panelStack.Count == 0)
             {
                 PushPanelAsync(pausePanelSource).Forget();
             }
-            else if (actionName == cancelActionName && _panelStack.Count > 0)
+            else if (Matches(cancelAction, actionEvent.Action) &&
+                     _panelStack.Count > 0)
             {
                 PopPanelAsync().Forget();
             }
@@ -375,7 +384,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
             if (config.HasFlag(UIPanelConfig.TakeInputFocus))
             {
-                _inputMode?.SwitchActionMap(InputMapNames.UI);
+                inputReader?.SwitchActionMap(uiActionMapName);
             }
         }
 
@@ -404,8 +413,18 @@ namespace CoCoFlow.Runtime.Modules.UI
 
             if (_panelStack.Count == 0)
             {
-                _inputMode?.SwitchActionMap(InputMapNames.Player);
+                inputReader?.SwitchActionMap(playerActionMapName);
             }
+        }
+
+        private static bool Matches(
+            InputActionReference reference,
+            InputAction action)
+        {
+            return reference != null &&
+                   reference.action != null &&
+                   action != null &&
+                   reference.action.id == action.id;
         }
 
         private bool TryCreatePanelOwnerId(out ContentOwnerId ownerId)

@@ -6,7 +6,9 @@
         "CoCoFlow.Runtime.Modules.Camera",
         "CoCoFlow.Runtime.Modules.Input",
         "CoCoFlow.Runtime.Modules.Persistence",
-        "Unity.Cinemachine"
+        "Unity.Cinemachine",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

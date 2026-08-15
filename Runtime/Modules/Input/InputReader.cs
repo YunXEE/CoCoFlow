@@ -1,277 +1,493 @@
 using System;
-using CoCoFlow.Runtime.Core;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
+    "CoCoFlow.Tests.Runtime.Input")]
+
 namespace CoCoFlow.Runtime.Modules.Input
 {
-    public enum InputMapType
-    {
-        // 定义所有的Action Maps
-        Player,
-        UI,
-        None
-    }
-
-    [Obsolete(
-        "InputReader is a legacy pre-0.4 source. " +
-        "Use InputRuntime plus a project-owned ICoCoIntentFrameSource<TIntent>.")]
-    [DefaultExecutionOrder(-100)] // 保证早于 Camera/UI 的 Awake 完成注册，确保依赖输入的组件能正确获取服务
-    public class InputReader : MonoBehaviour,
-        IInputStateProvider, IInputEventSource, IInputModeController,
-        ICoCoIntentSource<CoCoInputIntent>
+    [DefaultExecutionOrder(-100)]
+    [DisallowMultipleComponent]
+    [RequireComponent(typeof(PlayerInput))]
+    public sealed class InputReader : MonoBehaviour
     {
         private struct BufferedInput
         {
             public string ActionName;
             public float Timestamp;
 
+            public bool IsValid(float currentTime, float bufferWindow) =>
+                !string.IsNullOrEmpty(ActionName) &&
+                currentTime - Timestamp <= bufferWindow;
+
             public void Clear()
             {
                 ActionName = string.Empty;
                 Timestamp = 0f;
             }
-
-            public bool IsValid(float currentTime, float bufferWindow)
-            {
-                return !string.IsNullOrEmpty(ActionName) && (currentTime - Timestamp) <= bufferWindow;
-            }
         }
 
-        [Header("Input Configuration")]
-        [Tooltip("Add Input Asset here")]
-        public InputActionAsset inputAsset;
+        [Header("Input Authority")]
+        [SerializeField] private PlayerInput playerInput;
+        [SerializeField] private InputGlyphCatalog glyphCatalog;
 
-        [Header("Input Buffering")]
-        [Tooltip("Open Input Buffering")]
+        [Header("Binding Overrides")]
+        [SerializeField] private MonoBehaviour bindingOverrideStore;
+        [SerializeField] private string bindingOverrideStorageKey =
+            "cocoflow.input.binding-overrides";
+
+        [Header("Convenience Input")]
+        [SerializeField] private InputActionReference moveAction;
+        [SerializeField] private InputActionReference lookAction;
+        [SerializeField] private InputActionReference zoomAction;
         [SerializeField] private bool isUsingInputBuffering = true;
-        [Tooltip("Action Keeping Time")]
-        [SerializeField] private float inputBufferTime = 0.2f;
-
-        [SerializeField] private InputMapType defaultMapType = InputMapType.Player;
+        [SerializeField, Min(0f)] private float inputBufferTime = 0.2f;
 
         private BufferedInput _currentBuffer;
-        private InputActionAsset _runtimeAsset;
-        private InputActionMap _currentMap;
-        private InputAction _moveAction;
-        private InputAction _lookAction;
-        private InputAction _zoomAction;
-        private readonly CoCoInputIntent _intent = new CoCoInputIntent();
+        private string _currentControlScheme = string.Empty;
+        private string _currentDeviceLayout = string.Empty;
+        private string _lastUsedDeviceLayout = string.Empty;
+        private InputActionAsset _subscribedActions;
+        private readonly List<InputAction> _neutralGatedActions =
+            new List<InputAction>(8);
+        private int _controlledTransitionDepth;
+        private int _bindingResolutionDepth;
+        private bool _runtimeInitialized;
+        private bool _bindingOverrideLoadAttempted;
+        private bool _hasStarted;
 
-        #region Public API
-
+        public PlayerInput PlayerInput => playerInput;
+        public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
+        public InputGlyphCatalog GlyphCatalog => glyphCatalog;
+        public string CurrentControlScheme => _currentControlScheme;
+        public string CurrentDeviceLayout => _currentDeviceLayout;
         public Vector2 MoveInput { get; private set; }
         public Vector2 LookInput { get; private set; }
         public Vector2 ZoomInput { get; private set; }
 
+        public event Action<InputActionEvent> ActionChanged;
+        public event Action PromptChanged;
+        public event Action InputFenced;
         public event Action<string> OnActionPerformed;
         public event Action<string> OnActionCanceled;
 
-        public CoCoInputIntent Intent => _intent;
-
-        /// <summary>
-        /// 切换当前活跃的 Action Map（字符串版本，用于解耦）
-        /// </summary>
-        public void SwitchActionMap(string mapName)
+        private void Reset()
         {
-            if (string.IsNullOrEmpty(mapName))
-            {
-                Debug.LogError("[InputReader] SwitchActionMap 收到空 mapName");
-                return;
-            }
-
-            if (Enum.TryParse<InputMapType>(mapName, ignoreCase: false, out var t))
-            {
-                SwitchActionMap(t);
-            }
-            else
-            {
-                Debug.LogError($"[InputReader] 未知 ActionMap 名: {mapName}");
-            }
+            playerInput = GetComponent<PlayerInput>();
         }
-
-        /// <summary>
-        /// 切换当前活跃的 Action Map（强类型版本）
-        /// </summary>
-        public void SwitchActionMap(InputMapType newMapType)
-        {
-            if (_runtimeAsset == null) return;
-
-            var newMapTypeName = newMapType.ToString();
-
-            if (_currentMap != null && _currentMap.name == newMapTypeName) return;
-
-            if (_currentMap != null)
-            {
-                UnbindCurrentMapActions();
-                _currentMap.Disable();
-                _currentBuffer.Clear();
-
-                MoveInput = Vector2.zero;
-                LookInput = Vector2.zero;
-                ZoomInput = Vector2.zero;
-            }
-
-            if (newMapType == InputMapType.None)
-            {
-                _currentMap = null;
-                Debug.Log("[InputReader] 已切断所有输入 (None 状态)");
-                return;
-            }
-
-            _currentMap = _runtimeAsset.FindActionMap(newMapTypeName);
-            if (_currentMap == null)
-            {
-                Debug.LogError($"[InputReader] 找不到名为 {newMapTypeName} 的 Action Map！");
-                return;
-            }
-
-            BindCurrentMapActions();
-
-            if (this.isActiveAndEnabled)
-            {
-                _currentMap.Enable();
-            }
-
-            CoCoLog.Log($"成功切换到 Action Map: {newMapTypeName}");
-            Debug.Log($"[InputReader] 成功切换到 Action Map: {newMapTypeName}");
-        }
-
-        /// <summary>
-        /// 尝试消耗缓冲区中的输入（如果匹配且未超时）
-        /// </summary>
-        public bool TryConsumeBufferedAction(string targetActionName)
-        {
-            if (!isUsingInputBuffering) return false;
-
-            if (_currentBuffer.ActionName == targetActionName &&
-                _currentBuffer.IsValid(Time.time, inputBufferTime))
-            {
-                _currentBuffer.Clear();
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// 清除当前所有缓冲输入
-        /// </summary>
-        public void ClearBuffer()
-        {
-            _currentBuffer.Clear();
-            _intent.ClearDiscrete();
-        }
-
-        #endregion
-
-        #region Internal Logic
 
         private void Awake()
         {
-            if (inputAsset == null)
+            if (playerInput == null)
             {
-                Debug.LogWarning("[InputReader] 无可用输入配置");
-                return;
+                playerInput = GetComponent<PlayerInput>();
             }
+        }
 
-            _runtimeAsset = Instantiate(inputAsset);
+        private void OnEnable()
+        {
+            InputSystem.onActionChange += OnGlobalActionChange;
+            TryInitializeRuntime();
+        }
 
-            SwitchActionMap(defaultMapType);
-            _currentBuffer.Clear();
-
-            CoCoServices.Register<IInputStateProvider>(this);
-            CoCoServices.Register<IInputEventSource>(this);
-            CoCoServices.Register<IInputModeController>(this);
-            CoCoServices.Register<ICoCoIntentSource<CoCoInputIntent>>(this);
+        private void Start()
+        {
+            _hasStarted = true;
+            TryInitializeRuntime();
+            TryLoadBindingOverrides();
         }
 
         private void Update()
         {
-            // 每帧轮询持续性输入（如摇杆/鼠标移动）
-            if (_moveAction != null) MoveInput = _moveAction.ReadValue<Vector2>();
-            if (_lookAction != null) LookInput = _lookAction.ReadValue<Vector2>();
-            if (_zoomAction != null) ZoomInput = _zoomAction.ReadValue<Vector2>();
+            TryInitializeRuntime();
+            TryLoadBindingOverrides();
+            if (!_runtimeInitialized)
+            {
+                return;
+            }
 
-            _intent.move = MoveInput;
-            _intent.look = LookInput;
-            _intent.zoom = ZoomInput;
+            ReconcileActionSubscriptions(true);
+            FinalizeAbandonedBindingResolution();
+            ReleaseNeutralActions();
+            SampleConvenienceValues();
+            UpdatePresentationAuthority(false);
 
-            // 检查缓冲区超时，自动清除过期输入
             if (isUsingInputBuffering &&
-                !string.IsNullOrEmpty(_currentBuffer.ActionName) &&
                 !_currentBuffer.IsValid(Time.time, inputBufferTime))
             {
                 _currentBuffer.Clear();
             }
         }
 
-        private void OnEnable() => _currentMap?.Enable();
-
         private void OnDisable()
         {
-            _currentMap?.Disable();
-            ClearBuffer();
-
-            MoveInput = Vector2.zero;
-            LookInput = Vector2.zero;
-            ZoomInput = Vector2.zero;
-            _intent.ClearContinuous();
-            _intent.ClearDiscrete();
+            InputSystem.onActionChange -= OnGlobalActionChange;
+            UnsubscribeActions();
+            _neutralGatedActions.Clear();
+            _bindingResolutionDepth = 0;
+            _runtimeInitialized = false;
+            FenceInput();
         }
 
         private void OnDestroy()
         {
-            // 务必注销服务，防止 ServiceLocator 持有已销毁对象的引用
-            CoCoServices.Unregister<IInputStateProvider>(this);
-            CoCoServices.Unregister<IInputEventSource>(this);
-            CoCoServices.Unregister<IInputModeController>(this);
-            CoCoServices.Unregister<ICoCoIntentSource<CoCoInputIntent>>(this);
+            InputSystem.onActionChange -= OnGlobalActionChange;
+            UnsubscribeActions();
+        }
 
-            if (_currentMap != null)
+        public bool TryReadValue<TValue>(
+            InputActionReference actionReference,
+            out TValue value)
+            where TValue : struct
+        {
+            if (!isActiveAndEnabled ||
+                !_runtimeInitialized ||
+                !TryResolveAction(actionReference, out InputAction action) ||
+                !action.enabled ||
+                ShouldSuppress(action))
             {
-                UnbindCurrentMapActions();
+                value = default;
+                return false;
             }
 
-            if (_runtimeAsset != null)
+            value = action.ReadValue<TValue>();
+            return true;
+        }
+
+        public bool TryResolveAction(
+            InputActionReference actionReference,
+            out InputAction action)
+        {
+            action = null;
+            InputAction referencedAction = actionReference != null
+                ? actionReference.action
+                : null;
+            return referencedAction != null &&
+                   TryResolveAction(referencedAction.id, out action);
+        }
+
+        public bool TryResolveAction(Guid actionId, out InputAction action)
+        {
+            action = null;
+            InputActionAsset actions = Actions;
+            if (actions == null || actionId == Guid.Empty)
             {
-                Destroy(_runtimeAsset);
+                return false;
+            }
+
+            action = actions.FindAction(actionId.ToString(), false);
+            return action != null;
+        }
+
+        public bool TryGetPrompt(
+            InputActionReference actionReference,
+            out InputPromptSnapshot snapshot)
+        {
+            snapshot = default;
+            if (!TryResolveAction(actionReference, out InputAction action) ||
+                !TrySelectPromptBinding(action, out int bindingIndex))
+            {
+                return false;
+            }
+
+            string bindingDisplay = action.GetBindingDisplayString(
+                bindingIndex,
+                out string deviceLayout,
+                out string controlPath);
+            Sprite glyph = null;
+            glyphCatalog?.TryResolve(deviceLayout, controlPath, out glyph);
+
+            snapshot = new InputPromptSnapshot(
+                action.id,
+                bindingIndex,
+                bindingDisplay,
+                deviceLayout,
+                controlPath,
+                glyph);
+            return snapshot.IsValid;
+        }
+
+        public void SwitchActionMap(InputActionMap actionMap)
+        {
+            if (playerInput == null || actionMap == null)
+            {
+                return;
+            }
+
+            SwitchActionMap(actionMap.name);
+        }
+
+        public bool TryConsumeBufferedAction(string actionName)
+        {
+            if (!isUsingInputBuffering ||
+                string.IsNullOrEmpty(actionName) ||
+                !_currentBuffer.IsValid(Time.time, inputBufferTime) ||
+                !string.Equals(
+                    _currentBuffer.ActionName,
+                    actionName,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _currentBuffer.Clear();
+            return true;
+        }
+
+        public void ClearBuffer()
+        {
+            _currentBuffer.Clear();
+        }
+
+        internal void DisableActionForTransition(InputAction action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            FenceInput();
+            _controlledTransitionDepth++;
+            try
+            {
+                action.Disable();
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                FenceInput();
             }
         }
 
-        private void BindCurrentMapActions()
+        internal void RestoreActionAfterTransition(
+            InputAction action,
+            bool shouldEnable)
         {
-            _moveAction = null;
-            _lookAction = null;
-            _zoomAction = null;
-
-            foreach (var action in _currentMap.actions)
+            if (action == null)
             {
-                // Vector2 类型通常用于持续性输入，通过 ReadValue 读取
-                if (action.expectedControlType == "Vector2")
+                return;
+            }
+
+            _controlledTransitionDepth++;
+            try
+            {
+                if (shouldEnable && !action.enabled)
                 {
-                    switch (action.name)
+                    action.Enable();
+                }
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                RefreshNeutralGate(action);
+                FenceInput();
+                UpdatePresentationAuthority(true);
+            }
+        }
+
+        public void FenceInput()
+        {
+            ClearBuffer();
+            MoveInput = Vector2.zero;
+            LookInput = Vector2.zero;
+            ZoomInput = Vector2.zero;
+            PublishBoundaryEvent(InputFenced, nameof(InputFenced));
+        }
+
+        public string CaptureBindingOverrides()
+        {
+            return Actions != null
+                ? Actions.SaveBindingOverridesAsJson()
+                : string.Empty;
+        }
+
+        public bool TryCommitBindingOverrides(
+            string previousOverrideJson,
+            out string error)
+        {
+            error = string.Empty;
+            InputActionAsset actions = Actions;
+            IInputBindingOverrideStore store =
+                bindingOverrideStore as IInputBindingOverrideStore;
+            if (actions == null)
+            {
+                error = "InputReader has no PlayerInput actions.";
+                return false;
+            }
+
+            if (store == null)
+            {
+                RestoreBindingOverrides(previousOverrideJson);
+                error =
+                    "InputReader requires an IInputBindingOverrideStore to commit a rebind.";
+                return false;
+            }
+
+            try
+            {
+                string nextOverrideJson =
+                    actions.SaveBindingOverridesAsJson();
+                if (!store.TrySave(
+                        bindingOverrideStorageKey,
+                        nextOverrideJson))
+                {
+                    RestoreBindingOverrides(previousOverrideJson);
+                    error =
+                        "The binding override store rejected the new override JSON.";
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                RestoreBindingOverrides(previousOverrideJson);
+                error =
+                    "The binding override store failed: " +
+                    exception.Message;
+                return false;
+            }
+
+            NotifyBindingsChanged();
+            return true;
+        }
+
+        public void RestoreBindingOverrides(string overrideJson)
+        {
+            InputActionAsset actions = Actions;
+            if (actions == null)
+            {
+                return;
+            }
+
+            actions.RemoveAllBindingOverrides();
+            if (!string.IsNullOrEmpty(overrideJson))
+            {
+                actions.LoadBindingOverridesFromJson(overrideJson, false);
+            }
+
+            NotifyBindingsChanged();
+        }
+
+        public void NotifyBindingsChanged()
+        {
+            RefreshNeutralGates(Actions);
+            FenceInput();
+            UpdatePresentationAuthority(true);
+        }
+
+        private void TryInitializeRuntime()
+        {
+            if (_runtimeInitialized ||
+                playerInput == null ||
+                !playerInput.inputIsActive)
+            {
+                return;
+            }
+
+            InputActionAsset actions = playerInput.actions;
+            if (actions == null)
+            {
+                return;
+            }
+
+            _runtimeInitialized = true;
+            ReconcileActionSubscriptions(false);
+            TryLoadBindingOverrides();
+            RefreshNeutralGates(_subscribedActions);
+            UpdatePresentationAuthority(true);
+        }
+
+        private void TryLoadBindingOverrides()
+        {
+            if (!_hasStarted ||
+                !_runtimeInitialized ||
+                _bindingOverrideLoadAttempted)
+            {
+                return;
+            }
+
+            InputActionAsset actions = _subscribedActions;
+            if (actions == null)
+            {
+                return;
+            }
+
+            IInputBindingOverrideStore store =
+                bindingOverrideStore as IInputBindingOverrideStore;
+            _bindingOverrideLoadAttempted = true;
+            if (store == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!store.TryLoad(
+                        bindingOverrideStorageKey,
+                        out string overrideJson) ||
+                    string.IsNullOrEmpty(overrideJson))
+                {
+                    return;
+                }
+
+                actions.LoadBindingOverridesFromJson(overrideJson, false);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning(
+                    $"[InputReader] Binding override load failed: {exception.Message}",
+                    this);
+            }
+        }
+
+        private void ReconcileActionSubscriptions(bool notify)
+        {
+            InputActionAsset next = Actions;
+            if (ReferenceEquals(_subscribedActions, next))
+            {
+                return;
+            }
+
+            UnsubscribeActions();
+            _neutralGatedActions.Clear();
+            _subscribedActions = next;
+            if (_subscribedActions != null)
+            {
+                foreach (InputActionMap map in _subscribedActions.actionMaps)
+                {
+                    foreach (InputAction action in map.actions)
                     {
-                        case "Move": _moveAction = action; break;
-                        case "Look": _lookAction = action; break;
-                        case "Zoom": _zoomAction = action; break;
+                        action.performed += HandleActionPerformed;
+                        action.canceled += HandleActionCanceled;
                     }
                 }
-                else
-                {
-                    // 其他类型（如 Button）通过事件驱动
-                    action.performed += HandleActionPerformed;
-                    action.canceled += HandleActionCanceled;
-                }
+
+                RefreshNeutralGates(_subscribedActions);
             }
+
+            if (!notify)
+            {
+                return;
+            }
+
+            _lastUsedDeviceLayout = string.Empty;
+            FenceInput();
+            UpdatePresentationAuthority(true);
         }
 
-        private void UnbindCurrentMapActions()
+        private void UnsubscribeActions()
         {
-            if (_currentMap == null) return;
-
-            foreach (var action in _currentMap.actions)
+            InputActionAsset subscribed = _subscribedActions;
+            _subscribedActions = null;
+            if (subscribed == null)
             {
-                if (action.expectedControlType != "Vector2")
+                return;
+            }
+
+            foreach (InputActionMap map in subscribed.actionMaps)
+            {
+                foreach (InputAction action in map.actions)
                 {
                     action.performed -= HandleActionPerformed;
                     action.canceled -= HandleActionCanceled;
@@ -279,29 +495,556 @@ namespace CoCoFlow.Runtime.Modules.Input
             }
         }
 
-        private void HandleActionPerformed(InputAction.CallbackContext ctx)
+        private void HandleActionPerformed(InputAction.CallbackContext context)
         {
-            var actionName = ctx.action.name;
+            if (ShouldSuppress(context.action))
+            {
+                return;
+            }
 
+            bool presentationChanged = UpdateLastUsedDevice(
+                context.control?.device);
             if (isUsingInputBuffering)
             {
-                _currentBuffer.ActionName = actionName;
+                _currentBuffer.ActionName = context.action.name;
                 _currentBuffer.Timestamp = Time.time;
             }
 
-            _intent.performedAction = actionName;
-            _intent.performedSequence++;
-            OnActionPerformed?.Invoke(actionName);
+            PublishActionChanged(new InputActionEvent(
+                context.action,
+                InputActionPhase.Performed));
+            PublishActionName(
+                OnActionPerformed,
+                context.action.name,
+                nameof(OnActionPerformed));
+            if (presentationChanged)
+            {
+                UpdatePresentationAuthority(false);
+            }
         }
 
-        private void HandleActionCanceled(InputAction.CallbackContext ctx)
+        private void HandleActionCanceled(InputAction.CallbackContext context)
         {
-            var actionName = ctx.action.name;
-            _intent.canceledAction = actionName;
-            _intent.canceledSequence++;
-            OnActionCanceled?.Invoke(actionName);
+            if (ShouldSuppress(context.action))
+            {
+                return;
+            }
+
+            bool presentationChanged = UpdateLastUsedDevice(
+                context.control?.device);
+            PublishActionChanged(new InputActionEvent(
+                context.action,
+                InputActionPhase.Canceled));
+            PublishActionName(
+                OnActionCanceled,
+                context.action.name,
+                nameof(OnActionCanceled));
+            if (presentationChanged)
+            {
+                UpdatePresentationAuthority(false);
+            }
         }
 
-        #endregion
+        public void SwitchActionMap(string mapName)
+        {
+            if (playerInput == null || string.IsNullOrEmpty(mapName))
+            {
+                return;
+            }
+
+            FenceInput();
+            _controlledTransitionDepth++;
+            try
+            {
+                playerInput.SwitchCurrentActionMap(mapName);
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                RefreshNeutralGates(Actions);
+                FenceInput();
+                UpdatePresentationAuthority(true);
+            }
+        }
+
+        private void OnGlobalActionChange(
+            object actionOrMap,
+            InputActionChange change)
+        {
+            if (!_runtimeInitialized)
+            {
+                TryInitializeRuntime();
+                if (!_runtimeInitialized)
+                {
+                    return;
+                }
+            }
+
+            if (_controlledTransitionDepth > 0 ||
+                !TryGetOwningAsset(actionOrMap, out InputActionAsset asset) ||
+                (!ReferenceEquals(asset, _subscribedActions) &&
+                 !ReferenceEquals(asset, Actions)))
+            {
+                return;
+            }
+
+            switch (change)
+            {
+                case InputActionChange.BoundControlsAboutToChange:
+                    _bindingResolutionDepth++;
+                    FenceInput();
+                    return;
+
+                case InputActionChange.BoundControlsChanged:
+                    RefreshNeutralGatesForChange(actionOrMap);
+                    if (_bindingResolutionDepth > 0)
+                    {
+                        _bindingResolutionDepth--;
+                    }
+
+                    FenceInput();
+                    if (_bindingResolutionDepth == 0)
+                    {
+                        UpdatePresentationAuthority(true);
+                    }
+
+                    return;
+
+                case InputActionChange.ActionDisabled:
+                case InputActionChange.ActionMapDisabled:
+                    FenceInput();
+                    return;
+
+                case InputActionChange.ActionEnabled:
+                    RefreshNeutralGate(actionOrMap as InputAction);
+                    FenceInput();
+                    return;
+
+                case InputActionChange.ActionMapEnabled:
+                    RefreshNeutralGates(actionOrMap as InputActionMap);
+                    FenceInput();
+                    return;
+            }
+        }
+
+        private bool ShouldSuppress(InputAction action)
+        {
+            return _controlledTransitionDepth > 0 ||
+                   _bindingResolutionDepth > 0 ||
+                   (action != null && _neutralGatedActions.Contains(action));
+        }
+
+        private void FinalizeAbandonedBindingResolution()
+        {
+            if (_bindingResolutionDepth <= 0)
+            {
+                return;
+            }
+
+            _bindingResolutionDepth = 0;
+            RefreshNeutralGates(Actions);
+            FenceInput();
+            UpdatePresentationAuthority(true);
+        }
+
+        private void RefreshNeutralGatesForChange(object actionOrMap)
+        {
+            switch (actionOrMap)
+            {
+                case InputAction action:
+                    RefreshNeutralGate(action);
+                    return;
+
+                case InputActionMap map:
+                    RefreshNeutralGates(map);
+                    return;
+
+                case InputActionAsset asset:
+                    RefreshNeutralGates(asset);
+                    return;
+
+                default:
+                    RefreshNeutralGates(Actions);
+                    return;
+            }
+        }
+
+        private void RefreshNeutralGates(InputActionAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            foreach (InputActionMap map in asset.actionMaps)
+            {
+                RefreshNeutralGates(map);
+            }
+        }
+
+        private void RefreshNeutralGates(InputActionMap map)
+        {
+            if (map == null)
+            {
+                return;
+            }
+
+            foreach (InputAction action in map.actions)
+            {
+                RefreshNeutralGate(action);
+            }
+        }
+
+        private void RefreshNeutralGate(InputAction action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            bool shouldGate = action.enabled && HasActuatedControl(action);
+            int existingIndex = _neutralGatedActions.IndexOf(action);
+            if (shouldGate)
+            {
+                if (existingIndex < 0)
+                {
+                    _neutralGatedActions.Add(action);
+                }
+
+                return;
+            }
+
+            if (existingIndex >= 0)
+            {
+                _neutralGatedActions.RemoveAt(existingIndex);
+            }
+        }
+
+        internal void ReleaseNeutralActions()
+        {
+            for (int index = _neutralGatedActions.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                InputAction action = _neutralGatedActions[index];
+                if (action == null ||
+                    !action.enabled ||
+                    !HasActuatedControl(action))
+                {
+                    _neutralGatedActions.RemoveAt(index);
+                }
+            }
+        }
+
+        private static bool HasActuatedControl(InputAction action)
+        {
+            for (int index = 0; index < action.controls.Count; index++)
+            {
+                InputControl control = action.controls[index];
+                if (control != null && !control.CheckStateIsAtDefault())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetOwningAsset(
+            object actionOrMap,
+            out InputActionAsset asset)
+        {
+            if (actionOrMap is InputAction action)
+            {
+                asset = action.actionMap?.asset;
+                return asset != null;
+            }
+
+            if (actionOrMap is InputActionMap map)
+            {
+                asset = map.asset;
+                return asset != null;
+            }
+
+            asset = actionOrMap as InputActionAsset;
+            return asset != null;
+        }
+
+        private void SampleConvenienceValues()
+        {
+            MoveInput = TryReadValue(moveAction, out Vector2 move)
+                ? move
+                : Vector2.zero;
+            LookInput = TryReadValue(lookAction, out Vector2 look)
+                ? look
+                : Vector2.zero;
+            ZoomInput = TryReadValue(zoomAction, out Vector2 zoom)
+                ? zoom
+                : Vector2.zero;
+        }
+
+        private void UpdatePresentationAuthority(bool force)
+        {
+            string nextControlScheme = playerInput != null
+                ? playerInput.currentControlScheme ?? string.Empty
+                : string.Empty;
+            string nextDeviceLayout = ResolvePresentationDeviceLayout();
+            if (!force &&
+                string.Equals(
+                    _currentControlScheme,
+                    nextControlScheme,
+                    StringComparison.Ordinal) &&
+                string.Equals(
+                    _currentDeviceLayout,
+                    nextDeviceLayout,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _currentControlScheme = nextControlScheme;
+            _currentDeviceLayout = nextDeviceLayout;
+            PublishBoundaryEvent(PromptChanged, nameof(PromptChanged));
+        }
+
+        private void PublishBoundaryEvent(Action subscribers, string eventName)
+        {
+            if (subscribers == null)
+            {
+                return;
+            }
+
+            foreach (Delegate subscriber in subscribers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action)subscriber).Invoke();
+                }
+                catch (Exception exception)
+                {
+                    LogSubscriberException(eventName, exception);
+                }
+            }
+        }
+
+        private void PublishActionChanged(InputActionEvent actionEvent)
+        {
+            Action<InputActionEvent> subscribers = ActionChanged;
+            if (subscribers == null)
+            {
+                return;
+            }
+
+            foreach (Delegate subscriber in subscribers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<InputActionEvent>)subscriber).Invoke(actionEvent);
+                }
+                catch (Exception exception)
+                {
+                    LogSubscriberException(nameof(ActionChanged), exception);
+                }
+            }
+        }
+
+        private void PublishActionName(
+            Action<string> subscribers,
+            string actionName,
+            string eventName)
+        {
+            if (subscribers == null)
+            {
+                return;
+            }
+
+            foreach (Delegate subscriber in subscribers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<string>)subscriber).Invoke(actionName);
+                }
+                catch (Exception exception)
+                {
+                    LogSubscriberException(eventName, exception);
+                }
+            }
+        }
+
+        private void LogSubscriberException(
+            string eventName,
+            Exception exception)
+        {
+            Debug.LogException(
+                new InvalidOperationException(
+                    $"[InputReader] {eventName} subscriber failed.",
+                    exception),
+                this);
+        }
+
+        private bool TrySelectPromptBinding(
+            InputAction action,
+            out int bindingIndex)
+        {
+            bindingIndex = -1;
+            if (action == null)
+            {
+                return false;
+            }
+
+            string bindingGroup = string.Empty;
+            InputActionAsset actions = Actions;
+            if (actions != null && !string.IsNullOrEmpty(_currentControlScheme))
+            {
+                InputControlScheme? scheme =
+                    actions.FindControlScheme(_currentControlScheme);
+                if (scheme.HasValue)
+                {
+                    bindingGroup = scheme.Value.bindingGroup ?? string.Empty;
+                }
+            }
+
+            InputBinding groupMask = string.IsNullOrEmpty(bindingGroup)
+                ? default
+                : InputBinding.MaskByGroup(bindingGroup);
+            int bestScore = -1;
+            for (int index = 0; index < action.bindings.Count; index++)
+            {
+                InputBinding binding = action.bindings[index];
+                if (binding.isPartOfComposite ||
+                    string.IsNullOrEmpty(binding.effectivePath))
+                {
+                    continue;
+                }
+
+                string display = action.GetBindingDisplayString(
+                    index,
+                    out string deviceLayout,
+                    out _);
+                if (string.IsNullOrEmpty(display))
+                {
+                    continue;
+                }
+
+                bool groupMatches =
+                    !string.IsNullOrEmpty(bindingGroup) &&
+                    groupMask.Matches(binding);
+                bool layoutMatches =
+                    LayoutMatches(_currentDeviceLayout, deviceLayout);
+                int score = groupMatches
+                    ? layoutMatches ? 3 : 2
+                    : layoutMatches ? 1 : 0;
+                if (score <= bestScore)
+                {
+                    continue;
+                }
+
+                bestScore = score;
+                bindingIndex = index;
+                if (bestScore == 3)
+                {
+                    break;
+                }
+            }
+
+            return bindingIndex >= 0;
+        }
+
+        private bool UpdateLastUsedDevice(InputDevice device)
+        {
+            if (device == null || playerInput == null)
+            {
+                return false;
+            }
+
+            bool paired = false;
+            for (int index = 0; index < playerInput.devices.Count; index++)
+            {
+                if (ReferenceEquals(playerInput.devices[index], device))
+                {
+                    paired = true;
+                    break;
+                }
+            }
+
+            string layout = paired ? device.layout ?? string.Empty : string.Empty;
+            if (string.IsNullOrEmpty(layout) ||
+                string.Equals(
+                    _lastUsedDeviceLayout,
+                    layout,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _lastUsedDeviceLayout = layout;
+            return true;
+        }
+
+        private string ResolvePresentationDeviceLayout()
+        {
+            if (playerInput == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrEmpty(_lastUsedDeviceLayout))
+            {
+                for (int index = 0; index < playerInput.devices.Count; index++)
+                {
+                    string pairedLayout =
+                        playerInput.devices[index]?.layout ?? string.Empty;
+                    if (LayoutMatches(
+                            pairedLayout,
+                            _lastUsedDeviceLayout) ||
+                        LayoutMatches(
+                            _lastUsedDeviceLayout,
+                            pairedLayout))
+                    {
+                        return _lastUsedDeviceLayout;
+                    }
+                }
+            }
+
+            return playerInput.devices.Count > 0
+                ? playerInput.devices[0]?.layout ?? string.Empty
+                : string.Empty;
+        }
+
+        private static bool LayoutMatches(
+            string currentLayout,
+            string bindingLayout)
+        {
+            if (string.IsNullOrEmpty(currentLayout) ||
+                string.IsNullOrEmpty(bindingLayout))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                       currentLayout,
+                       bindingLayout,
+                       StringComparison.Ordinal) ||
+                   InputSystem.IsFirstLayoutBasedOnSecond(
+                       currentLayout,
+                       bindingLayout);
+        }
+
+        private void OnValidate()
+        {
+            if (playerInput == null)
+            {
+                playerInput = GetComponent<PlayerInput>();
+            }
+
+            if (bindingOverrideStore != null &&
+                !(bindingOverrideStore is IInputBindingOverrideStore))
+            {
+                Debug.LogError(
+                    "[InputReader] Binding Override Store must implement " +
+                    nameof(IInputBindingOverrideStore) + ".",
+                    this);
+            }
+        }
     }
 }

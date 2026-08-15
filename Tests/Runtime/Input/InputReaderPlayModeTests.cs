@@ -12,7 +12,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.Input
 {
-    public sealed class InputRuntimePlayModeTests : InputTestFixture
+    public sealed class InputReaderPlayModeTests : InputTestFixture
     {
         [UnityTest]
         public IEnumerator RuntimeUsesPlayerInputsActionAssetWithoutCloning()
@@ -22,10 +22,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             map.AddAction("Move", InputActionType.Value, "<Keyboard>/w");
             actions.AddActionMap(map);
 
-            var gameObject = new GameObject("InputRuntimeTest");
+            var gameObject = new GameObject("InputReaderTest");
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
 
             yield return null;
 
@@ -34,6 +34,128 @@ namespace CoCoFlow.Tests.Runtime.Input
 
             Object.Destroy(gameObject);
             Object.Destroy(actions);
+        }
+
+        [UnityTest]
+        public IEnumerator ActionEventsPublishAuthoritativeFirstAndIsolateSubscribers()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("ActionObserverIsolationTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var reader = gameObject.AddComponent<InputReader>();
+            var observed = new List<string>();
+
+            reader.ActionChanged += actionEvent =>
+            {
+                observed.Add($"action:{actionEvent.Phase}:throw");
+                throw new InvalidOperationException(
+                    $"Expected {actionEvent.Phase} authoritative failure.");
+            };
+            reader.ActionChanged += actionEvent =>
+                observed.Add($"action:{actionEvent.Phase}:follow");
+            reader.OnActionPerformed += _ =>
+            {
+                observed.Add("performed:throw");
+                throw new InvalidOperationException(
+                    "Expected performed convenience failure.");
+            };
+            reader.OnActionPerformed += _ => observed.Add("performed:follow");
+            reader.OnActionCanceled += _ =>
+            {
+                observed.Add("canceled:throw");
+                throw new InvalidOperationException(
+                    "Expected canceled convenience failure.");
+            };
+            reader.OnActionCanceled += _ => observed.Add("canceled:follow");
+
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(reader.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected Performed authoritative failure"));
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected performed convenience failure"));
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected Canceled authoritative failure"));
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Expected canceled convenience failure"));
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "action:Performed:throw",
+                    "action:Performed:follow",
+                    "performed:throw",
+                    "performed:follow",
+                    "action:Canceled:throw",
+                    "action:Canceled:follow",
+                    "canceled:throw",
+                    "canceled:follow"
+                },
+                observed);
+
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator BufferedActionConsumesOnceAndExpires()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            InputActionAsset actions = CreateButtonAsset(
+                "Submit",
+                "<Keyboard>/space",
+                out InputAction authoredAction);
+            var gameObject = new GameObject("BufferedActionTest");
+            gameObject.SetActive(false);
+            var playerInput = gameObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            var reader = gameObject.AddComponent<InputReader>();
+            SetField(reader, "inputBufferTime", 0f);
+            gameObject.SetActive(true);
+            yield return null;
+
+            Assert.IsTrue(reader.TryResolveAction(
+                authoredAction.id,
+                out InputAction action));
+            action.Enable();
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Assert.IsTrue(reader.TryConsumeBufferedAction("Submit"));
+            Assert.IsFalse(reader.TryConsumeBufferedAction("Submit"));
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            yield return null;
+            Assert.IsFalse(reader.TryConsumeBufferedAction("Submit"));
+
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            Object.Destroy(gameObject);
+            Object.Destroy(actions);
+            yield return null;
         }
 
         [UnityTest]
@@ -57,7 +179,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             playerInput.defaultActionMap = map.name;
             var store = gameObject.AddComponent<AwakeInitializedOverrideStore>();
             store.OverrideJson = overrideJson;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             SetField(runtime, "bindingOverrideStore", store);
 
             gameObject.SetActive(true);
@@ -98,14 +220,14 @@ namespace CoCoFlow.Tests.Runtime.Input
             var firstPlayer = firstObject.AddComponent<PlayerInput>();
             firstPlayer.actions = actions;
             firstPlayer.defaultActionMap = "Gameplay";
-            var firstRuntime = firstObject.AddComponent<InputRuntime>();
+            var firstRuntime = firstObject.AddComponent<InputReader>();
 
             var secondObject = new GameObject("SecondPlayer");
             secondObject.transform.SetParent(root.transform);
             var secondPlayer = secondObject.AddComponent<PlayerInput>();
             secondPlayer.actions = actions;
             secondPlayer.defaultActionMap = "Gameplay";
-            var secondRuntime = secondObject.AddComponent<InputRuntime>();
+            var secondRuntime = secondObject.AddComponent<InputReader>();
 
             root.SetActive(true);
             yield return null;
@@ -144,7 +266,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             playerInput.defaultActionMap = "Gameplay";
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             SetField(runtime, "moveAction", reference);
             gameObject.SetActive(true);
             yield return null;
@@ -205,12 +327,12 @@ namespace CoCoFlow.Tests.Runtime.Input
         }
 
         [UnityTest]
-        public IEnumerator FencePublishesOnceAndClearsLegacySnapshots()
+        public IEnumerator FencePublishesOnceAndClearsConvenienceValues()
         {
             var gameObject = new GameObject("InputFenceTest");
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = ScriptableObject.CreateInstance<InputActionAsset>();
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             int fenceCount = 0;
             runtime.InputFenced += () => fenceCount++;
 
@@ -249,7 +371,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             playerInput.defaultActionMap = gameplay.name;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var buffered = new List<InputActionEvent>();
             runtime.ActionChanged += buffered.Add;
             runtime.InputFenced += buffered.Clear;
@@ -290,7 +412,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var buffered = new List<InputActionEvent>();
             runtime.ActionChanged += buffered.Add;
             runtime.InputFenced += buffered.Clear;
@@ -345,7 +467,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             gameObject.SetActive(true);
             yield return null;
 
@@ -403,7 +525,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             gameObject.SetActive(true);
             yield return null;
 
@@ -456,10 +578,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             var store = gameObject.AddComponent<TestOverrideStore>();
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var controller = gameObject.AddComponent<InputRebindController>();
             SetField(runtime, "bindingOverrideStore", store);
-            SetField(controller, "inputRuntime", runtime);
+            SetField(controller, "inputReader", runtime);
             gameObject.SetActive(true);
             yield return null;
 
@@ -562,10 +684,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             var store = gameObject.AddComponent<TestOverrideStore>();
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var controller = gameObject.AddComponent<InputRebindController>();
             SetField(runtime, "bindingOverrideStore", store);
-            SetField(controller, "inputRuntime", runtime);
+            SetField(controller, "inputReader", runtime);
             var buffered = new List<InputActionEvent>();
             runtime.ActionChanged += buffered.Add;
             runtime.InputFenced += buffered.Clear;
@@ -667,10 +789,10 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             var store = gameObject.AddComponent<TestOverrideStore>();
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var controller = gameObject.AddComponent<InputRebindController>();
             SetField(runtime, "bindingOverrideStore", store);
-            SetField(controller, "inputRuntime", runtime);
+            SetField(controller, "inputReader", runtime);
             gameObject.SetActive(true);
             yield return null;
 
@@ -766,7 +888,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
             var store = gameObject.AddComponent<TestOverrideStore>();
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             SetField(runtime, "bindingOverrideStore", store);
             var buffered = new List<InputActionEvent>();
             int fenceCount = 0;
@@ -883,7 +1005,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var buffered = new List<InputActionEvent>();
             int fenceCount = 0;
             int promptCount = 0;
@@ -958,7 +1080,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = actions;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             gameObject.SetActive(true);
             yield return null;
 
@@ -1014,7 +1136,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             gameObject.SetActive(false);
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.actions = first;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             gameObject.SetActive(true);
             yield return null;
 
@@ -1096,7 +1218,7 @@ namespace CoCoFlow.Tests.Runtime.Input
             var playerInput = gameObject.AddComponent<PlayerInput>();
             playerInput.defaultActionMap = "Gameplay";
             playerInput.actions = first;
-            var runtime = gameObject.AddComponent<InputRuntime>();
+            var runtime = gameObject.AddComponent<InputReader>();
             var buffered = new List<InputActionEvent>();
             runtime.ActionChanged += buffered.Add;
             runtime.InputFenced += buffered.Clear;
@@ -1193,11 +1315,11 @@ namespace CoCoFlow.Tests.Runtime.Input
         }
 
         private static void InvokeGlobalActionChange(
-            InputRuntime runtime,
+            InputReader runtime,
             object actionOrMap,
             InputActionChange change)
         {
-            MethodInfo method = typeof(InputRuntime).GetMethod(
+            MethodInfo method = typeof(InputReader).GetMethod(
                 "OnGlobalActionChange",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(method);

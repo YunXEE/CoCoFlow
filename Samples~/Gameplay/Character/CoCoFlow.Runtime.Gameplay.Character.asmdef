@@ -2,6 +2,8 @@
     "name": "CoCoFlow.Runtime.Gameplay.Character",
     "rootNamespace": "CoCoFlow.Runtime.Gameplay.Character",
     "references": [
-        "CoCoFlow.Runtime.Core"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Modules.Input",
+        "Unity.InputSystem"
     ]
 }

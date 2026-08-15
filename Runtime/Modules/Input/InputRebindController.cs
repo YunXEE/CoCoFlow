@@ -7,7 +7,7 @@ namespace CoCoFlow.Runtime.Modules.Input
     [DisallowMultipleComponent]
     public sealed class InputRebindController : MonoBehaviour
     {
-        [SerializeField] private InputRuntime inputRuntime;
+        [SerializeField] private InputReader inputReader;
 
         private InputActionRebindingExtensions.RebindingOperation _operation;
         private InputAction _action;
@@ -21,7 +21,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void Reset()
         {
-            inputRuntime = GetComponent<InputRuntime>();
+            inputReader = GetComponent<InputReader>();
         }
 
         private void OnDisable()
@@ -58,10 +58,10 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return false;
             }
 
-            if (inputRuntime == null ||
-                !inputRuntime.TryResolveAction(actionId, out InputAction action))
+            if (inputReader == null ||
+                !inputReader.TryResolveAction(actionId, out InputAction action))
             {
-                error = "InputRuntime could not resolve the requested action.";
+                error = "InputReader could not resolve the requested action.";
                 return false;
             }
 
@@ -77,14 +77,14 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             if (bindingId == Guid.Empty || bindingIndex < 0)
             {
-                error = "InputRuntime could not resolve the stable Binding ID.";
+                error = "InputReader could not resolve the stable Binding ID.";
                 return false;
             }
 
             _action = action;
             _wasEnabled = action.enabled;
-            _previousOverrideJson = inputRuntime.CaptureBindingOverrides();
-            inputRuntime.DisableActionForTransition(action);
+            _previousOverrideJson = inputReader.CaptureBindingOverrides();
+            inputReader.DisableActionForTransition(action);
 
             try
             {
@@ -128,8 +128,8 @@ namespace CoCoFlow.Runtime.Modules.Input
             try
             {
                 RestoreActionEnablement();
-                committed = inputRuntime != null &&
-                            inputRuntime.TryCommitBindingOverrides(
+                committed = inputReader != null &&
+                            inputReader.TryCommitBindingOverrides(
                                 _previousOverrideJson,
                                 out error);
             }
@@ -153,13 +153,13 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         private void RestorePreviousBinding()
         {
-            inputRuntime?.RestoreBindingOverrides(_previousOverrideJson);
+            inputReader?.RestoreBindingOverrides(_previousOverrideJson);
             RestoreActionEnablement();
         }
 
         private void RestoreActionEnablement()
         {
-            inputRuntime?.RestoreActionAfterTransition(
+            inputReader?.RestoreActionAfterTransition(
                 _action,
                 _wasEnabled);
         }

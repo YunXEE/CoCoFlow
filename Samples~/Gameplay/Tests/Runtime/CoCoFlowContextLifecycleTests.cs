@@ -13,6 +13,8 @@ using NUnit.Framework;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.Splines;
 using UnityEngine.TestTools;
 
@@ -172,18 +174,19 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
         public IEnumerator ProviderDrivenCharacterInputDriverSkipsAutomaticUpdate()
         {
             var root = new GameObject("Provider Driven Character Input Test");
+            CharacterInputFixture input = null;
             try
             {
                 var provider = root.AddComponent<CharacterContextProvider>();
-                var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
+                input = CreateCharacterInputFixture();
 
                 driver.SetContextProvider(provider);
-                driver.SetInputIntentSource(source);
+                input.Configure(driver);
                 provider.SetContextSources(new MonoBehaviour[] { driver });
 
-                source.Intent.performedAction = "Attack";
-                source.Intent.performedSequence = 1;
+                input.Press(input.Gamepad.buttonWest);
+                yield return null;
                 provider.ResolveContextFrame(provider.Context);
 
                 Assert.IsTrue(driver.IsProviderDriven);
@@ -198,6 +201,7 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
+                input?.Destroy();
                 UnityEngine.Object.DestroyImmediate(root);
             }
         }
@@ -1281,25 +1285,29 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
 
         [Test]
-        public void CharacterInputDriverMapsCoreInputIntentIntoCharacterIntent()
+        public void CharacterInputDriverMapsExplicitActionsIntoCharacterIntent()
         {
             var root = new GameObject("Character Input Driver Test");
+            CharacterInputFixture input = null;
             try
             {
                 var provider = root.AddComponent<CharacterContextProvider>();
-                var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
+                input = CreateCharacterInputFixture();
                 driver.SetContextProvider(provider);
-                driver.SetInputIntentSource(source);
+                input.Configure(driver);
 
-                source.Intent.move = new Vector2(0.75f, -0.25f);
-                source.Intent.look = new Vector2(0.5f, 0.25f);
-                source.Intent.performedAction = "Attack";
-                source.Intent.performedSequence = 1;
+                input.SetMove(new Vector2(0.75f, -0.25f));
+                input.SetLook(new Vector2(0.5f, 0.25f));
+                input.Press(input.Gamepad.buttonWest);
 
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.AreEqual(source.Intent.move, provider.Context.Intent.move);
-                Assert.AreEqual(source.Intent.look, provider.Context.Intent.look);
+                Assert.AreEqual(
+                    new Vector2(0.75f, -0.25f),
+                    provider.Context.Intent.move);
+                Assert.AreEqual(
+                    new Vector2(0.5f, 0.25f),
+                    provider.Context.Intent.look);
                 Assert.IsTrue(provider.Context.Intent.attack);
                 Assert.IsFalse(provider.Context.Intent.interact);
 
@@ -1307,14 +1315,12 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
                 Assert.IsFalse(provider.Context.Intent.attack);
                 Assert.IsFalse(provider.Context.Intent.interact);
 
-                source.Intent.performedAction = "Interact";
-                source.Intent.performedSequence = 2;
+                input.Press(input.Gamepad.buttonNorth);
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
                 Assert.IsFalse(provider.Context.Intent.attack);
                 Assert.IsTrue(provider.Context.Intent.interact);
 
-                source.Intent.performedAction = "UseSkill";
-                source.Intent.performedSequence = 3;
+                input.Press(input.Gamepad.buttonEast);
                 Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
                 Assert.IsFalse(provider.Context.Intent.interact);
                 Assert.IsTrue(provider.Context.Intent.useSkill);
@@ -1327,28 +1333,24 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             }
             finally
             {
+                input?.Destroy();
                 UnityEngine.Object.DestroyImmediate(root);
             }
         }
 
         [Test]
-        public void CharacterInputDriverCanResolveActiveInputSourceFromCoreServices()
+        public void CharacterInputDriverRequiresAnExplicitInputReader()
         {
             var root = new GameObject("Character Input Driver Service Test");
             try
             {
                 var provider = root.AddComponent<CharacterContextProvider>();
-                var source = root.AddComponent<TestInputIntentSource>();
                 var driver = root.AddComponent<CharacterInputDriver>();
+                driver.SetContextProvider(provider);
 
-                source.Intent.performedAction = "Jump";
-                source.Intent.performedSequence = 1;
-                source.Intent.move = Vector2.up;
-                CoCoServices.Register<ICoCoIntentSource<CoCoInputIntent>>(source);
-
-                Assert.IsTrue(InvokePrivateBool(driver, "SampleInput"));
-                Assert.AreEqual(Vector2.up, provider.Context.Intent.move);
-                Assert.IsTrue(provider.Context.Intent.jump);
+                Assert.IsFalse(InvokePrivateBool(driver, "SampleInput"));
+                Assert.AreEqual(Vector2.zero, provider.Context.Intent.move);
+                Assert.IsFalse(provider.Context.Intent.jump);
             }
             finally
             {
@@ -1411,6 +1413,73 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
 
         #region Internal Logic
 
+        private static CharacterInputFixture CreateCharacterInputFixture()
+        {
+            var inputFixture = new InputTestFixture();
+            inputFixture.Setup();
+            Gamepad gamepad = InputSystem.AddDevice<Gamepad>();
+            var actions = ScriptableObject.CreateInstance<InputActionAsset>();
+            var map = new InputActionMap("Gameplay");
+            InputAction move = map.AddAction(
+                "Move",
+                InputActionType.Value,
+                "<Gamepad>/leftStick");
+            InputAction look = map.AddAction(
+                "Look",
+                InputActionType.Value,
+                "<Gamepad>/rightStick");
+            InputAction jump = map.AddAction(
+                "Jump",
+                InputActionType.Button,
+                "<Gamepad>/buttonSouth");
+            InputAction attack = map.AddAction(
+                "Attack",
+                InputActionType.Button,
+                "<Gamepad>/buttonWest");
+            InputAction interact = map.AddAction(
+                "Interact",
+                InputActionType.Button,
+                "<Gamepad>/buttonNorth");
+            InputAction useSkill = map.AddAction(
+                "UseSkill",
+                InputActionType.Button,
+                "<Gamepad>/buttonEast");
+            move.ChangeBinding(0).WithGroup("Gamepad");
+            look.ChangeBinding(0).WithGroup("Gamepad");
+            jump.ChangeBinding(0).WithGroup("Gamepad");
+            attack.ChangeBinding(0).WithGroup("Gamepad");
+            interact.ChangeBinding(0).WithGroup("Gamepad");
+            useSkill.ChangeBinding(0).WithGroup("Gamepad");
+            actions.AddActionMap(map);
+            actions.AddControlScheme("Gamepad")
+                .WithRequiredDevice("<Gamepad>");
+
+            var inputObject = new GameObject("Character Input Reader");
+            inputObject.SetActive(false);
+            PlayerInput playerInput = inputObject.AddComponent<PlayerInput>();
+            playerInput.actions = actions;
+            playerInput.defaultActionMap = map.name;
+            playerInput.defaultControlScheme = "Gamepad";
+            InputReader reader = inputObject.AddComponent<InputReader>();
+            inputObject.SetActive(true);
+            playerInput.ActivateInput();
+            reader.enabled = false;
+            reader.enabled = true;
+
+            return new CharacterInputFixture(
+                inputObject,
+                actions,
+                inputFixture,
+                reader,
+                gamepad,
+                InputActionReference.Create(move),
+                InputActionReference.Create(look),
+                InputActionReference.Create(jump),
+                InputActionReference.Create(attack),
+                InputActionReference.Create(interact),
+                InputActionReference.Create(useSkill));
+        }
+
 
         private sealed class TestCharacterContext : CharacterContext
         {
@@ -1432,11 +1501,83 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             public string ShopInventoryId;
         }
 
-        private sealed class TestInputIntentSource :
-            MonoBehaviour,
-            ICoCoIntentSource<CoCoInputIntent>
+        private sealed class CharacterInputFixture
         {
-            public CoCoInputIntent Intent { get; } = new CoCoInputIntent();
+            private readonly GameObject _gameObject;
+            private readonly InputActionAsset _actions;
+            private readonly InputTestFixture _inputFixture;
+            private readonly InputActionReference[] _references;
+
+            public CharacterInputFixture(
+                GameObject gameObject,
+                InputActionAsset actions,
+                InputTestFixture inputFixture,
+                InputReader reader,
+                Gamepad gamepad,
+                InputActionReference move,
+                InputActionReference look,
+                InputActionReference jump,
+                InputActionReference attack,
+                InputActionReference interact,
+                InputActionReference useSkill)
+            {
+                _gameObject = gameObject;
+                _actions = actions;
+                _inputFixture = inputFixture;
+                Reader = reader;
+                Gamepad = gamepad;
+                _references = new[]
+                {
+                    move,
+                    look,
+                    jump,
+                    attack,
+                    interact,
+                    useSkill
+                };
+            }
+
+            public InputReader Reader { get; }
+            public Gamepad Gamepad { get; }
+
+            public void Configure(CharacterInputDriver driver)
+            {
+                SetPrivateField(driver, "moveAction", _references[0]);
+                SetPrivateField(driver, "lookAction", _references[1]);
+                SetPrivateField(driver, "jumpAction", _references[2]);
+                SetPrivateField(driver, "attackAction", _references[3]);
+                SetPrivateField(driver, "interactAction", _references[4]);
+                SetPrivateField(driver, "useSkillAction", _references[5]);
+                driver.SetInputReader(Reader);
+            }
+
+            public void SetMove(Vector2 value)
+            {
+                _inputFixture.Set(Gamepad.leftStick, value);
+            }
+
+            public void SetLook(Vector2 value)
+            {
+                _inputFixture.Set(Gamepad.rightStick, value);
+            }
+
+            public void Press(ButtonControl button)
+            {
+                _inputFixture.Press(button);
+                _inputFixture.Release(button);
+            }
+
+            public void Destroy()
+            {
+                UnityEngine.Object.DestroyImmediate(_gameObject);
+                foreach (InputActionReference reference in _references)
+                {
+                    UnityEngine.Object.DestroyImmediate(reference);
+                }
+
+                UnityEngine.Object.DestroyImmediate(_actions);
+                _inputFixture.TearDown();
+            }
         }
 
         private sealed class TestItemIntentSource :

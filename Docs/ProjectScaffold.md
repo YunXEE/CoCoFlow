@@ -20,7 +20,7 @@ free of another asmdef in both modes.
 The Graph layer is always isolated in the generated
 `CoCoFlowProject.Graph.asmdef` with `noEngineReferences: true`. It references
 only the pure Contracts, StateFlow, and StateGraph assemblies. It never
-references Unity, Input System, `InputRuntime`, or another gameplay module.
+references Unity, Input System, `InputReader`, or another gameplay module.
 
 ```text
 Assets/CoCoFlowProject/
@@ -88,7 +88,7 @@ instead of copying the starter binding unchanged.
 
 In the scene, assign `ProjectPlayerIntentSource` to Host Intent Source slot 0
 and `ProjectOperations` to Host Operators. The Source is the Unity-facing
-adapter: it reads `InputRuntime`, converts `InputCommandBatch<T>` and `Vector2`
+adapter: it reads `InputReader`, converts `InputCommandBatch<T>` and `Vector2`
 into pure project semantic values, and then exposes only `ProjectPlayerIntent`
 to the Graph. These two scene steps are also shown in every full Preview.
 
@@ -103,4 +103,4 @@ the generated runtime Provider and is never referenced by the pure Graph or
 Runtime assemblies.
 
 The scaffold never generates a Root Context, Provider V2, second Host,
-aggregate Context, or the obsolete `InputReader` route.
+aggregate Context, cloned Input Action authority, or Core Input service bridge.
