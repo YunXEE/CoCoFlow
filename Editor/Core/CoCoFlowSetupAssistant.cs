@@ -25,7 +25,6 @@ namespace CoCoFlow.Editor.Core
         private const string NewtonsoftPackageName = "com.unity.nuget.newtonsoft-json";
         private const string NewtonsoftMinimumVersion = "3.2.2";
         private const string CinemachineAssemblyName = "Unity.Cinemachine";
-        private const string SplinesAssemblyName = "Unity.Splines";
         private const string OpenUpmRegistryName = "package.openupm.com";
         private const string OpenUpmRegistryUrl = "https://package.openupm.com";
         private const string UniTaskScope = "com.cysharp.unitask";
@@ -151,11 +150,6 @@ namespace CoCoFlow.Editor.Core
                 },
                 "Map-first availability and retention decorator; it does not replay Map state."),
             new ModuleDefinition(
-                "Enemy AI",
-                new string[0],
-                new[] { SplinesAssemblyName, "Unity.Mathematics" },
-                "Enemy intent, vision, engagement, and spline navigation foundation."),
-            new ModuleDefinition(
                 "Animation",
                 new string[0],
                 new[]
@@ -256,7 +250,6 @@ namespace CoCoFlow.Editor.Core
                     _status.AddressablesState);
                 DrawStatusLine("Newtonsoft", _status.NewtonsoftMessage, _status.NewtonsoftState);
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("DOTween", _status.DotweenMessage, _status.DotweenModulesInstalled ? MessageType.Info : MessageType.Warning);
 
                 if (_status.HasUniTaskOpenUpmScope)
@@ -722,7 +715,6 @@ namespace CoCoFlow.Editor.Core
                                            IsTypeAvailable(
                                                "UnityEngine.AddressableAssets.Addressables, Unity.Addressables");
             status.CinemachineInstalled = IsAssemblyInstalled(CinemachineAssemblyName) || IsTypeAvailable("Unity.Cinemachine.CinemachineCamera, Unity.Cinemachine");
-            status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
             status.DotweenInstalled = IsDotweenInstalled();
             status.DotweenModulesInstalled = IsDotweenModuleInstalled();
             var checkedTargets = GetCheckedBuildTargetGroups();
@@ -732,7 +724,6 @@ namespace CoCoFlow.Editor.Core
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
             status.AssemblyStates[CinemachineAssemblyName] = status.CinemachineInstalled;
-            status.AssemblyStates[SplinesAssemblyName] = status.SplinesInstalled;
             status.AssemblyStates["Unity.Addressables"] = IsAssemblyInstalled("Unity.Addressables");
             status.AssemblyStates["CoCoFlow.Runtime.Content"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Content");
@@ -1011,7 +1002,6 @@ namespace CoCoFlow.Editor.Core
             public bool UniTaskInstalled { get; set; }
             public bool AddressablesInstalled { get; set; }
             public bool CinemachineInstalled { get; set; }
-            public bool SplinesInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
             public bool DotweenModulesInstalled { get; set; }
             public string UniTaskMessage { get; private set; }

@@ -75,14 +75,13 @@ namespace CoCoFlow.Runtime.Pooling.Tests
         }
 
         [Test]
-        public void PreNineDoesNotMigrateUiMapOrEnemyConsumers()
+        public void PreNineDoesNotMigrateUiOrMapConsumers()
         {
             string packagePath = PackageInfo.FindForAssembly(typeof(PoolId).Assembly).resolvedPath;
             string[] frozenConsumerRoots =
             {
                 "Runtime/Modules/UI",
-                "Runtime/Modules/Map",
-                "Runtime/Gameplay/Enemy"
+                "Runtime/Modules/Map"
             };
 
             foreach (string relativeRoot in frozenConsumerRoots)
