@@ -4,7 +4,7 @@ using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Modules.Map
 {
-    public sealed class RegionProfileCompiler
+    internal sealed class RegionProfileCompiler
     {
         private static readonly RegionCapabilityId[] StandardCapabilities =
         {

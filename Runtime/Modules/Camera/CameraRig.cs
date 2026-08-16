@@ -7,7 +7,7 @@ using UnityEngine;
 namespace CoCoFlow.Runtime.Modules.Camera
 {
     [Serializable]
-    public class CameraRigCameraEntry
+    public sealed class CameraRigCameraEntry
     {
         [SerializeField] private string modeId;
         [SerializeField] private CinemachineVirtualCameraBase camera;
@@ -31,7 +31,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
         }
     }
 
-    public class CameraRig : MonoBehaviour
+    public sealed class CameraRig : MonoBehaviour
     {
         [Header("Identity")]
         [SerializeField] private string rigId;

@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Camera
 {
-    public class CameraDirector : MonoBehaviour, ICameraDirector
+    public sealed class CameraDirector : MonoBehaviour, ICameraDirector
     {
         [Header("Rigs")]
         [SerializeField] private List<CameraRig> initialRigs = new List<CameraRig>();

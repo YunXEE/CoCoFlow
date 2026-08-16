@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 
 namespace CoCoFlow.Runtime.Modules.Camera
 {
-    public class CameraAimCoupler : MonoBehaviour
+    public sealed class CameraAimCoupler : MonoBehaviour
     {
         [Header("Input")]
         [SerializeField] private InputReader inputReader;

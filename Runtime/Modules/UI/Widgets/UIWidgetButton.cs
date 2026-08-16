@@ -15,7 +15,7 @@ namespace CoCoFlow.Runtime.Modules.UI.Widgets
     }
 
     [RequireComponent(typeof(Button))]
-    public class UIWidgetButton : UIWidgetBase
+    public sealed class UIWidgetButton : UIWidgetBase
     {
         [Header("Action Routing")]
         [SerializeField] private UIButtonActionType actionType = UIButtonActionType.CustomGameLogic;
