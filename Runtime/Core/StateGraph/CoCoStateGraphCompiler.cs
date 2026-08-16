@@ -39,16 +39,6 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public sealed class CoCoStateGraphValidator
-    {
-        public IReadOnlyList<CoCoGraphDiagnostic> Validate(
-            CoCoStateGraphSource source,
-            CoCoGraphDescriptorCatalog catalog)
-        {
-            return new CoCoStateGraphCompiler().Compile(source, catalog).Diagnostics;
-        }
-    }
-
     public sealed class CoCoStateGraphCompiler
     {
         public const uint CurrentSchemaVersion = 1U;

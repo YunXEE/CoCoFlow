@@ -565,22 +565,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void ValidatorReturnsTheCompilerDiagnosticSetWithoutBuildingASeparateContract()
-        {
-            CoCoStateGraphSource source = new CoCoStateGraphSource(
-                CoCoStateGraphCompiler.CurrentSchemaVersion,
-                4001UL,
-                CoCoStateGraphTestFactory.GraphId,
-                Array.Empty<CoCoStateLayerSource>(),
-                Array.Empty<CoCoEventToIntentDeclarationSource>());
-
-            CoCoStateGraphCompileResult compileResult = Compile(source);
-            var validator = new CoCoStateGraphValidator();
-
-            CollectionAssert.AreEqual(compileResult.Diagnostics, validator.Validate(source, catalog));
-        }
-
-        [Test]
         public void MultiErrorDiagnosticOrderIsDeterministicAcrossRepeatedCompile()
         {
             var source = new CoCoStateGraphSource(

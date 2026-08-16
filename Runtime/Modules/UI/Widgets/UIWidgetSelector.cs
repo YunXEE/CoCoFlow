@@ -6,7 +6,7 @@ using TMPro;
 
 namespace CoCoFlow.Runtime.Modules.UI.Widgets
 {
-    public class UIWidgetSelector : UIWidgetBase
+    public sealed class UIWidgetSelector : UIWidgetBase
     {
         [SerializeField] private Button leftArrowBtn;
         [SerializeField] private Button rightArrowBtn;

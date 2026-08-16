@@ -4,7 +4,7 @@
 
 namespace CoCoFlow.Runtime.Modules.UI.Panels
 {
-    public class UIPanelSettings : UIPanelBase
+    public sealed class UIPanelSettings : UIPanelBase
     {
         protected override void Awake()
         {

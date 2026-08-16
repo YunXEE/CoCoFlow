@@ -4,7 +4,7 @@ using TMPro;
 
 namespace CoCoFlow.Runtime.Modules.UI.Panels
 {
-    public class UIPanelPause : UIPanelBase
+    public sealed class UIPanelPause : UIPanelBase
     {
         [Header("Pause Menu Setup")]
         [SerializeField] private TextMeshProUGUI titleText;

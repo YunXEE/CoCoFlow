@@ -14,7 +14,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
     [RequireComponent(typeof(RectTransform))]
     [ExecuteAlways]
-    public class UIWidgetContainer : MonoBehaviour
+    public sealed class UIWidgetContainer : MonoBehaviour
     {
         [Header("Mode & Rules")]
         [SerializeField] private UIWidgetContainerMode mode = UIWidgetContainerMode.Static;

@@ -19,7 +19,7 @@ namespace CoCoFlow.Runtime.Modules.UI
         Top         // 顶层 (Loading界面，系统级断线提示)
     }
 
-    public class UIManager : MonoBehaviour
+    public sealed class UIManager : MonoBehaviour
     {
         [Header("Root Transforms")]
         [SerializeField] private Transform hudRoot;

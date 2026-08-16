@@ -510,7 +510,7 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
     }
 
-    public static class RegionBuiltInParticipants
+    internal static class RegionBuiltInParticipants
     {
         public static bool TryRegisterAll(
             RegionParticipantCatalog catalog,
