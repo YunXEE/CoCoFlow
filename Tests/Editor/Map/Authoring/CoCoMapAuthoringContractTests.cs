@@ -248,6 +248,39 @@ namespace CoCoFlow.Tests.Editor.Map.Authoring
         }
 
         [Test]
+        public void DirectSceneMissingFromPlayerListFailsBuild()
+        {
+            Assert.That(
+                () => CoCoMapBuildValidation
+                    .ValidateDirectScenePathsForBuild(
+                        new[] { "Assets/World/Direct.unity" },
+                        Array.Empty<string>()),
+                Throws.TypeOf<UnityEditor.Build.BuildFailedException>()
+                    .With.Message.Contains(
+                        "Assets/World/Direct.unity"));
+        }
+
+        [Test]
+        public void DirectSceneIncludedInPlayerListPassesBuild()
+        {
+            Assert.DoesNotThrow(
+                () => CoCoMapBuildValidation
+                    .ValidateDirectScenePathsForBuild(
+                        new[] { "Assets/World/Direct.unity" },
+                        new[] { "Assets/World/Direct.unity" }));
+        }
+
+        [Test]
+        public void AddressablesOnlyPlanDoesNotRequirePlayerScene()
+        {
+            Assert.DoesNotThrow(
+                () => CoCoMapBuildValidation
+                    .ValidateDirectScenePathsForBuild(
+                        Array.Empty<string>(),
+                        Array.Empty<string>()));
+        }
+
+        [Test]
         public void BuildCatalogResolutionNeverBorrowsALoadedHost()
         {
             Func<RegionParticipantCatalog> previousCatalogProvider =

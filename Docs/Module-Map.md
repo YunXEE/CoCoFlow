@@ -246,6 +246,12 @@ anchor resolves the fragment only after Content returns the exact Scene lease,
 and Map scans only that leased Scene. Direct Scenes use a full asset path;
 Addressables authoring must resolve to exactly one Scene asset.
 
+Every Direct Scene referenced by a compiled Map plan must also be present in
+the scene list of the current Player build. Build validation reads that build's
+final `BuildPlayerOptions.scenes`, including explicit scripted builds and Build
+Profiles. Addressables Scenes are resolved by their backend and do not need to
+appear in the Player scene list.
+
 The base Map assembly supplies Content, GameObject, Collider, Renderer,
 Animator, Particle, and Behaviour participants. A project can register its own
 participant and mode implementations without receiving Content release

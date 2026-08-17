@@ -139,6 +139,222 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             });
 
         [UnityTest]
+        public IEnumerator ReadyWaiterObservesCommittedSnapshotBeforeCompletion() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                CreateRuntime(
+                    autoReady: false,
+                    out ContentRuntime contentRuntime,
+                    out RegionRuntime regionRuntime,
+                    out RecordingTransitionSink sink);
+                Assert.IsTrue(RegionId.TryCreate(
+                    "world.atomic-ready",
+                    out RegionId regionId));
+                Assert.IsTrue(RegionChunkId.TryCreate(
+                    "center",
+                    out RegionChunkId chunkId));
+                sink.Configure(regionId, chunkId);
+                RegionDemandScope scope =
+                    CreateScope(regionRuntime, "atomic-ready-owner");
+                try
+                {
+                    Assert.IsTrue(RegionCoverage.TryCreateChunks(
+                        new[] { chunkId },
+                        out RegionCoverage coverage));
+                    Assert.IsTrue(scope.TryDemand(
+                        regionId,
+                        FullCapabilities(),
+                        coverage,
+                        out RegionDemandLease lease,
+                        out RegionDemandRevision revision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    RegionDemandResolution resolution = sink.LastResolution;
+                    UniTask<RegionReadinessResult> pending =
+                        lease.WaitUntilReadyAsync(revision);
+                    RegionRuntimeSnapshot observed = null;
+                    pending.GetAwaiter().OnCompleted(
+                        () => observed = regionRuntime.CaptureSnapshot());
+
+                    regionRuntime.PublishTransitionProgress(
+                        regionId,
+                        resolution.DesiredGeneration,
+                        new[] { chunkId },
+                        2,
+                        3,
+                        false,
+                        false,
+                        false,
+                        CoCoDiagnostic.None);
+                    regionRuntime.PublishTransitionReady(
+                        regionId,
+                        resolution.DesiredGeneration);
+
+                    Assert.That(observed, Is.Not.Null);
+                    Assert.That(observed.Regions.Count, Is.EqualTo(1));
+                    RegionRuntimeRegionState committed = observed.Regions[0];
+                    Assert.That(
+                        committed.CommittedGeneration,
+                        Is.EqualTo(resolution.DesiredGeneration));
+                    Assert.That(
+                        committed.CommittedCapabilities,
+                        Is.EqualTo(resolution.RegionCapabilities));
+                    Assert.That(
+                        committed.CommittedCoverage,
+                        Is.EqualTo(resolution.MergedCoverage));
+                    Assert.That(committed.CandidateNodeCount, Is.Zero);
+                    Assert.That(committed.Faulted, Is.False);
+                    Assert.That(committed.Diagnostic.IsNone, Is.True);
+                    Assert.That(observed.LastDiagnostic.IsNone, Is.True);
+                    Assert.That(observed.Demands.Count, Is.EqualTo(1));
+                    Assert.That(
+                        observed.Demands[0].Readiness,
+                        Is.EqualTo(RegionReadinessStatus.Ready));
+                    Assert.That(
+                        (await pending).Status,
+                        Is.EqualTo(RegionReadinessStatus.Ready));
+                }
+                finally
+                {
+                    scope.Dispose();
+                    await regionRuntime.ShutdownAsync();
+                    await contentRuntime.ShutdownAsync();
+                }
+            });
+
+        [UnityTest]
+        public IEnumerator ReadyContinuationCanMutateDemandWithoutCompletingNewRevision() =>
+            UniTask.ToCoroutine(async () =>
+            {
+                CreateRuntime(
+                    autoReady: false,
+                    out ContentRuntime contentRuntime,
+                    out RegionRuntime regionRuntime,
+                    out RecordingTransitionSink sink);
+                Assert.IsTrue(RegionId.TryCreate(
+                    "world.ready-reentry",
+                    out RegionId regionId));
+                Assert.IsTrue(RegionChunkId.TryCreate(
+                    "center",
+                    out RegionChunkId chunkId));
+                sink.Configure(regionId, chunkId);
+                RegionDemandScope triggerScope =
+                    CreateScope(regionRuntime, "ready-reentry-trigger");
+                RegionDemandScope updateScope =
+                    CreateScope(regionRuntime, "ready-reentry-update");
+                RegionDemandScope disposeScope =
+                    CreateScope(regionRuntime, "ready-reentry-dispose");
+                RegionDemandScope createScope =
+                    CreateScope(regionRuntime, "ready-reentry-create");
+                try
+                {
+                    Assert.IsTrue(RegionCoverage.TryCreateChunks(
+                        new[] { chunkId },
+                        out RegionCoverage coverage));
+                    Assert.IsTrue(triggerScope.TryDemand(
+                        regionId,
+                        RepresentedCapabilities(),
+                        coverage,
+                        out RegionDemandLease triggerLease,
+                        out RegionDemandRevision triggerRevision,
+                        out CoCoDiagnostic diagnostic),
+                        diagnostic.Message);
+                    Assert.IsTrue(updateScope.TryDemand(
+                        regionId,
+                        RepresentedCapabilities(),
+                        coverage,
+                        out RegionDemandLease updateLease,
+                        out _,
+                        out diagnostic),
+                        diagnostic.Message);
+                    Assert.IsTrue(disposeScope.TryDemand(
+                        regionId,
+                        RepresentedCapabilities(),
+                        coverage,
+                        out RegionDemandLease disposeLease,
+                        out _,
+                        out diagnostic),
+                        diagnostic.Message);
+
+                    RegionDemandResolution readyResolution =
+                        sink.LastResolution;
+                    UniTask<RegionReadinessResult> pending =
+                        triggerLease.WaitUntilReadyAsync(triggerRevision);
+                    bool continuationRan = false;
+                    RegionDemandRevision updatedRevision = default;
+                    RegionDemandLease createdLease = null;
+                    RegionDemandRevision createdRevision = default;
+                    pending.GetAwaiter().OnCompleted(
+                        () =>
+                        {
+                            continuationRan = true;
+                            Assert.IsTrue(updateLease.TryUpdate(
+                                BackgroundCapabilities(),
+                                coverage,
+                                out updatedRevision,
+                                out CoCoDiagnostic updateDiagnostic),
+                                updateDiagnostic.Message);
+                            Assert.IsTrue(createScope.TryDemand(
+                                regionId,
+                                FullCapabilities(),
+                                coverage,
+                                out createdLease,
+                                out createdRevision,
+                                out CoCoDiagnostic createDiagnostic),
+                                createDiagnostic.Message);
+                            disposeLease.Dispose();
+                        });
+
+                    regionRuntime.PublishTransitionReady(
+                        regionId,
+                        readyResolution.DesiredGeneration);
+
+                    Assert.That(continuationRan, Is.True);
+                    Assert.That(
+                        (await pending).Status,
+                        Is.EqualTo(RegionReadinessStatus.Ready));
+                    Assert.That(updatedRevision.IsValid, Is.True);
+                    Assert.That(createdLease, Is.Not.Null);
+                    Assert.That(createdRevision.IsValid, Is.True);
+                    Assert.That(disposeLease.IsDisposed, Is.True);
+
+                    RegionRuntimeSnapshot snapshot =
+                        regionRuntime.CaptureSnapshot();
+                    RegionRuntimeRegionState region = snapshot.Regions[0];
+                    Assert.That(
+                        region.CommittedGeneration,
+                        Is.EqualTo(readyResolution.DesiredGeneration));
+                    Assert.That(
+                        region.DesiredGeneration,
+                        Is.GreaterThan(region.CommittedGeneration));
+                    RegionDemandRuntimeSnapshot updatedDemand =
+                        FindDemand(snapshot, updateLease.LeaseSequence);
+                    RegionDemandRuntimeSnapshot createdDemand =
+                        FindDemand(snapshot, createdLease.LeaseSequence);
+                    Assert.That(
+                        updatedDemand.Revision,
+                        Is.EqualTo(updatedRevision));
+                    Assert.That(updatedDemand.Readiness, Is.Null);
+                    Assert.That(
+                        createdDemand.Revision,
+                        Is.EqualTo(createdRevision));
+                    Assert.That(createdDemand.Readiness, Is.Null);
+                    Assert.That(
+                        HasDemand(snapshot, disposeLease.LeaseSequence),
+                        Is.False);
+                }
+                finally
+                {
+                    triggerScope.Dispose();
+                    updateScope.Dispose();
+                    disposeScope.Dispose();
+                    createScope.Dispose();
+                    await regionRuntime.ShutdownAsync();
+                    await contentRuntime.ShutdownAsync();
+                }
+            });
+
+        [UnityTest]
         public IEnumerator UnknownChunkRejectsWholeDemandWithoutIssuingRevision() =>
             UniTask.ToCoroutine(async () =>
             {
@@ -414,6 +630,38 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             return scope;
+        }
+
+        private static RegionDemandRuntimeSnapshot FindDemand(
+            RegionRuntimeSnapshot snapshot,
+            long leaseSequence)
+        {
+            for (int index = 0; index < snapshot.Demands.Count; index++)
+            {
+                if (snapshot.Demands[index].LeaseSequence == leaseSequence)
+                {
+                    return snapshot.Demands[index];
+                }
+            }
+
+            Assert.Fail(
+                "Expected Region Demand Lease " + leaseSequence + ".");
+            return default;
+        }
+
+        private static bool HasDemand(
+            RegionRuntimeSnapshot snapshot,
+            long leaseSequence)
+        {
+            for (int index = 0; index < snapshot.Demands.Count; index++)
+            {
+                if (snapshot.Demands[index].LeaseSequence == leaseSequence)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static RegionCapabilitySet RepresentedCapabilities()
