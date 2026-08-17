@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Xml;
+using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Modules.Map;
 using UnityEditor;
 using UnityEditor.Build;
@@ -53,41 +54,13 @@ namespace CoCoFlow.Editor.Modules.Map
                 return Array.Empty<Type>();
             }
 
-            IReadOnlyList<RegionCompileResult> results =
-                new RegionBindingCompiler().CompileAll(
+            IReadOnlyList<RegionCompiledPlan> plans =
+                CompilePlans(
                     bindings,
+                    bindingPaths,
                     catalog,
-                    resolver);
-            var plans = new List<RegionCompiledPlan>(
-                results.Count);
-            for (int resultIndex = 0;
-                 resultIndex < results.Count;
-                 resultIndex++)
-            {
-                RegionCompileResult result =
-                    results[resultIndex];
-                for (int diagnosticIndex = 0;
-                     diagnosticIndex < result.Diagnostics.Count;
-                     diagnosticIndex++)
-                {
-                    RegionCompileDiagnostic diagnostic =
-                        result.Diagnostics[diagnosticIndex];
-                    if (!diagnostic.Diagnostic.IsError)
-                    {
-                        continue;
-                    }
-
-                    messages.Add(
-                        bindingPaths[resultIndex] + " · " +
-                        diagnostic.Path + ": " +
-                        diagnostic.Diagnostic.Message);
-                }
-
-                if (result.Succeeded)
-                {
-                    plans.Add(result.Plan);
-                }
-            }
+                    resolver,
+                    messages);
 
             ValidatePlayerAssemblyClosure(
                 catalog,
@@ -101,6 +74,103 @@ namespace CoCoFlow.Editor.Modules.Map
 
             ThrowIfErrors(messages);
             return CollectAotTypes(catalog);
+        }
+
+        internal static void ValidatePlayerScenesForBuild(
+            IReadOnlyCollection<string> playerScenePaths)
+        {
+            CoCoRegionBinding[] bindings =
+                LoadBindings(out string[] bindingPaths);
+            if (bindings.Length == 0)
+            {
+                return;
+            }
+
+            var messages =
+                new SortedSet<string>(StringComparer.Ordinal);
+            if (!CoCoMapAuthoringContext.TryResolveGlobal(
+                    out RegionParticipantCatalog catalog,
+                    out IRegionAddressableSceneResolver resolver,
+                    out string providerFailure))
+            {
+                messages.Add(providerFailure);
+                ThrowIfErrors(messages);
+                return;
+            }
+
+            IReadOnlyList<RegionCompiledPlan> plans =
+                CompilePlans(
+                    bindings,
+                    bindingPaths,
+                    catalog,
+                    resolver,
+                    messages);
+            if (messages.Count == 0)
+            {
+                var directScenePaths =
+                    new SortedSet<string>(StringComparer.Ordinal);
+                for (int planIndex = 0;
+                     planIndex < plans.Count;
+                     planIndex++)
+                {
+                    IReadOnlyList<RegionCompiledChunk> chunks =
+                        plans[planIndex].Chunks;
+                    for (int chunkIndex = 0;
+                         chunkIndex < chunks.Count;
+                         chunkIndex++)
+                    {
+                        RegionCompiledSceneReference scene =
+                            chunks[chunkIndex].SceneReference;
+                        if (scene.SourceKind == ContentSourceKind.Direct)
+                        {
+                            directScenePaths.Add(
+                                scene.CanonicalScenePath);
+                        }
+                    }
+                }
+
+                ValidateDirectScenePathsForBuild(
+                    directScenePaths,
+                    playerScenePaths);
+            }
+
+            ThrowIfErrors(messages);
+        }
+
+        internal static void ValidateDirectScenePathsForBuild(
+            IReadOnlyCollection<string> directScenePaths,
+            IReadOnlyCollection<string> playerScenePaths)
+        {
+            var playerScenes =
+                new HashSet<string>(StringComparer.Ordinal);
+            if (playerScenePaths != null)
+            {
+                foreach (string path in playerScenePaths)
+                {
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        playerScenes.Add(path);
+                    }
+                }
+            }
+
+            var messages =
+                new SortedSet<string>(StringComparer.Ordinal);
+            if (directScenePaths != null)
+            {
+                foreach (string path in directScenePaths)
+                {
+                    if (!string.IsNullOrEmpty(path) &&
+                        !playerScenes.Contains(path))
+                    {
+                        messages.Add(
+                            "Direct Map Scene '" + path +
+                            "' is not included in this Player build.");
+                    }
+                }
+            }
+
+            ThrowIfErrors(messages);
         }
 
         internal static string WriteLinkXml(
@@ -232,6 +302,50 @@ namespace CoCoFlow.Editor.Modules.Map
 
             paths = retainedPaths.ToArray();
             return bindings.ToArray();
+        }
+
+        private static IReadOnlyList<RegionCompiledPlan> CompilePlans(
+            IReadOnlyList<CoCoRegionBinding> bindings,
+            IReadOnlyList<string> bindingPaths,
+            RegionParticipantCatalog catalog,
+            IRegionAddressableSceneResolver resolver,
+            ISet<string> messages)
+        {
+            IReadOnlyList<RegionCompileResult> results =
+                new RegionBindingCompiler().CompileAll(
+                    bindings,
+                    catalog,
+                    resolver);
+            var plans = new List<RegionCompiledPlan>(results.Count);
+            for (int resultIndex = 0;
+                 resultIndex < results.Count;
+                 resultIndex++)
+            {
+                RegionCompileResult result = results[resultIndex];
+                for (int diagnosticIndex = 0;
+                     diagnosticIndex < result.Diagnostics.Count;
+                     diagnosticIndex++)
+                {
+                    RegionCompileDiagnostic diagnostic =
+                        result.Diagnostics[diagnosticIndex];
+                    if (!diagnostic.Diagnostic.IsError)
+                    {
+                        continue;
+                    }
+
+                    messages.Add(
+                        bindingPaths[resultIndex] + " · " +
+                        diagnostic.Path + ": " +
+                        diagnostic.Diagnostic.Message);
+                }
+
+                if (result.Succeeded)
+                {
+                    plans.Add(result.Plan);
+                }
+            }
+
+            return plans;
         }
 
         private static void ValidateManagedReferences(
@@ -502,6 +616,28 @@ namespace CoCoFlow.Editor.Modules.Map
                 string.Join(
                     Environment.NewLine,
                     ordered));
+        }
+    }
+
+    internal sealed class CoCoMapPlayerSceneBuildProcessor :
+        BuildPlayerProcessor
+    {
+        public override void PrepareForBuild(
+            BuildPlayerContext buildPlayerContext)
+        {
+            if (!CoCoMapBuildValidation.HasRegionBindings())
+            {
+                return;
+            }
+
+            if (buildPlayerContext == null)
+            {
+                throw new BuildFailedException(
+                    "Map Player Scene validation requires the active build context.");
+            }
+
+            CoCoMapBuildValidation.ValidatePlayerScenesForBuild(
+                buildPlayerContext.BuildPlayerOptions.scenes);
         }
     }
 

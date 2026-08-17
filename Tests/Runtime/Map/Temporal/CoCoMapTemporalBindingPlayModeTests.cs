@@ -39,6 +39,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             UniTask.ToCoroutine(RunIndirectCycleRejectionAsync);
 
         [UnityTest]
+        public IEnumerator PoolRootRejectsTemporalMapDownstreamBeforeAttach() =>
+            UniTask.ToCoroutine(RunPoolRootTemporalDownstreamRejectionAsync);
+
+        [UnityTest]
         public IEnumerator AuthorityResetPublishesMapAndPoolBaselinesOuterToDownstream() =>
             UniTask.ToCoroutine(RunAuthorityResetDelegationAsync);
 
@@ -516,6 +520,51 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                         "_runtime"),
                     Is.Null,
                     "Decorator cycle validation must reject before Pool sidecar attachment.");
+            }
+            finally
+            {
+                await CleanupFixtureAsync(fixture);
+            }
+        }
+
+        private static async UniTask
+            RunPoolRootTemporalDownstreamRejectionAsync()
+        {
+            DecoratorFixture fixture = CreateFixture();
+            try
+            {
+                SetField(
+                    fixture.MapTemporalBinding,
+                    "downstreamRestoreBinding",
+                    fixture.ProjectProbe);
+                SetField(
+                    fixture.PoolTemporalBinding,
+                    "downstreamRestoreBinding",
+                    fixture.MapTemporalBinding);
+                SetField(
+                    fixture.Host,
+                    "contextRestoreBinding",
+                    fixture.PoolTemporalBinding);
+
+                Assert.That(
+                    fixture.Host.TryStart(
+                        out CoCoDiagnostic diagnostic),
+                    Is.False);
+                Assert.That(
+                    diagnostic.Code,
+                    Is.EqualTo(CoCoDiagnosticCode.PoolTemporalConflict));
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.MapTemporalBinding,
+                        "runtime"),
+                    Is.Null,
+                    "Pool root rejection must occur before Map sidecar attachment.");
+                Assert.That(
+                    ReadPrivateField(
+                        fixture.PoolTemporalBinding,
+                        "_runtime"),
+                    Is.Null,
+                    "Pool root rejection must occur before Pool sidecar attachment.");
             }
             finally
             {
@@ -1097,6 +1146,25 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 RegionDemandResolution resolution)
             {
                 RequestCount++;
+                var chunkFidelity =
+                    new Dictionary<
+                        RegionChunkId,
+                        RegionResolvedChunkFidelity>();
+                foreach (RegionChunkId chunkId in knownChunks)
+                {
+                    chunkFidelity.Add(
+                        chunkId,
+                        new RegionResolvedChunkFidelity(
+                            default,
+                            resolution.GetChunkCapabilities(chunkId)));
+                }
+
+                runtime.PublishResolvedFidelity(
+                    resolution.RegionId,
+                    resolution.DesiredGeneration,
+                    default,
+                    resolution.RegionCapabilities,
+                    chunkFidelity);
                 runtime.PublishTransitionProgress(
                     resolution.RegionId,
                     resolution.DesiredGeneration,

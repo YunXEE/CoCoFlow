@@ -529,6 +529,15 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 return false;
             }
 
+            if (downstreamRestoreBinding is
+                ICoCoStateGraphTemporalParticipant)
+            {
+                diagnostic = ConflictError(
+                    "Downstream Restore Binding must not own a " +
+                    "StateGraph Temporal participant lifecycle.");
+                return false;
+            }
+
             _downstreamWasConfigured = true;
             _attachedDownstreamComponent = downstreamRestoreBinding;
             _attachedDownstreamBinding = downstream;

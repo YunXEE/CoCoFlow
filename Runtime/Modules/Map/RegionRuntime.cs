@@ -1006,11 +1006,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return;
             }
 
-            foreach (RegionDemandLease lease in state.Leases.Values)
-            {
-                lease.PublishReady(lease.Revision);
-            }
-
             RegionDemandResolution resolution = state.Resolution;
             state.CommittedGeneration = desiredGeneration;
             state.CommittedRegionCapabilities =
@@ -1050,6 +1045,18 @@ namespace CoCoFlow.Runtime.Modules.Map
                     "The Region committed with one or more absent optional Participants.")
                 : CoCoDiagnostic.None;
             LastDiagnostic = CoCoDiagnostic.None;
+
+            for (int index = 0; index < resolution.Leases.Count; index++)
+            {
+                RegionDemandLeaseSnapshot snapshot = resolution.Leases[index];
+                if (state.Leases.TryGetValue(
+                        snapshot.LeaseSequence,
+                        out RegionDemandLease lease) &&
+                    lease.Revision == snapshot.Revision)
+                {
+                    lease.PublishReady(snapshot.Revision);
+                }
+            }
         }
 
         internal void PublishResolvedFidelity(
