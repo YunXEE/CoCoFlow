@@ -15,16 +15,18 @@ namespace CoCoFlow.Runtime.Modules.Localization
     public readonly struct LocalizationDiagnostic :
         IEquatable<LocalizationDiagnostic>
     {
+        private readonly string _message;
+
         public LocalizationDiagnostic(
             LocalizationDiagnosticCode code,
             string message)
         {
             Code = code;
-            Message = message ?? string.Empty;
+            _message = message ?? string.Empty;
         }
 
         public LocalizationDiagnosticCode Code { get; }
-        public string Message { get; }
+        public string Message => _message ?? string.Empty;
         public bool IsNone => Code == LocalizationDiagnosticCode.None;
         public bool IsError => !IsNone;
 
@@ -39,7 +41,7 @@ namespace CoCoFlow.Runtime.Modules.Localization
         {
             unchecked
             {
-                return ((int)Code * 397) ^ (Message?.GetHashCode() ?? 0);
+                return ((int)Code * 397) ^ Message.GetHashCode();
             }
         }
 
