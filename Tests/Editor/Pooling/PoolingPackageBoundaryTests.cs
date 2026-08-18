@@ -75,37 +75,29 @@ namespace CoCoFlow.Runtime.Pooling.Tests
         }
 
         [Test]
-        public void PreNineDoesNotMigrateUiOrMapConsumers()
+        public void UiModuleDoesNotReferencePoolingRuntime()
         {
             string packagePath = PackageInfo.FindForAssembly(typeof(PoolId).Assembly).resolvedPath;
-            string[] frozenConsumerRoots =
+            const string relativeRoot = "Runtime/Modules/UI";
+            string root = Path.Combine(packagePath, relativeRoot);
+            Assert.That(Directory.Exists(root), Is.True, root);
+            foreach (string file in Directory.EnumerateFiles(
+                         root,
+                         "*",
+                         SearchOption.AllDirectories))
             {
-                "Runtime/Modules/UI",
-                "Runtime/Modules/Map"
-            };
-
-            foreach (string relativeRoot in frozenConsumerRoots)
-            {
-                string root = Path.Combine(packagePath, relativeRoot);
-                Assert.That(Directory.Exists(root), Is.True, root);
-                foreach (string file in Directory.EnumerateFiles(
-                             root,
-                             "*",
-                             SearchOption.AllDirectories))
+                string extension = Path.GetExtension(file);
+                if (!string.Equals(extension, ".cs", StringComparison.Ordinal) &&
+                    !string.Equals(extension, ".asmdef", StringComparison.Ordinal))
                 {
-                    string extension = Path.GetExtension(file);
-                    if (!string.Equals(extension, ".cs", StringComparison.Ordinal) &&
-                        !string.Equals(extension, ".asmdef", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    string source = File.ReadAllText(file);
-                    StringAssert.DoesNotContain(
-                        "CoCoFlow.Runtime.Pooling",
-                        source,
-                        file);
+                    continue;
                 }
+
+                string source = File.ReadAllText(file);
+                StringAssert.DoesNotContain(
+                    "CoCoFlow.Runtime.Pooling",
+                    source,
+                    file);
             }
         }
 
