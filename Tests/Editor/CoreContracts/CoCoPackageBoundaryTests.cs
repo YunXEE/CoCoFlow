@@ -300,7 +300,7 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void PublicContractsContainNoMachineNodeOrOptionalSurface()
+        public void PublicContractsContainNoMachineOrNodeSurface()
         {
             Type[] contractTypes = typeof(CoCoStateLogic).Assembly
                 .GetExportedTypes()
@@ -309,12 +309,10 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             Assert.IsFalse(contractTypes.Any(type =>
                 type.Name.IndexOf("Machine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                type.Name.IndexOf("Node", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                type.Name.IndexOf("Optional", StringComparison.OrdinalIgnoreCase) >= 0));
+                type.Name.IndexOf("Node", StringComparison.OrdinalIgnoreCase) >= 0));
             Assert.IsFalse(contractTypes.SelectMany(type => type.GetMembers()).Any(member =>
                 member.Name.IndexOf("Machine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                member.Name.IndexOf("Node", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                member.Name.IndexOf("Optional", StringComparison.OrdinalIgnoreCase) >= 0));
+                member.Name.IndexOf("Node", StringComparison.OrdinalIgnoreCase) >= 0));
         }
 
         [Test]

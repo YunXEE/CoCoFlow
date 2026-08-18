@@ -1,4 +1,4 @@
-using System.Reflection;
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -8,6 +8,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 {
     public sealed class RegionContractTests
     {
+        private const string ColdStartFixtureScenePath =
+            "Packages/com.yunxee.cocoflow/Tests/Runtime/Map/" +
+            "Fixtures/WildernessColdStartChunk.unity";
+
         [Test]
         public void ProfileAndTierIdsAreStableValueObjects()
         {
@@ -119,31 +123,29 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         public void ColdStartRejectsActiveAndInactiveChildrenUnderAnchorRoot(
             bool childActive)
         {
-            Scene scene = EditorSceneManager.NewScene(
-                NewSceneSetup.EmptyScene,
-                NewSceneMode.Additive);
-            var anchorRoot = new GameObject("Region Anchor");
-            SceneManager.MoveGameObjectToScene(anchorRoot, scene);
-            var child = new GameObject("Escaped Managed Content");
-            child.transform.SetParent(anchorRoot.transform, false);
-            child.SetActive(childActive);
-
-            CoCoRegionChunkAnchor anchor =
-                anchorRoot.AddComponent<CoCoRegionChunkAnchor>();
-            Assert.IsTrue(RegionId.TryCreate(
-                "world.wilderness",
-                out RegionId regionId));
-            Assert.IsTrue(RegionChunkId.TryCreate(
-                "north-west",
-                out RegionChunkId chunkId));
-            SetField(anchor, "regionId", regionId);
-            SetField(anchor, "chunkId", chunkId);
+            Scene previousActiveScene = SceneManager.GetActiveScene();
+            Scene scene = EditorSceneManager.OpenScene(
+                ColdStartFixtureScenePath,
+                OpenSceneMode.Additive);
 
             try
             {
+                CoCoRegionChunkAnchor[] anchors = scene.GetRootGameObjects()
+                    .SelectMany(root =>
+                        root.GetComponentsInChildren<CoCoRegionChunkAnchor>(true))
+                    .ToArray();
+                Assert.AreEqual(
+                    1,
+                    anchors.Length,
+                    "The saved ColdStart fixture must contain one Anchor.");
+                CoCoRegionChunkAnchor anchor = anchors[0];
+                var child = new GameObject("Escaped Managed Content");
+                child.transform.SetParent(anchor.transform, false);
+                child.SetActive(childActive);
+
                 Assert.IsFalse(anchor.TryValidateColdStart(
-                    regionId,
-                    chunkId,
+                    anchor.RegionId,
+                    anchor.ChunkId,
                     out CoCoFlow.Runtime.Core.CoCoDiagnostic diagnostic));
                 Assert.AreEqual(
                     CoCoFlow.Runtime.Core.CoCoDiagnosticCode
@@ -155,20 +157,17 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             }
             finally
             {
-                EditorSceneManager.CloseScene(scene, true);
-            }
-        }
+                if (previousActiveScene.IsValid() &&
+                    previousActiveScene.isLoaded)
+                {
+                    SceneManager.SetActiveScene(previousActiveScene);
+                }
 
-        private static void SetField<TValue>(
-            CoCoRegionChunkAnchor anchor,
-            string fieldName,
-            TValue value)
-        {
-            FieldInfo field = typeof(CoCoRegionChunkAnchor).GetField(
-                fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(field);
-            field.SetValue(anchor, value);
+                if (scene.IsValid() && scene.isLoaded)
+                {
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+            }
         }
     }
 }
