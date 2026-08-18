@@ -343,6 +343,155 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
         }
 
         [Test]
+        public void AssemblyCSharpRejectsAncestorAsmrefAndCustomModeAllowsIt()
+        {
+            WriteAsmref(
+                "Assets/Feature/Feature.Runtime.asmref",
+                "Feature.Runtime");
+            const string nestedRoot = "Assets/Feature/GeneratedProject";
+
+            ProjectScaffoldPlan assemblyCSharp = Build(
+                nestedRoot,
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            Assert.IsFalse(assemblyCSharp.CanApply);
+            Assert.IsTrue(assemblyCSharp.Conflicts.Any(conflict =>
+                conflict.Contains("Assembly-CSharp mode") &&
+                conflict.Contains("Assets/Feature/Feature.Runtime.asmref")));
+
+            ProjectScaffoldPlan custom = Build(
+                nestedRoot,
+                ProjectScaffoldAssemblyMode.CustomAssemblyDefinition);
+            Assert.IsTrue(custom.CanApply, string.Join("\n", custom.Conflicts));
+        }
+
+        [Test]
+        public void CustomModeRejectsAssemblyReferenceAtProjectRoot()
+        {
+            const string customRoot = "Assets/Feature/GeneratedProject";
+            WriteAsmref(
+                customRoot + "/Existing.Runtime.asmref",
+                "Existing.Runtime");
+
+            ProjectScaffoldPlan plan = Build(
+                customRoot,
+                ProjectScaffoldAssemblyMode.CustomAssemblyDefinition);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("cannot own the generated Runtime files") &&
+                conflict.Contains("Existing.Runtime.asmref")));
+        }
+
+        [TestCase(ProjectScaffoldAssemblyMode.AssemblyCSharp)]
+        [TestCase(ProjectScaffoldAssemblyMode.CustomAssemblyDefinition)]
+        public void ExistingGraphDirectoryAsmrefBlocksBothModes(
+            ProjectScaffoldAssemblyMode mode)
+        {
+            WriteAsmref(
+                ProjectScaffoldRequest.DefaultRoot +
+                "/Graph/Existing.Graph.asmref",
+                "Existing.Graph");
+
+            ProjectScaffoldPlan plan = Build(mode);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("Graph directory already contains") &&
+                conflict.Contains("Existing.Graph.asmref")));
+        }
+
+        [TestCase(ProjectScaffoldAssemblyMode.AssemblyCSharp)]
+        [TestCase(ProjectScaffoldAssemblyMode.CustomAssemblyDefinition)]
+        public void DescendantAsmrefDoesNotClaimGeneratedFiles(
+            ProjectScaffoldAssemblyMode mode)
+        {
+            WriteAsmref(
+                ProjectScaffoldRequest.DefaultRoot +
+                "/Runtime/Nested/Nested.Runtime.asmref",
+                "Nested.Runtime");
+
+            ProjectScaffoldPlan plan = Build(mode);
+
+            Assert.IsTrue(plan.CanApply, string.Join("\n", plan.Conflicts));
+        }
+
+        [Test]
+        public void AssemblyReferenceAddedAfterPreviewRequiresFreshConfirmation()
+        {
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            WriteAsmref(
+                "Assets/Project.Runtime.asmref",
+                "Feature.Runtime");
+
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(plan, _project);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(
+                ProjectScaffoldApplyFailureKind.StalePreview,
+                result.FailureKind);
+            Assert.IsFalse(Directory.Exists(Path.Combine(
+                _project,
+                ProjectScaffoldRequest.DefaultRoot,
+                "Runtime")));
+        }
+
+        [Test]
+        public void AssemblyReferenceRemovedAfterPreviewRequiresFreshConfirmation()
+        {
+            const string relativePath =
+                "Assets/Unrelated/Nested.Runtime.asmref";
+            WriteAsmref(relativePath, "Nested.Runtime");
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            File.Delete(Path.Combine(
+                _project,
+                relativePath.Replace('/', Path.DirectorySeparatorChar)));
+
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(plan, _project);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(
+                ProjectScaffoldApplyFailureKind.StalePreview,
+                result.FailureKind);
+        }
+
+        [Test]
+        public void AssemblyReferenceTargetChangeRequiresFreshConfirmation()
+        {
+            const string relativePath =
+                "Assets/Unrelated/Nested.Runtime.asmref";
+            WriteAsmref(relativePath, "Nested.Runtime");
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+            WriteAsmref(relativePath, "Changed.Runtime");
+
+            ProjectScaffoldApplyResult result =
+                CreateWriter().Apply(plan, _project);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(
+                ProjectScaffoldApplyFailureKind.StalePreview,
+                result.FailureKind);
+        }
+
+        [Test]
+        public void MissingAssemblyReferenceTargetBlocksPreview()
+        {
+            WriteAsmref("Assets/Broken/Broken.asmref", string.Empty);
+
+            ProjectScaffoldPlan plan = Build(
+                ProjectScaffoldAssemblyMode.AssemblyCSharp);
+
+            Assert.IsFalse(plan.CanApply);
+            Assert.IsTrue(plan.Conflicts.Any(conflict =>
+                conflict.Contains("Broken.asmref") &&
+                conflict.Contains("target reference is missing")));
+        }
+
+        [Test]
         public void AssemblyDefinitionChangeAfterPreviewRequiresFreshConfirmation()
         {
             ProjectScaffoldPlan plan = Build(
@@ -581,6 +730,17 @@ namespace CoCoFlow.Tests.Editor.ProjectScaffold
             File.WriteAllText(
                 path,
                 "{\n  \"name\": \"" + assemblyName + "\"\n}\n");
+        }
+
+        private void WriteAsmref(string relativePath, string assemblyReference)
+        {
+            string path = Path.Combine(
+                _project,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(
+                path,
+                "{\n  \"reference\": \"" + assemblyReference + "\"\n}\n");
         }
 
         private ProjectScaffoldWriter CreateWriter() =>

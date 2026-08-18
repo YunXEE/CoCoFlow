@@ -147,16 +147,22 @@ namespace CoCoFlow.Editor.ProjectScaffold
         internal ProjectScaffoldAssemblyIdentity(
             string path,
             string assemblyName,
-            string absolutePath)
+            string absolutePath,
+            bool isReference)
         {
             Path = ProjectScaffoldRequest.Normalize(path);
             AssemblyName = assemblyName ?? string.Empty;
             AbsolutePath = absolutePath ?? string.Empty;
+            IsReference = isReference;
         }
 
         internal string Path { get; }
         internal string AssemblyName { get; }
         internal string AbsolutePath { get; }
+        internal bool IsReference { get; }
+
+        internal string KindLabel =>
+            IsReference ? "assembly reference" : "assembly definition";
     }
 
     internal sealed class ProjectScaffoldProviderDetector :
@@ -357,6 +363,14 @@ namespace CoCoFlow.Editor.ProjectScaffold
             internal string Name => name;
         }
 
+        [Serializable]
+        private sealed class AssemblyReferenceJson
+        {
+            [SerializeField] private string reference;
+
+            internal string Reference => reference;
+        }
+
         internal static ProjectScaffoldPlan Build(
             ProjectScaffoldRequest request,
             string workingDirectory) =>
@@ -476,6 +490,7 @@ namespace CoCoFlow.Editor.ProjectScaffold
 
             for (int index = 0; index < assemblies.Count; index++)
             {
+                Append(source, assemblies[index].IsReference ? "asmref" : "asmdef");
                 Append(source, assemblies[index].AssemblyName);
                 Append(source, assemblies[index].Path);
             }
@@ -572,7 +587,34 @@ namespace CoCoFlow.Editor.ProjectScaffold
                         identities.Add(new ProjectScaffoldAssemblyIdentity(
                             relativePath,
                             definition.Name,
-                            Path.GetFullPath(file)));
+                            Path.GetFullPath(file),
+                            false));
+                    }
+
+                    foreach (string file in Directory.EnumerateFiles(
+                                 directory,
+                                 "*.asmref",
+                                 SearchOption.TopDirectoryOnly))
+                    {
+                        string relativePath = ProjectScaffoldRequest.Normalize(
+                            file.Substring(projectRoot.Length + 1));
+                        string content = File.ReadAllText(file, Encoding.UTF8);
+                        AssemblyReferenceJson reference =
+                            JsonUtility.FromJson<AssemblyReferenceJson>(content);
+                        if (reference == null ||
+                            string.IsNullOrWhiteSpace(reference.Reference))
+                        {
+                            conflicts.Add(
+                                "Assembly reference inspection failed for " +
+                                relativePath + ": the target reference is missing.");
+                            continue;
+                        }
+
+                        identities.Add(new ProjectScaffoldAssemblyIdentity(
+                            relativePath,
+                            reference.Reference,
+                            Path.GetFullPath(file),
+                            true));
                     }
 
                     foreach (string child in Directory.EnumerateDirectories(
@@ -635,7 +677,8 @@ namespace CoCoFlow.Editor.ProjectScaffold
                         StringComparison.Ordinal))
                 {
                     conflicts.Add(
-                        "A project assembly definition already uses the reserved Scaffold identity '" +
+                        "A project " + assembly.KindLabel +
+                        " already uses the reserved Scaffold identity '" +
                         assembly.AssemblyName + "' at " + assembly.Path +
                         ". Only one CoCoFlow Project Scaffold may exist per Unity project.");
                 }
@@ -648,7 +691,8 @@ namespace CoCoFlow.Editor.ProjectScaffold
                         graphRoot))
                 {
                     conflicts.Add(
-                        "The generated Graph directory already contains an assembly definition at " +
+                        "The generated Graph directory already contains an " +
+                        assembly.KindLabel + " at " +
                         assembly.Path + ".");
                 }
             }
@@ -679,7 +723,8 @@ namespace CoCoFlow.Editor.ProjectScaffold
                     if (ancestorDirectories.Contains(assemblyDirectory))
                     {
                         conflicts.Add(
-                            "Assembly-CSharp mode cannot generate Runtime files below the assembly definition at " +
+                            "Assembly-CSharp mode cannot generate Runtime files below the " +
+                            assembly.KindLabel + " at " +
                             assembly.Path + ".");
                     }
                 }
@@ -695,7 +740,8 @@ namespace CoCoFlow.Editor.ProjectScaffold
                     PathsEqual(assemblyDirectory, runtimeRoot))
                 {
                     conflicts.Add(
-                        "Custom assembly mode cannot own the generated Runtime files because the project root or Runtime directory already contains an assembly definition at " +
+                        "Custom assembly mode cannot own the generated Runtime files because the project root or Runtime directory already contains an " +
+                        assembly.KindLabel + " at " +
                         assembly.Path + ".");
                 }
             }
