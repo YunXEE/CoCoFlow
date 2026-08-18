@@ -27,6 +27,29 @@ namespace CoCoFlow.Runtime.Modules.Map
             PublishReady = 1
         }
 
+        private enum WaiterNotificationKind
+        {
+            Ready = 0,
+            Failed = 1
+        }
+
+        private readonly struct WaiterNotification
+        {
+            internal WaiterNotification(
+                WaiterNotificationKind kind,
+                long generation,
+                CoCoDiagnostic diagnostic)
+            {
+                Kind = kind;
+                Generation = generation;
+                Diagnostic = diagnostic;
+            }
+
+            internal WaiterNotificationKind Kind { get; }
+            internal long Generation { get; }
+            internal CoCoDiagnostic Diagnostic { get; }
+        }
+
         private sealed class DesiredNode
         {
             internal DesiredNode(
@@ -220,6 +243,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             internal DependencyAttempt ActiveDependencyAttempt { get; set; }
             internal CleanupBatch ActiveCleanupBatch { get; set; }
             internal RegionDemandResolution PendingResolution { get; set; }
+            internal WaiterNotification? PendingWaiterNotification { get; set; }
             internal CancellationTokenSource ActiveCancellation { get; set; }
             internal Task RunnerTask { get; set; }
             internal BlockedState Blocked { get; set; }
@@ -1042,6 +1066,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 state.ActiveCancellation?.Dispose();
                 state.ActiveCancellation = null;
                 state.RunnerActive = false;
+                PublishPendingWaiterNotification(state);
                 if (state.PendingResolution != null &&
                     state.Blocked == null &&
                     !state.FaultedCommit &&
@@ -2127,6 +2152,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             {
                 await UniTask.SwitchToMainThread();
                 state.RunnerActive = false;
+                PublishPendingWaiterNotification(state);
                 if (state.PendingResolution != null &&
                     state.Blocked == null &&
                     !state.FaultedCommit &&
@@ -3409,9 +3435,13 @@ namespace CoCoFlow.Runtime.Modules.Map
                 false,
                 false,
                 state.LastDiagnostic);
-            runtime.PublishTransitionReady(
-                state.Plan.RegionId,
-                resolution.DesiredGeneration);
+            if (!runtime.CommitTransitionReady(
+                    state.Plan.RegionId,
+                    resolution.DesiredGeneration))
+            {
+                return;
+            }
+
             PublishProgress(
                 state,
                 resolution.DesiredGeneration,
@@ -3421,6 +3451,11 @@ namespace CoCoFlow.Runtime.Modules.Map
                 false,
                 false,
                 state.LastDiagnostic);
+            state.PendingWaiterNotification =
+                new WaiterNotification(
+                    WaiterNotificationKind.Ready,
+                    resolution.DesiredGeneration,
+                    CoCoDiagnostic.None);
         }
 
         private void PublishFailureAndProgress(
@@ -3436,7 +3471,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 return;
             }
 
-            runtime.PublishTransitionFailed(
+            bool committed = runtime.CommitTransitionFailed(
                 state.Plan.RegionId,
                 generation,
                 diagnostic);
@@ -3449,6 +3484,54 @@ namespace CoCoFlow.Runtime.Modules.Map
                 faulted,
                 blockedCleanup,
                 diagnostic);
+            if (!committed)
+            {
+                return;
+            }
+
+            if (state.RunnerActive)
+            {
+                state.PendingWaiterNotification =
+                    new WaiterNotification(
+                        WaiterNotificationKind.Failed,
+                        generation,
+                        diagnostic);
+                return;
+            }
+
+            runtime.PublishTransitionFailedWaiters(
+                state.Plan.RegionId,
+                generation,
+                diagnostic);
+        }
+
+        private void PublishPendingWaiterNotification(
+            RegionState state)
+        {
+            bool hasNotification =
+                state.PendingWaiterNotification.HasValue;
+            WaiterNotification notification = hasNotification
+                ? state.PendingWaiterNotification.Value
+                : default;
+            state.PendingWaiterNotification = null;
+            if (!hasNotification ||
+                state.TerminalOwnershipTransferred)
+            {
+                return;
+            }
+
+            if (notification.Kind == WaiterNotificationKind.Ready)
+            {
+                runtime.PublishTransitionReadyWaiters(
+                    state.Plan.RegionId,
+                    notification.Generation);
+                return;
+            }
+
+            runtime.PublishTransitionFailedWaiters(
+                state.Plan.RegionId,
+                notification.Generation,
+                notification.Diagnostic);
         }
 
         private void PublishProgress(

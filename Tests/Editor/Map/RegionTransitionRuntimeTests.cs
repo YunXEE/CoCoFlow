@@ -2098,11 +2098,13 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             UniTask.ToCoroutine(async () =>
             {
                 const string key = "removed-blocked";
+                TimeSpan cleanupTimeout =
+                    TimeSpan.FromMilliseconds(20);
                 var controller = new CandidateController();
                 controller.BlockFirstCleanup(key);
                 using (TransitionHarness harness = CreateHarness(
                            controller,
-                           TimeSpan.FromMilliseconds(20),
+                           cleanupTimeout,
                            Node(
                                key,
                                new StableTestPlan(key))))
@@ -2123,6 +2125,13 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         .Status);
 
                     lease.Dispose();
+                    await WaitUntilAsync(
+                        () => controller.CleanupAsyncInvocationCount(
+                                  key,
+                                  1) == 1,
+                        "The transition to Off did not begin cleanup.");
+                    await Task.Delay(cleanupTimeout + cleanupTimeout);
+                    await UniTask.SwitchToMainThread();
                     await WaitUntilAsync(
                         () =>
                         {
