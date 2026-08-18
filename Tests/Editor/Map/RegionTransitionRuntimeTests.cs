@@ -1454,16 +1454,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         "The replacement source candidate did not enter Prepare.");
 
                     harness.Runtime.ForceShutdown();
-                    await UniTask.Yield();
-                    Assert.AreEqual(
-                        0,
-                        controller.HostShutdownOrder.Count,
-                        "Force fallback cannot overtake an active source runner to clean its target.");
-
-                    controller.CompleteBlockedPrepare();
                     await WaitUntilAsync(
                         () => controller.HostShutdownOrder.Count == 3,
-                        "Ordered terminal fallback did not finish source and target cleanup.");
+                        "Ordered terminal fallback remained blocked on the source Prepare.");
                     CollectionAssert.AreEqual(
                         new[]
                         {
@@ -1472,6 +1465,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                             "wilderness#1"
                         },
                         controller.HostShutdownOrder);
+
+                    controller.CompleteBlockedPrepare();
+                    await WaitUntilAsync(
+                        () => controller
+                                  .LatePrepareResourceRejectionCount(
+                                      "castle",
+                                      2) == 1,
+                        "The late source Prepare did not observe its terminal fence.");
                     Assert.AreEqual(
                         1,
                         controller.CommitCount("castle"),
@@ -4490,6 +4491,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         }
     }
 
+    [ExecuteAlways]
     public sealed class RegionCommitDestroyerProbe : MonoBehaviour
     {
         public Behaviour Victim { get; set; }

@@ -3651,6 +3651,14 @@ namespace CoCoFlow.Runtime.Modules.Map
         {
             try
             {
+                // A reentrant force request must let the synchronous callback
+                // publish its candidate, but an asynchronous runner that
+                // ignores cancellation must not retain terminal ownership.
+                while (IsInvokingParticipantCallback)
+                {
+                    await UniTask.Yield();
+                }
+
                 var observed =
                     new HashSet<IRegionParticipantCandidate>(
                         ReferenceCandidateComparer.Instance);
@@ -3692,20 +3700,8 @@ namespace CoCoFlow.Runtime.Modules.Map
                         if (runner != null &&
                             !runner.IsCompleted)
                         {
-                            Task completed = await Task.WhenAny(
-                                runner,
-                                Task.Delay(cleanupTimeout));
-                            await UniTask.SwitchToMainThread();
-                            if (ReferenceEquals(completed, runner))
-                            {
-                                ObserveRunnerForTerminalFallbackNoThrow(
-                                    runner);
-                            }
-                            else
-                            {
-                                ObserveLateTaskNoThrowAsync(
-                                    runner).Forget();
-                            }
+                            ObserveLateTaskNoThrowAsync(
+                                runner).Forget();
                         }
                         else
                         {
@@ -3730,6 +3726,24 @@ namespace CoCoFlow.Runtime.Modules.Map
                             ObserveCleanupBatchForTerminalFallbackNoThrow(
                                 blockedCleanupBatch,
                                 observed,
+                                excluded);
+                        }
+
+                        // Interrupting an in-flight cleanup can let its runner
+                        // clear ActiveCleanupBatch. The captured batch still
+                        // identifies candidates owned by this terminal pass.
+                        ForceCleanupBatchCandidates(
+                            activeCleanupBatch,
+                            terminalCandidates,
+                            excluded);
+                        if (blockedCleanupBatch != null &&
+                            !ReferenceEquals(
+                                blockedCleanupBatch,
+                                activeCleanupBatch))
+                        {
+                            ForceCleanupBatchCandidates(
+                                blockedCleanupBatch,
+                                terminalCandidates,
                                 excluded);
                         }
 
@@ -3825,6 +3839,27 @@ namespace CoCoFlow.Runtime.Modules.Map
                 await Task.WhenAny(
                     all,
                     Task.Delay(cleanupTimeout));
+            }
+        }
+
+        private void ForceCleanupBatchCandidates(
+            CleanupBatch batch,
+            ISet<IRegionParticipantCandidate> terminalCandidates,
+            ISet<IRegionParticipantCandidate> excluded)
+        {
+            if (batch == null)
+            {
+                return;
+            }
+
+            for (int index = batch.Index;
+                 index < batch.Works.Count;
+                 index++)
+            {
+                ForceCleanupCandidate(
+                    batch.Works[index].Node.Candidate,
+                    terminalCandidates,
+                    excluded);
             }
         }
 
