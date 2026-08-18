@@ -189,7 +189,7 @@ namespace CoCoFlow.Tests.Runtime.Map.Addressables
                     Is.True,
                     diagnostic.Message);
 
-                int sceneHandle = scene.handle;
+                SceneHandle sceneHandle = scene.handle;
                 lease.Dispose();
                 lease = null;
                 await WaitUntilSceneUnloadedAsync(
@@ -318,7 +318,7 @@ namespace CoCoFlow.Tests.Runtime.Map.Addressables
         }
 
         private static async UniTask WaitUntilSceneUnloadedAsync(
-            int sceneHandle,
+            SceneHandle sceneHandle,
             AddressablesStaticIsolation isolation)
         {
             for (int frame = 0; frame < 300; frame++)

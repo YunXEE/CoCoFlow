@@ -210,7 +210,7 @@ namespace CoCoFlow.Runtime.Core
         private readonly bool[] _boundIntentSourceSlots;
         private readonly bool[] _boundEventAdapterSlots;
         private readonly bool[] _boundEventDeclarations;
-        private readonly HashSet<int> _boundIntentComponentIds;
+        private readonly HashSet<EntityId> _boundIntentComponentIds;
         private readonly List<CoCoOperationSectionRequirement> _operationRequirements;
         private readonly List<ICoCoGraphContextProducerBinding> _graphContextProducers;
         private readonly List<ICoCoHostIntentContribution> _intentContributions;
@@ -261,7 +261,7 @@ namespace CoCoFlow.Runtime.Core
             _boundIntentSourceSlots = new bool[_intentSourceComponents.Count];
             _boundEventAdapterSlots = new bool[_eventAdapterComponents.Count];
             _boundEventDeclarations = new bool[graph.IntentRequirements.AdapterCount];
-            _boundIntentComponentIds = new HashSet<int>();
+            _boundIntentComponentIds = new HashSet<EntityId>();
             _operationRequirements = new List<CoCoOperationSectionRequirement>(
                 graph.OperationProvides.Count);
             _graphContextProducers = new List<ICoCoGraphContextProducerBinding>();
@@ -1130,7 +1130,7 @@ namespace CoCoFlow.Runtime.Core
             if (component == null ||
                 !CoCoStateGraphHostBoundary.Contains(_host, component) ||
                 component is not ICoCoIntentFrameSource<TIntent> typedSource ||
-                !_boundIntentComponentIds.Add(component.GetInstanceID()))
+                !_boundIntentComponentIds.Add(GetObjectEntityId(component)))
             {
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.DescriptorTypeMismatch,
@@ -1173,7 +1173,7 @@ namespace CoCoFlow.Runtime.Core
             if (component == null ||
                 !CoCoStateGraphHostBoundary.Contains(_host, component) ||
                 component is not ICoCoEventToIntentAdapter<TEvent, TIntent> typedAdapter ||
-                !_boundIntentComponentIds.Add(component.GetInstanceID()))
+                !_boundIntentComponentIds.Add(GetObjectEntityId(component)))
             {
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.DescriptorTypeMismatch,
@@ -1570,6 +1570,15 @@ namespace CoCoFlow.Runtime.Core
         {
             _intentRuntime?.Dispose();
             _intentRuntime = null;
+        }
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
         }
 
         private static CoCoDiagnostic RegistryFrozen(string message) =>

@@ -167,7 +167,7 @@ namespace CoCoFlow.Tests.Runtime.Map.DirectScene
                         terrain,
                         Is.SameAs(anchor.ManagedRoots[0]));
 
-                    int sceneHandle = scene.handle;
+                    SceneHandle sceneHandle = scene.handle;
                     lease.Dispose();
                     lease = null;
                     await WaitUntilSceneUnloadedAsync(
@@ -262,7 +262,7 @@ namespace CoCoFlow.Tests.Runtime.Map.DirectScene
         }
 
         private static async UniTask WaitUntilSceneUnloadedAsync(
-            int sceneHandle)
+            SceneHandle sceneHandle)
         {
             for (int frame = 0; frame < 300; frame++)
             {

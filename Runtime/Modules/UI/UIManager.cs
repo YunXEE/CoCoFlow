@@ -431,8 +431,17 @@ namespace CoCoFlow.Runtime.Modules.UI
         {
             _panelOwnerSequence++;
             return ContentOwnerId.TryCreate(
-                $"ui.manager.{GetInstanceID()}.panel.{_panelOwnerSequence}",
+                $"ui.manager.{GetObjectEntityId(this)}.panel.{_panelOwnerSequence}",
                 out ownerId);
+        }
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
         }
         #endregion
     }

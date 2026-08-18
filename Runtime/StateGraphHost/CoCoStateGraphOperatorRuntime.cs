@@ -223,7 +223,7 @@ namespace CoCoFlow.Runtime.Core
 
             var bindings = new OperatorBinding[components.Count];
             var operatorIds = new HashSet<CoCoOperatorId>();
-            var componentIds = new HashSet<int>();
+            var componentIds = new HashSet<EntityId>();
             var ownedOutcomes = new HashSet<CoCoStateSlotId>();
             var resources = new List<ClaimResourceBuilder>();
             var sectionClaims = new Dictionary<CoCoOperationSectionId, CoCoOperatorClaimId>();
@@ -232,7 +232,7 @@ namespace CoCoFlow.Runtime.Core
             {
                 MonoBehaviour component = components[operatorIndex];
                 if (component == null ||
-                    !componentIds.Add(component.GetInstanceID()) ||
+                    !componentIds.Add(GetObjectEntityId(component)) ||
                     !(component is ICoCoOperator executable) ||
                     !CoCoStateGraphHostBoundary.Contains(host, component))
                 {
@@ -1543,6 +1543,15 @@ namespace CoCoFlow.Runtime.Core
             {
                 owners[index] = -1;
             }
+        }
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
         }
 
         private static CoCoDiagnostic Error(CoCoDiagnosticCode code, string message) =>

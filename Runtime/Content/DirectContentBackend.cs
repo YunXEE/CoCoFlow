@@ -76,7 +76,7 @@ namespace CoCoFlow.Runtime.Content
         {
             bool gateEntered = false;
             bool physicalLoadStarted = false;
-            HashSet<int> priorHandles = null;
+            HashSet<SceneHandle> priorHandles = null;
             ResolvedSceneLocation resolvedLocation = default;
             try
             {
@@ -95,7 +95,7 @@ namespace CoCoFlow.Runtime.Content
                 await UniTask.SwitchToMainThread();
                 lifetimeCancellationToken.ThrowIfCancellationRequested();
 
-                priorHandles = new HashSet<int>();
+                priorHandles = new HashSet<SceneHandle>();
                 for (int index = 0; index < SceneManager.sceneCount; index++)
                 {
                     priorHandles.Add(SceneManager.GetSceneAt(index).handle);
@@ -256,7 +256,7 @@ namespace CoCoFlow.Runtime.Content
         }
 
         private static bool TryFindNewScene(
-            HashSet<int> priorHandles,
+            HashSet<SceneHandle> priorHandles,
             ResolvedSceneLocation resolvedLocation,
             out Scene loadedScene)
         {
