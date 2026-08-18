@@ -997,13 +997,29 @@ namespace CoCoFlow.Runtime.Modules.Map
             RegionId regionId,
             long desiredGeneration)
         {
+            if (!CommitTransitionReady(
+                    regionId,
+                    desiredGeneration))
+            {
+                return;
+            }
+
+            PublishTransitionReadyWaiters(
+                regionId,
+                desiredGeneration);
+        }
+
+        internal bool CommitTransitionReady(
+            RegionId regionId,
+            long desiredGeneration)
+        {
             if (!IsMainThread ||
                 !regions.TryGetValue(
                     regionId,
                     out RegionDemandState state) ||
                 state.DesiredGeneration != desiredGeneration)
             {
-                return;
+                return false;
             }
 
             RegionDemandResolution resolution = state.Resolution;
@@ -1045,6 +1061,24 @@ namespace CoCoFlow.Runtime.Modules.Map
                     "The Region committed with one or more absent optional Participants.")
                 : CoCoDiagnostic.None;
             LastDiagnostic = CoCoDiagnostic.None;
+
+            return true;
+        }
+
+        internal void PublishTransitionReadyWaiters(
+            RegionId regionId,
+            long desiredGeneration)
+        {
+            if (!IsMainThread ||
+                !regions.TryGetValue(
+                    regionId,
+                    out RegionDemandState state) ||
+                state.DesiredGeneration != desiredGeneration)
+            {
+                return;
+            }
+
+            RegionDemandResolution resolution = state.Resolution;
 
             for (int index = 0; index < resolution.Leases.Count; index++)
             {
@@ -1102,6 +1136,54 @@ namespace CoCoFlow.Runtime.Modules.Map
             long desiredGeneration,
             CoCoDiagnostic diagnostic)
         {
+            if (!CommitTransitionFailed(
+                    regionId,
+                    desiredGeneration,
+                    diagnostic))
+            {
+                return;
+            }
+
+            PublishTransitionFailedWaiters(
+                regionId,
+                desiredGeneration,
+                diagnostic);
+        }
+
+        internal bool CommitTransitionFailed(
+            RegionId regionId,
+            long desiredGeneration,
+            CoCoDiagnostic diagnostic)
+        {
+            if (!IsMainThread ||
+                !regions.TryGetValue(
+                    regionId,
+                    out RegionDemandState state) ||
+                state.DesiredGeneration != desiredGeneration)
+            {
+                return false;
+            }
+
+            CoCoDiagnostic failure = diagnostic.IsNone
+                ? RegionErrors.TransitionFailed(
+                    "The Region transition failed without a diagnostic.")
+                : diagnostic;
+            state.CandidateNodeCount = 0;
+            state.Faulted =
+                failure.Code == CoCoDiagnosticCode.RegionCommitFaulted;
+            state.BlockedCleanup =
+                failure.Code == CoCoDiagnosticCode.RegionCleanupBlocked;
+            state.Diagnostic = failure;
+            LastDiagnostic = failure;
+
+            return true;
+        }
+
+        internal void PublishTransitionFailedWaiters(
+            RegionId regionId,
+            long desiredGeneration,
+            CoCoDiagnostic diagnostic)
+        {
             if (!IsMainThread ||
                 !regions.TryGetValue(
                     regionId,
@@ -1122,14 +1204,6 @@ namespace CoCoFlow.Runtime.Modules.Map
                     lease.PublishFailed(lease.Revision, failure);
                 }
             }
-
-            state.CandidateNodeCount = 0;
-            state.Faulted =
-                failure.Code == CoCoDiagnosticCode.RegionCommitFaulted;
-            state.BlockedCleanup =
-                failure.Code == CoCoDiagnosticCode.RegionCleanupBlocked;
-            state.Diagnostic = failure;
-            LastDiagnostic = failure;
         }
 
         internal void PublishTransitionProgress(
