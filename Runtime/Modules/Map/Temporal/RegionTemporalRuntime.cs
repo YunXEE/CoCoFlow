@@ -66,9 +66,12 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 return false;
             }
 
-            string ownerValue =
-                "cocoflow.map.temporal." +
-                host.GetInstanceID().ToString(CultureInfo.InvariantCulture);
+#if UNITY_6000_5_OR_NEWER
+            string hostIdentity = host.GetEntityId().ToString();
+#else
+            string hostIdentity = host.GetInstanceID().ToString(CultureInfo.InvariantCulture);
+#endif
+            string ownerValue = "cocoflow.map.temporal." + hostIdentity;
             if (!RegionDemandOwnerId.TryCreate(
                     ownerValue,
                     out RegionDemandOwnerId ownerId) ||

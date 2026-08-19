@@ -275,9 +275,18 @@ namespace CoCoFlow.Editor.StateGraph
                 ? string.Empty
                 : AssetDatabase.AssetPathToGUID(assetPath);
             string identity = string.IsNullOrEmpty(assetGuid)
-                ? asset.GraphId.IsValid ? asset.GraphId.ToString() : asset.GetInstanceID().ToString()
+                ? asset.GraphId.IsValid ? asset.GraphId.ToString() : GetObjectEntityId(asset).ToString()
                 : assetGuid;
             return KeyPrefix + identity;
+        }
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
         }
 
         private static string CanvasKey(CoCoLayerId layerId, CoCoStateId parentStateId) =>

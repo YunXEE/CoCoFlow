@@ -15,7 +15,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
     public sealed class AnimReplayFeasibilityPlayModeTests
     {
         [Test]
-        public void G1_PositiveReplayPrimitivesExistButExactReplayIsUnverified()
+        public void G1_PositiveReplayPrimitivesDoNotPromoteDeferredGate()
         {
             MethodInfo[] controllerMethods =
                 PublicInstanceMethods(typeof(AnimatorControllerPlayable));
@@ -35,11 +35,14 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     new[] { typeof(float) }),
                 Is.Not.Null);
 
-            Assert.Inconclusive(
-                "G1 UNVERIFIED: Unity 6000.3.20f1 exposes the positive " +
-                "journal-replay primitives, but the isolated live/candidate " +
-                "tick comparison has not been executed. API presence is not " +
-                "evidence of bit-exact replay.");
+            Assert.That(
+                CanShipExactReplay(
+                    ReplayGateStatus.Unverified,
+                    ReplayGateStatus.Go,
+                    ReplayGateStatus.Go),
+                Is.False,
+                "G1 remains UNVERIFIED. API presence must not promote the " +
+                "frozen exact-replay gate to GO.");
         }
 
         [Test]
@@ -88,7 +91,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
-        public void G3_TargetlessCandidateAndZeroDeltaSwapAreUnverified()
+        public void G3_TargetlessCandidatePrimitivesDoNotPromoteDeferredGate()
         {
             MethodInfo setTarget = typeof(AnimationPlayableOutput).GetMethod(
                 nameof(AnimationPlayableOutput.SetTarget));
@@ -99,12 +102,14 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.That(setTarget, Is.Not.Null);
             Assert.That(evaluate, Is.Not.Null);
 
-            Assert.Inconclusive(
-                "G3 UNVERIFIED: SetTarget and Evaluate(0) exist, but their " +
-                "presence does not prove that a null-target controller " +
-                "continues evolving, that binding it applies no stale " +
-                "side effects, or that the following positive tick remains " +
-                "identical. Those properties require an executed fixture.");
+            Assert.That(
+                CanShipExactReplay(
+                    ReplayGateStatus.Go,
+                    ReplayGateStatus.Go,
+                    ReplayGateStatus.Unverified),
+                Is.False,
+                "G3 remains UNVERIFIED. SetTarget/Evaluate presence must " +
+                "not promote the frozen exact-replay gate to GO.");
         }
 
         [TestCase(

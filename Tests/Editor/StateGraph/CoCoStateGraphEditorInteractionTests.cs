@@ -85,8 +85,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             assets.Clear();
         }
 
-        [Test]
-        public void SearchAndConfigChangesPreserveLiveControls()
+        [UnityTest]
+        public IEnumerator SearchAndConfigChangesPreserveLiveControls()
         {
             CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
             CoCoStateGraphAsset asset = CreateAsset();
@@ -101,6 +101,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
 
             CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            CoCoStateGraphEditorController controller =
+                ReadPrivateField<CoCoStateGraphEditorController>(
+                    window,
+                    "controller");
             VisualElement root = CreateWindowPanelHost(window).contentRoot;
             Assert.NotNull(root.panel);
             ToolbarSearchField search = root.Q<ToolbarSearchField>("state-graph-search");
@@ -111,28 +115,29 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(feedback);
 
             search.value = "Idle";
+            yield return null;
             TextField searchInput = search.Q<TextField>();
             Assert.NotNull(searchInput);
-            searchInput.Focus();
+            search.Focus();
             Focusable focusedBefore = root.focusController.focusedElement;
-            Assert.NotNull(focusedBefore);
-            searchInput.cursorIndex = search.value.Length;
-            searchInput.selectIndex = search.value.Length;
-            using (ChangeEvent<string> evt = ChangeEvent<string>.GetPooled(
-                       search.value,
-                       "Idle pasted"))
-            {
-                search.SendEvent(evt);
-            }
+            Assert.AreSame(search, focusedBefore);
+            searchInput.textSelection.SelectRange(
+                search.value.Length,
+                search.value.Length);
+            Assert.AreEqual(4, searchInput.textSelection.cursorIndex);
+            Assert.AreEqual(4, searchInput.textSelection.selectIndex);
+            controller.SetSearch("Idle pasted");
 
             Assert.AreSame(focusedBefore, root.focusController.focusedElement);
-            Assert.AreEqual(4, searchInput.cursorIndex);
-            Assert.AreEqual(4, searchInput.selectIndex);
+            Assert.AreEqual(4, searchInput.textSelection.cursorIndex);
+            Assert.AreEqual(4, searchInput.textSelection.selectIndex);
+            Assert.AreEqual("Idle pasted", controller.Session.SearchText);
             Assert.AreSame(search, root.Q<ToolbarSearchField>("state-graph-search"));
             Assert.AreSame(config, root.Q<PropertyField>("state-graph-state-config"));
             Assert.AreEqual("Idle", search.value);
             search.value = "Idle pasted";
             search.value = "Idle";
+            Assert.AreEqual("Idle", controller.Session.SearchText);
             Assert.AreSame(search, root.Q<ToolbarSearchField>("state-graph-search"));
             Assert.AreEqual("Idle", search.value);
 

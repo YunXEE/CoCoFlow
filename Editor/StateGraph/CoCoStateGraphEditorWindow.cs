@@ -1296,9 +1296,9 @@ namespace CoCoFlow.Editor.StateGraph
     internal static class CoCoStateGraphEditorAssetOpenHandler
     {
         [OnOpenAsset]
-        private static bool OnOpenAsset(int instanceId, int line)
+        private static bool OnOpenAsset(EntityId instanceId, int line)
         {
-            var asset = EditorUtility.InstanceIDToObject(instanceId) as CoCoStateGraphAsset;
+            var asset = EditorUtility.EntityIdToObject(instanceId) as CoCoStateGraphAsset;
             if (asset == null)
             {
                 return false;

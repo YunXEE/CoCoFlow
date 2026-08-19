@@ -4,6 +4,7 @@ using CoCoFlow.Runtime.Modules.UI;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Localization;
+using UnityEngine.Localization.Settings;
 using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace CoCoFlow.Runtime.Modules.Localization.UI
@@ -113,6 +114,16 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
                 return;
             }
 
+            if (localizedString.IsEmpty)
+            {
+                StopLoadObservation();
+                targetText.text = fallbackText;
+                SetDiagnostic(
+                    LocalizationDiagnosticCode.InvalidTableOrEntry,
+                    "The LocalizedString Table or Entry reference is empty.");
+                return;
+            }
+
             localizedString.Arguments = arguments ?? Array.Empty<object>();
             if (!_isSubscribed && isActiveAndEnabled)
             {
@@ -178,6 +189,7 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
             }
 
             localizedString.StringChanged += ApplyLocalizedValue;
+            LocalizationSettings.SelectedLocaleChanged += ObserveLocaleLoad;
             _isSubscribed = true;
         }
 
@@ -188,6 +200,7 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
                 return;
             }
 
+            LocalizationSettings.SelectedLocaleChanged -= ObserveLocaleLoad;
             localizedString.StringChanged -= ApplyLocalizedValue;
             _isSubscribed = false;
         }
@@ -230,12 +243,40 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
                 return;
             }
 
-            _loadObservation = StartCoroutine(ObserveCurrentLoadRoutine());
+            _loadObservation = StartCoroutine(ObserveLoadRoutine(
+                localizedString.CurrentLoadingOperationHandle));
         }
 
-        private IEnumerator ObserveCurrentLoadRoutine()
+        private void ObserveLocaleLoad(Locale locale)
         {
-            var operation = localizedString.CurrentLoadingOperationHandle;
+            StopLoadObservation();
+            if (localizedString == null ||
+                _isPresentationSuppressed ||
+                !isActiveAndEnabled)
+            {
+                return;
+            }
+
+            AsyncOperationHandle operation =
+                localizedString.CurrentLoadingOperationHandle;
+            if (!operation.IsValid())
+            {
+                try
+                {
+                    operation = localizedString.GetLocalizedStringAsync();
+                }
+                catch (Exception exception)
+                {
+                    ApplyLoadFailure(exception.Message);
+                    return;
+                }
+            }
+
+            _loadObservation = StartCoroutine(ObserveLoadRoutine(operation));
+        }
+
+        private IEnumerator ObserveLoadRoutine(AsyncOperationHandle operation)
+        {
             yield return operation;
             _loadObservation = null;
 
@@ -247,19 +288,25 @@ namespace CoCoFlow.Runtime.Modules.Localization.UI
                 yield break;
             }
 
+            ApplyLoadFailure(
+                operation.OperationException?.Message ??
+                "The localized string loading operation failed.");
+        }
+
+        private void ApplyLoadFailure(string message)
+        {
             if (targetText == null)
             {
                 SetDiagnostic(
                     LocalizationDiagnosticCode.MissingTextTarget,
                     "The localized load failed without a TMP_Text target.");
-                yield break;
+                return;
             }
 
             targetText.text = fallbackText;
             SetDiagnostic(
                 LocalizationDiagnosticCode.LoadFailed,
-                operation.OperationException?.Message ??
-                "The localized string loading operation failed.");
+                message);
         }
 
         private void StopLoadObservation()

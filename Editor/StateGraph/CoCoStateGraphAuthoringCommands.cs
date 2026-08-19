@@ -23,14 +23,14 @@ namespace CoCoFlow.Editor.StateGraph
         internal CoCoStateGraphSubtreeClipboard(
             CoCoStateGraphAsset snapshot,
             string assetGuid,
-            int sourceAssetInstanceId,
+            EntityId sourceAssetEntityId,
             CoCoGraphId graphId,
             CoCoLayerId layerId,
             CoCoStateId rootStateId)
         {
             Snapshot = snapshot;
             AssetGuid = assetGuid ?? string.Empty;
-            SourceAssetInstanceId = sourceAssetInstanceId;
+            SourceAssetEntityId = sourceAssetEntityId;
             GraphId = graphId;
             LayerId = layerId;
             RootStateId = rootStateId;
@@ -38,7 +38,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal CoCoStateGraphAsset Snapshot { get; private set; }
         internal string AssetGuid { get; }
-        internal int SourceAssetInstanceId { get; }
+        internal EntityId SourceAssetEntityId { get; }
         internal CoCoGraphId GraphId { get; }
         internal CoCoLayerId LayerId { get; }
         internal CoCoStateId RootStateId { get; }
@@ -983,7 +983,7 @@ namespace CoCoFlow.Editor.StateGraph
             clipboard = new CoCoStateGraphSubtreeClipboard(
                 snapshot,
                 assetGuid,
-                asset.GetInstanceID(),
+                GetObjectEntityId(asset),
                 asset.GraphId,
                 layerId,
                 rootStateId);
@@ -1015,7 +1015,7 @@ namespace CoCoFlow.Editor.StateGraph
                              ((!string.IsNullOrEmpty(clipboard.AssetGuid) &&
                                string.Equals(clipboard.AssetGuid, targetGuid, StringComparison.Ordinal)) ||
                               (string.IsNullOrEmpty(clipboard.AssetGuid) &&
-                               clipboard.SourceAssetInstanceId == asset.GetInstanceID()));
+                               clipboard.SourceAssetEntityId == GetObjectEntityId(asset)));
             if (!sameAsset)
             {
                 return Fail("Subtree paste is limited to the same StateGraph Asset and Editor session.", out failure);
@@ -1375,6 +1375,15 @@ namespace CoCoFlow.Editor.StateGraph
             !float.IsInfinity(value.x) &&
             !float.IsNaN(value.y) &&
             !float.IsInfinity(value.y);
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
+        }
 
         private static void Record(CoCoStateGraphAsset asset, string name) => Undo.RecordObject(asset, name);
 

@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Modules.Localization;
 using CoCoFlow.Runtime.Modules.Localization.UI;
 using CoCoFlow.Runtime.Modules.UI;
@@ -47,14 +46,15 @@ namespace CoCoFlow.Tests.Runtime.Localization
             var previousSettings =
                 instanceField.GetValue(null) as LocalizationSettings;
             var settings =
-                ScriptableObject.CreateInstance<LocalizationSettings>();
+                ScriptableObject.CreateInstance<TestLocalizationSettings>();
             Locale english = Locale.CreateLocale("en");
             var tableProvider = new TestStringTableProvider();
-            settings.SetAvailableLocales(new TestLocalesProvider(english));
-            settings.SetStringDatabase(new LocalizedStringDatabase
+            var database = new TestLocalizedStringDatabase
             {
                 TableProvider = tableProvider
-            });
+            };
+            settings.SetAvailableLocales(new TestLocalesProvider(english));
+            settings.SetStringDatabase(database);
             LocalizationSettings.Instance = settings;
             settings.SetSelectedLocale(english);
 
@@ -72,9 +72,6 @@ namespace CoCoFlow.Tests.Runtime.Localization
                 "localizedString",
                 new LocalizedString("Pre14 Failure", "Missing"));
             widgetObject.SetActive(true);
-            LogAssert.Expect(
-                LogType.Error,
-                new Regex("Expected Pre14 localization load failure"));
             widget.SetArguments(new { binding = "Space" });
 
             yield return null;
@@ -89,6 +86,9 @@ namespace CoCoFlow.Tests.Runtime.Localization
             Object.Destroy(widgetObject);
             Object.Destroy(panelObject);
             LocalizationSettings.Instance = previousSettings;
+            ((System.IDisposable)settings).Dispose();
+            settings.DisposeTestResources();
+            database.DisposeTestResources();
             tableProvider.Dispose();
             Object.Destroy(settings);
             Object.Destroy(english);
@@ -110,6 +110,130 @@ namespace CoCoFlow.Tests.Runtime.Localization
             Object.DestroyImmediate(gameObject);
         }
 
+        [Test]
+        public void DefaultDiagnosticMatchesConstructedNone()
+        {
+            LocalizationDiagnostic defaultValue = default;
+            var constructed = new LocalizationDiagnostic(
+                LocalizationDiagnosticCode.None,
+                null);
+
+            Assert.AreEqual(string.Empty, defaultValue.Message);
+            Assert.AreEqual(string.Empty, LocalizationDiagnostic.None.Message);
+            Assert.AreEqual(constructed, defaultValue);
+            Assert.AreEqual(constructed.GetHashCode(), defaultValue.GetHashCode());
+        }
+
+        [UnityTest]
+        public IEnumerator EmptyLocalizedStringSetArgumentsRestoresFallback()
+        {
+            var panelObject = new GameObject("EmptyLocalizedPanel");
+            panelObject.AddComponent<TestPanel>();
+            var widgetObject = new GameObject(
+                "EmptyLocalizedWidget",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(CanvasGroup));
+            widgetObject.transform.SetParent(panelObject.transform, false);
+            widgetObject.SetActive(false);
+            var target = widgetObject.AddComponent<TextMeshProUGUI>();
+            var widget = widgetObject.AddComponent<UIWidgetLocalizedText>();
+            SetField(widget, "targetText", target);
+            SetField(widget, "localizedString", new LocalizedString());
+
+            widget.ClearPresentation();
+            widget.SetFallback("Fallback");
+            widget.SetArguments(new { binding = "Space" });
+
+            Assert.AreEqual("Fallback", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.InvalidTableOrEntry,
+                widget.LastDiagnostic.Code);
+
+            widgetObject.SetActive(false);
+            Object.Destroy(widgetObject);
+            Object.Destroy(panelObject);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator LocaleLoadFailureFallsBackAndLaterLocaleRecovers()
+        {
+            FieldInfo instanceField = typeof(LocalizationSettings).GetField(
+                "s_Instance",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(instanceField);
+            var previousSettings =
+                instanceField.GetValue(null) as LocalizationSettings;
+            var settings =
+                ScriptableObject.CreateInstance<TestLocalizationSettings>();
+            Locale english = Locale.CreateLocale("en");
+            Locale japanese = Locale.CreateLocale("ja");
+            var tableProvider = new TestStringTableProvider();
+            var database = new TestLocalizedStringDatabase
+            {
+                TableProvider = tableProvider
+            };
+            settings.SetAvailableLocales(
+                new TestLocalesProvider(english, japanese));
+            settings.SetStringDatabase(database);
+            LocalizationSettings.Instance = settings;
+            settings.SetSelectedLocale(english);
+
+            var panelObject = new GameObject("LocaleFailurePanel");
+            panelObject.AddComponent<TestPanel>();
+            var widgetObject = new GameObject(
+                "LocaleFailureWidget",
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(CanvasGroup));
+            widgetObject.transform.SetParent(panelObject.transform, false);
+            widgetObject.SetActive(false);
+            var target = widgetObject.AddComponent<TextMeshProUGUI>();
+            var widget = widgetObject.AddComponent<UIWidgetLocalizedText>();
+            SetField(widget, "targetText", target);
+            SetField(
+                widget,
+                "localizedString",
+                new LocalizedString("Pre14 Prompts", "Press"));
+            SetField(widget, "fallbackText", "Fallback");
+            widget.SetArguments(new { binding = "Space" });
+            widgetObject.SetActive(true);
+            yield return null;
+            yield return null;
+            Assert.AreEqual("Press Space", target.text);
+
+            settings.SetSelectedLocale(japanese);
+            yield return null;
+            yield return null;
+
+            Assert.AreEqual("Fallback", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.LoadFailed,
+                widget.LastDiagnostic.Code);
+
+            settings.SetSelectedLocale(english);
+            yield return null;
+            yield return null;
+            Assert.AreEqual("Press Space", target.text);
+            Assert.AreEqual(
+                LocalizationDiagnosticCode.None,
+                widget.LastDiagnostic.Code);
+
+            widgetObject.SetActive(false);
+            Object.Destroy(widgetObject);
+            Object.Destroy(panelObject);
+            LocalizationSettings.Instance = previousSettings;
+            ((System.IDisposable)settings).Dispose();
+            settings.DisposeTestResources();
+            database.DisposeTestResources();
+            tableProvider.Dispose();
+            Object.Destroy(settings);
+            Object.Destroy(english);
+            Object.Destroy(japanese);
+            yield return null;
+        }
+
         [UnityTest]
         public IEnumerator LocaleArgumentsAndEnableLifecycleRefreshCurrentScreen()
         {
@@ -120,12 +244,12 @@ namespace CoCoFlow.Tests.Runtime.Localization
             var previousSettings =
                 instanceField.GetValue(null) as LocalizationSettings;
             var settings =
-                ScriptableObject.CreateInstance<LocalizationSettings>();
+                ScriptableObject.CreateInstance<TestLocalizationSettings>();
             Locale english = Locale.CreateLocale("en");
             Locale french = Locale.CreateLocale("fr");
             var locales = new TestLocalesProvider(english, french);
             var tableProvider = new TestStringTableProvider();
-            var database = new LocalizedStringDatabase
+            var database = new TestLocalizedStringDatabase
             {
                 TableProvider = tableProvider
             };
@@ -197,6 +321,9 @@ namespace CoCoFlow.Tests.Runtime.Localization
             Object.Destroy(widgetObject);
             Object.Destroy(panelObject);
             LocalizationSettings.Instance = previousSettings;
+            ((System.IDisposable)settings).Dispose();
+            settings.DisposeTestResources();
+            database.DisposeTestResources();
             tableProvider.Dispose();
             Object.Destroy(settings);
             Object.Destroy(english);
@@ -268,6 +395,91 @@ namespace CoCoFlow.Tests.Runtime.Localization
         {
         }
 
+        private sealed class TestLocalizationSettings : LocalizationSettings
+        {
+            private readonly ResourceManager _resourceManager =
+                new ResourceManager();
+            private AsyncOperationHandle<LocalizationSettings>
+                _initializationOperation;
+
+            public override AsyncOperationHandle<LocalizationSettings>
+                GetInitializationOperation()
+            {
+                if (!_initializationOperation.IsValid())
+                {
+                    _initializationOperation =
+                        _resourceManager.CreateCompletedOperation<LocalizationSettings>(
+                            this,
+                            null);
+                }
+
+                return _initializationOperation;
+            }
+
+            internal void DisposeTestResources()
+            {
+                if (_initializationOperation.IsValid())
+                {
+                    _resourceManager.Release(_initializationOperation);
+                    _initializationOperation = default;
+                }
+
+                _resourceManager.Dispose();
+            }
+        }
+
+        private sealed class TestLocalizedStringDatabase :
+            LocalizedStringDatabase
+        {
+            private readonly ResourceManager _resourceManager =
+                new ResourceManager();
+
+            public override AsyncOperationHandle<TableEntryResult>
+                GetTableEntryAsync(
+                    TableReference tableReference,
+                    TableEntryReference tableEntryReference,
+                    Locale locale = null,
+                    FallbackBehavior fallbackBehavior =
+                        FallbackBehavior.UseProjectSettings)
+            {
+                Locale requestedLocale =
+                    locale ?? LocalizationSettings.SelectedLocale;
+                string tableName = tableReference.TableCollectionName;
+                if (tableName == "Pre14 Failure")
+                {
+                    return CreateFailure(
+                        "Expected Pre14 localization load failure.");
+                }
+
+                if (tableName == "Pre14 Prompts" &&
+                    requestedLocale != null &&
+                    requestedLocale.Identifier.Code == "ja")
+                {
+                    return CreateFailure(
+                        "Expected locale switch failure.");
+                }
+
+                return base.GetTableEntryAsync(
+                    tableReference,
+                    tableEntryReference,
+                    locale,
+                    fallbackBehavior);
+            }
+
+            internal void DisposeTestResources()
+            {
+                _resourceManager.Dispose();
+            }
+
+            private AsyncOperationHandle<TableEntryResult> CreateFailure(
+                string message)
+            {
+                return _resourceManager.CreateCompletedOperation(
+                    default(TableEntryResult),
+                    message);
+            }
+        }
+
         private sealed class TestLocalesProvider : ILocalesProvider
         {
             public TestLocalesProvider(params Locale[] locales)
@@ -306,13 +518,6 @@ namespace CoCoFlow.Tests.Runtime.Localization
                 Locale locale)
                 where TTable : LocalizationTable
             {
-                if (tableCollectionName == "Pre14 Failure")
-                {
-                    return _resourceManager.CreateCompletedOperation<TTable>(
-                        null,
-                        "Expected Pre14 localization load failure.");
-                }
-
                 if (typeof(TTable) != typeof(StringTable) ||
                     locale == null ||
                     tableCollectionName != "Pre14 Prompts")

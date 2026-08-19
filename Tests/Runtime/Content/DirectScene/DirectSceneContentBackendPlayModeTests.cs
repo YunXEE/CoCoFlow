@@ -208,7 +208,7 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
                             scene.path,
                             StringComparison.OrdinalIgnoreCase));
 
-                        int handle = scene.handle;
+                        SceneHandle handle = scene.handle;
                         lease.Dispose();
                         lease = null;
                         await WaitUntilSceneUnloadedAsync(handle);
@@ -282,8 +282,8 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
                     Assert.AreEqual(2, DirectSceneLifecycleProbe.EnableCount);
                     Assert.AreEqual(2, CountLoadedFixtureScenes());
 
-                    int handleA = leaseA.Value.handle;
-                    int handleC = leaseC.Value.handle;
+                    SceneHandle handleA = leaseA.Value.handle;
+                    SceneHandle handleC = leaseC.Value.handle;
                     leaseA.Dispose();
                     leaseA = null;
                     leaseC.Dispose();
@@ -389,8 +389,8 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
                     "Each Direct load must own its exact additive Scene instance.");
                 Assert.AreEqual(2, CountLoadedFixtureScenes());
 
-                int handleA = sceneA.handle;
-                int handleB = sceneB.handle;
+                SceneHandle handleA = sceneA.handle;
+                SceneHandle handleB = sceneB.handle;
                 leaseA.Dispose();
                 leaseA = null;
                 await WaitUntilSceneUnloadedAsync(handleA);
@@ -457,7 +457,7 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
             return reference;
         }
 
-        private static async UniTask WaitUntilSceneUnloadedAsync(int sceneHandle)
+        private static async UniTask WaitUntilSceneUnloadedAsync(SceneHandle sceneHandle)
         {
             for (int frame = 0; frame < 300; frame++)
             {
@@ -472,7 +472,7 @@ namespace CoCoFlow.Runtime.Content.Tests.DirectScene
             Assert.Fail("The owned Direct Scene instance did not unload within 300 frames.");
         }
 
-        private static bool IsSceneLoaded(int sceneHandle)
+        private static bool IsSceneLoaded(SceneHandle sceneHandle)
         {
             for (int index = 0; index < SceneManager.sceneCount; index++)
             {

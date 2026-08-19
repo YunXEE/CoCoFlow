@@ -28,7 +28,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private CoCoStateFlowTraceEntry[] _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
         private CoCoStateGraphHostTraceFilterMode _traceFilterMode;
         private string _traceFilterText = string.Empty;
-        private int _observedHostId;
+        private EntityId _observedHostId;
         private CoCoGraphInstanceId _observedGraphInstanceId;
         private double _deltaTime = 1d / 60d;
         private Vector2 _snapshotScroll;
@@ -72,7 +72,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private void ObserveIdentity(CoCoStateGraphHost host)
         {
-            int hostId = host == null ? 0 : host.GetInstanceID();
+            EntityId hostId = host == null ? default : GetObjectEntityId(host);
             CoCoGraphInstanceId graphInstanceId = host == null
                 ? default
                 : host.GraphInstanceId;
@@ -389,6 +389,15 @@ namespace CoCoFlow.Editor.StateGraphHost
                     EditorGUILayout.LabelField(prefix);
                     break;
             }
+        }
+
+        private static EntityId GetObjectEntityId(UnityEngine.Object value)
+        {
+#if UNITY_6000_5_OR_NEWER
+            return value.GetEntityId();
+#else
+            return value.GetInstanceID();
+#endif
         }
     }
 }

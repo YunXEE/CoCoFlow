@@ -239,7 +239,7 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
                 Assert.AreEqual(1, loaded.Entries.Count);
                 Assert.AreEqual(2, loaded.Entries[0].LeaseCount);
 
-                int sceneHandle = sharedScene.handle;
+                SceneHandle sceneHandle = sharedScene.handle;
                 leaseA.Dispose();
                 leaseA = null;
                 Assert.IsTrue(
@@ -317,7 +317,7 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
         }
 
         private static async UniTask WaitUntilSceneUnloadedAsync(
-            int sceneHandle,
+            SceneHandle sceneHandle,
             AddressablesStaticIsolation isolation)
         {
             for (int frame = 0; frame < 300; frame++)
@@ -354,7 +354,7 @@ namespace CoCoFlow.Runtime.Content.Tests.Addressables
                 "The Content Runtime retained an Addressables Scene entry after unload.");
         }
 
-        private static bool IsSceneLoaded(int sceneHandle)
+        private static bool IsSceneLoaded(SceneHandle sceneHandle)
         {
             for (int index = 0; index < SceneManager.sceneCount; index++)
             {
