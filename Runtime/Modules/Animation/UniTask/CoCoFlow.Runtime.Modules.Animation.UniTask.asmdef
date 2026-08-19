@@ -3,6 +3,7 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Animation.UniTask",
     "references": [
         "CoCoFlow.Runtime.Animation.Contracts",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Animation",
         "UniTask"
     ],
