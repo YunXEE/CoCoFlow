@@ -5,6 +5,46 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-pre.15] - 2026-08-22
+
+Closes the Pre15 boundary-hardening line (PR15.01–PR15.10, PR #31–#43).
+The 0.4 Runtime public API surface is frozen, legacy runtimes are exited,
+and dependency combinations plus Player builds are verified on Unity
+6000.3.20f1 / 6000.5.5f1.
+
+### Removed
+
+- Legacy Mono FSM runtime and its dedicated Context consumption chain;
+  `StateGraph`/StateFlow is the only state runtime (PR #33, PR15.03).
+- Legacy input bridge and implicit service locator; `InputReader` is the
+  single input entry point (PR #35, PR15.05, BUG-004).
+- Project-specific Gameplay (Character/Enemy/Item) moved out of Runtime
+  into the minimal Sample boundary (PR #34, PR15.04).
+- Rendering and AssetPipeline module trimming (PR #37, PR15.07).
+
+### Changed
+
+- Runtime API surface frozen per the API Ledger; approved deletions,
+  visibility tightening, and `sealed` decisions landed (PR #32, PR15.02;
+  PR #36, PR15.06).
+- Dependency boundary closure for UniTask, DOTween, Addressables, and
+  Cinemachine: declared dependencies, version defines, optional
+  combinations, and Player edges; `Animation.UniTask` gains a direct
+  `Core.Contracts` reference (PR #43, PR15.10, BUG-011).
+- GitHub-hosted static hygiene CI baseline plus maintainer-local
+  dual-Unity verification entry (PR #31, PR15.01).
+- PR template rewritten: Chinese text, SHA-bound evidence, no private
+  links.
+
+### Fixed
+
+- Map/Pool defects BUG-001–BUG-003 (PR #38, PR15.08).
+- Map transition handoff stability (PR #40) and exactly-once terminal
+  participant cleanup with `ForceShutdown` (PR #41).
+- Optional-on test baseline restoration (PR #39).
+- Scaffold/Localization BUG-005–BUG-008 and Unity 6000.5 compile
+  blockers BUG-010 (PR #42, PR15.09).
+
 ## [0.4.0-pre.14] - 2026-07-27
 
 ### Added
