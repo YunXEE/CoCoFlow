@@ -871,10 +871,12 @@ namespace CoCoFlow.Editor.Core
                 ? new[] { DotweenDefine, UniTaskDotweenDefine }
                 : new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine };
             status.MissingDefineTargets = GetMissingDefineTargets(manualDefines, checkedTargets);
-            if (unitaskForm == CoCoUniTaskInstallForm.UpmRegistered && status.UniTaskDefineAutomatic)
+            if (unitaskForm == CoCoUniTaskInstallForm.UpmRegistered && status.UniTaskDefineAutomatic && status.UniTaskInstalled)
             {
                 // versionDefines is the authority here; record the define as
                 // satisfied so module status does not show it as partial.
+                // UniTaskInstalled is required: an unresolved dependency cannot
+                // emit versionDefines yet (fresh open / failed git fetch).
                 status.MissingDefineTargets[UniTaskDefine] = new List<string>();
             }
             else if (status.UniTaskVersionBlocked)
