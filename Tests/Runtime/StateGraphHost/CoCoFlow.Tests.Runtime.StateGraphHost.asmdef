@@ -9,16 +9,20 @@
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
         "CoCoFlow.Runtime.Modules.Persistence",
         "CoCoFlow.Runtime.StateGraphHost",
-        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
-        "UnityEngine.TestRunner"
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

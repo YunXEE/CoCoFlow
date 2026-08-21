@@ -168,6 +168,30 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
+        public void RuleCoreRejectsTestAsmdefWithoutOfficialIsolation()
+        {
+            string bare = CreateAsmdefJson(references: "", constraints: "", versionDefines: "");
+            List<string> errors = DependencyAsmdefRules.CollectViolations(
+                DependencyAsmdefRules.Parse(bare, "Tests/Runtime/X/Y.asmdef"),
+                null);
+            Assert.IsTrue(errors.Any(e => e.Contains("TestAssemblies")), "Missing TestAssemblies flag must be rejected (VR-1 F1).");
+            Assert.IsTrue(errors.Any(e => e.Contains("UNITY_INCLUDE_TESTS")), "Missing UNITY_INCLUDE_TESTS constraint must be rejected.");
+        }
+
+        [Test]
+        public void RuleCoreRejectsExplicitTestrunnerReferencesOnTestAsmdef()
+        {
+            string explicitRefs = CreateAsmdefJson(
+                references: "\"UnityEngine.TestRunner\"",
+                constraints: "",
+                versionDefines: "");
+            List<string> errors = DependencyAsmdefRules.CollectViolations(
+                DependencyAsmdefRules.Parse(explicitRefs, "Tests/Runtime/X/Y.asmdef"),
+                null);
+            Assert.IsTrue(errors.Any(e => e.Contains("explicitly")), "Explicit testrunner references on test asmdefs must be rejected.");
+        }
+
+        [Test]
         public void RuleCoreRejectsAddressablesHardDependencyInPackageJson()
         {
             var pkg = new DependencyAsmdefRules.PackageJsonInfo
@@ -369,6 +393,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             internal string Name;
             internal string[] References = Array.Empty<string>();
             internal string[] DefineConstraints = Array.Empty<string>();
+            internal string[] OptionalUnityReferences = Array.Empty<string>();
             internal List<Dictionary<string, string>> VersionDefines = new List<Dictionary<string, string>>();
         }
 
@@ -396,7 +421,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             if (relativePath.StartsWith("Tests/", StringComparison.Ordinal))
                 return "tests";
             if (relativePath.StartsWith("Samples~/", StringComparison.Ordinal))
-                return "samples";
+                return relativePath.Contains("/Tests/", StringComparison.Ordinal) ? "tests" : "samples";
             return "other";
         }
 
@@ -419,6 +444,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             info.Name = GetStringLength(root, "name");
             info.References = GetStringArray(root, "references");
             info.DefineConstraints = GetStringArray(root, "defineConstraints");
+            info.OptionalUnityReferences = GetStringArray(root, "optionalUnityReferences");
 
             if (root.TryGetValue("versionDefines", out object rawDefines) && rawDefines is List<object> defines)
             {
@@ -505,6 +531,20 @@ namespace CoCoFlow.Runtime.Core.Tests
             }
 
             string zone = ZoneOf(info.RelativePath);
+            if (zone == "tests")
+            {
+                // VR-1 F1 guard: test assemblies must use the official isolation
+                // (TestAssemblies flag + UNITY_INCLUDE_TESTS constraint, no explicit
+                // testrunner references) so consumer Player builds stay clean while
+                // UTF hosts (testables / runTests) still compile them.
+                if (!info.OptionalUnityReferences.Contains("TestAssemblies"))
+                    errors.Add(info.RelativePath + ": test assembly missing optionalUnityReferences TestAssemblies (leaks into consumer Player builds - VR-1 F1).");
+                if (!info.DefineConstraints.Contains("UNITY_INCLUDE_TESTS"))
+                    errors.Add(info.RelativePath + ": test assembly missing UNITY_INCLUDE_TESTS defineConstraint.");
+                if (info.References.Contains("UnityEditor.TestRunner") || info.References.Contains("UnityEngine.TestRunner"))
+                    errors.Add(info.RelativePath + ": test assembly must not reference testrunner assemblies explicitly (conflicts with TestAssemblies auto-injection).");
+            }
+
             if (zone == "runtime")
             {
                 foreach (string reference in info.References)

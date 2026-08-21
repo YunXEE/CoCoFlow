@@ -5,17 +5,20 @@
         "CoCoFlow.Runtime.Animation.Contracts",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Animation",
-        "CoCoFlow.Runtime.Modules.Animation.DOTween",
-        "UnityEngine.TestRunner"
+        "CoCoFlow.Runtime.Modules.Animation.DOTween"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "COCOFLOW_DOTWEEN_SUPPORT"
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [],
     "noEngineReferences": false

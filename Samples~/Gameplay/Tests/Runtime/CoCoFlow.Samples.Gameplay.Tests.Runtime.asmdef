@@ -13,16 +13,20 @@
         "Unity.InputSystem",
         "Unity.InputSystem.TestFramework",
         "Unity.Mathematics",
-        "Unity.Splines",
-        "UnityEngine.TestRunner"
+        "Unity.Splines"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

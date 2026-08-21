@@ -1,16 +1,19 @@
 {
     "name": "CoCoFlow.Tests.Runtime.Animation.ReplaySpike",
     "rootNamespace": "CoCoFlow.Tests.Runtime.Animation",
-    "references": [
-        "UnityEngine.TestRunner"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

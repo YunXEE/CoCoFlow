@@ -4,9 +4,7 @@
     "references": [
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateGraph",
-        "UnityEditor.TestRunner",
-        "UnityEngine.TestRunner"
+        "CoCoFlow.Runtime.Core.StateGraph"
     ],
     "includePlatforms": [
         "Editor"
@@ -15,8 +13,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": true
 }

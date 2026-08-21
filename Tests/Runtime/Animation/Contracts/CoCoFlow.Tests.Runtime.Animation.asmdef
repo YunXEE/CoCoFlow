@@ -6,16 +6,20 @@
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Modules.Animation",
-        "CoCoFlow.Runtime.StateGraphHost",
-        "UnityEngine.TestRunner"
+        "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

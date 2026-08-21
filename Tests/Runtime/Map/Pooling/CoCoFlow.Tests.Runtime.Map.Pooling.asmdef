@@ -7,17 +7,20 @@
         "CoCoFlow.Runtime.Modules.Map",
         "CoCoFlow.Runtime.Modules.Map.Pooling",
         "CoCoFlow.Runtime.Pooling",
-        "UniTask",
-        "UnityEngine.TestRunner"
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT"
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {

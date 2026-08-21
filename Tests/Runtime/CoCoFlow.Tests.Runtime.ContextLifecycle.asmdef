@@ -8,16 +8,20 @@
         "CoCoFlow.Runtime.Modules.Persistence",
         "Unity.Cinemachine",
         "Unity.InputSystem",
-        "Unity.InputSystem.TestFramework",
-        "UnityEngine.TestRunner"
+        "Unity.InputSystem.TestFramework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

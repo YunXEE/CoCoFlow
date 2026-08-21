@@ -12,17 +12,20 @@
         "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Tests.Runtime.StateGraphHost",
         "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
-        "UniTask",
-        "UnityEngine.TestRunner"
+        "UniTask"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT"
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {

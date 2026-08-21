@@ -9,9 +9,7 @@
         "UniTask",
         "Unity.Addressables",
         "Unity.Addressables.Editor",
-        "Unity.ResourceManager",
-        "UnityEditor.TestRunner",
-        "UnityEngine.TestRunner"
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [
         "Editor"
@@ -20,10 +18,14 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
+        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER",
         "COCOFLOW_UNITASK_SUPPORT",
-        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {

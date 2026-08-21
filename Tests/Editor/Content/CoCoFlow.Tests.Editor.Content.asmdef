@@ -4,9 +4,7 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Core.Contracts",
-        "UniTask",
-        "UnityEditor.TestRunner",
-        "UnityEngine.TestRunner"
+        "UniTask"
     ],
     "includePlatforms": [
         "Editor"
@@ -15,9 +13,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT"
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {

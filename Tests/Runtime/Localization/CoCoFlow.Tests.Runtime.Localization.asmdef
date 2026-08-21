@@ -7,19 +7,22 @@
         "CoCoFlow.Runtime.Modules.UI",
         "Unity.Localization",
         "Unity.ResourceManager",
-        "Unity.TextMeshPro",
-        "UnityEngine.TestRunner"
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "COCOFLOW_UNITASK_SUPPORT",
         "COCOFLOW_DOTWEEN_SUPPORT",
-        "UNITASK_DOTWEEN_SUPPORT"
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {

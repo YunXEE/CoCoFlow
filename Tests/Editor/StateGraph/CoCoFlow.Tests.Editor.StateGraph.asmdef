@@ -13,9 +13,7 @@
         "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
         "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
         "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
-        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
-        "UnityEditor.TestRunner",
-        "UnityEngine.TestRunner"
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor"
     ],
     "includePlatforms": [
         "Editor"
@@ -24,8 +22,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

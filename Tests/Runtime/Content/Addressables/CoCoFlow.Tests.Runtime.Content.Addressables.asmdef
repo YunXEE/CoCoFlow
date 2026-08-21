@@ -7,18 +7,21 @@
         "CoCoFlow.Runtime.Core.Contracts",
         "UniTask",
         "Unity.Addressables",
-        "Unity.ResourceManager",
-        "UnityEngine.TestRunner"
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
+        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER",
         "COCOFLOW_UNITASK_SUPPORT",
-        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {
