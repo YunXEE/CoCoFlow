@@ -1,6 +1,6 @@
 # CoCoFlow Dependency Matrix
 
-> **Derived snapshot** of Final Head `b375099` (working tree at generation time).
+> **Derived snapshot** of Final Head `40ff49d` (working tree at generation time).
 > The single source of truth is `package.json` + asmdef + source; this document
 > only explains and is refreshed per release. The boundary guard test
 > (`CoCoDependencyBoundaryGuardTests`) is the executable gate.
@@ -15,10 +15,17 @@
 - `com.unity.nuget.newtonsoft-json` 3.2.2
 - `com.unity.splines` 2.6.0
 
-### Transitive guarantees
+### Transitive guarantees (observed at {HEAD})
 
 - `Unity.ResourceManager` is always present via `com.unity.localization` → `com.unity.addressables` (hard chain).
   Consumers like `Runtime.Modules.Localization.UI` therefore must NOT carry the optional-backend versionDefines triple.
+- `com.unity.addressables` itself resolves transitively at **2.9.1** in every host (localization chain), so the
+  'Addressables absent' state does not exist in practice; the `[2.9.1,3.0.0)` versionDefines range gates on
+  resolved version, and the optional backend activates wherever the range matches. Combo semantics documented
+  in the PR15.10 delivery report.
+- Test assemblies declare explicit `UnityEditor.TestRunner`/`UnityEngine.TestRunner` references (classification),
+  empty-of-UNITY_INCLUDE_TESTS constraints, and rely on test-assembly classification for player exclusion
+  (Unity's own pattern; batch clean hosts never re-evaluate UNITY_INCLUDE_TESTS constraints after import).
 
 ## External assembly consumers (by dependency)
 
@@ -40,6 +47,8 @@
 - **Unity.ResourceManager** ×6: CoCoFlow.Runtime.Content.Addressables, CoCoFlow.Runtime.Modules.Localization.UI, CoCoFlow.Tests.Editor.Content.Addressables, CoCoFlow.Tests.Runtime.Content.Addressables, CoCoFlow.Tests.Runtime.Localization, CoCoFlow.Tests.Runtime.Map.Addressables
 - **Unity.Splines** ×4: CoCoFlow.Editor.Gameplay.Enemy, CoCoFlow.Runtime.Gameplay.Enemy, CoCoFlow.Samples.Gameplay.Tests.Runtime, CoCoFlow.Tests.Editor.Enemy
 - **Unity.TextMeshPro** ×3: CoCoFlow.Runtime.Modules.Localization.UI, CoCoFlow.Runtime.Modules.UI, CoCoFlow.Tests.Runtime.Localization
+- **UnityEditor.TestRunner** ×20: CoCoFlow.Tests.Editor.Content, CoCoFlow.Tests.Editor.Content.Addressables, CoCoFlow.Tests.Editor.Core, CoCoFlow.Tests.Editor.CoreContracts, CoCoFlow.Tests.Editor.Enemy, CoCoFlow.Tests.Editor.Input, CoCoFlow.Tests.Editor.Map, CoCoFlow.Tests.Editor.Map.Authoring, CoCoFlow.Tests.Editor.Map.Pooling, CoCoFlow.Tests.Editor.Pooling, CoCoFlow.Tests.Editor.ProjectScaffold, CoCoFlow.Tests.Editor.StateGraph, CoCoFlow.Tests.Editor.StateGraphHost, CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures, CoCoFlow.Tests.StateGraphAuthoringFixtures, CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures, CoCoFlow.Tests.StateGraphPlayerMetadataSections, CoCoFlow.Tests.StateGraphPlayerMetadataValues, CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor, CoCoFlow.Tests.StateGraphTransitiveDependencyHelper
+- **UnityEngine.TestRunner** ×41: CoCoFlow.Fixtures.ExternalMapTa, CoCoFlow.Samples.Gameplay.Tests.Runtime, CoCoFlow.Tests.Editor.Content, CoCoFlow.Tests.Editor.Content.Addressables, CoCoFlow.Tests.Editor.Core, CoCoFlow.Tests.Editor.CoreContracts, CoCoFlow.Tests.Editor.Enemy, CoCoFlow.Tests.Editor.Input, CoCoFlow.Tests.Editor.Map, CoCoFlow.Tests.Editor.Map.Authoring, CoCoFlow.Tests.Editor.Map.Pooling, CoCoFlow.Tests.Editor.Pooling, CoCoFlow.Tests.Editor.ProjectScaffold, CoCoFlow.Tests.Editor.StateGraph, CoCoFlow.Tests.Editor.StateGraphHost, CoCoFlow.Tests.Runtime.Animation, CoCoFlow.Tests.Runtime.Animation.DOTween, CoCoFlow.Tests.Runtime.Animation.ReplaySpike, CoCoFlow.Tests.Runtime.Content.Addressables, CoCoFlow.Tests.Runtime.Content.DirectScene, CoCoFlow.Tests.Runtime.ContentConsumers, CoCoFlow.Tests.Runtime.ContextLifecycle, CoCoFlow.Tests.Runtime.Input, CoCoFlow.Tests.Runtime.Localization, CoCoFlow.Tests.Runtime.Map, CoCoFlow.Tests.Runtime.Map.Addressables, CoCoFlow.Tests.Runtime.Map.DirectScene, CoCoFlow.Tests.Runtime.Map.Pooling, CoCoFlow.Tests.Runtime.Map.PublicSdk, CoCoFlow.Tests.Runtime.Map.Temporal, CoCoFlow.Tests.Runtime.Pooling, CoCoFlow.Tests.Runtime.Pooling.Temporal, CoCoFlow.Tests.Runtime.StateGraphHost, CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures, CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures, CoCoFlow.Tests.StateGraphAuthoringFixtures, CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures, CoCoFlow.Tests.StateGraphPlayerMetadataSections, CoCoFlow.Tests.StateGraphPlayerMetadataValues, CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor, CoCoFlow.Tests.StateGraphTransitiveDependencyHelper
 
 ## Optional dependency authority
 
@@ -93,44 +102,44 @@
 | `Samples~/Gameplay/Editor/Enemy/CoCoFlow.Editor.Gameplay.Enemy.asmdef` | Unity.Splines, Unity.Mathematics | — | — |
 | `Samples~/Gameplay/Enemy/CoCoFlow.Runtime.Gameplay.Enemy.asmdef` | Unity.Splines, Unity.Mathematics | — | — |
 | `Samples~/Gameplay/Item/CoCoFlow.Runtime.Gameplay.Item.asmdef` | — | — | — |
-| `Samples~/Gameplay/Tests/Editor/CoCoFlow.Tests.Editor.Enemy.asmdef` | Unity.Splines, Unity.Mathematics | — | — |
-| `Samples~/Gameplay/Tests/Runtime/CoCoFlow.Samples.Gameplay.Tests.Runtime.asmdef` | Unity.Cinemachine, Unity.InputSystem, Unity.InputSystem.TestFramework, Unity.Splines, Unity.Mathematics | — | — |
-| `Tests/Editor/Content/Addressables/CoCoFlow.Tests.Editor.Content.Addressables.asmdef` | Unity.Addressables, Unity.Addressables.Editor, Unity.ResourceManager, UniTask | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/Content/CoCoFlow.Tests.Editor.Content.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/Core/CoCoFlow.Tests.Editor.Core.asmdef` | — | — | — |
-| `Tests/Editor/CoreContracts/CoCoFlow.Tests.Editor.CoreContracts.asmdef` | — | — | — |
-| `Tests/Editor/Input/CoCoFlow.Tests.Editor.Input.asmdef` | Unity.InputSystem | — | — |
-| `Tests/Editor/Map/Authoring/CoCoFlow.Tests.Editor.Map.Authoring.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/Map/CoCoFlow.Tests.Editor.Map.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/Map/Pooling/CoCoFlow.Tests.Editor.Map.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/Pooling/CoCoFlow.Tests.Editor.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/ProjectScaffold/CoCoFlow.Tests.Editor.ProjectScaffold.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/AuthoringDependencyFixtures/CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/CoCoFlow.Tests.Editor.StateGraph.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/Fixtures/CoCoFlow.Tests.StateGraphAuthoringFixtures.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/LegacyCoreDependencyFixtures/CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/PlayerMetadataFixtures/Sections/CoCoFlow.Tests.StateGraphPlayerMetadataSections.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/PlayerMetadataFixtures/Values/CoCoFlow.Tests.StateGraphPlayerMetadataValues.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/TransitiveDependencyFixtures/Author/CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor.asmdef` | — | — | — |
-| `Tests/Editor/StateGraph/TransitiveDependencyFixtures/Helper/CoCoFlow.Tests.StateGraphTransitiveDependencyHelper.asmdef` | — | — | — |
-| `Tests/Editor/StateGraphHost/CoCoFlow.Tests.Editor.StateGraphHost.asmdef` | — | — | — |
-| `Tests/Fixtures/MapExternalTa/Runtime/CoCoFlow.Fixtures.ExternalMapTa.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Animation/CoCoFlow.Tests.Runtime.Animation.ReplaySpike.asmdef` | — | — | — |
-| `Tests/Runtime/Animation/Contracts/CoCoFlow.Tests.Runtime.Animation.asmdef` | — | — | — |
-| `Tests/Runtime/Animation/DOTween/CoCoFlow.Tests.Runtime.Animation.DOTween.asmdef` | — | COCOFLOW_DOTWEEN_SUPPORT | — |
-| `Tests/Runtime/CoCoFlow.Tests.Runtime.ContextLifecycle.asmdef` | Unity.Cinemachine, Unity.InputSystem, Unity.InputSystem.TestFramework | — | — |
-| `Tests/Runtime/Content/Addressables/CoCoFlow.Tests.Runtime.Content.Addressables.asmdef` | Unity.Addressables, Unity.ResourceManager, UniTask | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Content/CoCoFlow.Tests.Runtime.ContentConsumers.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_DOTWEEN_SUPPORT, UNITASK_DOTWEEN_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Content/DirectScene/CoCoFlow.Tests.Runtime.Content.DirectScene.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Input/CoCoFlow.Tests.Runtime.Input.asmdef` | Unity.InputSystem, Unity.InputSystem.TestFramework | — | — |
-| `Tests/Runtime/Localization/CoCoFlow.Tests.Runtime.Localization.asmdef` | Unity.Localization, Unity.ResourceManager, Unity.TextMeshPro | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_DOTWEEN_SUPPORT, UNITASK_DOTWEEN_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/Addressables/CoCoFlow.Tests.Runtime.Map.Addressables.asmdef` | Unity.Addressables, Unity.ResourceManager, UniTask | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/CoCoFlow.Tests.Runtime.Map.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/DirectScene/CoCoFlow.Tests.Runtime.Map.DirectScene.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/Pooling/CoCoFlow.Tests.Runtime.Map.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/PublicSdk/CoCoFlow.Tests.Runtime.Map.PublicSdk.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Map/Temporal/CoCoFlow.Tests.Runtime.Map.Temporal.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Pooling/CoCoFlow.Tests.Runtime.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/Pooling/Temporal/CoCoFlow.Tests.Runtime.Pooling.Temporal.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Runtime/StateGraphHost/CoCoFlow.Tests.Runtime.StateGraphHost.asmdef` | — | — | — |
-| `Tests/Runtime/StateGraphHost/Fixtures/CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures.asmdef` | — | — | — |
+| `Samples~/Gameplay/Tests/Editor/CoCoFlow.Tests.Editor.Enemy.asmdef` | Unity.Mathematics, Unity.Splines, UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Samples~/Gameplay/Tests/Runtime/CoCoFlow.Samples.Gameplay.Tests.Runtime.asmdef` | Unity.Cinemachine, Unity.InputSystem, Unity.InputSystem.TestFramework, Unity.Mathematics, Unity.Splines, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/Content/Addressables/CoCoFlow.Tests.Editor.Content.Addressables.asmdef` | UniTask, Unity.Addressables, Unity.Addressables.Editor, Unity.ResourceManager, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/Content/CoCoFlow.Tests.Editor.Content.asmdef` | UniTask, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/Core/CoCoFlow.Tests.Editor.Core.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/CoreContracts/CoCoFlow.Tests.Editor.CoreContracts.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/Input/CoCoFlow.Tests.Editor.Input.asmdef` | Unity.InputSystem, UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/Map/Authoring/CoCoFlow.Tests.Editor.Map.Authoring.asmdef` | UniTask, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/Map/CoCoFlow.Tests.Editor.Map.asmdef` | UniTask, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/Map/Pooling/CoCoFlow.Tests.Editor.Map.Pooling.asmdef` | UniTask, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/Pooling/CoCoFlow.Tests.Editor.Pooling.asmdef` | UniTask, UnityEditor.TestRunner, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Editor/ProjectScaffold/CoCoFlow.Tests.Editor.ProjectScaffold.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/AuthoringDependencyFixtures/CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/CoCoFlow.Tests.Editor.StateGraph.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/Fixtures/CoCoFlow.Tests.StateGraphAuthoringFixtures.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/LegacyCoreDependencyFixtures/CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/PlayerMetadataFixtures/Sections/CoCoFlow.Tests.StateGraphPlayerMetadataSections.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/PlayerMetadataFixtures/Values/CoCoFlow.Tests.StateGraphPlayerMetadataValues.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/TransitiveDependencyFixtures/Author/CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraph/TransitiveDependencyFixtures/Helper/CoCoFlow.Tests.StateGraphTransitiveDependencyHelper.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Editor/StateGraphHost/CoCoFlow.Tests.Editor.StateGraphHost.asmdef` | UnityEditor.TestRunner, UnityEngine.TestRunner | — | — |
+| `Tests/Fixtures/MapExternalTa/Runtime/CoCoFlow.Fixtures.ExternalMapTa.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Animation/CoCoFlow.Tests.Runtime.Animation.ReplaySpike.asmdef` | UnityEngine.TestRunner | — | — |
+| `Tests/Runtime/Animation/Contracts/CoCoFlow.Tests.Runtime.Animation.asmdef` | UnityEngine.TestRunner | — | — |
+| `Tests/Runtime/Animation/DOTween/CoCoFlow.Tests.Runtime.Animation.DOTween.asmdef` | UnityEngine.TestRunner | COCOFLOW_DOTWEEN_SUPPORT | — |
+| `Tests/Runtime/CoCoFlow.Tests.Runtime.ContextLifecycle.asmdef` | Unity.Cinemachine, Unity.InputSystem, Unity.InputSystem.TestFramework, UnityEngine.TestRunner | — | — |
+| `Tests/Runtime/Content/Addressables/CoCoFlow.Tests.Runtime.Content.Addressables.asmdef` | UniTask, Unity.Addressables, Unity.ResourceManager, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Content/CoCoFlow.Tests.Runtime.ContentConsumers.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_DOTWEEN_SUPPORT, UNITASK_DOTWEEN_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Content/DirectScene/CoCoFlow.Tests.Runtime.Content.DirectScene.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Input/CoCoFlow.Tests.Runtime.Input.asmdef` | Unity.InputSystem, Unity.InputSystem.TestFramework, UnityEngine.TestRunner | — | — |
+| `Tests/Runtime/Localization/CoCoFlow.Tests.Runtime.Localization.asmdef` | Unity.Localization, Unity.ResourceManager, Unity.TextMeshPro, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_DOTWEEN_SUPPORT, UNITASK_DOTWEEN_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/Addressables/CoCoFlow.Tests.Runtime.Map.Addressables.asmdef` | UniTask, Unity.Addressables, Unity.ResourceManager, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_ADDRESSABLES_2_9_OR_NEWER | com.unity.addressables [2.9.1,3.0.0)→COCOFLOW_ADDRESSABLES_2_9_OR_NEWER; com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/CoCoFlow.Tests.Runtime.Map.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/DirectScene/CoCoFlow.Tests.Runtime.Map.DirectScene.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/Pooling/CoCoFlow.Tests.Runtime.Map.Pooling.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/PublicSdk/CoCoFlow.Tests.Runtime.Map.PublicSdk.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Map/Temporal/CoCoFlow.Tests.Runtime.Map.Temporal.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Pooling/CoCoFlow.Tests.Runtime.Pooling.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/Pooling/Temporal/CoCoFlow.Tests.Runtime.Pooling.Temporal.asmdef` | UniTask, UnityEngine.TestRunner | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
+| `Tests/Runtime/StateGraphHost/CoCoFlow.Tests.Runtime.StateGraphHost.asmdef` | UnityEngine.TestRunner | — | — |
+| `Tests/Runtime/StateGraphHost/Fixtures/CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures.asmdef` | UnityEngine.TestRunner | — | — |
