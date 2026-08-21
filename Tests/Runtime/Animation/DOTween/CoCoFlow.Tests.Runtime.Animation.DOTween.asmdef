@@ -15,7 +15,6 @@
     "precompiledReferences": [],
     "autoReferenced": false,
     "defineConstraints": [
-        "UNITY_INCLUDE_TESTS",
         "COCOFLOW_DOTWEEN_SUPPORT"
     ],
     "versionDefines": [],
