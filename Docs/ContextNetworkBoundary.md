@@ -39,7 +39,7 @@ CoCoEventPacket<TEvent>
   -> Actor B Incoming EventInbox
 
 Actor B next accepted CoCoTick
-Input / AI / Network + sealed EventInbox
+Input / AI + sealed EventInbox
   -> Event-to-Intent Adapters
   -> IntentFrame B
   + Previous ContextFrame B
@@ -61,7 +61,7 @@ StateGraph 永远只读取已经翻译并冻结的 IntentFrame。
 
 `IntentFrame` 是一个 CoCoTick 的唯一输入面：
 
-- Input、AI、Network、Host Sampling 和 sealed EventInbox Adapter 都只能提供候选；
+- Input、AI、Host Sampling 和 sealed EventInbox Adapter 都只能提供候选；
 - 候选按 Running 前固定的 Priority/Reducer 仲裁；
 - 每个 Source 每 Tick 最多采样一次，Frame 只冻结一次；
 - 每个 GraphRuntimeInstance 通过 setup-only Factory 创建并独占 Reducer 实例，Actor
@@ -409,7 +409,7 @@ Pre13 负责 Durable Save Document、StableEntityId 解析、Migration、Contain
   FixedUpdate 或 Manual Driver 下执行恰好一个普通正向 Tick；它可以 Commit、写入已启用
   的 Trace/Temporal history 并发布 committed Event，成功后回到 Suspended，因此既不是
   Rewind，也不是 authority-neutral Preview；
-- Unity Callback、Fusion Tick 或 Manual Driver 都只能作为 Host/Driver 输入；
+- Unity Callback 或 Manual Driver 都只能作为 Host/Driver 输入；
 - Animator/SMB Callback 不能立即调用 StateGraph 或修改当前 Frame；它只能进入表现
   路径，或经 Event/Intent 边界供后续 Tick 消化。
 
@@ -429,20 +429,6 @@ Context 类型、Codec、Default 与 AOT-safe construction 的类型权威。Edi
 但必须由用户确认后才保存；Running 配置只读。Host 不通过场景扫描发现这些引用。
 Runtime、Clock、Inbox、Router、Logic、Condition、Memory 与 Temporal Ring 都是内部普通
 对象。Playable Animation、可控播放进度与 Root Motion 归 Pre11。
-
-## 8. Network Adapter Boundary
-
-Core 不依赖具体网络框架。网络 Adapter 只能：
-
-- 将远端 Input/Authority 候选投影为 Intent Source；
-- 将跨对象离散输入构造成合法 EventPacket，进入 Router/Inbox；
-- 在完整 ContextFrame Commit Boundary 采集或应用 Actor 状态；
-- 使用稳定 Graph/State/Instance/Activation/Timeline 身份；
-- 将 Correction 安排到合法 Restore 或下一次正向 Tick，不能回调当前 StateLogic；
-- 把 Camera、Animator 和其他本地表现排除在权威 gameplay ContextFrame 之外。
-
-网络层不得为每个 gameplay State 复制一套网络 State，也不能直接驱动 Layer、Operator
-或 ContextFrame Writer。
 
 ## 9. 架构依赖门禁
 

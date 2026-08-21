@@ -519,7 +519,7 @@ consequences.
 - **Pre13**: durable persistence and migration.
 
 Pre7 does not add cross-Layer calls, queries, signals, or Transitions; an
-arbitrary state-change API; a network Driver; persistence; a production Sample;
+arbitrary state-change API; persistence; a production Sample;
 or a migration runtime for the retained 0.3.9 implementation.
 
 The serialized StateGraph Schema remains version 1 because it had not been

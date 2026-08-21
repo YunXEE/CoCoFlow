@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.14 · **Unity**：6000+
+> **版本**：0.4.0-pre.15 · **Unity**：6000+
 >
-> Pre14 新增以 PlayerInput 为权威的项目 Intent 输入入口、Unity 官方
-> Localization Core、可选 UI V2 本地化输入提示，以及绝不覆盖项目代码的
-> Preview-first Project Scaffold。
+> Pre15 冻结 0.4 公共 API 面，退出旧版 Mono FSM 与输入 Bridge 运行时，
+> 将项目 Gameplay 迁入 Sample 边界，并在 Unity 6000.3/6000.5 上完成
+> 依赖组合与 Player 验证。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -17,7 +17,7 @@ HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor �
 每个被接受的 CoCoTick 只沿一个方向执行：
 
 ```text
-Input / AI / Network + sealed EventInbox
+Input / AI + sealed EventInbox
   -> Event-to-Intent Adapters
   -> freeze IntentFrame
   + Previous ContextFrame
@@ -428,9 +428,10 @@ Pool 或提交 Fidelity Tier。Barrier 只把每个 Region 的最终 Demand Reso
 
 ## 仓库与包边界
 
-0.3.9 CCS Runtime 暂时保留，用于编译和历史回归证据。它的可变 Context Provider、
-MonoBehaviour State、Unity Callback 调度和当前模块 API 都不是 0.4 契约，也不是迁移
-层。现有 0.3.9 项目应继续锁定 0.3.9 Revision。
+旧 0.3.9 Mono 状态运行时与输入 Bridge 已在 Pre15 线移除，StateGraph/StateFlow
+是唯一状态运行时。少量过渡期 Core 设施（EventBus、日志、服务）与过渡期模块
+（Camera、Persistence、UI）保留，均非 0.4 契约或迁移层。现有 0.3.9 项目应继续
+锁定 0.3.9 Revision。
 
 ```text
 Runtime/Core/Contracts   与引擎隔离的 0.4 契约
@@ -445,7 +446,7 @@ Runtime/Pooling/Temporal 可选的 Host-scoped pooled Temporal entity retention
 Runtime/Animation        与引擎隔离的 Animation Operation 与 feedback 契约
 Runtime/Modules/Animation  Animator Controller Operator、SMB bridge 与可选 adapter
 Runtime/Modules/Map      事务式 Region fidelity、demand、participant 与 adapter
-Runtime/Core/*.cs        过渡期 0.3.9 Runtime 与后续 Pre 集成
+Runtime/Core/*.cs        过渡期 Core 设施（EventBus/日志/服务）
 Samples~/Gameplay        可选 Character、Enemy、Item 实现的源码交接区
 Runtime/Modules          其他过渡期表现与服务模块
 Editor/StateGraph        受限图创作与 diagnostics
@@ -479,8 +480,8 @@ Pre1 仍是 identity、time、lifecycle、diagnostic 与纯 StateLogic 契约的
   generic Playable、内置 IK 与直接写世界 Transform 的 Root Motion 不属于 Pre11。
 - **Pre12**：最终 UI navigation、focus、transition 与 authoring 契约。
 - **Pre13**：Persistence V2、Durable Projection、Migration、Container 与世界事实。
-- **Pre15**：production gameplay State 与替代 Sample。
-- **Pre16**：完整跨模块性能与生命周期认证。
+- **Pre16**：production gameplay State、替代 Sample 与完整跨模块性能和
+  生命周期认证。
 - **Pre17**：不改变功能边界的最终视觉与 XML 文档 polish。
 
 ## 依赖
@@ -497,9 +498,9 @@ Addressable Map Binding 还必须由项目实现 `IRegionAddressableSceneResolve
 | Localization | 1.5.9 | Localization Core 与可选 UI V2 提示扩展 |
 | Newtonsoft Json | 3.2.2 | Persistence 过渡期模块 |
 | Cinemachine | 3.1.6 | Camera 过渡期模块 |
-| AI Navigation | 2.0.0 | Character 与 Enemy Navigation |
-| Mathematics | 1.3.3 | Enemy/Spline Assembly |
-| Splines | 2.6.0 | Enemy Spline 支持 |
+| AI Navigation | 2.0.0 | 无直接消费者（保留依赖） |
+| Mathematics | 1.3.3 | Samples~ Gameplay（Enemy）程序集 |
+| Splines | 2.6.0 | Samples~ Gameplay（Enemy） |
 
 可选依赖：
 
@@ -530,12 +531,12 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-Pre14 的验证证据记录在 Changelog 中。Package Validation Suite 与平台 Player
-Build 结果必须和 Input、Localization、Scaffold 的定向测试分开报告。
+Pre15 的验证证据记录在 Changelog 中。Package Validation Suite 与平台 Player
+Build 结果必须和定向聚焦测试分开报告。
 
 ## 文档
 
-- [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [State Flow / Event Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
 - [StateGraph Editor 与 Runtime Debugger](Docs/StateGraphEditor.md)

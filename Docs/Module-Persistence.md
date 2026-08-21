@@ -288,7 +288,6 @@ Persistence owns durable save contracts and file IO. It does not own:
 - gameplay decision logic
 - state-machine transition rules
 - frame input or one-frame intent
-- network authority
 - runtime spawn reconstruction for arbitrary prefab clones
 - partial-Tick or mid-Layer capture
 

@@ -1,9 +1,10 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+> Contract status: `0.4.0-pre.10` · Updated 2026-08-22
 >
-> Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
-> package, Player-build, and Package Validation Suite evidence is recorded.
+> Verification: dual-host package-wide EditMode/PlayMode (editor and player
+> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
+> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
 
 Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity

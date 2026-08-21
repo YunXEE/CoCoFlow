@@ -85,5 +85,4 @@ If Unity CLI itself is unavailable or broken, use the matching Editor's official
 as a fallback for package compilation or test failures.
 
 These projects are persistent daily validation hosts. They are not clean-host
-installation evidence; Pre15 Exit Gate and the release checkpoint require
-separate clean-host validation.
+installation evidence.

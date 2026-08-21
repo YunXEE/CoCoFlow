@@ -1,9 +1,10 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+> Contract status: `0.4.0-pre.10` · Updated 2026-08-22
 >
-> Pre10 Map integration verification: `UNVERIFIED` until the Unity-host,
-> package, Player-build, and Package Validation Suite evidence is recorded.
+> Verification: dual-host package-wide EditMode/PlayMode (editor and player
+> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
+> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
 
 Pre9 adds a Unity-facing GameObject instance-ownership boundary on top of
 Content. It reduces repeated `Instantiate`/`Destroy` work for high-frequency
@@ -279,7 +280,7 @@ Confirm that still requires that entity present continues to fail. Loss of an
 authority-present entity remains a world-correction fault.
 
 This sidecar is not multi-Actor or whole-world rollback. It does not reverse
-physics, animation, navigation, networking, already delivered side effects, or
+physics, animation, navigation, already delivered side effects, or
 durable persistence.
 
 ## Consumer fit
@@ -318,7 +319,7 @@ measuring the Ready idle-hit allocation path.
 - direct Addressables ownership outside Content;
 - automatic migration of UI, Enemy, or permanent scene objects;
 - automatic Map pooling without an explicit participant/profile contract;
-- networked, multi-Actor, or whole-world rollback;
+- multi-Actor or whole-world rollback;
 - durable Temporal reconstruction or reflection-driven automatic cleanup.
 
 See [Content Acquisition and Ownership](ContentOwnership.md) for source
