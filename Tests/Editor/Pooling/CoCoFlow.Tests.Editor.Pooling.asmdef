@@ -22,6 +22,12 @@
         "UNITY_INCLUDE_TESTS",
         "COCOFLOW_UNITASK_SUPPORT"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
     "noEngineReferences": false
 }
