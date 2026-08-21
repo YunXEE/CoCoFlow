@@ -4,10 +4,8 @@
     "references": [
         "CoCoFlow.Runtime.Modules.Input",
         "Unity.InputSystem",
-        "Unity.InputSystem.TestFramework"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.InputSystem.TestFramework",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

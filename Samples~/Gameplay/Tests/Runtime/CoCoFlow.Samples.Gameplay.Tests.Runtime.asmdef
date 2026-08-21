@@ -12,11 +12,9 @@
         "Unity.Cinemachine",
         "Unity.InputSystem",
         "Unity.InputSystem.TestFramework",
+        "Unity.Mathematics",
         "Unity.Splines",
-        "Unity.Mathematics"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

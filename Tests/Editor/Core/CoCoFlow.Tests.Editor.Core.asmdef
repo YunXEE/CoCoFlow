@@ -3,10 +3,9 @@
     "rootNamespace": "CoCoFlow.Editor.Core.Tests",
     "references": [
         "CoCoFlow.Editor.Core",
-        "CoCoFlow.Runtime.Core"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Runtime.Core",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

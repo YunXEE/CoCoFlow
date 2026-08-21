@@ -4,15 +4,14 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Content.Addressables",
-        "CoCoFlow.Runtime.Pooling",
         "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Pooling",
+        "UniTask",
         "Unity.Addressables",
         "Unity.Addressables.Editor",
         "Unity.ResourceManager",
-        "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

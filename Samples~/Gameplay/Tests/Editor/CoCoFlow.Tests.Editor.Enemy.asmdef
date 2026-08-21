@@ -3,11 +3,10 @@
     "rootNamespace": "CoCoFlow.Tests.Editor.Enemy",
     "references": [
         "CoCoFlow.Editor.Gameplay.Enemy",
+        "Unity.Mathematics",
         "Unity.Splines",
-        "Unity.Mathematics"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

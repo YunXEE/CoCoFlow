@@ -2,21 +2,20 @@
     "name": "CoCoFlow.Tests.Editor.StateGraph",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests",
     "references": [
+        "CoCoFlow.Editor.StateGraph",
+        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
-        "CoCoFlow.Editor.StateGraph",
-        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
-        "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
-        "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
-        "CoCoFlow.Tests.StateGraphAuthoringFixtures",
         "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
+        "CoCoFlow.Tests.StateGraphAuthoringFixtures",
         "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
-        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
+        "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

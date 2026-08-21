@@ -1,9 +1,9 @@
 {
     "name": "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
     "rootNamespace": "CoCoFlow.Tests.StateGraphPlayerMetadataFixtures",
-    "references": [],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+    "references": [
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

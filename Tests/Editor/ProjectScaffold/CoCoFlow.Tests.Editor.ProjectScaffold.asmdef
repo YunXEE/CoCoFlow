@@ -2,10 +2,9 @@
     "name": "CoCoFlow.Tests.Editor.ProjectScaffold",
     "rootNamespace": "CoCoFlow.Tests.Editor.ProjectScaffold",
     "references": [
-        "CoCoFlow.Editor.ProjectScaffold"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Editor.ProjectScaffold",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

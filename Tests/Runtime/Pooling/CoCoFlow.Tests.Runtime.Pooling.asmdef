@@ -2,10 +2,11 @@
     "name": "CoCoFlow.Tests.Runtime.Pooling",
     "rootNamespace": "CoCoFlow.Tests.Runtime.Pooling",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Pooling",
-        "UniTask"
+        "UniTask",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -24,8 +25,5 @@
             "define": "COCOFLOW_UNITASK_SUPPORT"
         }
     ],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

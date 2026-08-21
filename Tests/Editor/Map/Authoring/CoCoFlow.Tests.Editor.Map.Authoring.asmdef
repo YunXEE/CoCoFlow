@@ -2,14 +2,13 @@
     "name": "CoCoFlow.Tests.Editor.Map.Authoring",
     "rootNamespace": "CoCoFlow.Tests.Editor.Map.Authoring",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Modules.Map",
         "CoCoFlow.Editor.Modules.Map",
         "CoCoFlow.Fixtures.ExternalMapTa",
-        "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Modules.Map",
+        "UniTask",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

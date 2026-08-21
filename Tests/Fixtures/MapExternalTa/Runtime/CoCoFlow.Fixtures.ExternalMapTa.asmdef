@@ -4,7 +4,8 @@
     "references": [
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
-        "UniTask"
+        "UniTask",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

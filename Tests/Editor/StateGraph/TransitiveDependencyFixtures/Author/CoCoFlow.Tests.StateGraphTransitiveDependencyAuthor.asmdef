@@ -4,10 +4,9 @@
     "references": [
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

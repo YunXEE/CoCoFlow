@@ -5,7 +5,9 @@
         "CoCoFlow.Editor.StateGraphHost",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Runtime.StateGraphHost",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"
@@ -19,8 +21,5 @@
         "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

@@ -2,14 +2,15 @@
     "name": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "rootNamespace": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "references": [
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
-        "CoCoFlow.Runtime.StateGraphHost",
-        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Modules.Persistence",
-        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -21,8 +22,5 @@
         "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

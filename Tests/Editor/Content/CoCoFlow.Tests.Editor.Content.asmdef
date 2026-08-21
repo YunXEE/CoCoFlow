@@ -4,10 +4,9 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Core.Contracts",
-        "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UniTask",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

@@ -2,13 +2,12 @@
     "name": "CoCoFlow.Tests.Editor.Map",
     "rootNamespace": "CoCoFlow.Runtime.Modules.Map.Tests",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
-        "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UniTask",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

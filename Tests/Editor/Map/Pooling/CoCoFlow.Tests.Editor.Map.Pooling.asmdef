@@ -2,15 +2,14 @@
     "name": "CoCoFlow.Tests.Editor.Map.Pooling",
     "rootNamespace": "CoCoFlow.Runtime.Modules.Map.Pooling.Tests",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
-        "CoCoFlow.Runtime.Pooling",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
         "CoCoFlow.Runtime.Modules.Map.Pooling",
-        "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Runtime.Pooling",
+        "UniTask",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

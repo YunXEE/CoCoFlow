@@ -2,9 +2,10 @@
     "name": "CoCoFlow.Tests.Runtime.Content.DirectScene",
     "rootNamespace": "CoCoFlow.Runtime.Content.Tests.DirectScene",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
-        "UniTask"
+        "CoCoFlow.Runtime.Core.Contracts",
+        "UniTask",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -23,8 +24,5 @@
             "define": "COCOFLOW_UNITASK_SUPPORT"
         }
     ],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

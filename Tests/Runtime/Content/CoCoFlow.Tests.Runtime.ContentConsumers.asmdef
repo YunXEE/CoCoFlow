@@ -2,10 +2,11 @@
     "name": "CoCoFlow.Tests.Runtime.ContentConsumers",
     "rootNamespace": "CoCoFlow.Tests.Runtime.ContentConsumers",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.UI",
-        "UniTask"
+        "UniTask",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -26,8 +27,5 @@
             "define": "COCOFLOW_UNITASK_SUPPORT"
         }
     ],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

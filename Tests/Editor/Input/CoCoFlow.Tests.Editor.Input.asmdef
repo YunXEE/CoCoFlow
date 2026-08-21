@@ -3,10 +3,9 @@
     "rootNamespace": "CoCoFlow.Tests.Editor.Input",
     "references": [
         "CoCoFlow.Runtime.Modules.Input",
-        "Unity.InputSystem"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.InputSystem",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

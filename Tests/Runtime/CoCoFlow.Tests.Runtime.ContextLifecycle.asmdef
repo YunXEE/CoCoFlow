@@ -8,10 +8,8 @@
         "CoCoFlow.Runtime.Modules.Persistence",
         "Unity.Cinemachine",
         "Unity.InputSystem",
-        "Unity.InputSystem.TestFramework"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.InputSystem.TestFramework",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

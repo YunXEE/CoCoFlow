@@ -2,12 +2,11 @@
     "name": "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures",
     "references": [
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Runtime.Core"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

@@ -7,10 +7,8 @@
         "CoCoFlow.Runtime.Modules.UI",
         "Unity.Localization",
         "Unity.ResourceManager",
-        "Unity.TextMeshPro"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.TextMeshPro",
+        "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
