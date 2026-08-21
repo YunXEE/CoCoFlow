@@ -201,6 +201,6 @@ See [StateGraph Asset and Compiler](StateGraphCompiler.md),
 - Pre11 owns Animator/Playable integration and concrete combo timing.
 - Pre13 owns durable save schema, migration, and runtime-layout mapping; Editor
   layout is never save-game data.
-- Pre15 owns production gameplay States and replacement Samples.
+- Pre16 owns production gameplay States and replacement Samples.
 - Pre16 owns complete cross-module certification; Pre17 owns final visual and
   XML polish without redefining this feature boundary.

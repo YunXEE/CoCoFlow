@@ -1,5 +1,7 @@
 # Module: Animation
 
+> Pre11 contract: `0.4.0-pre.11` · Updated 2026-07-25
+
 Animation V2 is a thin Animator Controller integration for the CoCoFlow
 `OperationFrame -> Operator -> committed Event input` path. The Animator
 Controller remains the state-machine and transition-authoring authority.

@@ -45,6 +45,18 @@ and dependency combinations plus Player builds are verified on Unity
 - Scaffold/Localization BUG-005–BUG-008 and Unity 6000.5 compile
   blockers BUG-010 (PR #42, PR15.09).
 
+### Verification
+
+- `PASS`: on the PR #44 checkpoint matrix, Unity `6000.3.20f1` and
+  `6000.5.5f1` persistent hosts — package-wide EditMode `689/689` x2,
+  PlayMode editor mode `361/361` x2, and PlayMode player mode `356/356` x2,
+  zero Failed and zero Inconclusive; every XML validated by
+  `.github/ci/cocoflow_ci.py` (evidence archived under `.ci-artifacts/` for
+  the checkpoint Final Head).
+- Windows `6000.3` package-wide run (VR-1) pending at release time.
+- `SKIPPED`: Unity Package Validation Suite remains locally waived; its
+  exception scopes track `0.4.0-pre.15`.
+
 ## [0.4.0-pre.14] - 2026-07-27
 
 ### Added

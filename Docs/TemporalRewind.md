@@ -1,9 +1,10 @@
 # CoCoFlow Temporal Rewind
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+> Contract status: `0.4.0-pre.10` · Updated 2026-08-22
 >
-> Pre10 Map decorator verification: `UNVERIFIED` until the Unity-host,
-> package, Player-build, and Package Validation Suite evidence is recorded.
+> Verification: dual-host package-wide EditMode/PlayMode (editor and player
+> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
+> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
 `CoCoStateGraphHost`. It records bounded projections of successful Context
@@ -380,7 +381,7 @@ authority-present loss continues to latch world correction.
 
 These decorators cover one Host's retained Map availability and pooled physical
 identity. They are not a world snapshot and do not roll back Map state, scenes,
-physics, navigation, animation, networking, durable state, or already delivered
+physics, navigation, animation, durable state, or already delivered
 cross-Actor consequences.
 
 ## Explicit non-goals
@@ -390,7 +391,7 @@ cross-Actor consequences.
 - undoing already delivered cross-Actor consequences;
 - Animator, Playable, AnimationClip, or root-motion reverse mapping (Pre11);
 - durable saves, migration, containers, or world facts (Pre13);
-- production gameplay States and replacement Samples (Pre15);
+- production gameplay States and replacement Samples (Pre16);
 - complete cross-module certification (Pre16) and final visual/XML polish
   (Pre17);
 - a global Temporal manager, runtime capacity resizing, or shared history.

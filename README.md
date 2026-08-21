@@ -19,7 +19,7 @@ and cross-Object messages instead of combining them in one mutable Context.
 One accepted CoCoTick follows one direction:
 
 ```text
-Input / AI / Network + sealed EventInbox
+Input / AI + sealed EventInbox
   -> Event-to-Intent Adapters
   -> freeze IntentFrame
   + Previous ContextFrame
@@ -515,10 +515,12 @@ migration from `MapResourceManager`/`MapStreamTrigger`.
 
 ## Repository and Package Boundary
 
-The 0.3.9 CCS Runtime remains temporarily for compilation and historical
-regression evidence. Its mutable Context providers, MonoBehaviour states,
-Unity-callback scheduling, and current module APIs are not 0.4 contracts or a
-migration layer. Existing 0.3.9 projects should stay pinned to a 0.3.9 revision.
+The legacy 0.3.9 Mono state runtime and input bridge were removed during
+the Pre15 line; StateGraph/StateFlow is the only state runtime. A small set
+of transitional Core facilities (EventBus, logging, services) and transitional
+modules (Camera, Persistence, UI) remain and are not 0.4 contracts or a
+migration layer. Existing 0.3.9 projects should stay pinned to a 0.3.9
+revision.
 
 ```text
 Runtime/Core/Contracts   engine-independent 0.4 contracts
@@ -533,7 +535,7 @@ Runtime/Pooling/Temporal optional Host-scoped pooled Temporal entity retention
 Runtime/Animation        engine-independent Animation Operation and feedback contracts
 Runtime/Modules/Animation  Animator Controller Operators, SMB bridge, and optional adapters
 Runtime/Modules/Map      transactional Region fidelity, demand, participants, and adapters
-Runtime/Core/*.cs        transitional 0.3.9 runtime plus later-Pre integration
+Runtime/Core/*.cs        transitional Core facilities (EventBus, logging, services)
 Samples~/Gameplay        source handoff for optional Character, Enemy, and Item implementations
 Runtime/Modules          other transitional presentation and service modules
 Editor/StateGraph        constrained graph authoring and diagnostics
@@ -572,8 +574,8 @@ with this document, the Pre2 State Flow model is authoritative.
 - **Pre12**: final UI navigation, focus, transition, and authoring contracts.
 - **Pre13**: Persistence V2, durable projection, migration, containers, and
   world facts.
-- **Pre15**: production gameplay States and replacement Samples.
-- **Pre16**: full cross-module performance and lifecycle certification.
+- **Pre16**: production gameplay States, replacement Samples, and full
+  cross-module performance and lifecycle certification.
 - **Pre17**: final visual and XML-documentation polish without changing the
   feature boundary.
 
@@ -593,9 +595,9 @@ not define the address-to-Scene mapping.
 | Localization | 1.5.9 | Localization Core and optional UI V2 prompt extensions |
 | Newtonsoft Json | 3.2.2 | Persistence transitional module |
 | Cinemachine | 3.1.6 | Camera transitional module |
-| AI Navigation | 2.0.0 | Character and Enemy navigation |
-| Mathematics | 1.3.3 | Enemy/spline assemblies |
-| Splines | 2.6.0 | Enemy spline support |
+| AI Navigation | 2.0.0 | none (retained dependency; no assembly consumers) |
+| Mathematics | 1.3.3 | Samples~ Gameplay (Enemy) assemblies |
+| Splines | 2.6.0 | Samples~ Gameplay (Enemy) |
 
 Optional dependency:
 
@@ -635,7 +637,7 @@ from focused suite runs.
 
 ## Documentation
 
-- [State Flow / Network Boundary](Docs/ContextNetworkBoundary.md)
+- [State Flow / Event Boundary](Docs/ContextNetworkBoundary.md)
 - [StateGraph Asset and Compiler](Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](Docs/StateGraphRuntime.md)
 - [StateGraph Editor and Runtime Debugger](Docs/StateGraphEditor.md)

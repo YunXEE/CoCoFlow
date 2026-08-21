@@ -1,9 +1,10 @@
 # Module: Map Region Fidelity
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-07-25
+> Contract status: `0.4.0-pre.10` · Updated 2026-08-22
 >
-> Verification status: `UNVERIFIED` until the Pre10 Unity-host, package,
-> Player-build, and Package Validation Suite evidence is recorded.
+> Verification: dual-host package-wide EditMode/PlayMode (editor and player
+> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
+> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
 
 Map no longer means “push a Scene when a trigger fires.” It is the runtime
 authority that resolves overlapping gameplay demand into a transactional

@@ -370,7 +370,7 @@ and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
 
 - **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
 - **Pre13** owns durable persistence and migration.
-- **Pre15** owns production gameplay States and replacement Samples.
+- **Pre16** owns production gameplay States and replacement Samples.
 - **Pre16** owns complete cross-module performance and lifecycle certification;
   Pre17 may polish visuals and XML without redefining Pre7's authoring boundary.
 
