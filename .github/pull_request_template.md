@@ -12,6 +12,7 @@
 
 ## Frozen scope
 
+- [ ] 目标分支符合仓库交付规则（见 AGENTS.md「交付工作流配置」）；例外（如定点修复）在正文注明理由
 - Base：`<SHA>`　Final Head：`<SHA>`　Commit range：`<base>..<head>`（N commits）
 - Diff：X 文件，+A/-B
 - 明确不改的：<契约/模块/依赖>

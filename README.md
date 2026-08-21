@@ -4,9 +4,10 @@
 
 > **Version**: 0.4.0-pre.15 · **Unity**: 6000+
 >
-> Pre14 adds the PlayerInput-authoritative project Intent entry, official Unity
-> Localization Core, optional UI V2 localized input prompts, and a
-> preview-first project scaffold that never overwrites project code.
+> Pre15 freezes the 0.4 public API surface, exits the legacy Mono FSM and
+> input-bridge runtimes, moves project Gameplay into the Sample boundary,
+> and closes dependency-combination and Player verification on Unity
+> 6000.3/6000.5.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -628,9 +629,9 @@ IL2CPP/High-Stripping checks, and Unity Package Validation Suite.
 `CoCoFlow/Setup/Setup Assistant` remains a
 dependency/support-define tool; it does not install project content.
 
-Pre14 validation evidence is recorded in the changelog. Package Validation
+Pre15 validation evidence is recorded in the changelog. Package Validation
 Suite and platform Player-build results must still be reported independently
-from focused Input, Localization, and Scaffold tests.
+from focused suite runs.
 
 ## Documentation
 

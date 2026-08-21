@@ -4,9 +4,9 @@
 
 > **版本**：0.4.0-pre.15 · **Unity**：6000+
 >
-> Pre14 新增以 PlayerInput 为权威的项目 Intent 输入入口、Unity 官方
-> Localization Core、可选 UI V2 本地化输入提示，以及绝不覆盖项目代码的
-> Preview-first Project Scaffold。
+> Pre15 冻结 0.4 公共 API 面，退出旧版 Mono FSM 与输入 Bridge 运行时，
+> 将项目 Gameplay 迁入 Sample 边界，并在 Unity 6000.3/6000.5 上完成
+> 依赖组合与 Player 验证。
 
 CoCoFlow 是面向 Unity 6、新单机 3D 冒险与动作项目的 State Flow + Layered
 HFSM 框架。0.4 将输入意图、状态图决策、副作用执行、Actor 已提交状态和跨 Object
@@ -530,8 +530,8 @@ PlayMode 测试、相关 IL2CPP/High Stripping 检查与 Unity Package Validatio
 `CoCoFlow/Setup/Setup Assistant` 仍只负责依赖
 与 Support Define，不安装项目内容。
 
-Pre14 的验证证据记录在 Changelog 中。Package Validation Suite 与平台 Player
-Build 结果必须和 Input、Localization、Scaffold 的定向测试分开报告。
+Pre15 的验证证据记录在 Changelog 中。Package Validation Suite 与平台 Player
+Build 结果必须和定向聚焦测试分开报告。
 
 ## 文档
 
