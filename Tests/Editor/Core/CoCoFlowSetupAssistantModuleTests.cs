@@ -120,41 +120,41 @@ namespace CoCoFlow.Editor.Core.Tests
         }
 
 
-        [TestCase(false, false, UniTaskInstallForm.None)]
-        [TestCase(true, false, UniTaskInstallForm.UpmRegistered)]
-        [TestCase(true, true, UniTaskInstallForm.UpmRegistered)]
-        [TestCase(false, true, UniTaskInstallForm.AssemblyOnly)]
+        [TestCase(false, false, CoCoUniTaskInstallForm.None)]
+        [TestCase(true, false, CoCoUniTaskInstallForm.UpmRegistered)]
+        [TestCase(true, true, CoCoUniTaskInstallForm.UpmRegistered)]
+        [TestCase(false, true, CoCoUniTaskInstallForm.AssemblyOnly)]
         public void UniTaskFormPrefersUpmRegistrationOverAssemblyPresence(
             bool manifestHasUniTaskDependency,
             bool uniTaskAssemblyAvailable,
-            UniTaskInstallForm expectedForm)
+            CoCoUniTaskInstallForm expectedForm)
         {
             Assert.That(
                 CoCoFlowSetupAssistant.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
                 Is.EqualTo(expectedForm));
         }
 
-        [TestCase("2.5.11", UniTaskVersionCompatibility.Supported)]
-        [TestCase("2.6.0", UniTaskVersionCompatibility.Supported)]
-        [TestCase("2.5.10", UniTaskVersionCompatibility.BelowMinimum)]
-        [TestCase("3.0.0", UniTaskVersionCompatibility.AtOrAboveMaximum)]
-        [TestCase("4.1.2", UniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("2.5.11", CoCoUniTaskVersionCompatibility.Supported)]
+        [TestCase("2.6.0", CoCoUniTaskVersionCompatibility.Supported)]
+        [TestCase("2.5.10", CoCoUniTaskVersionCompatibility.BelowMinimum)]
+        [TestCase("3.0.0", CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("4.1.2", CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
         [TestCase(
             "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
-            UniTaskVersionCompatibility.Supported)]
+            CoCoUniTaskVersionCompatibility.Supported)]
         [TestCase(
             "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#3.0.0",
-            UniTaskVersionCompatibility.AtOrAboveMaximum)]
-        [TestCase("file:../UniTask", UniTaskVersionCompatibility.Unknown)]
-        [TestCase("", UniTaskVersionCompatibility.Unknown)]
-        [TestCase(null, UniTaskVersionCompatibility.Unknown)]
-        [TestCase("not-a-version", UniTaskVersionCompatibility.Unknown)]
-        public void UniTaskVersionPolicyEvaluatesSemverAndGitUrlSuffix(
+            CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("file:../UniTask", CoCoUniTaskVersionCompatibility.Unknown)]
+        [TestCase("", CoCoUniTaskVersionCompatibility.Unknown)]
+        [TestCase(null, CoCoUniTaskVersionCompatibility.Unknown)]
+        [TestCase("not-a-version", CoCoUniTaskVersionCompatibility.Unknown)]
+        public void CoCoUniTaskVersionPolicyEvaluatesSemverAndGitUrlSuffix(
             string dependency,
-            UniTaskVersionCompatibility expected)
+            CoCoUniTaskVersionCompatibility expected)
         {
             Assert.That(
-                UniTaskVersionPolicy.Evaluate(dependency),
+                CoCoUniTaskVersionPolicy.Evaluate(dependency),
                 Is.EqualTo(expected));
         }
 
