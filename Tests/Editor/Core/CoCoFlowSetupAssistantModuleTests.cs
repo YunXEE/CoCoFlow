@@ -119,6 +119,45 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.That(actual, Is.EqualTo(expected));
         }
 
+
+        [TestCase(false, false, UniTaskInstallForm.None)]
+        [TestCase(true, false, UniTaskInstallForm.UpmRegistered)]
+        [TestCase(true, true, UniTaskInstallForm.UpmRegistered)]
+        [TestCase(false, true, UniTaskInstallForm.AssemblyOnly)]
+        public void UniTaskFormPrefersUpmRegistrationOverAssemblyPresence(
+            bool manifestHasUniTaskDependency,
+            bool uniTaskAssemblyAvailable,
+            UniTaskInstallForm expectedForm)
+        {
+            Assert.That(
+                CoCoFlowSetupAssistant.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
+                Is.EqualTo(expectedForm));
+        }
+
+        [TestCase("2.5.11", UniTaskVersionCompatibility.Supported)]
+        [TestCase("2.6.0", UniTaskVersionCompatibility.Supported)]
+        [TestCase("2.5.10", UniTaskVersionCompatibility.BelowMinimum)]
+        [TestCase("3.0.0", UniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("4.1.2", UniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase(
+            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
+            UniTaskVersionCompatibility.Supported)]
+        [TestCase(
+            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#3.0.0",
+            UniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("file:../UniTask", UniTaskVersionCompatibility.Unknown)]
+        [TestCase("", UniTaskVersionCompatibility.Unknown)]
+        [TestCase(null, UniTaskVersionCompatibility.Unknown)]
+        [TestCase("not-a-version", UniTaskVersionCompatibility.Unknown)]
+        public void UniTaskVersionPolicyEvaluatesSemverAndGitUrlSuffix(
+            string dependency,
+            UniTaskVersionCompatibility expected)
+        {
+            Assert.That(
+                UniTaskVersionPolicy.Evaluate(dependency),
+                Is.EqualTo(expected));
+        }
+
         private static ModuleView FindModule(string displayName)
         {
             FieldInfo modulesField = typeof(CoCoFlowSetupAssistant).GetField(
