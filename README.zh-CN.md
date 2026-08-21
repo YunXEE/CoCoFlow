@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.14 · **Unity**：6000+
+> **版本**：0.4.0-pre.15 · **Unity**：6000+
 >
 > Pre14 新增以 PlayerInput 为权威的项目 Intent 输入入口、Unity 官方
 > Localization Core、可选 UI V2 本地化输入提示，以及绝不覆盖项目代码的

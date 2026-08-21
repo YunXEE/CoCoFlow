@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This page is the Unity Package Manager documentation entry point for CoCoFlow.
-The current package line is `0.4.0-pre.14`; it adds project Input Intent,
+The current package line is `0.4.0-pre.15`; it adds project Input Intent,
 official Localization Core, optional UI V2 localized prompts, and the project
 scaffold.
 

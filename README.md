@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.14 · **Unity**: 6000+
+> **Version**: 0.4.0-pre.15 · **Unity**: 6000+
 >
 > Pre14 adds the PlayerInput-authoritative project Intent entry, official Unity
 > Localization Core, optional UI V2 localized input prompts, and a
