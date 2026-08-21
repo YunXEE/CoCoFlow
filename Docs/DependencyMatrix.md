@@ -35,6 +35,10 @@ ScriptingDefineSymbols (unitypackage path, which has no version discoverable by 
 A stale manual define combined with an out-of-range UPM version could theoretically bypass the
 version gate. Accepted as-is: single-maintainer project; the Setup Assistant removes stale
 defines on Apply whenever the UPM form is registered. Not a supported bypass path.
+A transitively resolved UniTask (pulled in by another UPM package, absent from the
+project manifest) is likewise classified as assembly-only and accepts a manual
+define without a version check - same accepted boundary, same single-maintainer
+rationale.
 
 ## External assembly consumers (by dependency)
 

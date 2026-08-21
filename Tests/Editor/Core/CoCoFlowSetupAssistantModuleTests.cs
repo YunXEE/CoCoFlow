@@ -120,41 +120,43 @@ namespace CoCoFlow.Editor.Core.Tests
         }
 
 
-        [TestCase(false, false, CoCoUniTaskInstallForm.None)]
-        [TestCase(true, false, CoCoUniTaskInstallForm.UpmRegistered)]
-        [TestCase(true, true, CoCoUniTaskInstallForm.UpmRegistered)]
-        [TestCase(false, true, CoCoUniTaskInstallForm.AssemblyOnly)]
+        [TestCase(false, false, 0)]
+        [TestCase(true, false, 1)]
+        [TestCase(true, true, 1)]
+        [TestCase(false, true, 2)]
         public void UniTaskFormPrefersUpmRegistrationOverAssemblyPresence(
             bool manifestHasUniTaskDependency,
             bool uniTaskAssemblyAvailable,
-            CoCoUniTaskInstallForm expectedForm)
+            int expectedForm)
         {
+            // int 形态绕开 internal 枚举的 CS0051（IVT 在 enum 参数上不生效）
             Assert.That(
-                CoCoFlowSetupAssistant.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
+                (int)CoCoFlowSetupAssistant.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
                 Is.EqualTo(expectedForm));
         }
 
-        [TestCase("2.5.11", CoCoUniTaskVersionCompatibility.Supported)]
-        [TestCase("2.6.0", CoCoUniTaskVersionCompatibility.Supported)]
-        [TestCase("2.5.10", CoCoUniTaskVersionCompatibility.BelowMinimum)]
-        [TestCase("3.0.0", CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
-        [TestCase("4.1.2", CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
+        [TestCase("2.5.11", 2)]
+        [TestCase("2.6.0", 2)]
+        [TestCase("2.5.10", 1)]
+        [TestCase("3.0.0", 3)]
+        [TestCase("4.1.2", 3)]
         [TestCase(
             "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
-            CoCoUniTaskVersionCompatibility.Supported)]
+            2)]
         [TestCase(
             "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#3.0.0",
-            CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)]
-        [TestCase("file:../UniTask", CoCoUniTaskVersionCompatibility.Unknown)]
-        [TestCase("", CoCoUniTaskVersionCompatibility.Unknown)]
-        [TestCase(null, CoCoUniTaskVersionCompatibility.Unknown)]
-        [TestCase("not-a-version", CoCoUniTaskVersionCompatibility.Unknown)]
+            3)]
+        [TestCase("file:../UniTask", 0)]
+        [TestCase("", 0)]
+        [TestCase(null, 0)]
+        [TestCase("not-a-version", 0)]
         public void CoCoUniTaskVersionPolicyEvaluatesSemverAndGitUrlSuffix(
             string dependency,
-            CoCoUniTaskVersionCompatibility expected)
+            int expected)
         {
+            // int 形态绕开 internal 枚举的 CS0051（IVT 在 enum 参数上不生效）
             Assert.That(
-                CoCoUniTaskVersionPolicy.Evaluate(dependency),
+                (int)CoCoUniTaskVersionPolicy.Evaluate(dependency),
                 Is.EqualTo(expected));
         }
 

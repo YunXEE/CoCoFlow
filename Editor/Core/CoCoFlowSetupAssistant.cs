@@ -877,6 +877,12 @@ namespace CoCoFlow.Editor.Core
                 // satisfied so module status does not show it as partial.
                 status.MissingDefineTargets[UniTaskDefine] = new List<string>();
             }
+            else if (status.UniTaskVersionBlocked)
+            {
+                // Blocked UPM version: linked assemblies are disabled; the define
+                // must not be reported as enabled on any target.
+                status.MissingDefineTargets[UniTaskDefine] = checkedTargets.Select(t => t.ToString()).ToList();
+            }
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
@@ -1723,14 +1729,14 @@ namespace CoCoFlow.Editor.Core
         AtOrAboveMaximum = 3
     }
 
-    public enum CoCoUniTaskInstallForm
+    internal enum CoCoUniTaskInstallForm
     {
         None = 0,
         UpmRegistered = 1,
         AssemblyOnly = 2
     }
 
-    public enum CoCoUniTaskVersionCompatibility
+    internal enum CoCoUniTaskVersionCompatibility
     {
         Unknown = 0,
         BelowMinimum = 1,
