@@ -1,23 +1,25 @@
 {
     "name": "CoCoFlow.Tests.StateGraphAuthoringFixtures",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures",
-  "references": [
-    "CoCoFlow.Runtime.Core.Contracts",
-    "CoCoFlow.Runtime.Core.StateFlow",
-    "CoCoFlow.Runtime.Core.StateGraph"
-  ],
-  "optionalUnityReferences": [
-    "TestAssemblies"
-  ],
-  "includePlatforms": [
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph"
+    ],
+    "includePlatforms": [
         "Editor"
     ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": true
 }

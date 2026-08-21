@@ -2,12 +2,9 @@
     "name": "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures",
     "references": [
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Runtime.Core"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "CoCoFlow.Runtime.Core.StateGraph"
     ],
     "includePlatforms": [
         "Editor"
@@ -16,8 +13,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": true
 }

@@ -6,9 +6,6 @@
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.Core.StateGraphAuthoring"
     ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ],
     "includePlatforms": [
         "Editor"
     ],
@@ -16,8 +13,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": true
 }

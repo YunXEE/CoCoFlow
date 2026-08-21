@@ -4,9 +4,6 @@
     "references": [
         "CoCoFlow.Runtime.Core"
     ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ],
     "includePlatforms": [
         "Editor"
     ],
@@ -14,8 +11,13 @@
     "allowUnsafeCode": false,
     "overrideReferences": true,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": true
 }

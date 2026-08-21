@@ -12,19 +12,21 @@
         "Unity.Cinemachine",
         "Unity.InputSystem",
         "Unity.InputSystem.TestFramework",
-        "Unity.Splines",
-        "Unity.Mathematics"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.Mathematics",
+        "Unity.Splines"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

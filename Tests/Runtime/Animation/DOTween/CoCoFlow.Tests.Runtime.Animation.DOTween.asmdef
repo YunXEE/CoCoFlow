@@ -12,14 +12,14 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
-    "autoReferenced": false,
-    "defineConstraints": [
-        "UNITY_INCLUDE_TESTS",
-        "COCOFLOW_DOTWEEN_SUPPORT"
-    ],
-    "versionDefines": [],
-    "noEngineReferences": false,
     "optionalUnityReferences": [
         "TestAssemblies"
-    ]
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
 }

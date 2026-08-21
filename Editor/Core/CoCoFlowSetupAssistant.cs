@@ -31,6 +31,7 @@ namespace CoCoFlow.Editor.Core
         private const string UniTaskDefine = "COCOFLOW_UNITASK_SUPPORT";
         private const string DotweenDefine = "COCOFLOW_DOTWEEN_SUPPORT";
         private const string UniTaskDotweenDefine = "UNITASK_DOTWEEN_SUPPORT";
+        private const string UniTaskSupportedRange = CoCoUniTaskVersionPolicy.SupportedRange;
 
         private static readonly ModuleDefinition[] Modules =
         {
@@ -597,14 +598,56 @@ namespace CoCoFlow.Editor.Core
 
         private void ApplyAvailableSupportDefines(bool uniTaskInstallSucceeded)
         {
-            bool uniTaskAvailable = uniTaskInstallSucceeded ||
-                                    IsAssemblyInstalled("UniTask") ||
-                                    IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            // D-02 define 权威状态机：UPM 注册 ⇒ resolved dependency 为唯一权威；
+            // 仅「无 UPM 包但程序集存在」（unitypackage）才允许手动 define；
+            // 两者皆无 ⇒ 模块缺失。
+            string unitaskDependency = ReadManifestUniTaskDependency();
+            bool assemblyAvailable = uniTaskInstallSucceeded ||
+                                     IsAssemblyInstalled("UniTask") ||
+                                     IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            var form = ClassifyUniTaskForm(!string.IsNullOrEmpty(unitaskDependency), assemblyAvailable);
+            var compatibility = CoCoUniTaskVersionPolicy.Evaluate(unitaskDependency);
+            bool uniTaskUsable;
+
+            if (form == CoCoUniTaskInstallForm.UpmRegistered)
+            {
+                // UPM 形态：无论版本是否兼容，都必须移除遗留全局 define，
+                // 防止其旁路 versionDefines 的版本边界；失败 = 显式 partial/error。
+                RemoveDefinesFromAllValidTargets(UniTaskDefine);
+
+                if (compatibility == CoCoUniTaskVersionCompatibility.BelowMinimum ||
+                    compatibility == CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)
+                {
+                    AddLog("ERROR: UniTask UPM version is outside " + UniTaskSupportedRange +
+                          " (" + unitaskDependency + "). UniTask-linked assemblies stay disabled;" +
+                          " assembly-only fallback is not allowed.");
+                    uniTaskUsable = false;
+                }
+                else
+                {
+                    AddLog("UniTask support define is managed automatically by asmdef versionDefines " +
+                           UniTaskSupportedRange + ".");
+                    uniTaskUsable = true;
+                }
+            }
+            else
+            {
+                uniTaskUsable = form == CoCoUniTaskInstallForm.AssemblyOnly;
+                if (uniTaskUsable)
+                    AddLog("UniTask detected as assembly-only (unitypackage). Manual support define is required and allowed.");
+            }
+
             string[] defines = SelectAvailableSupportDefines(
-                uniTaskAvailable,
+                uniTaskUsable,
                 IsDotweenInstalled(),
                 IsDotweenModuleInstalled(),
                 IsAssemblyInstalled("UniTask.DOTween"));
+
+            if (form == CoCoUniTaskInstallForm.UpmRegistered)
+            {
+                // UniTask define 已由 versionDefines 管理，不进入手动集合。
+                defines = defines.Where(define => define != UniTaskDefine).ToArray();
+            }
 
             if (defines.Length == 0)
             {
@@ -613,6 +656,35 @@ namespace CoCoFlow.Editor.Core
             }
 
             AddDefinesToAllValidTargets(defines);
+        }
+
+        internal static CoCoUniTaskInstallForm ClassifyUniTaskForm(
+            bool manifestHasUniTaskDependency,
+            bool uniTaskAssemblyAvailable)
+        {
+            if (manifestHasUniTaskDependency)
+                return CoCoUniTaskInstallForm.UpmRegistered;
+
+            return uniTaskAssemblyAvailable
+                ? CoCoUniTaskInstallForm.AssemblyOnly
+                : CoCoUniTaskInstallForm.None;
+        }
+
+        private string ReadManifestUniTaskDependency()
+        {
+            try
+            {
+                var root = LoadManifest().Root;
+                if (root.TryGetObject("dependencies", out var dependencies) &&
+                    dependencies.TryGetString(UniTaskPackageName, out var dependency))
+                    return dependency;
+            }
+            catch
+            {
+                // manifest 缺失/损坏时按无 UPM 注册处理，交由程序集探测。
+            }
+
+            return null;
         }
 
         internal static string[] SelectAvailableSupportDefines(
@@ -677,6 +749,72 @@ namespace CoCoFlow.Editor.Core
                 AddLog("Skipped " + skippedTargets.Count + " unsupported target group(s): " + FormatTargetList(skippedTargets) + ".");
         }
 
+        private void RemoveDefinesFromAllValidTargets(params string[] definesToRemove)
+        {
+            if (definesToRemove == null || definesToRemove.Length == 0)
+                return;
+
+            var changedTargets = new List<string>();
+            var skippedTargets = new List<string>();
+
+            var extraTargets = new List<NamedBuildTarget>();
+            try { extraTargets.Add(NamedBuildTarget.Server); } catch { }
+
+            foreach (var named in extraTargets)
+            {
+                try
+                {
+                    var current = PlayerSettings.GetScriptingDefineSymbols(named);
+                    var defines = SplitDefines(current);
+                    if (!definesToRemove.Any(define => defines.Contains(define)))
+                        continue;
+                    var updated = string.Join(";", defines.Where(define => !definesToRemove.Contains(define)).ToArray());
+                    PlayerSettings.SetScriptingDefineSymbols(named, updated);
+                    changedTargets.Add(named.TargetName);
+                }
+                catch (Exception ex)
+                {
+                    skippedTargets.Add(named.TargetName + " (" + ex.GetType().Name + ")");
+                }
+            }
+
+            foreach (BuildTargetGroup group in GetCheckedBuildTargetGroups())
+            {
+                try
+                {
+                    var namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
+                    var current = PlayerSettings.GetScriptingDefineSymbols(namedTarget);
+                    var defines = SplitDefines(current);
+
+                    if (!definesToRemove.Any(define => defines.Contains(define)))
+                        continue;
+
+                    var updated = string.Join(";", defines.Where(define => !definesToRemove.Contains(define)).ToArray());
+                    PlayerSettings.SetScriptingDefineSymbols(namedTarget, updated);
+                    changedTargets.Add(group.ToString());
+                }
+                catch (Exception ex)
+                {
+                    skippedTargets.Add(group + " (" + ex.GetType().Name + ")");
+                }
+            }
+
+            if (skippedTargets.Count > 0)
+            {
+                // 清理失败 = 显式 partial/error，不得显示成功（D-02 状态机红线）。
+                AddLog("ERROR: Legacy define cleanup incomplete - failed on " + skippedTargets.Count +
+                      " target group(s): " + FormatTargetList(skippedTargets) +
+                      ". Stale manual defines remain and must be resolved manually.");
+                Debug.LogError("[CoCoFlow Setup] Legacy define cleanup failed on: " + FormatTargetList(skippedTargets));
+            }
+            else if (changedTargets.Count > 0)
+            {
+                AddLog("Removed stale manual define(s) from " + changedTargets.Count +
+                      " target group(s): " + FormatTargetList(changedTargets) +
+                      "; versionDefines is now the single authority.");
+            }
+        }
+
         private void RefreshStatus()
         {
             _status = BuildStatus();
@@ -711,6 +849,14 @@ namespace CoCoFlow.Editor.Core
             }
 
             status.UniTaskInstalled = IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            var unitaskForm = ClassifyUniTaskForm(!string.IsNullOrEmpty(status.UniTaskDependency), status.UniTaskInstalled);
+            var unitaskCompatibility = CoCoUniTaskVersionPolicy.Evaluate(status.UniTaskDependency);
+            status.UniTaskDefineAutomatic = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered &&
+                                            unitaskCompatibility != CoCoUniTaskVersionCompatibility.BelowMinimum &&
+                                            unitaskCompatibility != CoCoUniTaskVersionCompatibility.AtOrAboveMaximum;
+            status.UniTaskVersionBlocked = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered &&
+                                           (unitaskCompatibility == CoCoUniTaskVersionCompatibility.BelowMinimum ||
+                                            unitaskCompatibility == CoCoUniTaskVersionCompatibility.AtOrAboveMaximum);
             status.AddressablesInstalled = IsAssemblyInstalled("Unity.Addressables") ||
                                            IsTypeAvailable(
                                                "UnityEngine.AddressableAssets.Addressables, Unity.Addressables");
@@ -719,7 +865,26 @@ namespace CoCoFlow.Editor.Core
             status.DotweenModulesInstalled = IsDotweenModuleInstalled();
             var checkedTargets = GetCheckedBuildTargetGroups();
             status.CheckedTargetCount = checkedTargets.Count;
-            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine }, checkedTargets);
+            // UPM 形态下 UniTask define 由 versionDefines 自动管理，
+            // 不再要求手动出现在 ScriptingDefineSymbols（否则误报 missing）。
+            var manualDefines = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered
+                ? new[] { DotweenDefine, UniTaskDotweenDefine }
+                : new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine };
+            status.MissingDefineTargets = GetMissingDefineTargets(manualDefines, checkedTargets);
+            if (unitaskForm == CoCoUniTaskInstallForm.UpmRegistered && status.UniTaskDefineAutomatic && status.UniTaskInstalled)
+            {
+                // versionDefines is the authority here; record the define as
+                // satisfied so module status does not show it as partial.
+                // UniTaskInstalled is required: an unresolved dependency cannot
+                // emit versionDefines yet (fresh open / failed git fetch).
+                status.MissingDefineTargets[UniTaskDefine] = new List<string>();
+            }
+            else if (status.UniTaskVersionBlocked)
+            {
+                // Blocked UPM version: linked assemblies are disabled; the define
+                // must not be reported as enabled on any target.
+                status.MissingDefineTargets[UniTaskDefine] = checkedTargets.Select(t => t.ToString()).ToList();
+            }
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
@@ -1000,6 +1165,8 @@ namespace CoCoFlow.Editor.Core
             public string NewtonsoftDependency { get; set; }
             public bool HasUniTaskOpenUpmScope { get; set; }
             public bool UniTaskInstalled { get; set; }
+            public bool UniTaskDefineAutomatic { get; set; }
+            public bool UniTaskVersionBlocked { get; set; }
             public bool AddressablesInstalled { get; set; }
             public bool CinemachineInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
@@ -1059,6 +1226,19 @@ namespace CoCoFlow.Editor.Core
                 {
                     UniTaskMessage = "Installed from non-recommended source: " + UniTaskDependency;
                     UniTaskState = MessageType.Warning;
+                }
+
+                if (UniTaskVersionBlocked)
+                {
+                    UniTaskMessage = "Installed version is outside " + CoCoUniTaskVersionPolicy.SupportedRange +
+                                    "; UniTask-linked assemblies are disabled (no assembly-only fallback).";
+                    UniTaskState = MessageType.Error;
+                }
+                else if (UniTaskDefineAutomatic)
+                {
+                    UniTaskMessage = "Installed (UPM). Support define is managed automatically by asmdef versionDefines " +
+                                    CoCoUniTaskVersionPolicy.SupportedRange + ".";
+                    UniTaskState = MessageType.Info;
                 }
 
                 if (string.IsNullOrEmpty(AddressablesDependency))
@@ -1549,6 +1729,82 @@ namespace CoCoFlow.Editor.Core
         BelowMinimum = 1,
         Supported = 2,
         AtOrAboveMaximum = 3
+    }
+
+    internal enum CoCoUniTaskInstallForm
+    {
+        None = 0,
+        UpmRegistered = 1,
+        AssemblyOnly = 2
+    }
+
+    internal enum CoCoUniTaskVersionCompatibility
+    {
+        Unknown = 0,
+        BelowMinimum = 1,
+        Supported = 2,
+        AtOrAboveMaximum = 3
+    }
+
+    internal static class CoCoUniTaskVersionPolicy
+    {
+        internal const string MinimumVersion = "2.5.11";
+        internal const string MaximumExclusiveVersion = "3.0.0";
+        internal const string SupportedRange = "[2.5.11,3.0.0)";
+
+        internal static CoCoUniTaskVersionCompatibility Evaluate(string dependency)
+        {
+            string version = ExtractVersion(dependency);
+            if (version == null)
+                return CoCoUniTaskVersionCompatibility.Unknown;
+
+            if (Compare(version, MinimumVersion) < 0)
+                return CoCoUniTaskVersionCompatibility.BelowMinimum;
+
+            return Compare(version, MaximumExclusiveVersion) >= 0
+                ? CoCoUniTaskVersionCompatibility.AtOrAboveMaximum
+                : CoCoUniTaskVersionCompatibility.Supported;
+        }
+
+        // 接受 "2.5.11" 或 git URL 尾缀 "...#2.5.11"；其余（file: 路径等）返回 null → Unknown，
+        // 交由 Unity versionDefines 机制自行评估 resolved 版本。
+        internal static string ExtractVersion(string dependency)
+        {
+            if (string.IsNullOrEmpty(dependency))
+                return null;
+
+            var token = dependency.Trim();
+            var hashIndex = token.LastIndexOf('#');
+            if (hashIndex >= 0)
+                token = token.Substring(hashIndex + 1);
+
+            var parts = token.Split('.');
+            if (parts.Length != 3)
+                return null;
+
+            foreach (var part in parts)
+            {
+                if (!int.TryParse(part, out _))
+                    return null;
+            }
+
+            return token;
+        }
+
+        private static int Compare(string left, string right)
+        {
+            var leftParts = left.Split('.');
+            var rightParts = right.Split('.');
+
+            for (var index = 0; index < 3; index++)
+            {
+                var comparison = int.Parse(leftParts[index]).CompareTo(int.Parse(rightParts[index]));
+                if (comparison != 0)
+                    return comparison;
+            }
+
+            return 0;
+        }
     }
 
     internal static class AddressablesVersionPolicy

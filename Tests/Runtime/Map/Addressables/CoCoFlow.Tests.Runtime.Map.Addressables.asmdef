@@ -2,34 +2,39 @@
     "name": "CoCoFlow.Tests.Runtime.Map.Addressables",
     "rootNamespace": "CoCoFlow.Tests.Runtime.Map.Addressables",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Content.Addressables",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
+        "UniTask",
         "Unity.Addressables",
-        "Unity.ResourceManager",
-        "UniTask"
+        "Unity.ResourceManager"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "UNITY_INCLUDE_TESTS",
+        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER",
         "COCOFLOW_UNITASK_SUPPORT",
-        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+        "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
         {
             "name": "com.unity.addressables",
             "expression": "[2.9.1,3.0.0)",
             "define": "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+        },
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
         }
     ],
-    "noEngineReferences": false,
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "noEngineReferences": false
 }

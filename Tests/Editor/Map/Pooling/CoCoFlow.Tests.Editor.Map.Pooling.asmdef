@@ -2,15 +2,12 @@
     "name": "CoCoFlow.Tests.Editor.Map.Pooling",
     "rootNamespace": "CoCoFlow.Runtime.Modules.Map.Pooling.Tests",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Content",
-        "CoCoFlow.Runtime.Pooling",
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
         "CoCoFlow.Runtime.Modules.Map.Pooling",
+        "CoCoFlow.Runtime.Pooling",
         "UniTask"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
     ],
     "includePlatforms": [
         "Editor"
@@ -19,11 +16,20 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
     "defineConstraints": [
-        "UNITY_INCLUDE_TESTS",
-        "COCOFLOW_UNITASK_SUPPORT"
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
     "noEngineReferences": false
 }
