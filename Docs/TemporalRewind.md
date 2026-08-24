@@ -4,7 +4,7 @@
 >
 > Verification: dual-host package-wide EditMode/PlayMode (editor and player
 > mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
+> `0.4.0-rc.0`; Package Validation Suite remains locally waived.
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
 `CoCoStateGraphHost`. It records bounded projections of successful Context

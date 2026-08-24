@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This page is the Unity Package Manager documentation entry point for CoCoFlow.
-The current package line is `0.4.0-pre.15`; it freezes the 0.4 public API
+The current package line is `0.4.0-rc.0`; it freezes the 0.4 public API
 surface, exits the legacy runtimes, and closes dependency-combination and
 Player verification on Unity 6000.3/6000.5.
 

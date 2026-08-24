@@ -4,7 +4,7 @@
 >
 > Verification: dual-host package-wide EditMode/PlayMode (editor and player
 > mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
+> `0.4.0-rc.0`; Package Validation Suite remains locally waived.
 
 Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity

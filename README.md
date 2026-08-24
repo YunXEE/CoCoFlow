@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.15 · **Unity**: 6000+
+> **Version**: 0.4.0-rc.0 · **Unity**: 6000+
 >
 > Pre15 freezes the 0.4 public API surface, exits the legacy Mono FSM and
 > input-bridge runtimes, moves project Gameplay into the Sample boundary,

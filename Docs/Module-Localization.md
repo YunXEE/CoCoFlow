@@ -1,6 +1,6 @@
 # Module: Localization
 
-> Pre15 contract: `0.4.0-pre.15` · Updated 2026-08-22
+> Pre15 contract: `0.4.0-rc.0` · Updated 2026-08-22
 
 CoCoFlow depends directly on Unity's official
 `com.unity.localization@1.5.9`. Localization remains a presentation module:
