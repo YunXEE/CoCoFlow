@@ -1,6 +1,6 @@
 # Project Scaffold
 
-> Pre15 contract: `0.4.0-rc.0` · Updated 2026-08-22
+> Contract status: `0.4.0-rc.0` · Updated 2026-08-22
 
 Open `CoCoFlow/Setup/Project Scaffold` directly or from Setup Assistant. The
 default root is `Assets/CoCoFlowProject/`. The selected assembly mode applies

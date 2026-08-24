@@ -560,7 +560,7 @@ Build 结果必须和定向聚焦测试分开报告。
 
 - 集成分支：`dev/0.4.0`
 - 工作分支：`pre/NN-topic`
-- UPM 预发布版本：`0.4.0-pre.N`
+- UPM 候选版本：`0.4.0-rc.N`
 - 0.3.9 是历史 Runtime 线；0.4 不承诺自动迁移或双 Runtime。
 
 ## License

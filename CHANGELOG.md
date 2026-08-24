@@ -2,7 +2,7 @@
 
 All notable changes to CoCoFlow are documented in this file.
 
-The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
+The project uses `0.4.0-rc.N` for release-candidate packages; the earlier pre-release line is preserved in the history below. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
 ## [0.4.0-rc.0] - 2026-08-24

@@ -344,7 +344,7 @@
 
 ## Package surface
 
-- [ ] `package.json` is valid JSON and uses the expected `0.4.0-pre.N` version.
+- [ ] `package.json` is valid JSON and uses the expected `0.4.0-rc.N` version.
 - [ ] Every `ValidationExceptions.json` entry targets the same package version;
       new exceptions are justified individually rather than added broadly.
 - [ ] Package dependencies changed only when this Pre owns the affected module.

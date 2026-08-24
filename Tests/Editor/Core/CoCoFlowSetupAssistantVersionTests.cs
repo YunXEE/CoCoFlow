@@ -8,7 +8,7 @@ namespace CoCoFlow.Editor.Core.Tests
     public sealed class CoCoFlowSetupAssistantVersionTests
     {
         [Test]
-        public void Pre15PackageAndLocalizationVersionsAreFrozen()
+        public void PackageAndLocalizationVersionsAreFrozen()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(
                 typeof(CoCoFlowSetupAssistant).Assembly);

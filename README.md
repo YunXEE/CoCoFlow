@@ -662,7 +662,7 @@ the Pre11 0.4 surface.
 
 - Integration branch: `dev/0.4.0`
 - Work branches: `pre/NN-topic`
-- UPM prereleases: `0.4.0-pre.N`
+- UPM release candidates: `0.4.0-rc.N`
 - 0.3.9 remains the historical runtime line; 0.4 has no automatic migration or
   dual-runtime promise.
 
