@@ -2,8 +2,22 @@
 
 All notable changes to CoCoFlow are documented in this file.
 
-The project uses `0.4.0-pre.N` for prerelease packages. The 0.4 line targets new
+The project uses `0.4.0-rc.N` for release-candidate packages; the earlier pre-release line is preserved in the history below. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
+
+## [0.4.0-rc.0] - 2026-08-24
+
+Anchors the start of the 0.4.0 release-candidate line. Documentation-only
+change: version strings move from `0.4.0-pre.15` to `0.4.0-rc.0` and this
+repository receives its first git tag (`v0.4.0-rc.0`).
+
+Per the RC plan ruling #10, documentation-only changes skip the validation
+matrix. Matrix evidence carries over from the Pre15 exit Final Head 661feb6
+archive (identical code baseline; this release contains no code changes).
+
+See Notion "0.4.0-rc 稳定化与 Golden Path" for the RC protocol: runtime core
+is hard-frozen (fix-only), module core is the expected change surface, and
+module-core breaking changes require ledger registration plus an rc bump.
 
 ## [0.4.0-pre.15] - 2026-08-22
 

@@ -1,10 +1,10 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-pre.10` · Updated 2026-08-22
+> Contract status: `0.4.0-rc.0` · Updated 2026-08-22
 >
 > Verification: dual-host package-wide EditMode/PlayMode (editor and player
 > mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-pre.15`; Package Validation Suite remains locally waived.
+> `0.4.0-rc.0`; Package Validation Suite remains locally waived.
 
 Pre9 adds a Unity-facing GameObject instance-ownership boundary on top of
 Content. It reduces repeated `Instantiate`/`Destroy` work for high-frequency

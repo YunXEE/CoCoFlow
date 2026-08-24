@@ -8,12 +8,12 @@ namespace CoCoFlow.Editor.Core.Tests
     public sealed class CoCoFlowSetupAssistantVersionTests
     {
         [Test]
-        public void Pre15PackageAndLocalizationVersionsAreFrozen()
+        public void PackageAndLocalizationVersionsAreFrozen()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(
                 typeof(CoCoFlowSetupAssistant).Assembly);
             Assert.IsNotNull(packageInfo);
-            Assert.AreEqual("0.4.0-pre.15", packageInfo.version);
+            Assert.AreEqual("0.4.0-rc.0", packageInfo.version);
 
             string manifest = File.ReadAllText(
                 Path.Combine(packageInfo.resolvedPath, "package.json"));

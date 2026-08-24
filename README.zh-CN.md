@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **版本**：0.4.0-pre.15 · **Unity**：6000+
+> **版本**：0.4.0-rc.0 · **Unity**：6000+
 >
 > Pre15 冻结 0.4 公共 API 面，退出旧版 Mono FSM 与输入 Bridge 运行时，
 > 将项目 Gameplay 迁入 Sample 边界，并在 Unity 6000.3/6000.5 上完成
@@ -560,7 +560,7 @@ Build 结果必须和定向聚焦测试分开报告。
 
 - 集成分支：`dev/0.4.0`
 - 工作分支：`pre/NN-topic`
-- UPM 预发布版本：`0.4.0-pre.N`
+- UPM 候选版本：`0.4.0-rc.N`
 - 0.3.9 是历史 Runtime 线；0.4 不承诺自动迁移或双 Runtime。
 
 ## License

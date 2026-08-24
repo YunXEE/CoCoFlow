@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-pre.15 · **Unity**: 6000+
+> **Version**: 0.4.0-rc.0 · **Unity**: 6000+
 >
 > Pre15 freezes the 0.4 public API surface, exits the legacy Mono FSM and
 > input-bridge runtimes, moves project Gameplay into the Sample boundary,
@@ -662,7 +662,7 @@ the Pre11 0.4 surface.
 
 - Integration branch: `dev/0.4.0`
 - Work branches: `pre/NN-topic`
-- UPM prereleases: `0.4.0-pre.N`
+- UPM release candidates: `0.4.0-rc.N`
 - 0.3.9 remains the historical runtime line; 0.4 has no automatic migration or
   dual-runtime promise.
 
