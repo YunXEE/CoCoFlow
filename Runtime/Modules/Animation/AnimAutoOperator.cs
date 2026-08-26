@@ -63,7 +63,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
             if (animator == null ||
                 stateGraphHost == null ||
                 !CoCoStateGraphHostBoundary.Contains(stateGraphHost, this) ||
-                animator.GetComponent<AnimOperator>() != null ||
                 !AnimBindingRuntime.TryBuildParameters(
                     animator,
                     parameterBindings,

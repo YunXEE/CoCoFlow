@@ -433,12 +433,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         private static IAnimEventReceiver ResolveReceiver(Animator animator)
         {
-            AnimOperator advanced = animator.GetComponent<AnimOperator>();
-            if (advanced != null)
-            {
-                return advanced;
-            }
-
             return animator.GetComponent<AnimAutoOperator>();
         }
 

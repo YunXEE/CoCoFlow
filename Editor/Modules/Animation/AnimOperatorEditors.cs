@@ -52,94 +52,6 @@ namespace CoCoFlow.Editor.Modules.Animation
         }
     }
 
-    [CustomEditor(typeof(AnimOperator))]
-    internal sealed class AnimOperatorEditor : AnimOperatorEditorBase
-    {
-        private SerializedProperty animator;
-        private SerializedProperty controller;
-        private SerializedProperty stateGraphHost;
-        private SerializedProperty evaluationMode;
-        private SerializedProperty parameterBindings;
-        private SerializedProperty triggerBindings;
-        private SerializedProperty playbackLayers;
-        private SerializedProperty stateBindings;
-        private SerializedProperty modulationBindings;
-        private SerializedProperty enableRootMotionRelay;
-        private SerializedProperty relayPosition;
-        private SerializedProperty relayRotation;
-        private SerializedProperty downstreamRestoreBinding;
-
-        private void OnEnable()
-        {
-            animator = serializedObject.FindProperty("animator");
-            controller = serializedObject.FindProperty("controller");
-            stateGraphHost = serializedObject.FindProperty("stateGraphHost");
-            evaluationMode = serializedObject.FindProperty("evaluationMode");
-            parameterBindings = serializedObject.FindProperty("parameterBindings");
-            triggerBindings = serializedObject.FindProperty("triggerBindings");
-            playbackLayers = serializedObject.FindProperty("playbackLayers");
-            stateBindings = serializedObject.FindProperty("stateBindings");
-            modulationBindings = serializedObject.FindProperty("modulationBindings");
-            enableRootMotionRelay = serializedObject.FindProperty("enableRootMotionRelay");
-            relayPosition = serializedObject.FindProperty("relayPosition");
-            relayRotation = serializedObject.FindProperty("relayRotation");
-            downstreamRestoreBinding = serializedObject.FindProperty("downstreamRestoreBinding");
-        }
-
-        public override void OnInspectorGUI()
-        {
-            var animationOperator = (AnimOperator)target;
-            serializedObject.UpdateIfRequiredOrScript();
-            EditorGUILayout.HelpBox(
-                "Anim Operator owns one manual AnimatorControllerPlayable. The Animator Controller remains " +
-                "the state-machine authority; these fixed-lane mappings only expose its surface to StateFlow.",
-                MessageType.Info);
-            DrawReferences(animator, stateGraphHost);
-            EditorGUILayout.PropertyField(controller);
-            EditorGUILayout.PropertyField(evaluationMode);
-
-            Animator boundAnimator = animator.objectReferenceValue as Animator;
-            RuntimeAnimatorController boundController =
-                controller.objectReferenceValue as RuntimeAnimatorController;
-            DrawAnimatorSurface(boundAnimator, boundController);
-            DrawMapping(parameterBindings, "Parameter Mappings", 16);
-            DrawMapping(triggerBindings, "Trigger Mappings", 8);
-            DrawMapping(playbackLayers, "Playable Layer Mappings", 4);
-            DrawMapping(stateBindings, "State Mappings", 0);
-            DrawMapping(modulationBindings, "Modulation Mappings", 8);
-
-            EditorGUILayout.LabelField("Root Motion Feedback", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(enableRootMotionRelay);
-            using (new EditorGUI.DisabledScope(!enableRootMotionRelay.boolValue))
-            {
-                EditorGUILayout.PropertyField(relayPosition);
-                EditorGUILayout.PropertyField(relayRotation);
-            }
-
-            EditorGUILayout.HelpBox(
-                "Root-motion feedback is staged for a later CoCoTick and never writes Transform, CharacterController, or Rigidbody.",
-                enableRootMotionRelay.boolValue ? MessageType.Warning : MessageType.None);
-            EditorGUILayout.PropertyField(downstreamRestoreBinding);
-            EditorGUILayout.HelpBox(
-                "Exact Temporal replay is deferred for Pre11. This operator is forward-only and fails closed for Temporal restore, projection, and correction.",
-                MessageType.Info);
-            serializedObject.ApplyModifiedProperties();
-
-            DrawValidation(
-                animator,
-                stateGraphHost,
-                controller,
-                parameterBindings,
-                triggerBindings,
-                playbackLayers,
-                stateBindings,
-                modulationBindings,
-                true);
-            DrawRebuild(animationOperator);
-            DrawDiagnostic(animationOperator.LastDiagnostic);
-        }
-    }
-
     internal abstract class AnimOperatorEditorBase : UnityEditor.Editor
     {
         protected static void DrawReferences(
@@ -270,14 +182,6 @@ namespace CoCoFlow.Editor.Modules.Animation
                 animationOperator);
         }
 
-        protected static void DrawRebuild(AnimOperator animationOperator)
-        {
-            DrawRebuildButton(
-                "Rebuild Anim Operator Binding",
-                "Enter Play Mode to validate and rebuild the manual AnimatorControllerPlayable graph.",
-                () => animationOperator.TryRebuildBindings(out CoCoDiagnostic diagnostic),
-                animationOperator);
-        }
 
         protected static void DrawDiagnostic(CoCoDiagnostic diagnostic)
         {

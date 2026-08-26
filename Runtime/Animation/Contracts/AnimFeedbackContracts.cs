@@ -8,9 +8,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         StateEnter = 1,
         StateMarker = 2,
         StateExit = 3,
-        PlaybackStarted = 4,
-        PlaybackCompleted = 5,
-        PlaybackInterrupted = 6,
         RootMotion = 7
     }
 
@@ -21,7 +18,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     {
         private AnimFeedbackRecord(
             AnimFeedbackKind kind,
-            AnimPlaybackToken playbackToken,
             AnimBindingId eventBindingId,
             int stateFullPathHash,
             int layerIndex,
@@ -36,7 +32,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             float rotationW)
         {
             Kind = kind;
-            PlaybackToken = playbackToken;
             EventBindingId = eventBindingId;
             StateFullPathHash = stateFullPathHash;
             LayerIndex = layerIndex;
@@ -52,7 +47,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
 
         public AnimFeedbackKind Kind { get; }
-        public AnimPlaybackToken PlaybackToken { get; }
         public AnimBindingId EventBindingId { get; }
         public int StateFullPathHash { get; }
         public int LayerIndex { get; }
@@ -83,11 +77,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
                                StateFullPathHash != 0 &&
                                LayerIndex >= 0 &&
                                LoopCount >= 0 &&
-                               AnimMath.IsFiniteNonNegative(NormalizedTime);
-                    case AnimFeedbackKind.PlaybackStarted:
-                    case AnimFeedbackKind.PlaybackCompleted:
-                    case AnimFeedbackKind.PlaybackInterrupted:
-                        return PlaybackToken.IsValid &&
                                AnimMath.IsFiniteNonNegative(NormalizedTime);
                     case AnimFeedbackKind.RootMotion:
                         return AnimMath.IsFinite(PositionX) &&
@@ -126,49 +115,10 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
             record = new AnimFeedbackRecord(
                 kind,
-                default,
                 eventBindingId,
                 stateFullPathHash,
                 layerIndex,
                 loopCount,
-                normalizedTime,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default,
-                default);
-            if (!record.IsValid)
-            {
-                record = default;
-                return false;
-            }
-
-            return true;
-        }
-
-        public static bool TryCreatePlayback(
-            AnimFeedbackKind kind,
-            AnimPlaybackToken playbackToken,
-            float normalizedTime,
-            out AnimFeedbackRecord record)
-        {
-            if (kind != AnimFeedbackKind.PlaybackStarted &&
-                kind != AnimFeedbackKind.PlaybackCompleted &&
-                kind != AnimFeedbackKind.PlaybackInterrupted)
-            {
-                record = default;
-                return false;
-            }
-
-            record = new AnimFeedbackRecord(
-                kind,
-                playbackToken,
-                default,
-                default,
-                default,
-                default,
                 normalizedTime,
                 default,
                 default,
@@ -198,7 +148,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         {
             record = new AnimFeedbackRecord(
                 AnimFeedbackKind.RootMotion,
-                default,
                 default,
                 default,
                 default,
