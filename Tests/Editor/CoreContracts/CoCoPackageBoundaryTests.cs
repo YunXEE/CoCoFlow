@@ -96,7 +96,9 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.AreEqual("CoCoFlow.Runtime.Core", contracts.rootNamespace);
             Assert.IsEmpty(contracts.references);
             Assert.IsTrue(contracts.noEngineReferences);
-            Assert.IsFalse(contracts.allowUnsafeCode);
+            // RawInput's CoCoFixedString64 uses a fixed byte buffer (D76
+            // user-approved unsafe for engine-free deterministic payloads).
+            Assert.IsTrue(contracts.allowUnsafeCode);
 
             AssemblyDefinition stateFlow = ReadAssemblyDefinition(
                 packageInfo.resolvedPath,
