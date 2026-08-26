@@ -7,9 +7,12 @@
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.Modules.Input",
         "CoCoFlow.Runtime.Modules.Persistence",
         "CoCoFlow.Runtime.StateGraphHost",
-        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
