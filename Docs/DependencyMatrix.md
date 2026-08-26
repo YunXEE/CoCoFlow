@@ -81,7 +81,6 @@ rationale.
 | `Editor/Modules/Persistence/CoCoFlow.Editor.Modules.Persistence.asmdef` | GUID:dc788f1e652d49c38cd59ca776d48ed8 | — | — |
 | `Editor/Modules/UI/CoCoFlow.Editor.Modules.UI.asmdef` | GUID:ee5693ffef7949f8b9effa78b29b02b0 | COCOFLOW_UNITASK_SUPPORT, COCOFLOW_DOTWEEN_SUPPORT, UNITASK_DOTWEEN_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
 | `Editor/Pooling/CoCoFlow.Editor.Pooling.asmdef` | — | COCOFLOW_UNITASK_SUPPORT | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Editor/ProjectScaffold/CoCoFlow.Editor.ProjectScaffold.asmdef` | — | — | — |
 | `Editor/StateGraph/CoCoFlow.Editor.StateGraph.asmdef` | — | — | — |
 | `Editor/StateGraph/PlayerMetadata/CoCoFlow.Editor.StateGraph.PlayerMetadata.asmdef` | — | — | — |
 | `Editor/StateGraphHost/CoCoFlow.Editor.StateGraphHost.asmdef` | — | — | — |
@@ -124,7 +123,6 @@ rationale.
 | `Tests/Editor/Map/CoCoFlow.Tests.Editor.Map.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT, UNITY_INCLUDE_TESTS | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
 | `Tests/Editor/Map/Pooling/CoCoFlow.Tests.Editor.Map.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT, UNITY_INCLUDE_TESTS | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
 | `Tests/Editor/Pooling/CoCoFlow.Tests.Editor.Pooling.asmdef` | UniTask | COCOFLOW_UNITASK_SUPPORT, UNITY_INCLUDE_TESTS | com.cysharp.unitask [2.5.11,3.0.0)→COCOFLOW_UNITASK_SUPPORT |
-| `Tests/Editor/ProjectScaffold/CoCoFlow.Tests.Editor.ProjectScaffold.asmdef` | — | UNITY_INCLUDE_TESTS | — |
 | `Tests/Editor/StateGraph/AuthoringDependencyFixtures/CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures.asmdef` | — | UNITY_INCLUDE_TESTS | — |
 | `Tests/Editor/StateGraph/CoCoFlow.Tests.Editor.StateGraph.asmdef` | — | UNITY_INCLUDE_TESTS | — |
 | `Tests/Editor/StateGraph/Fixtures/CoCoFlow.Tests.StateGraphAuthoringFixtures.asmdef` | — | UNITY_INCLUDE_TESTS | — |

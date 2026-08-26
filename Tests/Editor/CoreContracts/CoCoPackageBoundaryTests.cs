@@ -325,8 +325,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             string[] roots =
             {
                 "Runtime/Modules/Input",
-                "Runtime/Modules/Localization",
-                "Editor/ProjectScaffold"
+                "Runtime/Modules/Localization"
             };
             var forbiddenPublicPrefix = new Regex(
                 @"\bpublic\s+(?:(?:sealed|readonly|static)\s+)*(?:class|struct|interface|enum)\s+(CoCo\w+)",

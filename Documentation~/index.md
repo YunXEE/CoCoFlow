@@ -17,7 +17,6 @@ Player verification on Unity 6000.3/6000.5.
 - [UI module](../Docs/Module-UI.md)
 - [Input module](../Docs/Module-Input.md)
 - [Localization module](../Docs/Module-Localization.md)
-- [Project Scaffold](../Docs/ProjectScaffold.md)
 - [Map Region Fidelity](../Docs/Module-Map.md)
 - [Animation V2 module](../Docs/Module-Animation.md)
 - [Camera module](../Docs/Module-Camera.md)

@@ -647,7 +647,6 @@ from focused suite runs.
 - [Module: UI](Docs/Module-UI.md)
 - [Module: Input](Docs/Module-Input.md)
 - [Module: Localization](Docs/Module-Localization.md)
-- [Project Scaffold](Docs/ProjectScaffold.md)
 - [Map Region Fidelity](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)

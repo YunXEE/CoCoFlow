@@ -323,12 +323,6 @@ namespace CoCoFlow.Editor.Core
                     EditorStyles.wordWrappedMiniLabel,
                     GUILayout.MinHeight(26f));
             }
-
-            if (GUILayout.Button("Open Project Scaffold", GUILayout.Height(26f)))
-            {
-                EditorApplication.ExecuteMenuItem(
-                    "CoCoFlow/Setup/Project Scaffold");
-            }
         }
 
         private void DrawLog()
