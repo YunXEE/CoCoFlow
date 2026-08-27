@@ -20,12 +20,6 @@ namespace CoCoFlow.Editor.StateGraph
     {
         private const string DefaultFolder = "Assets/Scripts/States";
 
-        [MenuItem("CoCoFlow/Setup/Create State Script...")]
-        internal static void CreateStateScript()
-        {
-            CoCoStateNamePromptWindow.Show();
-        }
-
         internal static string CreateStateScriptFromName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -179,52 +173,5 @@ namespace CoCoFlow.Editor.StateGraph
 
             }
 
-    internal sealed class CoCoStateNamePromptWindow : EditorWindow
-    {
-        private string _value = "";
-        private string _error = "";
-
-        internal static void Show()
-        {
-            var window = GetWindow<CoCoStateNamePromptWindow>(true, "Create State Script", true);
-            window._value = "";
-            window._error = "";
-            window.position = new Rect(
-                Screen.currentResolution.width / 2f - 220f,
-                Screen.currentResolution.height / 2f - 70f,
-                440f, 120f);
-        }
-
-        private void OnGUI()
-        {
-            GUILayout.Label("State name (PascalCase, e.g. Idle, Move, Jump)");
-            GUI.SetNextControlName("name");
-            _value = EditorGUILayout.TextField(_value);
-            EditorGUI.FocusTextInControl("name");
-            if (!string.IsNullOrEmpty(_error))
-            {
-                EditorGUILayout.HelpBox(_error, MessageType.Error);
-            }
-
-            GUILayout.BeginHorizontal();
-            bool create = GUILayout.Button("Create") ||
-                          (Event.current.isKey && Event.current.keyCode == KeyCode.Return);
-            if (create)
-            {
-                _error = CoCoStateScriptWizard.TryCreate(_value.Trim());
-                if (string.IsNullOrEmpty(_error))
-                {
-                    Close();
-                }
-            }
-
-            if (GUILayout.Button("Cancel"))
-            {
-                Close();
-            }
-
-            GUILayout.EndHorizontal();
-        }
-    }
 }
 #endif

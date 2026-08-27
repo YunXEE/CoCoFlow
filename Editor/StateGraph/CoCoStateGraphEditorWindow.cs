@@ -23,6 +23,12 @@ namespace CoCoFlow.Editor.StateGraph
         private VisualElement feedbackHost;
         private SerializedObject serializedAsset;
         private CoCoStateDescriptorId addStateDescriptorId;
+
+        // Set when a "Create New Logic Script" generation is awaiting the
+        // script compilation; on the next editor update after the domain
+        // reload the Add State panel preselects this logic's descriptor.
+        private string pendingCreateSelectName;
+        private bool awaitingCompilation;
         private CoCoConditionDescriptorId addConditionDescriptorId;
         private Vector2 contextPosition = new Vector2(80f, 80f);
 
@@ -55,6 +61,18 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnEnable()
         {
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            if (awaitingCompilation)
+            {
+                // The domain reloaded and this window reopened: the generated
+                // script compiled. Rescan the standard catalog and preselect
+                // the fresh descriptor in the Add State panel.
+                awaitingCompilation = false;
+                EditorApplication.delayCall += () =>
+                {
+                    CoCoStandardCatalogBootstrap.Rescan();
+                    TryPreselectPendingDescriptor();
+                };
+            }
         }
 
         private void OnDisable()
@@ -242,6 +260,37 @@ namespace CoCoFlow.Editor.StateGraph
             toolbar.Add(createPreset);
         }
 
+        /// <summary>
+        /// After a generated state script compiles, finds its descriptor in
+        /// the refreshed catalog and stores it as the Add State default so
+        /// the reopened panel preselects it.
+        /// </summary>
+        private void TryPreselectPendingDescriptor()
+        {
+            if (string.IsNullOrEmpty(pendingCreateSelectName))
+            {
+                return;
+            }
+
+            string logicName = pendingCreateSelectName;
+            pendingCreateSelectName = null;
+
+            IReadOnlyList<CoCoStateDescriptor> descriptors =
+                controller != null && controller.Catalog != null
+                    ? controller.Catalog.StateDescriptors
+                    : Array.Empty<CoCoStateDescriptor>();
+            foreach (CoCoStateDescriptor descriptor in descriptors)
+            {
+                if (descriptor.LogicType.Name == logicName)
+                {
+                    addStateDescriptorId = descriptor.DescriptorId;
+                    RefreshFeedback();
+                    Rebuild();
+                    return;
+                }
+            }
+        }
+
         private void RefreshDetails()
         {
             if (details == null || controller == null)
@@ -285,6 +334,34 @@ namespace CoCoFlow.Editor.StateGraph
                 "add-state-descriptor");
             var stateName = new TextField("Name") { value = "State" };
             details.Add(stateName);
+
+            // Create-new-logic lane: graph-driven authoring. Entering a new
+            // state name and clicking Create generates the attributed state
+            // script behind the scenes; after the script compilation and
+            // standard-catalog rescan, this window reopens the Add State
+            // panel with the fresh descriptor already selected.
+            var createNewScriptName = new TextField("New Logic Name");
+            details.Add(createNewScriptName);
+            var createStatus = new Label(string.Empty);
+            createStatus.style.whiteSpace = UnityEngine.UIElements.WhiteSpace.Normal;
+            details.Add(createStatus);
+            details.Add(new Button(() =>
+            {
+                string error = CoCoStateScriptWizard.TryCreate(
+                    createNewScriptName.value);
+                if (error != null)
+                {
+                    createStatus.text = error;
+                    return;
+                }
+
+                createStatus.text =
+                    createNewScriptName.value.Trim() +
+                    "Logic.cs generated. Waiting for script compilation...";
+                pendingCreateSelectName = createNewScriptName.value.Trim() + "Logic";
+                awaitingCompilation = true;
+            }) { text = "Create New Logic Script" });
+
             details.Add(new Button(() =>
             {
                 CoCoStateId parent = controller.Session.DrillRootStateId;
