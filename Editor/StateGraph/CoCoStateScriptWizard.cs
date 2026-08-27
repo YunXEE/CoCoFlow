@@ -23,22 +23,20 @@ namespace CoCoFlow.Editor.StateGraph
         [MenuItem("CoCoFlow/Setup/Create State Script...")]
         internal static void CreateStateScript()
         {
-            string name = CoCoStateNamePromptWindow.Prompt(
-                "Create State Script",
-                "State name (PascalCase, e.g. Idle, Move, Jump)");
+            CoCoStateNamePromptWindow.Show();
+        }
+
+        internal static string CreateStateScriptFromName(string name)
+        {
             if (string.IsNullOrWhiteSpace(name))
             {
-                return;
+                return "Name is required.";
             }
 
             name = name.Trim();
             if (!IsValidName(name))
             {
-                EditorUtility.DisplayDialog(
-                    "Create State Script",
-                    "'" + name + "' is not a valid PascalCase C# identifier.",
-                    "Ok");
-                return;
+                return "'" + name + "' is not a valid PascalCase identifier.";
             }
 
             string folder = EditorPrefs.GetString(
@@ -50,18 +48,6 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             string path = folder + "/" + name + "Logic.cs";
-            if (File.Exists(path))
-            {
-                if (!EditorUtility.DisplayDialog(
-                        "Create State Script",
-                        path + " already exists. Overwrite?",
-                        "Overwrite",
-                        "Cancel"))
-                {
-                    return;
-                }
-            }
-
             File.WriteAllText(path, BuildScript(name), new UTF8Encoding(false));
             AssetDatabase.ImportAsset(path);
             AssetDatabase.Refresh();
@@ -75,7 +61,10 @@ namespace CoCoFlow.Editor.StateGraph
                 EditorSceneManager.GetActiveScene());
             Debug.Log("[CoCoFlow] state script generated: " + path +
                       " — paste your logic into Update().");
+            return null;
         }
+
+        internal static string TryCreate(string name) => CreateStateScriptFromName(name);
 
         internal static string BuildScript(string name)
         {
@@ -192,47 +181,41 @@ namespace CoCoFlow.Editor.StateGraph
 
     internal sealed class CoCoStateNamePromptWindow : EditorWindow
     {
-        private static CoCoStateNamePromptWindow _open;
-        private static string _value = "";
-        private static string _label = "";
-        private static bool _done;
+        private string _value = "";
+        private string _error = "";
 
-        internal static string Prompt(string title, string label)
+        internal static void Show()
         {
-            _value = "";
-            _label = label;
-            _done = false;
-            _open = GetWindow<CoCoStateNamePromptWindow>(true, title, true);
-            _open.position = new Rect(
-                Screen.currentResolution.width / 2f - 200f,
-                Screen.currentResolution.height / 2f - 60f,
-                400f, 90f);
-            while (!_done)
-            {
-                // Pump limited: run until window closes. This blocks the
-                // menu call; acceptable for a wizard entry point.
-                System.Threading.Thread.Sleep(15);
-                if (_open == null)
-                {
-                    break;
-                }
-            }
-
-            return _done ? _value : null;
+            var window = GetWindow<CoCoStateNamePromptWindow>(true, "Create State Script", true);
+            window._value = "";
+            window._error = "";
+            window.position = new Rect(
+                Screen.currentResolution.width / 2f - 220f,
+                Screen.currentResolution.height / 2f - 70f,
+                440f, 120f);
         }
 
         private void OnGUI()
         {
-            GUILayout.Label(_label);
+            GUILayout.Label("State name (PascalCase, e.g. Idle, Move, Jump)");
             GUI.SetNextControlName("name");
             _value = EditorGUILayout.TextField(_value);
             EditorGUI.FocusTextInControl("name");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Create") ||
-                (Event.current.isKey && Event.current.keyCode == KeyCode.Return))
+            if (!string.IsNullOrEmpty(_error))
             {
-                _done = true;
-                Close();
+                EditorGUILayout.HelpBox(_error, MessageType.Error);
+            }
+
+            GUILayout.BeginHorizontal();
+            bool create = GUILayout.Button("Create") ||
+                          (Event.current.isKey && Event.current.keyCode == KeyCode.Return);
+            if (create)
+            {
+                _error = CoCoStateScriptWizard.TryCreate(_value.Trim());
+                if (string.IsNullOrEmpty(_error))
+                {
+                    Close();
+                }
             }
 
             if (GUILayout.Button("Cancel"))
@@ -241,12 +224,6 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             GUILayout.EndHorizontal();
-        }
-
-        private void OnLostFocus()
-        {
-            // keep focus inside the prompt
-            Repaint();
         }
     }
 }
