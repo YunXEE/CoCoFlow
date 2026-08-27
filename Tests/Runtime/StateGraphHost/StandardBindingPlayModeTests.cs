@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Input;
 using NUnit.Framework;
 using UnityEngine;
@@ -112,6 +113,55 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "standard binding");
             Assert.IsTrue(StandardProbeLogic.Received.Exists(
                 r => r.Action.ToString() == "Move"));
+        }
+
+        [UnityTest]
+        public IEnumerator AnimRegistrarBindsBothCompiledSectionsOnlyWhenRequired()
+        {
+            CoCoStandardBindingProvider provider =
+                CoCoStandardBindingProvider.Build(
+                    new[] { typeof(AnimOperationProbeLogic).Assembly });
+            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
+                provider,
+                out CoCoDiagnostic install), install.Message);
+
+            Assert.IsTrue(StandardDescriptors.TryCreate(
+                typeof(AnimOperationProbeLogic),
+                "AnimOperationProbe",
+                out CoCoStateDescriptorId descriptorId));
+            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            _objects.Add(asset);
+            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
+            var stateId = new CoCoSerializedId128(31, 32);
+            var state = new CoCoStateGraphStateRecord(
+                stateId,
+                default,
+                "AnimProbe",
+                new CoCoSerializedId128(descriptorId.High, descriptorId.Low),
+                new EmptyStateConfig());
+            var layer = new CoCoStateGraphLayerRecord(
+                new CoCoSerializedId128(41, 42),
+                "Base");
+            layer.InitialStateId = stateId;
+            layer.States.Add(state);
+            asset.Layers.Add(layer);
+
+            var gameObject = new GameObject("AnimRegistrationE2E");
+            _objects.Add(gameObject);
+            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            gameObject.AddComponent<Animator>();
+            var animOperator = gameObject.AddComponent<AnimAutoOperator>();
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(host, "autoStart", false);
+            SetField(host, "intentSources", new MonoBehaviour[0]);
+            SetField(host, "operators", new MonoBehaviour[] { animOperator });
+
+            yield return null;
+            Assert.IsTrue(host.TryStart(out CoCoDiagnostic start),
+                "start: " + start.Message + " / " + host.LastDiagnostic.Message);
+            Assert.IsTrue(host.TryStep(1f / 60f, out CoCoDiagnostic step),
+                step.Message);
         }
 
         private static InputActionAsset CreateActions()

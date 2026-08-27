@@ -165,6 +165,26 @@ namespace CoCoFlow.Runtime.Core
                    _context.TryWriteOperation(_callbackToken, field, value);
         }
 
+        /// <summary>
+        /// Resolves a Section field by its stable dense index for writing.
+        /// Standard-path State logics use the constants published by the
+        /// Section contract instead of constructor-injected handles. Write
+        /// still fails unless this State declares the Section as provided.
+        /// </summary>
+        public CoCoOperationSectionField<TValue> ResolveField<TSection, TValue>(
+            int fieldIndex)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            return _context != null &&
+                   _context.TryResolveOperationField<TSection, TValue>(
+                       _callbackToken,
+                       fieldIndex,
+                       out CoCoOperationSectionField<TValue> field)
+                ? field
+                : default;
+        }
+
         public bool EnableDiscrete<TSection>(CoCoOperationSectionHandle<TSection> handle)
             where TSection : class, ICoCoOperationSection
         {
@@ -340,6 +360,23 @@ namespace CoCoFlow.Runtime.Core
             _operationWriter.IsValid &&
             _operationRank.IsValid &&
             _activationId.IsValid;
+
+        internal bool TryResolveOperationField<TSection, TValue>(
+            ulong callbackToken,
+            int fieldIndex,
+            out CoCoOperationSectionField<TValue> field)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            field = default;
+            if (!IsOperationWriterValid(callbackToken))
+            {
+                return false;
+            }
+
+            field = _operationWriter.ResolveField<TSection, TValue>(fieldIndex);
+            return field.IsValid;
+        }
 
         internal bool TryWriteOperation<TValue>(
             ulong callbackToken,

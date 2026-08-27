@@ -4,6 +4,35 @@ using CoCoFlow.Runtime.Core;
 namespace CoCoFlow.Runtime.Locomotion.Contracts
 {
     /// <summary>
+    /// Stable dense field indices for ILocomotionSection. Operation Section
+    /// shapes sort properties by ordinal name; state scripts use these names
+    /// instead of duplicating numeric layout knowledge.
+    /// </summary>
+    public static class LocomotionSectionFields
+    {
+        public const int ForcedX = 0;
+        public const int ForcedZ = 1;
+        public const int GravityScale = 2;
+        public const int InstantRotation = 3;
+        public const int JumpRequested = 4;
+        public const int LaunchForced = 5;
+        public const int LookX = 6;
+        public const int LookZ = 7;
+        public const int MoveX = 8;
+        public const int MoveZ = 9;
+        public const int TeleportRequested = 10;
+        public const int TeleportRotationW = 11;
+        public const int TeleportRotationX = 12;
+        public const int TeleportRotationY = 13;
+        public const int TeleportRotationZ = 14;
+        public const int TeleportX = 15;
+        public const int TeleportY = 16;
+        public const int TeleportZ = 17;
+        public const int UseGravity = 18;
+        public const int VerticalImpulse = 19;
+    }
+
+    /// <summary>
     /// Read view over the locomotion section fields.
     /// </summary>
     public sealed class LocomotionSectionView : ILocomotionSection
@@ -54,16 +83,42 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     public sealed class LocomotionSectionViewFactory :
         ICoCoOperationSectionViewFactory<ILocomotionSection>
     {
+        private static readonly int[] FloatDenseIndices =
+        {
+            LocomotionSectionFields.MoveX,
+            LocomotionSectionFields.MoveZ,
+            LocomotionSectionFields.ForcedX,
+            LocomotionSectionFields.ForcedZ,
+            LocomotionSectionFields.GravityScale,
+            LocomotionSectionFields.VerticalImpulse,
+            LocomotionSectionFields.LookX,
+            LocomotionSectionFields.LookZ,
+            LocomotionSectionFields.TeleportX,
+            LocomotionSectionFields.TeleportY,
+            LocomotionSectionFields.TeleportZ,
+            LocomotionSectionFields.TeleportRotationX,
+            LocomotionSectionFields.TeleportRotationY,
+            LocomotionSectionFields.TeleportRotationZ,
+            LocomotionSectionFields.TeleportRotationW,
+        };
+
+        private static readonly int[] BoolDenseIndices =
+        {
+            LocomotionSectionFields.UseGravity,
+            LocomotionSectionFields.JumpRequested,
+            LocomotionSectionFields.LaunchForced,
+            LocomotionSectionFields.InstantRotation,
+            LocomotionSectionFields.TeleportRequested,
+        };
+
         private CoCoOperationSectionField<float>[] _floats;
         private CoCoOperationSectionField<bool>[] _bools;
 
         public ILocomotionSection Create(
             in CoCoOperationSectionViewContext<ILocomotionSection> context)
         {
-            const int floatCount = 15;
-            const int boolCount = 5;
-            _floats = ResolveFields<float>(context, floatCount);
-            _bools = ResolveFields<bool>(context, boolCount);
+            _floats = ResolveFields<float>(context, FloatDenseIndices);
+            _bools = ResolveFields<bool>(context, BoolDenseIndices);
             return new LocomotionSectionView(
                 context.Reader,
                 _floats,
@@ -72,13 +127,13 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
 
         private static CoCoOperationSectionField<TValue>[] ResolveFields<TValue>(
             in CoCoOperationSectionViewContext<ILocomotionSection> context,
-            int fieldCount)
+            int[] denseIndices)
             where TValue : unmanaged
         {
-            var fields = new CoCoOperationSectionField<TValue>[fieldCount];
-            for (int index = 0; index < fieldCount; index++)
+            var fields = new CoCoOperationSectionField<TValue>[denseIndices.Length];
+            for (int index = 0; index < fields.Length; index++)
             {
-                if (!context.TryGetField(index, out fields[index]))
+                if (!context.TryGetField(denseIndices[index], out fields[index]))
                 {
                     throw new InvalidOperationException(
                         "Locomotion Section field could not be pre-resolved.");

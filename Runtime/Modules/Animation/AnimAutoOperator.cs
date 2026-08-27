@@ -8,6 +8,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
     [AddComponentMenu("CoCoFlow/Animation/Anim Auto Operator")]
+    [CoCoOperatorRegistration(typeof(AnimSectionRegistrar))]
     public sealed class AnimAutoOperator :
         MonoBehaviour,
         ICoCoOperator,

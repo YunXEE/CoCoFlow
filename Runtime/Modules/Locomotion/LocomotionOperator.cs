@@ -20,6 +20,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
     [AddComponentMenu("CoCoFlow/Locomotion/Locomotion Operator")]
+    [CoCoOperatorRegistration(typeof(LocomotionSectionRegistrar))]
     public sealed class LocomotionOperator :
         MonoBehaviour,
         ICoCoOperator
@@ -55,12 +56,10 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             }
         }
 
-        [SerializeField] private CoCoStateGraphHost stateGraphHost;
         [SerializeField] private LocomotionOperatorConfig config;
         [SerializeField] private bool applyLocalYawRotation = true;
 
         private CharacterController _controller;
-        private bool _anchored;
         private CoCoDiagnostic _lastDiagnostic;
 
         public CoCoOperatorDescriptor Descriptor => OperatorDescriptor;
@@ -69,7 +68,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         private void Reset()
         {
             _controller = GetComponent<CharacterController>();
-            stateGraphHost = GetComponentInParent<CoCoStateGraphHost>();
         }
 
         public bool TryExecute(
@@ -107,10 +105,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
             // Initial anchoring (exception moment #1): adopt the world
             // position once so the ledger starts from where the actor is.
-            if (!_anchored)
+            if (!context.PreviousContext.HasCommittedFrame)
             {
                 state = LocomotionStateMath.Anchor(state, transform);
-                _anchored = true;
             }
 
             ILocomotionSection section = entry.View;
@@ -150,6 +147,12 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             }
             else
             {
+                if (applyLocalYawRotation &&
+                    input.LookX * input.LookX + input.LookZ * input.LookZ > 0.01f)
+                {
+                    transform.rotation = Quaternion.Euler(0f, next.Rotation, 0f);
+                }
+
                 _controller.Move(new Vector3(deltaX, deltaY, deltaZ));
             }
 

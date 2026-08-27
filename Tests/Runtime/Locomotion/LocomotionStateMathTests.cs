@@ -1,3 +1,5 @@
+using System;
+using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using NUnit.Framework;
@@ -173,6 +175,49 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
                 out _, out _, out _, out _);
             Assert.AreEqual(0f, next.Rotation, 1e-4f);
             Assert.AreEqual(0f, next.RotationVelocity);
+        }
+
+        [Test]
+        public void SectionFieldConstantsMatchFrozenAlphabeticalShape()
+        {
+            Assert.IsTrue(CoCoOperationSectionShape.TryCreate(
+                typeof(ILocomotionSection),
+                out CoCoOperationSectionShape shape,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+
+            AssertField(shape, LocomotionSectionFields.ForcedX, nameof(ILocomotionSection.ForcedX), typeof(float));
+            AssertField(shape, LocomotionSectionFields.ForcedZ, nameof(ILocomotionSection.ForcedZ), typeof(float));
+            AssertField(shape, LocomotionSectionFields.GravityScale, nameof(ILocomotionSection.GravityScale), typeof(float));
+            AssertField(shape, LocomotionSectionFields.InstantRotation, nameof(ILocomotionSection.InstantRotation), typeof(bool));
+            AssertField(shape, LocomotionSectionFields.JumpRequested, nameof(ILocomotionSection.JumpRequested), typeof(bool));
+            AssertField(shape, LocomotionSectionFields.LaunchForced, nameof(ILocomotionSection.LaunchForced), typeof(bool));
+            AssertField(shape, LocomotionSectionFields.LookX, nameof(ILocomotionSection.LookX), typeof(float));
+            AssertField(shape, LocomotionSectionFields.LookZ, nameof(ILocomotionSection.LookZ), typeof(float));
+            AssertField(shape, LocomotionSectionFields.MoveX, nameof(ILocomotionSection.MoveX), typeof(float));
+            AssertField(shape, LocomotionSectionFields.MoveZ, nameof(ILocomotionSection.MoveZ), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportRequested, nameof(ILocomotionSection.TeleportRequested), typeof(bool));
+            AssertField(shape, LocomotionSectionFields.TeleportRotationW, nameof(ILocomotionSection.TeleportRotationW), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportRotationX, nameof(ILocomotionSection.TeleportRotationX), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportRotationY, nameof(ILocomotionSection.TeleportRotationY), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportRotationZ, nameof(ILocomotionSection.TeleportRotationZ), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportX, nameof(ILocomotionSection.TeleportX), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportY, nameof(ILocomotionSection.TeleportY), typeof(float));
+            AssertField(shape, LocomotionSectionFields.TeleportZ, nameof(ILocomotionSection.TeleportZ), typeof(float));
+            AssertField(shape, LocomotionSectionFields.UseGravity, nameof(ILocomotionSection.UseGravity), typeof(bool));
+            AssertField(shape, LocomotionSectionFields.VerticalImpulse, nameof(ILocomotionSection.VerticalImpulse), typeof(float));
+        }
+
+        private static void AssertField(
+            CoCoOperationSectionShape shape,
+            int denseIndex,
+            string name,
+            Type valueType)
+        {
+            Assert.That(denseIndex, Is.InRange(0, shape.FieldCount - 1));
+            CoCoOperationSectionFieldShape field = shape.Fields[denseIndex];
+            Assert.AreEqual(denseIndex, field.DenseIndex);
+            Assert.AreEqual(name, field.Name);
+            Assert.AreEqual(valueType, field.ValueType);
         }
     }
 }

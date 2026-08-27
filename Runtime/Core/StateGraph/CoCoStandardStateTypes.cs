@@ -49,35 +49,41 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
-    /// Package-wide graph-state block for standard (stateless) states.
+    /// Deterministic graph-state block and slot ids for standard states. Each
+    /// descriptor owns one block so a compiled Graph carries only the State
+    /// records it actually uses, never every attributed State in an assembly.
     /// </summary>
     public static class StandardGraphState
     {
         private const ulong High = 0x434F434F53544154UL; // "COCOSTAT"
+        private const ulong BlockSalt = 0x424C4F434BUL; // "BLOCK"
 
-        static StandardGraphState()
+        private static readonly Dictionary<CoCoStateDescriptorId, CoCoStateBlockId>
+            Blocks = new Dictionary<CoCoStateDescriptorId, CoCoStateBlockId>();
+        private static readonly Dictionary<CoCoStateDescriptorId, CoCoStateSlotId>
+            Slots = new Dictionary<CoCoStateDescriptorId, CoCoStateSlotId>();
+
+        public static CoCoStateBlockId BlockFor(CoCoStateDescriptorId descriptorId)
         {
-            if (!CoCoStateBlockId.TryCreate(High, 40UL, out CoCoStateBlockId block))
+            if (Blocks.TryGetValue(descriptorId, out CoCoStateBlockId cached))
             {
-                throw new InvalidOperationException(
-                    "Standard graph state ids are invalid.");
+                return cached;
             }
 
-            BlockId = block;
+            ulong low = DeriveLow(descriptorId, BlockSalt);
+            if (!CoCoStateBlockId.TryCreate(High, low, out CoCoStateBlockId block))
+            {
+                _ = CoCoStateBlockId.TryCreate(High, 40UL, out block);
+            }
+
+            Blocks[descriptorId] = block;
+            return block;
         }
 
-        public static CoCoStateBlockId BlockId { get; }
-
-        private static readonly System.Collections.Generic
-            .Dictionary<CoCoStateDescriptorId, CoCoStateSlotId> Slots =
-            new System.Collections.Generic
-                .Dictionary<CoCoStateDescriptorId, CoCoStateSlotId>();
-
         /// <summary>
-        /// One derived slot per state descriptor: standard stateless
-        /// graph-state slots share a block but never a slot. Catalog
-        /// registration and host binding derive the same id from the same
-        /// descriptor, keeping the compiled manifest in sync.
+        /// One derived slot per state descriptor. Catalog registration and
+        /// Host binding derive the block and slot from the same descriptor,
+        /// keeping the compiled manifest in sync.
         /// </summary>
         public static CoCoStateSlotId SlotFor(CoCoStateDescriptorId descriptorId)
         {
@@ -86,23 +92,31 @@ namespace CoCoFlow.Runtime.Core
                 return cached;
             }
 
+            ulong low = DeriveLow(descriptorId, 0UL);
+            if (!CoCoStateSlotId.TryCreate(High, low, out CoCoStateSlotId slot))
+            {
+                _ = CoCoStateSlotId.TryCreate(High, 41UL, out slot);
+            }
+
+            Slots[descriptorId] = slot;
+            return slot;
+        }
+
+        private static ulong DeriveLow(
+            CoCoStateDescriptorId descriptorId,
+            ulong salt)
+        {
             unchecked
             {
                 ulong hash = 1469598103934665603UL;
-                ulong value = descriptorId.High ^ descriptorId.Low;
+                ulong value = descriptorId.High ^ descriptorId.Low ^ salt;
                 for (int bit = 0; bit < 64; bit += 8)
                 {
                     hash ^= (value >> bit) & 0xFFUL;
                     hash *= 1099511628211UL;
                 }
 
-                if (!CoCoStateSlotId.TryCreate(High, hash, out CoCoStateSlotId slot))
-                {
-                    _ = CoCoStateSlotId.TryCreate(High, 41UL, out slot);
-                }
-
-                Slots[descriptorId] = slot;
-                return slot;
+                return hash;
             }
         }
     }
