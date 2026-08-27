@@ -112,7 +112,8 @@ namespace CoCoFlow.Editor.StateGraph
                 "    \"references\": [\n" +
                 "        \"CoCoFlow.Runtime.Core.Contracts\",\n" +
                 "        \"CoCoFlow.Runtime.Core.StateFlow\",\n" +
-                "        \"CoCoFlow.Runtime.Core.StateGraph\"\n" +
+                "        \"CoCoFlow.Runtime.Core.StateGraph\",\n" +
+                "        \"CoCoFlow.Runtime.Locomotion.Contracts\"\n" +
                 "    ],\n" +
                 "    \"includePlatforms\": [],\n" +
                 "    \"excludePlatforms\": [],\n" +
