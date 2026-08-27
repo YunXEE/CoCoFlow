@@ -7,8 +7,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
 {
     /// <summary>
     /// Standard-path registration for the animation parameter and trigger
-    /// sections (no operator-owned slots — the Auto operator writes only
-    /// engine presentation).
+    /// sections plus the operator-owned Animator snapshot slot.
     /// </summary>
     public sealed class AnimSectionRegistrar :
         ICoCoStandardOperatorRegistrar
@@ -27,8 +26,13 @@ namespace CoCoFlow.Runtime.Modules.Animation
         public IReadOnlyList<CoCoStandardOperationRegistration> Operations =>
             OperationRegistrations;
 
+        private static readonly CoCoStateBlockId[] ContextBlockRegistrations =
+        {
+            AnimContractIds.SnapshotBlockId,
+        };
+
         public IReadOnlyList<CoCoStateBlockId> ContextBlocks =>
-            Array.Empty<CoCoStateBlockId>();
+            ContextBlockRegistrations;
 
         public bool RegisterCatalog(CoCoGraphDescriptorCatalogBuilder builder)
         {
@@ -47,6 +51,20 @@ namespace CoCoFlow.Runtime.Modules.Animation
                            IAnimTriggerOperationSection,
                            AnimTriggerOperationSectionViewFactory>(
                            AnimContractIds.TriggerSectionSemanticFingerprint),
+                       out _) &&
+                   builder.TryRegisterStateBlock(
+                       AnimContractIds.SnapshotBlockId,
+                       CoCoStateBlockOwner.Operator,
+                       out _) &&
+                   builder.TryRegisterStateSlot<AnimSnapshotState>(
+                       AnimContractIds.SnapshotBlockId,
+                       AnimContractIds.SnapshotSlotId,
+                       CoCoContextProjection.Temporal,
+                       CoCoContextRestorePolicy.Stored,
+                       default(AnimSnapshotState),
+                       1UL,
+                       default,
+                       null,
                        out _);
         }
 
@@ -89,10 +107,21 @@ namespace CoCoFlow.Runtime.Modules.Animation
             CoCoStateGraphHostBindingBuilder bindingBuilder,
             out CoCoDiagnostic diagnostic)
         {
-            diagnostic = Error(
-                CoCoDiagnosticCode.MissingDescriptor,
-                "AnimAutoOperator does not own a Context slot.");
-            return false;
+            if (blockId != AnimContractIds.SnapshotBlockId ||
+                slotId != AnimContractIds.SnapshotSlotId)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "Animation registrar does not own the requested Context slot.");
+                return false;
+            }
+
+            return bindingBuilder.TryBindContextSlot<AnimSnapshotState>(
+                AnimContractIds.SnapshotBlockId,
+                AnimContractIds.SnapshotSlotId,
+                default(AnimSnapshotState),
+                1UL,
+                out diagnostic);
         }
 
         private static CoCoDiagnostic Error(

@@ -23,7 +23,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     [CoCoOperatorRegistration(typeof(LocomotionSectionRegistrar))]
     public sealed class LocomotionOperator :
         MonoBehaviour,
-        ICoCoOperator
+        ICoCoOperator,
+        ICoCoContextRestoreBinding,
+        ICoCoTemporalDecoratorBinding
     {
         private static readonly CoCoOperationSectionRequirement SectionRequirement;
         private static readonly CoCoOperatorDescriptor OperatorDescriptor;
@@ -56,13 +58,44 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             }
         }
 
-        [SerializeField] private LocomotionOperatorConfig config;
+                [SerializeField] private MonoBehaviour downstreamRestoreBinding;
+[SerializeField] private LocomotionOperatorConfig config;
         [SerializeField] private bool applyLocalYawRotation = true;
 
         private CharacterController _controller;
         private CoCoDiagnostic _lastDiagnostic;
 
         public CoCoOperatorDescriptor Descriptor => OperatorDescriptor;
+
+        MonoBehaviour ICoCoTemporalDecoratorBinding.DownstreamRestoreBinding =>
+            downstreamRestoreBinding;
+
+        /// <summary>
+        /// Restore projection (exception moment #2): the world adopts the
+        /// ledger once, integration phase continues as-is. Applies for
+        /// every restore kind — preview, confirm, cancel and correction.
+        /// </summary>
+        public bool TryApply(
+            in CoCoContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!context.IsValid ||
+                !context.Reader.TryRead(
+                    LocoContractIds.StateSlotId,
+                    out LocomotionState state))
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "Locomotion restore projection requires one valid restore context with a committed locomotion slot.");
+                return false;
+            }
+
+            LocomotionStateMath.ProjectToWorld(state, transform);
+            Physics.SyncTransforms();
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
         private void Reset()

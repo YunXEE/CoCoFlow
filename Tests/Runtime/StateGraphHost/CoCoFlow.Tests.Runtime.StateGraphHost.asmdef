@@ -2,6 +2,7 @@
     "name": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "rootNamespace": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "references": [
+        "CoCoFlow.Runtime.Animation.Contracts",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",

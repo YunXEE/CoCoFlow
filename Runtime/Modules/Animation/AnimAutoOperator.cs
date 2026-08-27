@@ -12,6 +12,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
     public sealed class AnimAutoOperator :
         MonoBehaviour,
         ICoCoOperator,
+        ICoCoContextRestoreBinding,
+        ICoCoTemporalDecoratorBinding,
         ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>,
         IAnimEventReceiver,
         IAnimEventStateResolver
@@ -22,6 +24,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
             Array.Empty<AnimParameterBinding>();
         [SerializeField] private AnimTriggerBinding[] triggerBindings =
             Array.Empty<AnimTriggerBinding>();
+        [SerializeField] private MonoBehaviour downstreamRestoreBinding;
 
         private readonly AnimFeedbackBuffer _feedback = new AnimFeedbackBuffer();
         private readonly AnimFeedbackEventToIntentAdapter _feedbackAdapter =
@@ -32,6 +35,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private bool _isInitialized;
 
         public CoCoOperatorDescriptor Descriptor => AnimOperatorContracts.AutoDescriptor;
+
+        MonoBehaviour ICoCoTemporalDecoratorBinding.DownstreamRestoreBinding =>
+            downstreamRestoreBinding;
         public Animator Animator => animator;
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
@@ -144,9 +150,80 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     out outcome);
             }
 
-            outcome = wroteAnimator || wroteFeedback
-                ? CoCoOperatorOutcome.Success
-                : CoCoOperatorOutcome.NoOp;
+            // Engine-fact segment (the mirror of LocomotionOperator's
+            // Sample write): the engine is the authority on animation
+            // state, the Operator records what actually happened. The
+            // Animator advances on Unity's own update phase, so the value
+            // read here is the engine's latest verdict — one tick of
+            // latency by design, never a prediction.
+            AnimSnapshotState snapshot =
+                AnimSnapshot.Sample(animator, parameterBindings);
+            if (!context.TryWriteOutcome(
+                    AnimContractIds.SnapshotSlotId,
+                    snapshot))
+            {
+                return Reject(
+                    "AnimAutoOperator snapshot slot write was rejected.",
+                    out outcome);
+            }
+
+            // The snapshot write above is an outcome write — a tick that
+            // reached this point always owns at least that write.
+            outcome = CoCoOperatorOutcome.Success;
+            _lastDiagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        /// <summary>
+        /// Restore projection (the mirror of LocomotionStateMath.
+        /// ProjectToWorld): the Animator adopts the ledger once. Applies
+        /// for every restore kind — preview, confirm, cancel and
+        /// correction all read the same slot and write the same world.
+        /// </summary>
+        public bool TryApply(
+            in CoCoContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (animator == null || !context.IsValid)
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "AnimAutoOperator restore projection requires one live Animator and one valid restore context.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!context.Reader.TryRead(
+                    AnimContractIds.SnapshotSlotId,
+                    out AnimSnapshotState snapshot))
+            {
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "AnimAutoOperator restore projection found no committed Animator snapshot slot.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!AnimSnapshot.TryProject(
+                    animator,
+                    parameterBindings,
+                    snapshot,
+                    out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = CoCoDiagnostic.Error(
+                        CoCoDiagnosticDomain.Restore,
+                        CoCoDiagnosticCode.WorldCorrectionRequired,
+                        "AnimAutoOperator restore projection failed: the snapshot does not match the current Animator layout.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
             _lastDiagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -299,6 +376,116 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 signal.LoopCount,
                 signal.NormalizedTime,
                 out record);
+        }
+    }
+
+    /// <summary>
+    /// Engine-side snapshot math: sample what the Animator actually
+    /// decided (engine fact), and project a snapshot back onto the
+    /// Animator (restore projection, the exception moment #2). Layout
+    /// mismatches fail loudly — never a silent partial restore.
+    /// </summary>
+    public static class AnimSnapshot
+    {
+        public static AnimSnapshotState Sample(
+            Animator animator,
+            AnimParameterBinding[] bindings)
+        {
+            var snapshot = new AnimSnapshotState();
+            int layerCount = animator != null
+                ? Mathf.Min(animator.layerCount, AnimSnapshotState.MaxLayers)
+                : 0;
+            snapshot.LayerCount = (byte)layerCount;
+            for (int index = 0; index < layerCount; index++)
+            {
+                AnimatorStateInfo info = animator.GetCurrentAnimatorStateInfo(index);
+                snapshot.SetLayer(
+                    index,
+                    info.shortNameHash,
+                    info.normalizedTime,
+                    animator.GetLayerWeight(index));
+            }
+
+            int laneCount = bindings != null
+                ? Mathf.Min(bindings.Length, AnimSnapshotState.MaxParameterLanes)
+                : 0;
+            snapshot.LaneCount = (byte)laneCount;
+            for (int index = 0; index < laneCount; index++)
+            {
+                snapshot.SetLane(
+                    index,
+                    animator.GetFloat(bindings[index].ParameterName));
+            }
+
+            return snapshot;
+        }
+
+        public static bool TryProject(
+            Animator animator,
+            AnimParameterBinding[] bindings,
+            in AnimSnapshotState snapshot,
+            out CoCoDiagnostic diagnostic)
+        {
+            int layerCount = snapshot.LayerCount;
+            if (layerCount < 0 ||
+                layerCount > AnimSnapshotState.MaxLayers ||
+                animator == null ||
+                layerCount > animator.layerCount)
+            {
+                diagnostic = LayoutMismatch(
+                    "The saved Animator layer layout does not match the current Animator.");
+                return false;
+            }
+
+            int laneCount = snapshot.LaneCount;
+            if (laneCount < 0 ||
+                laneCount > AnimSnapshotState.MaxParameterLanes ||
+                laneCount > (bindings?.Length ?? 0))
+            {
+                diagnostic = LayoutMismatch(
+                    "The saved Animator parameter layout does not match the current bindings.");
+                return false;
+            }
+
+            for (int index = 0; index < layerCount; index++)
+            {
+                if (!animator.HasState(index, snapshot.LayerStateHash(index)))
+                {
+                    diagnostic = LayoutMismatch(
+                        "The saved Animator state hash is unknown to the current controller on layer " +
+                        index + ".");
+                    return false;
+                }
+            }
+
+            for (int index = 0; index < laneCount; index++)
+            {
+                animator.SetFloat(bindings[index].ParameterName, snapshot.Lane(index));
+            }
+
+            for (int index = 0; index < layerCount; index++)
+            {
+                animator.Play(
+                    snapshot.LayerStateHash(index),
+                    index,
+                    snapshot.LayerTime(index));
+                animator.SetLayerWeight(index, snapshot.LayerWeight(index));
+            }
+
+            // Zero-time evaluate so the restored pose is applied on this
+            // frame (no time passes — this is not a manual advance).
+            animator.Update(0f);
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static CoCoDiagnostic LayoutMismatch(string message)
+        {
+            return CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticCode.WorldCorrectionRequired,
+                message);
         }
     }
 }

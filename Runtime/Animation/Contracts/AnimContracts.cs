@@ -45,6 +45,32 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public static CoCoEventTypeId FeedbackEventTypeId { get; } =
             CreateEventTypeId(0x414E494D00000301UL);
 
+        public static CoCoStateBlockId SnapshotBlockId { get; } =
+            CreateStateBlockId(0x414E494D00000401UL);
+
+        public static CoCoStateSlotId SnapshotSlotId { get; } =
+            CreateStateSlotId(0x414E494D00000402UL);
+
+        private static CoCoStateBlockId CreateStateBlockId(ulong low)
+        {
+            if (!CoCoStateBlockId.TryCreate(CoCoFlowHigh, low, out CoCoStateBlockId id))
+            {
+                throw new InvalidOperationException("The fixed Animation Context Block id is invalid.");
+            }
+
+            return id;
+        }
+
+        private static CoCoStateSlotId CreateStateSlotId(ulong low)
+        {
+            if (!CoCoStateSlotId.TryCreate(CoCoFlowHigh, low, out CoCoStateSlotId id))
+            {
+                throw new InvalidOperationException("The fixed Animation Context Slot id is invalid.");
+            }
+
+            return id;
+        }
+
         private static CoCoOperationSectionId CreateOperationSectionId(ulong low)
         {
             if (!CoCoOperationSectionId.TryCreate(CoCoFlowHigh, low, out CoCoOperationSectionId id))
@@ -279,5 +305,143 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public static bool IsFinitePositive(float value) =>
             IsFinite(value) && value > 0f;
+    }
+
+    /// <summary>
+    /// Engine-fact snapshot of one Animator: per-layer state hash,
+    /// normalized time and layer weight plus the engine's current
+    /// parameter values. Fixed-size and unmanaged so it can live in one
+    /// Context slot. Layout is bound to the controller the snapshot was
+    /// taken from — projecting onto a mismatched controller fails loudly.
+    /// </summary>
+    public struct AnimSnapshotState
+    {
+        public const int MaxLayers = 4;
+        public const int MaxParameterLanes = 16;
+
+        public int Layer0StateHash;
+        public float Layer0Time;
+        public float Layer0Weight;
+        public int Layer1StateHash;
+        public float Layer1Time;
+        public float Layer1Weight;
+        public int Layer2StateHash;
+        public float Layer2Time;
+        public float Layer2Weight;
+        public int Layer3StateHash;
+        public float Layer3Time;
+        public float Layer3Weight;
+        public float Lane0;
+        public float Lane1;
+        public float Lane2;
+        public float Lane3;
+        public float Lane4;
+        public float Lane5;
+        public float Lane6;
+        public float Lane7;
+        public float Lane8;
+        public float Lane9;
+        public float Lane10;
+        public float Lane11;
+        public float Lane12;
+        public float Lane13;
+        public float Lane14;
+        public float Lane15;
+        public byte LayerCount;
+        public byte LaneCount;
+
+        public readonly float LayerTime(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0Time;
+                case 1: return Layer1Time;
+                case 2: return Layer2Time;
+                case 3: return Layer3Time;
+                default: return 0f;
+            }
+        }
+
+        public readonly int LayerStateHash(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0StateHash;
+                case 1: return Layer1StateHash;
+                case 2: return Layer2StateHash;
+                case 3: return Layer3StateHash;
+                default: return 0;
+            }
+        }
+
+        public readonly float LayerWeight(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0Weight;
+                case 1: return Layer1Weight;
+                case 2: return Layer2Weight;
+                case 3: return Layer3Weight;
+                default: return 0f;
+            }
+        }
+
+        public readonly float Lane(int index)
+        {
+            switch (index)
+            {
+                case 0: return Lane0;
+                case 1: return Lane1;
+                case 2: return Lane2;
+                case 3: return Lane3;
+                case 4: return Lane4;
+                case 5: return Lane5;
+                case 6: return Lane6;
+                case 7: return Lane7;
+                case 8: return Lane8;
+                case 9: return Lane9;
+                case 10: return Lane10;
+                case 11: return Lane11;
+                case 12: return Lane12;
+                case 13: return Lane13;
+                case 14: return Lane14;
+                case 15: return Lane15;
+                default: return 0f;
+            }
+        }
+
+        public void SetLayer(int index, int hash, float time, float weight)
+        {
+            switch (index)
+            {
+                case 0: Layer0StateHash = hash; Layer0Time = time; Layer0Weight = weight; break;
+                case 1: Layer1StateHash = hash; Layer1Time = time; Layer1Weight = weight; break;
+                case 2: Layer2StateHash = hash; Layer2Time = time; Layer2Weight = weight; break;
+                case 3: Layer3StateHash = hash; Layer3Time = time; Layer3Weight = weight; break;
+            }
+        }
+
+        public void SetLane(int index, float value)
+        {
+            switch (index)
+            {
+                case 0: Lane0 = value; break;
+                case 1: Lane1 = value; break;
+                case 2: Lane2 = value; break;
+                case 3: Lane3 = value; break;
+                case 4: Lane4 = value; break;
+                case 5: Lane5 = value; break;
+                case 6: Lane6 = value; break;
+                case 7: Lane7 = value; break;
+                case 8: Lane8 = value; break;
+                case 9: Lane9 = value; break;
+                case 10: Lane10 = value; break;
+                case 11: Lane11 = value; break;
+                case 12: Lane12 = value; break;
+                case 13: Lane13 = value; break;
+                case 14: Lane14 = value; break;
+                case 15: Lane15 = value; break;
+            }
+        }
     }
 }

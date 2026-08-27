@@ -62,6 +62,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
                     out CoCoDiagnostic triggers),
                 triggers);
             Require(
+                builder.TryOwnOutcome<AnimSnapshotState>(
+                    AnimContractIds.SnapshotSlotId,
+                    out CoCoDiagnostic snapshot),
+                snapshot);
+            Require(
                 builder.TryEmit<AnimFeedbackEvent>(
                     AnimContractIds.FeedbackEventTypeId,
                     AnimContractIds.FeedbackEventDomainId,
