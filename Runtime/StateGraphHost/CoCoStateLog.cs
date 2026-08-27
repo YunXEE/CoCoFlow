@@ -1,14 +1,23 @@
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
-    /// Engine-side log bridge for state logics living in engine-free
-    /// assemblies: CoCoStateLog.Print("...") forwards to Debug.Log so
-    /// attributed states never reference UnityEngine themselves.
+    /// Installs the engine-side sink for CoCoStateLog: state scripts in
+    /// engine-free assemblies call CoCoStateLog.Print, which forwards into
+    /// the package CoCoLog pipeline (level + EventBus) and Debug.Log.
     /// </summary>
-    public static class CoCoStateLog
+    internal static class CoCoStateLogInstaller
     {
-        public static void Print(object message) => Debug.Log(message);
+        [RuntimeInitializeOnLoadMethod(
+            RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void Install()
+        {
+            CoCoStateLog.Install(message =>
+            {
+                CoCoLog.Warning(message.ToString());
+            });
+        }
     }
 }
