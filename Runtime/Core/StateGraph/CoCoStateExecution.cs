@@ -191,6 +191,20 @@ namespace CoCoFlow.Runtime.Core
             return _context != null &&
                    _context.TryEnableDiscreteOperation(_callbackToken, handle);
         }
+
+        /// <summary>
+        /// Resolves a discrete section handle by its interface type, then
+        /// enables it for this tick — the standard-path way to fire a
+        /// discrete section (triggers, one-shots) without an injected
+        /// requirement.
+        /// </summary>
+        public bool TryEnableDiscrete<TSection>()
+            where TSection : class, ICoCoOperationSection
+        {
+            return _context != null &&
+                   _context.TryResolveAndEnableDiscreteOperation<TSection>(
+                       _callbackToken);
+        }
     }
 
     public sealed class CoCoStateFactoryContext
@@ -288,6 +302,8 @@ namespace CoCoFlow.Runtime.Core
         private bool _hasError;
         private bool _isCallbackActive;
         private ulong _callbackGeneration;
+        private CoCoTransitionHandle[] _outgoingTransitions;
+        private IReadOnlyList<CoCoTransitionHandle> _readOnlyOutgoingTransitions;
 
         internal CoCoStateExecutionContext()
         {
@@ -318,6 +334,24 @@ namespace CoCoFlow.Runtime.Core
 
             _hasError = true;
             return null;
+        }
+
+        /// <summary>
+        /// Outgoing transitions of this state in declaration order —
+        /// the standard-path way for an Update callback to request a
+        /// transition without constructor-injected handles. Attached
+        /// once when the runtime builds the layer.
+        /// </summary>
+        public IReadOnlyList<CoCoTransitionHandle> OutgoingTransitions =>
+            _readOnlyOutgoingTransitions;
+
+        internal void AttachOutgoingTransitions(
+            CoCoTransitionHandle[] transitions)
+        {
+            _outgoingTransitions = transitions;
+            _readOnlyOutgoingTransitions = transitions == null
+                ? null
+                : Array.AsReadOnly(transitions);
         }
 
         public bool RequestTransition(CoCoTransitionHandle handle)
@@ -387,6 +421,23 @@ namespace CoCoFlow.Runtime.Core
             if (!IsOperationWriterValid(callbackToken) ||
                 !IsOperationSectionAllowed(field.SectionIndex) ||
                 !_operationWriter.Write(_operationRank, field, value))
+            {
+                MarkInvalidOperationUse();
+                return false;
+            }
+
+            return true;
+        }
+
+        internal bool TryResolveAndEnableDiscreteOperation<TSection>(
+            ulong callbackToken)
+            where TSection : class, ICoCoOperationSection
+        {
+            if (!IsOperationWriterValid(callbackToken) ||
+                !_operationWriter.TryResolveTypedHandle(
+                    out CoCoOperationSectionHandle<TSection> handle) ||
+                !IsOperationSectionAllowed(handle.DenseIndex) ||
+                !_operationWriter.EnableDiscrete(_operationRank, handle, _activationId))
             {
                 MarkInvalidOperationUse();
                 return false;

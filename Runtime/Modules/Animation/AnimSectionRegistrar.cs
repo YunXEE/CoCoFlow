@@ -59,7 +59,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
                    builder.TryRegisterStateSlot<AnimSnapshotState>(
                        AnimContractIds.SnapshotBlockId,
                        AnimContractIds.SnapshotSlotId,
-                       CoCoContextProjection.Temporal,
+                       CoCoContextProjection.Temporal |
+                       CoCoContextProjection.Durable,
                        CoCoContextRestorePolicy.Stored,
                        default(AnimSnapshotState),
                        1UL,

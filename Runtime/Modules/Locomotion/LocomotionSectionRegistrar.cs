@@ -49,7 +49,8 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                    builder.TryRegisterStateSlot<LocomotionState>(
                        LocoContractIds.StateBlockId,
                        LocoContractIds.StateSlotId,
-                       CoCoContextProjection.Temporal,
+                       CoCoContextProjection.Temporal |
+                       CoCoContextProjection.Durable,
                        CoCoContextRestorePolicy.Stored,
                        default(LocomotionState),
                        1UL,

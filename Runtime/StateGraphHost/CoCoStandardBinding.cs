@@ -505,25 +505,56 @@ namespace CoCoFlow.Runtime.Core
         {
             CoCoStateSlotId slotId = StandardGraphState.SlotFor(
                 state.Descriptor.DescriptorId);
-            if (block.Slots.Count != 1 || block.Slots[0].SlotId != slotId ||
-                !CoCoActivationId.TryCreate(
-                    1UL,
-                    out CoCoActivationId activationId) ||
-                !CoCoGraphStateRecord<int>.TryCreate(
-                    layer.LayerId,
-                    state.StateId,
-                    true,
-                    activationId,
-                    0d,
-                    0d,
-                    true,
-                    StatelessMemory.Fingerprint,
-                    0,
-                    out CoCoGraphStateRecord<int> defaultRecord))
+            if (block.Slots.Count != 1 || block.Slots[0].SlotId != slotId)
             {
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.InvalidStateSlot,
                     "Standard graph-state block must contain its one matching State slot.");
+                return false;
+            }
+
+            // The trusted default must equal the runtime's initial graph
+            // authority for this state: the layer's initial state starts
+            // active (activation 1, enter pending), every other state
+            // starts inactive (no activation, zero clocks). A hardcoded
+            // active record only matches single-state graphs.
+            bool isInitialState = layer.States.Count > layer.InitialStateIndex &&
+                                  layer.States[layer.InitialStateIndex].StateId ==
+                                          state.StateId;
+            CoCoGraphStateRecord<int> defaultRecord;
+            if (isInitialState)
+            {
+                if (!CoCoActivationId.TryCreate(
+                        1UL,
+                        out CoCoActivationId activationId) ||
+                    !CoCoGraphStateRecord<int>.TryCreate(
+                        layer.LayerId,
+                        state.StateId,
+                        true,
+                        activationId,
+                        0d,
+                        0d,
+                        true,
+                        StatelessMemory.Fingerprint,
+                        0,
+                        out defaultRecord))
+                {
+                    diagnostic = RegistryError(
+                        CoCoDiagnosticCode.InvalidStateSlot,
+                        "Standard graph-state block could not build its initial-state default record.");
+                    return false;
+                }
+            }
+            else if (!CoCoGraphStateRecord<int>.TryCreateInactive(
+                         layer.LayerId,
+                         state.StateId,
+                         StatelessMemory.Fingerprint,
+                         0,
+                         out defaultRecord))
+            {
+                diagnostic = RegistryError(
+                    CoCoDiagnosticCode.InvalidStateSlot,
+                    "Standard graph-state block could not build its inactive-state default record.");
                 return false;
             }
 
@@ -615,7 +646,8 @@ namespace CoCoFlow.Runtime.Core
             if (!builder.TryRegisterStateSlot<CoCoGraphStateRecord<int>>(
                     graphBlockId,
                     StandardGraphState.SlotFor(descriptorId),
-                    CoCoContextProjection.Temporal,
+                    CoCoContextProjection.Temporal |
+                    CoCoContextProjection.Durable,
                     CoCoContextRestorePolicy.Stored,
                     default(CoCoGraphStateRecord<int>),
                     StatelessMemory.Fingerprint,

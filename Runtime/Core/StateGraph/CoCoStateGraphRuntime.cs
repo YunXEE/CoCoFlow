@@ -2601,6 +2601,8 @@ namespace CoCoFlow.Runtime.Core
                     memory1,
                     handles,
                     allowedOperationSections);
+                states[stateIndex].ExecutionContext
+                    .AttachOutgoingTransitions(handles);
             }
 
             var conditionsByTransition = new ConditionRuntime[compiledLayer.Transitions.Count][];

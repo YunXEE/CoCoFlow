@@ -793,6 +793,33 @@ namespace CoCoFlow.Runtime.Core
         /// of constructor-injected handles. Section types are unique per
         /// registry.
         /// </summary>
+        /// <summary>
+        /// Resolves a section handle by interface type for enabling a
+        /// discrete section from a standard state logic (no injected
+        /// requirement needed). Section types are unique per registry.
+        /// </summary>
+        public bool TryResolveTypedHandle<TSection>(
+            out CoCoOperationSectionHandle<TSection> handle)
+            where TSection : class, ICoCoOperationSection
+        {
+            for (int index = 0; index < _descriptors.Length; index++)
+            {
+                if (_descriptors[index].SectionType != typeof(TSection))
+                {
+                    continue;
+                }
+
+                handle = new CoCoOperationSectionHandle<TSection>(
+                    this,
+                    _descriptors[index].SectionId,
+                    index);
+                return true;
+            }
+
+            handle = default;
+            return false;
+        }
+
         public bool TryResolveTypedField<TSection, TValue>(
             int fieldIndex,
             out CoCoOperationSectionField<TValue> field)
@@ -1724,6 +1751,15 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool IsValid => _frame != null && _frame.IsWriting(_token);
+
+        internal bool TryResolveTypedHandle<TSection>(
+            out CoCoOperationSectionHandle<TSection> handle)
+            where TSection : class, ICoCoOperationSection
+        {
+            handle = default;
+            return _frame != null &&
+                   _frame.Registry.TryResolveTypedHandle(out handle);
+        }
 
         internal CoCoOperationSectionField<TValue> ResolveField<TSection, TValue>(
             int fieldIndex)
