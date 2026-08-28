@@ -354,6 +354,32 @@ namespace CoCoFlow.Runtime.Core
                 : Array.AsReadOnly(transitions);
         }
 
+        /// <summary>
+        /// Requests the outgoing transition whose target state runs the
+        /// given logic type — the standard-path way to address transitions
+        /// on authored graphs, whose edge ids are generated Guids (D74
+        /// name-addressing, typed form). At most one edge per source may
+        /// target a given logic.
+        /// </summary>
+        public bool TryRequestTransitionTo<TTargetLogic>()
+            where TTargetLogic : CoCoStateLogic
+        {
+            for (int index = 0; index < _outgoingTransitions.Length; index++)
+            {
+                CoCoTransitionHandle handle = _outgoingTransitions[index];
+                if (_runtime != null &&
+                    _runtime.TryGetStateLogicType(
+                        handle.TargetStateId,
+                        out Type logicType) &&
+                    logicType == typeof(TTargetLogic))
+                {
+                    return RequestTransition(handle);
+                }
+            }
+
+            return false;
+        }
+
         public bool RequestTransition(CoCoTransitionHandle handle)
         {
             if (!_canRequestTransition ||

@@ -304,6 +304,28 @@ namespace CoCoFlow.Runtime.Core
     /// </summary>
     public sealed class CoCoStateGraphRuntime : IDisposable
     {
+        internal bool TryGetStateLogicType(
+            CoCoStateId stateId,
+            out Type logicType)
+        {
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
+            {
+                IReadOnlyList<CoCoCompiledState> states =
+                    _layers[layerIndex].Compiled.States;
+                for (int stateIndex = 0; stateIndex < states.Count; stateIndex++)
+                {
+                    if (states[stateIndex].StateId == stateId)
+                    {
+                        logicType = states[stateIndex].Descriptor.LogicType;
+                        return logicType != null;
+                    }
+                }
+            }
+
+            logicType = null;
+            return false;
+        }
+
         private readonly CoCoCompiledStateGraph _graph;
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly CoCoStateGraphLogicBindings _bindings;
