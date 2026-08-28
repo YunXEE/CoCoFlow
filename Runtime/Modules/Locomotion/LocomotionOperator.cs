@@ -14,8 +14,10 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     /// + delta synthesis) → engine-fact segment (CharacterController.Move
     /// or teleport: the engine alone decides the actual landing) → sample
     /// the real transform back into the candidate slot → commit barrier
-    /// atomically promotes it. Rejected ticks leave the engine fact on the
-    /// transform; the same delta replays next tick and reconverges.
+    /// atomically promotes it. A rejected tick faults the Host (D84:
+    /// loud stop; the player recovers from the last recorded tick —
+    /// save load or restart). The engine fact stays on the transform;
+    /// after recovery the same delta replays and reconverges.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
@@ -192,8 +194,8 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             next = LocomotionStateMath.Sample(next, transform, grounded);
 
             // Facts enter the candidate slot; the commit barrier promotes
-            // them (or the reject discards everything — the engine fact
-            // stays on the transform and the same delta replays).
+            // them (or the reject faults the Host per D84 — the engine fact
+            // stays on the transform and replays after recovery).
             if (!context.TryWriteOutcome(
                     LocoContractIds.StateSlotId,
                     next))

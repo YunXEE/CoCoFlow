@@ -126,9 +126,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             float residue = _actor.transform.position.z - z0;
             Assert.Greater(residue, Step, "engine residue: a Move already happened on the transform");
             Assert.IsFalse(_host.TryStep(Step, out _),
-                "a rejected Host stays faulted — stepping requires recovery, " +
-                "the same-delta replay healing documented in D81 is a future " +
-                "product decision, not current behavior");
+                "a rejected Host stays faulted — D84 resolved: reject is a " +
+                "loud stop; the player recovers from the last recorded tick " +
+                "(save load or restart), after which the same delta replays " +
+                "and reconverges");
             float slotAfterReject = JourneyMemory.LastSlotZ;
             Assert.AreEqual(
                 slotAfterReject,
