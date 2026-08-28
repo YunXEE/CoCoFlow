@@ -15,6 +15,22 @@ namespace CoCoFlow.Runtime.Core
     {
         [RuntimeInitializeOnLoadMethod(
             RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void InstallBeforeSceneLoad() => InstallStandardBinding();
+
+        /// <summary>
+        /// Scene-assembly safety net: at BeforeSceneLoad time a project's
+        /// state-logic assembly may not be loaded yet (nothing referenced
+        /// it — the scene itself is the first referencer, and it loads
+        /// after this phase). By AfterSceneLoad every scene-referenced
+        /// assembly is loaded, Awake has run, and Start has not — the
+        /// second pass catches cold-start plays where the first found
+        /// nothing and silently skipped installation, leaving Hosts to
+        /// fail with "no provider installed".
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(
+            RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void InstallAfterSceneLoad() => InstallStandardBinding();
+
         private static void InstallStandardBinding()
         {
             try
