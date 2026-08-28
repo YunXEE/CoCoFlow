@@ -53,10 +53,13 @@ namespace CoCoFlow.Editor.StateGraphHost
                 SceneOperators,
                 DescribeOperatorBoundary);
 
+            DrawRestoreBindingSection();
+
             DrawPropertiesExcluding(
                 serializedObject,
                 "intentSources",
                 "operators",
+                "contextRestoreBinding",
                 "m_Script");
 
             serializedObject.ApplyModifiedProperties();
@@ -161,6 +164,186 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
 
             return found;
+        }
+
+        // ----- restore binding chain -----
+
+        private void DrawRestoreBindingSection()
+        {
+            EditorGUILayout.LabelField("Context Restore Binding", EditorStyles.boldLabel);
+
+            var host = (CoCoStateGraphHost)target;
+            SerializedProperty rootProperty =
+                serializedObject.FindProperty("contextRestoreBinding");
+            MonoBehaviour root = rootProperty.objectReferenceValue as MonoBehaviour;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUI.BeginChangeCheck();
+                UnityEngine.Object picked = EditorGUILayout.ObjectField(
+                    root,
+                    typeof(MonoBehaviour),
+                    true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    rootProperty.objectReferenceValue = picked;
+                }
+
+                if (GUILayout.Button("Auto-wire chain", EditorStyles.miniButton))
+                {
+                    AutoWireRestoreChain(rootProperty);
+                }
+            }
+
+            if (root != null && !(root is ICoCoContextRestoreBinding))
+            {
+                EditorGUILayout.HelpBox(
+                    root.name + " does not implement ICoCoContextRestoreBinding — " +
+                    "restore projection will be silently skipped.",
+                    MessageType.Error);
+            }
+            else if (root != null && !CoCoStateGraphHostBoundary.Contains(host, root))
+            {
+                EditorGUILayout.HelpBox(
+                    root.name + " is outside the Host boundary — the Temporal " +
+                    "controller drops it silently at startup. Move it into the " +
+                    "Host subtree or pick another component.",
+                    MessageType.Warning);
+            }
+            else if (root != null)
+            {
+                DrawRestoreChainPreview(root);
+            }
+            else
+            {
+                EditorGUILayout.LabelField(
+                    "no root wired — save/load and temporal restore will not " +
+                    "project the world back onto the ledger",
+                    EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.Space(4f);
+        }
+
+        private static void DrawRestoreChainPreview(MonoBehaviour root)
+        {
+            var seen = new HashSet<UnityEngine.Object>();
+            MonoBehaviour current = root;
+            int guard = 0;
+            while (current != null && guard++ < 32)
+            {
+                bool valid = current is ICoCoContextRestoreBinding;
+                EditorGUILayout.LabelField(
+                    (current == root ? "root → " : "      → ") +
+                    current.GetType().Name + " @ " + current.name,
+                    valid ? EditorStyles.miniLabel : EditorStyles.boldLabel);
+                if (!valid || !seen.Add(current))
+                {
+                    if (!valid)
+                    {
+                        EditorGUILayout.HelpBox(
+                            current.name + " breaks the chain — it implements no " +
+                            "ICoCoContextRestoreBinding.",
+                            MessageType.Error);
+                    }
+
+                    return;
+                }
+
+                current = (current as ICoCoTemporalDecoratorBinding)
+                    ?.DownstreamRestoreBinding;
+            }
+        }
+
+        /// <summary>
+        /// Scans the Host boundary for every ICoCoContextRestoreBinding
+        /// implementation, wires the first as the Host root and chains the
+        /// rest through DownstreamRestoreBinding — one click instead of
+        /// two drag-and-drops across weakly-typed fields.
+        /// </summary>
+        private void AutoWireRestoreChain(SerializedProperty rootProperty)
+        {
+            var host = (CoCoStateGraphHost)target;
+            var chain = new List<MonoBehaviour>();
+            foreach (MonoBehaviour component in
+                     FindObjectsByType<MonoBehaviour>(
+                         FindObjectsInactive.Include,
+                         FindObjectsSortMode.None))
+            {
+                if (component != null &&
+                    component is ICoCoContextRestoreBinding &&
+                    CoCoStateGraphHostBoundary.Contains(host, component))
+                {
+                    chain.Add(component);
+                }
+            }
+
+            if (chain.Count == 0)
+            {
+                Debug.LogWarning(
+                    "[CoCoFlow] No ICoCoContextRestoreBinding components found " +
+                    "inside the Host boundary — nothing to wire.");
+                return;
+            }
+
+            SortByHierarchy(chain);
+
+            rootProperty.objectReferenceValue = chain[0];
+            for (int index = 0; index + 1 < chain.Count; index++)
+            {
+                SerializedObject upstream = new SerializedObject(chain[index]);
+                SerializedProperty downstream = upstream.FindProperty(
+                    "downstreamRestoreBinding");
+                if (downstream != null)
+                {
+                    downstream.objectReferenceValue = chain[index + 1];
+                    upstream.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+
+            // Drop any stale downstream on the tail.
+            SerializedObject tail = new SerializedObject(chain[chain.Count - 1]);
+            SerializedProperty tailDownstream = tail.FindProperty(
+                "downstreamRestoreBinding");
+            if (tailDownstream != null)
+            {
+                tailDownstream.objectReferenceValue = null;
+                tail.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            Debug.Log("[CoCoFlow] Restore chain wired: " +
+                string.Join(" -> ", chain.ConvertAll(c => c.GetType().Name)));
+        }
+
+        private static void SortByHierarchy(List<MonoBehaviour> components)
+        {
+            components.Sort((left, right) =>
+            {
+                string leftPath = BuildHierarchyPath(left.transform);
+                string rightPath = BuildHierarchyPath(right.transform);
+                int order = string.CompareOrdinal(leftPath, rightPath);
+                if (order != 0)
+                {
+                    return order;
+                }
+
+                return string.CompareOrdinal(
+                    left.GetType().Name,
+                    right.GetType().Name);
+            });
+        }
+
+        private static string BuildHierarchyPath(Transform transform)
+        {
+            var path = new StringBuilder(transform.name);
+            Transform parent = transform.parent;
+            while (parent != null)
+            {
+                path.Insert(0, parent.name + "/");
+                parent = parent.parent;
+            }
+
+            return path.ToString();
         }
 
         // ----- list drawing -----
