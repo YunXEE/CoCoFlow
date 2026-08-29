@@ -14,58 +14,24 @@ namespace CoCoFlow.Editor.Core
 {
     public sealed class CoCoFlowSetupAssistant : EditorWindow
     {
-        private const string PackageName = "com.yunxee.cocoflow";
         private const string ManifestPath = "Packages/manifest.json";
         private const string UniTaskPackageName = "com.cysharp.unitask";
         private const string RecommendedUniTaskGitUrl = "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11";
+        private const string AddressablesPackageName = "com.unity.addressables";
+        private const string RecommendedAddressablesVersion =
+            AddressablesVersionPolicy.MinimumVersion;
+        private const string RecommendedAddressablesPackage =
+            AddressablesPackageName + "@" + RecommendedAddressablesVersion;
         private const string NewtonsoftPackageName = "com.unity.nuget.newtonsoft-json";
         private const string NewtonsoftMinimumVersion = "3.2.2";
         private const string CinemachineAssemblyName = "Unity.Cinemachine";
-        private const string SplinesAssemblyName = "Unity.Splines";
-        private const string FusionAssemblyName = "Fusion.Unity";
         private const string OpenUpmRegistryName = "package.openupm.com";
         private const string OpenUpmRegistryUrl = "https://package.openupm.com";
         private const string UniTaskScope = "com.cysharp.unitask";
         private const string UniTaskDefine = "COCOFLOW_UNITASK_SUPPORT";
         private const string DotweenDefine = "COCOFLOW_DOTWEEN_SUPPORT";
         private const string UniTaskDotweenDefine = "UNITASK_DOTWEEN_SUPPORT";
-        private const string FusionDefine = "COCOFLOW_FUSION_SUPPORT";
-
-        private static readonly AddonDefinition[] Addons =
-        {
-            new AddonDefinition(
-                "network-samples",
-                "Network Samples",
-                "Samples~/Network Samples/CoCoFlow/Network",
-                "Samples~/Network Samples/README.md",
-                "Assets/CoCoFlow/Network",
-                new[] { FusionDefine },
-                new[] { FusionAssemblyName }),
-            new AddonDefinition(
-                "chest-samples",
-                "Chest Samples",
-                "Samples~/Chest Samples/CoCoFlow/Chest Samples",
-                "Samples~/Chest Samples/README.md",
-                "Assets/CoCoFlow/Chest",
-                new string[0],
-                new string[0]),
-            new AddonDefinition(
-                "enemy-samples",
-                "Enemy Samples",
-                "Samples~/Enemy Samples/CoCoFlow/Enemy Samples",
-                "Samples~/Enemy Samples/README.md",
-                "Assets/CoCoFlow/Enemy",
-                new string[0],
-                new[] { SplinesAssemblyName, "Unity.Mathematics" }),
-            new AddonDefinition(
-                "player-samples",
-                "Player Samples",
-                "Samples~/Player Samples/CoCoFlow/Player Samples",
-                "Samples~/Player Samples/README.md",
-                "Assets/CoCoFlow/Player",
-                new string[0],
-                new string[0])
-        };
+        private const string UniTaskSupportedRange = CoCoUniTaskVersionPolicy.SupportedRange;
 
         private static readonly ModuleDefinition[] Modules =
         {
@@ -80,43 +46,151 @@ namespace CoCoFlow.Editor.Core
                 new[] { "Unity.InputSystem" },
                 "Input System runtime module."),
             new ModuleDefinition(
+                "Input Prompt (UI)",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
+                new[]
+                {
+                    "Unity.InputSystem",
+                    "CoCoFlow.Runtime.Modules.Input",
+                    "CoCoFlow.Runtime.Modules.Input.UI",
+                    "CoCoFlow.Runtime.Modules.Localization.UI",
+                    "CoCoFlow.Runtime.Modules.UI"
+                },
+                "Optional UI V2 binding display, device glyph, and localized prompt presentation."),
+            new ModuleDefinition(
+                "Localization",
+                new string[0],
+                new[]
+                {
+                    "Unity.Localization",
+                    "CoCoFlow.Runtime.Modules.Localization"
+                },
+                "Official Unity Localization core integration and diagnostics."),
+            new ModuleDefinition(
+                "Localization (UI)",
+                new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
+                new[]
+                {
+                    "Unity.Localization",
+                    "Unity.TextMeshPro",
+                    "CoCoFlow.Runtime.Modules.Localization.UI",
+                    "CoCoFlow.Runtime.Modules.UI"
+                },
+                "Optional UI V2 localized text Widget."),
+            new ModuleDefinition(
                 "Camera",
                 new string[0],
                 new[] { CinemachineAssemblyName },
                 "Cinemachine runtime module."),
             new ModuleDefinition(
-                "Map",
+                "Content (Direct)",
                 new[] { UniTaskDefine },
-                new[] { "UniTask", "Unity.Addressables" },
-                "Addressables scene streaming module."),
+                new[] { "UniTask" },
+                "Direct Asset, Prefab Source, and additive Scene ownership."),
             new ModuleDefinition(
-                "Enemy AI",
-                new string[0],
-                new[] { SplinesAssemblyName, "Unity.Mathematics" },
-                "Enemy intent, vision, engagement, and spline navigation foundation."),
+                "Content (Addressables)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "Unity.Addressables",
+                    "CoCoFlow.Runtime.Content.Addressables"
+                },
+                "Optional Addressables backend; enabled by assembly version detection."),
+            new ModuleDefinition(
+                "Pooling",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Content",
+                    "CoCoFlow.Runtime.Pooling"
+                },
+                "Content-backed GameObject pooling using Unity's private pool implementation."),
+            new ModuleDefinition(
+                "Pooling (Temporal)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Pooling",
+                    "CoCoFlow.Runtime.Pooling.Temporal",
+                    "CoCoFlow.Runtime.StateGraphHost"
+                },
+                "Optional Host-scoped temporal retention sidecar; not world rollback."),
+            new ModuleDefinition(
+                "Map (Region Fidelity)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Content",
+                    "CoCoFlow.Runtime.Modules.Map"
+                },
+                "Compiled Region Profiles, scoped Demand Leases, per-Chunk fidelity, and transactional participants."),
+            new ModuleDefinition(
+                "Map (Pooling)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Modules.Map",
+                    "CoCoFlow.Runtime.Pooling",
+                    "CoCoFlow.Runtime.Modules.Map.Pooling"
+                },
+                "Optional Region participant adapter with committed-node PoolScope ownership."),
+            new ModuleDefinition(
+                "Map (Temporal)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Modules.Map",
+                    "CoCoFlow.Runtime.StateGraphHost",
+                    "CoCoFlow.Runtime.Modules.Map.Temporal"
+                },
+                "Map-first availability and retention decorator; it does not replay Map state."),
             new ModuleDefinition(
                 "Animation",
                 new string[0],
-                new string[0],
-                "Animator helpers, SMB event bridge, and editor injection tooling."),
+                new[]
+                {
+                    "CoCoFlow.Runtime.Animation.Contracts",
+                    "CoCoFlow.Runtime.Modules.Animation"
+                },
+                "Animator Controller parameter/trigger and manual Playable Operators."),
+            new ModuleDefinition(
+                "Animation (DOTween)",
+                new[] { DotweenDefine },
+                new[]
+                {
+                    "DOTween",
+                    "CoCoFlow.Runtime.Modules.Animation",
+                    "CoCoFlow.Runtime.Modules.Animation.DOTween"
+                },
+                "Optional Operator-owned manual modulation; never advances global tweens."),
+            new ModuleDefinition(
+                "Animation (UniTask)",
+                new[] { UniTaskDefine },
+                new[]
+                {
+                    "UniTask",
+                    "CoCoFlow.Runtime.Modules.Animation",
+                    "CoCoFlow.Runtime.Modules.Animation.UniTask"
+                },
+                "Optional playback-token waiter; cancellation does not stop playback."),
             new ModuleDefinition(
                 "UI",
                 new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine },
-                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro" },
-                "DOTween animated UI module."),
-            new ModuleDefinition(
-                "Network Samples",
-                new[] { FusionDefine },
-                new[] { FusionAssemblyName },
-                "Optional Fusion network compatibility sample.")
+                new[] { "UniTask", "DOTween.Modules", "UniTask.DOTween", "Unity.TextMeshPro", "CoCoFlow.Runtime.Content" },
+                "DOTween animated UI module.")
         };
 
-        private readonly Dictionary<string, AddonInstallMode> _addonInstallModes = new Dictionary<string, AddonInstallMode>();
-        private readonly HashSet<string> _selectedAddonIds = new HashSet<string>();
         private readonly List<string> _log = new List<string>();
         private DependencyStatus _status;
         private Vector2 _scrollPosition;
         private AddRequest _uniTaskRequest;
+        private AddRequest _addressablesRequest;
         private bool _isBusy;
 
         [MenuItem("CoCoFlow/Setup/Setup Assistant")]
@@ -136,6 +210,7 @@ namespace CoCoFlow.Editor.Core
         private void OnDisable()
         {
             EditorApplication.update -= TickPackageRequest;
+            EditorApplication.update -= TickAddressablesPackageRequest;
         }
 
         private void OnGUI()
@@ -149,7 +224,6 @@ namespace CoCoFlow.Editor.Core
             DrawDefines();
             DrawModules();
             DrawActions();
-            DrawAddons();
             DrawLog();
             EditorGUILayout.EndScrollView();
         }
@@ -159,7 +233,7 @@ namespace CoCoFlow.Editor.Core
             EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("CoCoFlow Setup Assistant", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Configure project dependencies, enable CoCoFlow support defines, and install optional add-ons.",
+                "Configure project dependencies and enable CoCoFlow support defines.",
                 MessageType.Info);
         }
 
@@ -171,11 +245,13 @@ namespace CoCoFlow.Editor.Core
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
                 DrawStatusLine("UniTask", _status.UniTaskMessage, _status.UniTaskState);
+                DrawStatusLine(
+                    "Addressables (Optional)",
+                    _status.AddressablesMessage,
+                    _status.AddressablesState);
                 DrawStatusLine("Newtonsoft", _status.NewtonsoftMessage, _status.NewtonsoftState);
                 DrawStatusLine("Cinemachine", _status.CinemachineInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.CinemachineInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("Splines", _status.SplinesInstalled ? "Detected from package dependency." : "Missing. It should resolve from CoCoFlow package dependencies.", _status.SplinesInstalled ? MessageType.Info : MessageType.Warning);
                 DrawStatusLine("DOTween", _status.DotweenMessage, _status.DotweenModulesInstalled ? MessageType.Info : MessageType.Warning);
-                DrawStatusLine("Photon Fusion", _status.FusionInstalled ? "Detected." : "Missing. Required only by Network Samples.", _status.FusionInstalled ? MessageType.Info : MessageType.Warning);
 
                 if (_status.HasUniTaskOpenUpmScope)
                     DrawStatusLine("OpenUPM", "UniTask scope is still present and will be removed by Apply Recommended Dependencies.", MessageType.Warning);
@@ -192,7 +268,6 @@ namespace CoCoFlow.Editor.Core
                 DrawDefineLine(UniTaskDefine);
                 DrawDefineLine(DotweenDefine);
                 DrawDefineLine(UniTaskDotweenDefine);
-                DrawDefineLine(FusionDefine);
             }
         }
 
@@ -230,79 +305,23 @@ namespace CoCoFlow.Editor.Core
                         RefreshStatus();
                 }
             }
-        }
-
-        private void DrawAddons()
-        {
-            EnsureAddonState();
-
-            EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("Add-ons", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "Select add-ons to import. Each add-on installs into its own Assets/CoCoFlow folder.",
-                MessageType.Info);
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                using (new EditorGUI.DisabledScope(_isBusy))
+                using (new EditorGUI.DisabledScope(
+                           _isBusy || !_status.AddressablesInstallRecommended))
                 {
-                    if (GUILayout.Button("Select All", GUILayout.Height(24f)))
-                    {
-                        foreach (var addon in Addons)
-                            _selectedAddonIds.Add(addon.Id);
-                    }
-
-                    if (GUILayout.Button("Clear Selection", GUILayout.Height(24f)))
-                        _selectedAddonIds.Clear();
-
-                    using (new EditorGUI.DisabledScope(SelectedAddonInstallCount() == 0))
-                    {
-                        if (GUILayout.Button("Install Selected Add-ons", GUILayout.Height(24f)))
-                            InstallSelectedAddons();
-                    }
+                    if (GUILayout.Button(
+                            "Install Supported Addressables " +
+                            RecommendedAddressablesVersion,
+                            GUILayout.Height(26f)))
+                        InstallOptionalAddressables();
                 }
-            }
 
-            foreach (var addon in Addons)
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    SetAddonSelected(
-                        addon,
-                        EditorGUILayout.ToggleLeft(addon.DisplayName, IsAddonSelected(addon), EditorStyles.boldLabel));
-                    EditorGUILayout.LabelField("Destination", addon.DestinationAssetPath);
-                    EditorGUILayout.LabelField("Required Defines", FormatOptionalList(addon.RequiredSupportDefines));
-                    EditorGUILayout.LabelField("Required Assemblies", FormatOptionalList(addon.RequiredAssemblies));
-
-                    var missingDefines = addon.RequiredSupportDefines.Where(define => !_status.DefinePresentOnAllTargets(define)).ToArray();
-                    var missingAssemblies = addon.RequiredAssemblies.Where(assembly => !_status.AssemblyAvailable(assembly)).ToArray();
-                    if (missingDefines.Length == 0 && missingAssemblies.Length == 0)
-                    {
-                        EditorGUILayout.HelpBox("Dependencies are ready.", MessageType.Info);
-                    }
-                    else
-                    {
-                        if (missingAssemblies.Length > 0)
-                            EditorGUILayout.LabelField("Missing Assemblies", string.Join(", ", missingAssemblies), EditorStyles.wordWrappedLabel);
-                        if (missingDefines.Length > 0)
-                            EditorGUILayout.LabelField("Missing Defines", string.Join(", ", missingDefines), EditorStyles.wordWrappedLabel);
-                        var message = missingDefines.Length > 0
-                            ? "Can be installed now, but compilation stays disabled until missing dependencies/defines are ready."
-                            : "Can be installed now, but sample functionality may require the missing assemblies.";
-                        EditorGUILayout.HelpBox(message, MessageType.Warning);
-                    }
-
-                    var installMode = GetAddonInstallMode(addon);
-                    var nextInstallMode = (AddonInstallMode)EditorGUILayout.EnumPopup("Install Mode", installMode);
-                    if (nextInstallMode != installMode)
-                        _addonInstallModes[addon.Id] = nextInstallMode;
-
-                    using (new EditorGUI.DisabledScope(_isBusy || GetAddonInstallMode(addon) == AddonInstallMode.Skip))
-                    {
-                        if (GUILayout.Button("Install This Add-on", GUILayout.Height(28f)))
-                            InstallAddon(addon, GetAddonInstallMode(addon));
-                    }
-                }
+                EditorGUILayout.LabelField(
+                    "Adds the optional project dependency only; no global support define is written.",
+                    EditorStyles.wordWrappedMiniLabel,
+                    GUILayout.MinHeight(26f));
             }
         }
 
@@ -385,11 +404,6 @@ namespace CoCoFlow.Editor.Core
             return string.Join(", ", targets.Take(maxVisibleTargets).ToArray()) + " +" + (targets.Count - maxVisibleTargets);
         }
 
-        private static string FormatOptionalList(string[] values)
-        {
-            return values == null || values.Length == 0 ? "None" : string.Join(", ", values);
-        }
-
         private void ApplyRecommendedDependencies()
         {
             _log.Clear();
@@ -447,6 +461,51 @@ namespace CoCoFlow.Editor.Core
             RefreshStatus();
         }
 
+        private void InstallOptionalAddressables()
+        {
+            _log.Clear();
+
+            try
+            {
+                _addressablesRequest = Client.Add(RecommendedAddressablesPackage);
+                _isBusy = true;
+                AddLog("Requested optional Addressables dependency: " + RecommendedAddressablesPackage);
+                EditorApplication.update -= TickAddressablesPackageRequest;
+                EditorApplication.update += TickAddressablesPackageRequest;
+            }
+            catch (Exception ex)
+            {
+                _isBusy = false;
+                AddLog("ERROR: Failed to start optional Addressables install. " + ex.Message);
+                Debug.LogError("[CoCoFlow Setup] Failed to start optional Addressables install:\n" + ex);
+                RefreshStatus();
+            }
+        }
+
+        private void TickAddressablesPackageRequest()
+        {
+            if (_addressablesRequest == null || !_addressablesRequest.IsCompleted)
+                return;
+
+            EditorApplication.update -= TickAddressablesPackageRequest;
+            _isBusy = false;
+
+            if (_addressablesRequest.Status == StatusCode.Failure)
+            {
+                var message = _addressablesRequest.Error != null
+                    ? _addressablesRequest.Error.message
+                    : "Unknown Package Manager error.";
+                AddLog("ERROR: Optional Addressables install failed. " + message);
+                Debug.LogError("[CoCoFlow Setup] Optional Addressables install failed: " + message);
+                RefreshStatus();
+                return;
+            }
+
+            AddLog("Optional Addressables dependency installed.");
+            AssetDatabase.Refresh();
+            RefreshStatus();
+        }
+
         private void ConfigureProjectManifest()
         {
             var manifest = LoadManifest();
@@ -474,8 +533,22 @@ namespace CoCoFlow.Editor.Core
 
             if (manifest.Changed)
             {
-                File.WriteAllText(ManifestPath, manifest.Root.ToJson(0) + Environment.NewLine, new UTF8Encoding(false));
-                AddLog("Updated Packages/manifest.json.");
+                string nextManifest =
+                    manifest.Root.ToJson(0) + Environment.NewLine;
+                if (!CoCoAtomicFileTransaction.TryReplaceUtf8(
+                        ManifestPath,
+                        nextManifest,
+                        IsValidManifestJson,
+                        out string backupPath,
+                        out string error))
+                {
+                    throw new IOException(
+                        "Atomic manifest replacement failed: " + error);
+                }
+
+                AddLog(
+                    "Updated Packages/manifest.json atomically. Backup: " +
+                    backupPath + ".");
             }
             else
             {
@@ -519,26 +592,121 @@ namespace CoCoFlow.Editor.Core
 
         private void ApplyAvailableSupportDefines(bool uniTaskInstallSucceeded)
         {
-            var defines = new List<string>();
-            if (uniTaskInstallSucceeded || IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask"))
-                defines.Add(UniTaskDefine);
+            // D-02 define 权威状态机：UPM 注册 ⇒ resolved dependency 为唯一权威；
+            // 仅「无 UPM 包但程序集存在」（unitypackage）才允许手动 define；
+            // 两者皆无 ⇒ 模块缺失。
+            string unitaskDependency = ReadManifestUniTaskDependency();
+            bool assemblyAvailable = uniTaskInstallSucceeded ||
+                                     IsAssemblyInstalled("UniTask") ||
+                                     IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            var form = ClassifyUniTaskForm(!string.IsNullOrEmpty(unitaskDependency), assemblyAvailable);
+            var compatibility = CoCoUniTaskVersionPolicy.Evaluate(unitaskDependency);
+            bool uniTaskUsable;
 
-            if (IsDotweenModuleInstalled())
+            if (form == CoCoUniTaskInstallForm.UpmRegistered)
             {
-                defines.Add(DotweenDefine);
-                defines.Add(UniTaskDotweenDefine);
+                // UPM 形态：无论版本是否兼容，都必须移除遗留全局 define，
+                // 防止其旁路 versionDefines 的版本边界；失败 = 显式 partial/error。
+                RemoveDefinesFromAllValidTargets(UniTaskDefine);
+
+                if (compatibility == CoCoUniTaskVersionCompatibility.BelowMinimum ||
+                    compatibility == CoCoUniTaskVersionCompatibility.AtOrAboveMaximum)
+                {
+                    AddLog("ERROR: UniTask UPM version is outside " + UniTaskSupportedRange +
+                          " (" + unitaskDependency + "). UniTask-linked assemblies stay disabled;" +
+                          " assembly-only fallback is not allowed.");
+                    uniTaskUsable = false;
+                }
+                else
+                {
+                    AddLog("UniTask support define is managed automatically by asmdef versionDefines " +
+                           UniTaskSupportedRange + ".");
+                    uniTaskUsable = true;
+                }
+            }
+            else
+            {
+                uniTaskUsable = form == CoCoUniTaskInstallForm.AssemblyOnly;
+                if (uniTaskUsable)
+                    AddLog("UniTask detected as assembly-only (unitypackage). Manual support define is required and allowed.");
             }
 
-            if (IsFusionInstalled())
-                defines.Add(FusionDefine);
+            string[] defines = SelectAvailableSupportDefines(
+                uniTaskUsable,
+                IsDotweenInstalled(),
+                IsDotweenModuleInstalled(),
+                IsAssemblyInstalled("UniTask.DOTween"));
 
-            if (defines.Count == 0)
+            if (form == CoCoUniTaskInstallForm.UpmRegistered)
+            {
+                // UniTask define 已由 versionDefines 管理，不进入手动集合。
+                defines = defines.Where(define => define != UniTaskDefine).ToArray();
+            }
+
+            if (defines.Length == 0)
             {
                 AddLog("No support defines were added because dependencies are not available yet.");
                 return;
             }
 
-            AddDefinesToAllValidTargets(defines.ToArray());
+            AddDefinesToAllValidTargets(defines);
+        }
+
+        internal static CoCoUniTaskInstallForm ClassifyUniTaskForm(
+            bool manifestHasUniTaskDependency,
+            bool uniTaskAssemblyAvailable)
+        {
+            if (manifestHasUniTaskDependency)
+                return CoCoUniTaskInstallForm.UpmRegistered;
+
+            return uniTaskAssemblyAvailable
+                ? CoCoUniTaskInstallForm.AssemblyOnly
+                : CoCoUniTaskInstallForm.None;
+        }
+
+        private string ReadManifestUniTaskDependency()
+        {
+            try
+            {
+                var root = LoadManifest().Root;
+                if (root.TryGetObject("dependencies", out var dependencies) &&
+                    dependencies.TryGetString(UniTaskPackageName, out var dependency))
+                    return dependency;
+            }
+            catch
+            {
+                // manifest 缺失/损坏时按无 UPM 注册处理，交由程序集探测。
+            }
+
+            return null;
+        }
+
+        internal static string[] SelectAvailableSupportDefines(
+            bool uniTaskAvailable,
+            bool dotweenAvailable,
+            bool dotweenModulesAvailable,
+            bool uniTaskDotweenAvailable)
+        {
+            var defines = new List<string>();
+            if (uniTaskAvailable)
+            {
+                defines.Add(UniTaskDefine);
+            }
+
+            if (dotweenAvailable)
+            {
+                defines.Add(DotweenDefine);
+            }
+
+            if (uniTaskAvailable &&
+                dotweenAvailable &&
+                dotweenModulesAvailable &&
+                uniTaskDotweenAvailable)
+            {
+                defines.Add(UniTaskDotweenDefine);
+            }
+
+            return defines.ToArray();
         }
 
         private void AddDefinesToAllValidTargets(params string[] definesToAdd)
@@ -575,210 +743,70 @@ namespace CoCoFlow.Editor.Core
                 AddLog("Skipped " + skippedTargets.Count + " unsupported target group(s): " + FormatTargetList(skippedTargets) + ".");
         }
 
-        private void InstallAddon(AddonDefinition addon, AddonInstallMode mode)
+        private void RemoveDefinesFromAllValidTargets(params string[] definesToRemove)
         {
-            try
-            {
-                if (mode == AddonInstallMode.Skip)
-                {
-                    AddLog(addon.DisplayName + " install skipped.");
-                    return;
-                }
-
-                var source = FindInstallSource(addon);
-                if (source == null)
-                {
-                    AddLog("ERROR: Could not find source for " + addon.DisplayName + ".");
-                    return;
-                }
-
-                var destinationRoot = GetProjectAbsolutePath(addon.DestinationAssetPath);
-                if (Directory.Exists(destinationRoot) && mode == AddonInstallMode.ReplaceExisting)
-                {
-                    FileUtil.DeleteFileOrDirectory(addon.DestinationAssetPath);
-                    FileUtil.DeleteFileOrDirectory(addon.DestinationAssetPath + ".meta");
-                    AddLog("Removed existing " + addon.DestinationAssetPath + ".");
-                }
-
-                CopyDirectory(source.SourceRoot, destinationRoot, mode == AddonInstallMode.ReplaceExisting, addon.DisplayName);
-                CopyReadme(source.ReadmePath, Path.Combine(destinationRoot, "README.md"), mode == AddonInstallMode.ReplaceExisting);
-
-                AssetDatabase.Refresh();
-                var installedFolder = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(addon.DestinationAssetPath);
-                if (installedFolder != null)
-                {
-                    Selection.activeObject = installedFolder;
-                    EditorGUIUtility.PingObject(installedFolder);
-                }
-
-                AddLog(addon.DisplayName + " installed from " + source.Description + ".");
-                RefreshStatus();
-            }
-            catch (Exception ex)
-            {
-                AddLog("ERROR: " + addon.DisplayName + " install failed. " + ex.Message);
-                Debug.LogError("[CoCoFlow Setup] Add-on install failed:\n" + ex);
-            }
-        }
-
-        private void InstallSelectedAddons()
-        {
-            var installed = 0;
-            foreach (var addon in Addons)
-            {
-                if (!IsAddonSelected(addon)) continue;
-
-                var installMode = GetAddonInstallMode(addon);
-                if (installMode == AddonInstallMode.Skip) continue;
-
-                InstallAddon(addon, installMode);
-                installed++;
-            }
-
-            if (installed == 0)
-                AddLog("No add-ons selected for install.");
-        }
-
-        private int SelectedAddonInstallCount()
-        {
-            return Addons.Count(addon => IsAddonSelected(addon) && GetAddonInstallMode(addon) != AddonInstallMode.Skip);
-        }
-
-        private void EnsureAddonState()
-        {
-            foreach (var addon in Addons)
-            {
-                if (!_addonInstallModes.ContainsKey(addon.Id))
-                    _addonInstallModes[addon.Id] = AddonInstallMode.MergeMissing;
-            }
-        }
-
-        private bool IsAddonSelected(AddonDefinition addon)
-        {
-            return addon != null && _selectedAddonIds.Contains(addon.Id);
-        }
-
-        private void SetAddonSelected(AddonDefinition addon, bool selected)
-        {
-            if (addon == null) return;
-
-            if (selected)
-                _selectedAddonIds.Add(addon.Id);
-            else
-                _selectedAddonIds.Remove(addon.Id);
-        }
-
-        private AddonInstallMode GetAddonInstallMode(AddonDefinition addon)
-        {
-            if (addon == null) return AddonInstallMode.Skip;
-            if (_addonInstallModes.TryGetValue(addon.Id, out var mode)) return mode;
-
-            _addonInstallModes[addon.Id] = AddonInstallMode.MergeMissing;
-            return AddonInstallMode.MergeMissing;
-        }
-
-        private InstallSource FindInstallSource(AddonDefinition addon)
-        {
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CoCoFlowSetupAssistant).Assembly);
-            if (packageInfo != null && packageInfo.name == PackageName && !string.IsNullOrEmpty(packageInfo.resolvedPath))
-            {
-                var sourceRoot = Path.Combine(packageInfo.resolvedPath, addon.SourceRelativePath);
-                if (Directory.Exists(sourceRoot))
-                {
-                    return new InstallSource(
-                        sourceRoot,
-                        Path.Combine(packageInfo.resolvedPath, addon.ReadmeRelativePath),
-                        "package Samples~");
-                }
-            }
-
-            var samplesRoot = Path.Combine(Application.dataPath, "Samples", "CoCoFlow");
-            if (!Directory.Exists(samplesRoot))
-                return null;
-
-            var expectedSuffix = "/" + GetSampleContentRelativePath(addon.SourceRelativePath);
-
-            foreach (var sourceRoot in Directory.GetDirectories(samplesRoot, Path.GetFileName(addon.SourceRelativePath), SearchOption.AllDirectories))
-            {
-                if (!NormalizePath(sourceRoot).EndsWith(expectedSuffix, StringComparison.Ordinal))
-                    continue;
-
-                var sampleRoot = ResolveImportedSampleRoot(sourceRoot, expectedSuffix);
-                return new InstallSource(sourceRoot, Path.Combine(sampleRoot, "README.md"), "imported Assets/Samples copy");
-            }
-
-            return null;
-        }
-
-        private static string ResolveImportedSampleRoot(string sourceRoot, string sourceSuffix)
-        {
-            var normalizedSourceRoot = NormalizePath(sourceRoot);
-            if (!normalizedSourceRoot.EndsWith(sourceSuffix, StringComparison.Ordinal))
-                return Directory.GetParent(sourceRoot).FullName;
-
-            var sampleRootLength = normalizedSourceRoot.Length - sourceSuffix.Length;
-            return sourceRoot.Substring(0, sampleRootLength).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-
-        private static string GetSampleContentRelativePath(string sourceRelativePath)
-        {
-            var normalizedPath = NormalizePath(sourceRelativePath);
-            const string samplesPrefix = "Samples~/";
-            if (!normalizedPath.StartsWith(samplesPrefix, StringComparison.Ordinal))
-                return normalizedPath;
-
-            var contentPath = normalizedPath.Substring(samplesPrefix.Length);
-            var firstSlashIndex = contentPath.IndexOf('/');
-            return firstSlashIndex < 0 ? contentPath : contentPath.Substring(firstSlashIndex + 1);
-        }
-
-        private void CopyDirectory(string sourceRoot, string destinationRoot, bool overwrite, string label)
-        {
-            Directory.CreateDirectory(destinationRoot);
-
-            var copied = 0;
-            var skipped = 0;
-
-            foreach (var sourceFile in Directory.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = GetRelativePath(sourceRoot, sourceFile);
-                var destinationFile = Path.Combine(destinationRoot, relativePath);
-                var destinationDirectory = Path.GetDirectoryName(destinationFile);
-
-                if (!Directory.Exists(destinationDirectory))
-                    Directory.CreateDirectory(destinationDirectory);
-
-                if (File.Exists(destinationFile) && !overwrite)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                File.Copy(sourceFile, destinationFile, overwrite);
-                copied++;
-            }
-
-            AddLog(label + ": copied " + copied + " file(s).");
-            if (skipped > 0)
-                AddLog(label + ": skipped " + skipped + " existing file(s).");
-        }
-
-        private void CopyReadme(string sourceReadmePath, string destinationReadmePath, bool overwrite)
-        {
-            if (string.IsNullOrEmpty(sourceReadmePath) || !File.Exists(sourceReadmePath))
-            {
-                AddLog("README.md was not found in the add-on source.");
+            if (definesToRemove == null || definesToRemove.Length == 0)
                 return;
-            }
 
-            if (File.Exists(destinationReadmePath) && !overwrite)
+            var changedTargets = new List<string>();
+            var skippedTargets = new List<string>();
+
+            var extraTargets = new List<NamedBuildTarget>();
+            try { extraTargets.Add(NamedBuildTarget.Server); } catch { }
+
+            foreach (var named in extraTargets)
             {
-                AddLog("Skipped existing README.md.");
-                return;
+                try
+                {
+                    var current = PlayerSettings.GetScriptingDefineSymbols(named);
+                    var defines = SplitDefines(current);
+                    if (!definesToRemove.Any(define => defines.Contains(define)))
+                        continue;
+                    var updated = string.Join(";", defines.Where(define => !definesToRemove.Contains(define)).ToArray());
+                    PlayerSettings.SetScriptingDefineSymbols(named, updated);
+                    changedTargets.Add(named.TargetName);
+                }
+                catch (Exception ex)
+                {
+                    skippedTargets.Add(named.TargetName + " (" + ex.GetType().Name + ")");
+                }
             }
 
-            File.Copy(sourceReadmePath, destinationReadmePath, overwrite);
-            AddLog("Copied README.md.");
+            foreach (BuildTargetGroup group in GetCheckedBuildTargetGroups())
+            {
+                try
+                {
+                    var namedTarget = NamedBuildTarget.FromBuildTargetGroup(group);
+                    var current = PlayerSettings.GetScriptingDefineSymbols(namedTarget);
+                    var defines = SplitDefines(current);
+
+                    if (!definesToRemove.Any(define => defines.Contains(define)))
+                        continue;
+
+                    var updated = string.Join(";", defines.Where(define => !definesToRemove.Contains(define)).ToArray());
+                    PlayerSettings.SetScriptingDefineSymbols(namedTarget, updated);
+                    changedTargets.Add(group.ToString());
+                }
+                catch (Exception ex)
+                {
+                    skippedTargets.Add(group + " (" + ex.GetType().Name + ")");
+                }
+            }
+
+            if (skippedTargets.Count > 0)
+            {
+                // 清理失败 = 显式 partial/error，不得显示成功（D-02 状态机红线）。
+                AddLog("ERROR: Legacy define cleanup incomplete - failed on " + skippedTargets.Count +
+                      " target group(s): " + FormatTargetList(skippedTargets) +
+                      ". Stale manual defines remain and must be resolved manually.");
+                Debug.LogError("[CoCoFlow Setup] Legacy define cleanup failed on: " + FormatTargetList(skippedTargets));
+            }
+            else if (changedTargets.Count > 0)
+            {
+                AddLog("Removed stale manual define(s) from " + changedTargets.Count +
+                      " target group(s): " + FormatTargetList(changedTargets) +
+                      "; versionDefines is now the single authority.");
+            }
         }
 
         private void RefreshStatus()
@@ -800,6 +828,9 @@ namespace CoCoFlow.Editor.Core
                     if (dependencies.TryGetString(UniTaskPackageName, out var unitaskDependency))
                         status.UniTaskDependency = unitaskDependency;
 
+                    if (dependencies.TryGetString(AddressablesPackageName, out var addressablesDependency))
+                        status.AddressablesDependency = addressablesDependency;
+
                     if (dependencies.TryGetString(NewtonsoftPackageName, out var newtonsoftDependency))
                         status.NewtonsoftDependency = newtonsoftDependency;
                 }
@@ -812,27 +843,84 @@ namespace CoCoFlow.Editor.Core
             }
 
             status.UniTaskInstalled = IsAssemblyInstalled("UniTask") || IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+            var unitaskForm = ClassifyUniTaskForm(!string.IsNullOrEmpty(status.UniTaskDependency), status.UniTaskInstalled);
+            var unitaskCompatibility = CoCoUniTaskVersionPolicy.Evaluate(status.UniTaskDependency);
+            status.UniTaskDefineAutomatic = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered &&
+                                            unitaskCompatibility != CoCoUniTaskVersionCompatibility.BelowMinimum &&
+                                            unitaskCompatibility != CoCoUniTaskVersionCompatibility.AtOrAboveMaximum;
+            status.UniTaskVersionBlocked = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered &&
+                                           (unitaskCompatibility == CoCoUniTaskVersionCompatibility.BelowMinimum ||
+                                            unitaskCompatibility == CoCoUniTaskVersionCompatibility.AtOrAboveMaximum);
+            status.AddressablesInstalled = IsAssemblyInstalled("Unity.Addressables") ||
+                                           IsTypeAvailable(
+                                               "UnityEngine.AddressableAssets.Addressables, Unity.Addressables");
             status.CinemachineInstalled = IsAssemblyInstalled(CinemachineAssemblyName) || IsTypeAvailable("Unity.Cinemachine.CinemachineCamera, Unity.Cinemachine");
-            status.SplinesInstalled = IsAssemblyInstalled(SplinesAssemblyName) || IsTypeAvailable("UnityEngine.Splines.SplineContainer, Unity.Splines");
             status.DotweenInstalled = IsDotweenInstalled();
             status.DotweenModulesInstalled = IsDotweenModuleInstalled();
-            status.FusionInstalled = IsFusionInstalled();
             var checkedTargets = GetCheckedBuildTargetGroups();
             status.CheckedTargetCount = checkedTargets.Count;
-            status.MissingDefineTargets = GetMissingDefineTargets(new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine, FusionDefine }, checkedTargets);
+            // UPM 形态下 UniTask define 由 versionDefines 自动管理，
+            // 不再要求手动出现在 ScriptingDefineSymbols（否则误报 missing）。
+            var manualDefines = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered
+                ? new[] { DotweenDefine, UniTaskDotweenDefine }
+                : new[] { UniTaskDefine, DotweenDefine, UniTaskDotweenDefine };
+            status.MissingDefineTargets = GetMissingDefineTargets(manualDefines, checkedTargets);
+            if (unitaskForm == CoCoUniTaskInstallForm.UpmRegistered && status.UniTaskDefineAutomatic && status.UniTaskInstalled)
+            {
+                // versionDefines is the authority here; record the define as
+                // satisfied so module status does not show it as partial.
+                // UniTaskInstalled is required: an unresolved dependency cannot
+                // emit versionDefines yet (fresh open / failed git fetch).
+                status.MissingDefineTargets[UniTaskDefine] = new List<string>();
+            }
+            else if (status.UniTaskVersionBlocked)
+            {
+                // Blocked UPM version: linked assemblies are disabled; the define
+                // must not be reported as enabled on any target.
+                status.MissingDefineTargets[UniTaskDefine] = checkedTargets.Select(t => t.ToString()).ToList();
+            }
 
             status.AssemblyStates["UniTask"] = status.UniTaskInstalled;
-            status.AssemblyStates["UniTask.Addressables"] = IsAssemblyInstalled("UniTask.Addressables");
             status.AssemblyStates["UniTask.DOTween"] = IsAssemblyInstalled("UniTask.DOTween");
             status.AssemblyStates[CinemachineAssemblyName] = status.CinemachineInstalled;
-            status.AssemblyStates[SplinesAssemblyName] = status.SplinesInstalled;
             status.AssemblyStates["Unity.Addressables"] = IsAssemblyInstalled("Unity.Addressables");
+            status.AssemblyStates["CoCoFlow.Runtime.Content"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Content");
+            status.AssemblyStates["CoCoFlow.Runtime.Content.Addressables"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Content.Addressables");
+            status.AssemblyStates["CoCoFlow.Runtime.Pooling"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Pooling");
+            status.AssemblyStates["CoCoFlow.Runtime.Pooling.Temporal"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Pooling.Temporal");
+            status.AssemblyStates["CoCoFlow.Runtime.StateGraphHost"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.StateGraphHost");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Pooling"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Pooling");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Temporal"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Temporal");
+            status.AssemblyStates["CoCoFlow.Runtime.Animation.Contracts"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Animation.Contracts");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.DOTween"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.DOTween");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.UniTask"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.UniTask");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
+            status.AssemblyStates["Unity.Localization"] =
+                IsAssemblyInstalled("Unity.Localization");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Input.UI"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Input.UI");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Localization"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Localization");
+            status.AssemblyStates["CoCoFlow.Runtime.Modules.Localization.UI"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Localization.UI");
             status.AssemblyStates["Unity.Mathematics"] = IsAssemblyInstalled("Unity.Mathematics");
             status.AssemblyStates["Unity.TextMeshPro"] = IsAssemblyInstalled("Unity.TextMeshPro");
             status.AssemblyStates["DOTween"] = status.DotweenInstalled;
             status.AssemblyStates["DOTween.Modules"] = status.DotweenModulesInstalled;
-            status.AssemblyStates[FusionAssemblyName] = status.FusionInstalled;
 
             status.UpdateMessages();
             return status;
@@ -863,19 +951,12 @@ namespace CoCoFlow.Editor.Core
         private static bool IsDotweenInstalled()
         {
             return IsAssemblyInstalled("DOTween") ||
-                   IsAssemblyInstalled("DOTween.Modules") ||
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
         }
 
         private static bool IsDotweenModuleInstalled()
         {
             return IsAssemblyInstalled("DOTween.Modules");
-        }
-
-        private static bool IsFusionInstalled()
-        {
-            return IsAssemblyInstalled(FusionAssemblyName) ||
-                   IsTypeAvailable("Fusion.NetworkRunner, Fusion.Unity");
         }
 
         private static bool IsAssemblyInstalled(string assemblyName)
@@ -985,6 +1066,18 @@ namespace CoCoFlow.Editor.Core
             return new ManifestDocument(rootObject);
         }
 
+        private static bool IsValidManifestJson(string text)
+        {
+            try
+            {
+                return new JsonParser(text).Parse() is JsonObject;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static JsonObject GetOrCreateObject(JsonObject parent, string key, ManifestDocument manifest)
         {
             if (parent.TryGetObject(key, out var obj))
@@ -994,28 +1087,6 @@ namespace CoCoFlow.Editor.Core
             parent.Set(key, obj);
             manifest.Changed = true;
             return obj;
-        }
-
-        private static string GetProjectAbsolutePath(string assetPath)
-        {
-            var projectRoot = Directory.GetParent(Application.dataPath).FullName;
-            return Path.Combine(projectRoot, assetPath);
-        }
-
-        private static string GetRelativePath(string root, string file)
-        {
-            var normalizedRoot = NormalizePath(root).TrimEnd('/') + "/";
-            var normalizedFile = NormalizePath(file);
-
-            if (!normalizedFile.StartsWith(normalizedRoot, StringComparison.Ordinal))
-                throw new InvalidOperationException("File is outside source root: " + file);
-
-            return normalizedFile.Substring(normalizedRoot.Length);
-        }
-
-        private static string NormalizePath(string path)
-        {
-            return path.Replace('\\', '/');
         }
 
         private static bool IsSemanticVersionLower(string current, string minimum)
@@ -1060,42 +1131,6 @@ namespace CoCoFlow.Editor.Core
             Repaint();
         }
 
-        private enum AddonInstallMode
-        {
-            MergeMissing,
-            ReplaceExisting,
-            Skip
-        }
-
-        private sealed class AddonDefinition
-        {
-            public AddonDefinition(
-                string id,
-                string displayName,
-                string sourceRelativePath,
-                string readmeRelativePath,
-                string destinationAssetPath,
-                string[] requiredSupportDefines,
-                string[] requiredAssemblies)
-            {
-                Id = id;
-                DisplayName = displayName;
-                SourceRelativePath = sourceRelativePath;
-                ReadmeRelativePath = readmeRelativePath;
-                DestinationAssetPath = destinationAssetPath;
-                RequiredSupportDefines = requiredSupportDefines;
-                RequiredAssemblies = requiredAssemblies;
-            }
-
-            public string Id { get; }
-            public string DisplayName { get; }
-            public string SourceRelativePath { get; }
-            public string ReadmeRelativePath { get; }
-            public string DestinationAssetPath { get; }
-            public string[] RequiredSupportDefines { get; }
-            public string[] RequiredAssemblies { get; }
-        }
-
         private sealed class ModuleDefinition
         {
             public ModuleDefinition(
@@ -1116,40 +1151,36 @@ namespace CoCoFlow.Editor.Core
             public string Description { get; }
         }
 
-        private sealed class InstallSource
-        {
-            public InstallSource(string sourceRoot, string readmePath, string description)
-            {
-                SourceRoot = sourceRoot;
-                ReadmePath = readmePath;
-                Description = description;
-            }
-
-            public string SourceRoot { get; }
-            public string ReadmePath { get; }
-            public string Description { get; }
-        }
-
         private sealed class DependencyStatus
         {
             public string ManifestError { get; set; }
             public string UniTaskDependency { get; set; }
+            public string AddressablesDependency { get; set; }
             public string NewtonsoftDependency { get; set; }
             public bool HasUniTaskOpenUpmScope { get; set; }
             public bool UniTaskInstalled { get; set; }
+            public bool UniTaskDefineAutomatic { get; set; }
+            public bool UniTaskVersionBlocked { get; set; }
+            public bool AddressablesInstalled { get; set; }
             public bool CinemachineInstalled { get; set; }
-            public bool SplinesInstalled { get; set; }
             public bool DotweenInstalled { get; set; }
             public bool DotweenModulesInstalled { get; set; }
-            public bool FusionInstalled { get; set; }
             public string UniTaskMessage { get; private set; }
+            public string AddressablesMessage { get; private set; }
             public string NewtonsoftMessage { get; private set; }
             public string DotweenMessage { get; private set; }
             public MessageType UniTaskState { get; private set; }
+            public MessageType AddressablesState { get; private set; }
             public MessageType NewtonsoftState { get; private set; }
             public int CheckedTargetCount { get; set; }
             public Dictionary<string, List<string>> MissingDefineTargets { get; set; } = new Dictionary<string, List<string>>();
             public Dictionary<string, bool> AssemblyStates { get; } = new Dictionary<string, bool>();
+
+            public bool AddressablesInstallRecommended =>
+                string.IsNullOrEmpty(AddressablesDependency) ||
+                AddressablesVersionPolicy.Evaluate(AddressablesDependency) !=
+                AddressablesVersionCompatibility.Supported ||
+                !AddressablesInstalled;
 
             public bool DefinePresentOnAllTargets(string define)
             {
@@ -1166,9 +1197,11 @@ namespace CoCoFlow.Editor.Core
                 if (!string.IsNullOrEmpty(ManifestError))
                 {
                     UniTaskMessage = "Manifest error: " + ManifestError;
+                    AddressablesMessage = "Manifest error: " + ManifestError;
                     NewtonsoftMessage = "Manifest error: " + ManifestError;
                     DotweenMessage = "Manifest error: " + ManifestError;
                     UniTaskState = MessageType.Error;
+                    AddressablesState = MessageType.Error;
                     NewtonsoftState = MessageType.Error;
                     return;
                 }
@@ -1187,6 +1220,69 @@ namespace CoCoFlow.Editor.Core
                 {
                     UniTaskMessage = "Installed from non-recommended source: " + UniTaskDependency;
                     UniTaskState = MessageType.Warning;
+                }
+
+                if (UniTaskVersionBlocked)
+                {
+                    UniTaskMessage = "Installed version is outside " + CoCoUniTaskVersionPolicy.SupportedRange +
+                                    "; UniTask-linked assemblies are disabled (no assembly-only fallback).";
+                    UniTaskState = MessageType.Error;
+                }
+                else if (UniTaskDefineAutomatic)
+                {
+                    UniTaskMessage = "Installed (UPM). Support define is managed automatically by asmdef versionDefines " +
+                                    CoCoUniTaskVersionPolicy.SupportedRange + ".";
+                    UniTaskState = MessageType.Info;
+                }
+
+                if (string.IsNullOrEmpty(AddressablesDependency))
+                {
+                    AddressablesMessage = AddressablesInstalled
+                        ? "Assembly detected without a direct project manifest dependency."
+                        : "Not installed. Direct Content remains available; install only when the Addressables backend is needed.";
+                    AddressablesState = AddressablesInstalled
+                        ? MessageType.Warning
+                        : MessageType.Info;
+                }
+                else
+                {
+                    AddressablesVersionCompatibility compatibility =
+                        AddressablesVersionPolicy.Evaluate(AddressablesDependency);
+                    switch (compatibility)
+                    {
+                        case AddressablesVersionCompatibility.BelowMinimum:
+                            AddressablesMessage = "Version " + AddressablesDependency +
+                                                  " is below the supported range " +
+                                                  AddressablesVersionPolicy.SupportedRange + ".";
+                            AddressablesState = MessageType.Warning;
+                            break;
+                        case AddressablesVersionCompatibility.AtOrAboveMaximum:
+                            AddressablesMessage = "Version " + AddressablesDependency +
+                                                  " is outside the supported range " +
+                                                  AddressablesVersionPolicy.SupportedRange + ".";
+                            AddressablesState = MessageType.Warning;
+                            break;
+                        case AddressablesVersionCompatibility.Supported:
+                            AddressablesMessage = AddressablesInstalled
+                                ? "Installed at " + AddressablesDependency +
+                                  " within supported range " +
+                                  AddressablesVersionPolicy.SupportedRange + "."
+                                : "Dependency " + AddressablesDependency +
+                                  " is configured within supported range " +
+                                  AddressablesVersionPolicy.SupportedRange +
+                                  "; the package may still be resolving.";
+                            AddressablesState = AddressablesInstalled
+                                ? MessageType.Info
+                                : MessageType.Warning;
+                            break;
+                        default:
+                            AddressablesMessage = "Could not verify dependency '" +
+                                                  AddressablesDependency +
+                                                  "' against supported range " +
+                                                  AddressablesVersionPolicy.SupportedRange + ".";
+                            AddressablesState = MessageType.Warning;
+                            break;
+                    }
                 }
 
                 if (string.IsNullOrEmpty(NewtonsoftDependency))
@@ -1617,6 +1713,321 @@ namespace CoCoFlow.Editor.Core
             private Exception Error(string message)
             {
                 return new InvalidDataException(message + " At character " + _index + ".");
+            }
+        }
+    }
+
+    internal enum AddressablesVersionCompatibility
+    {
+        Unknown = 0,
+        BelowMinimum = 1,
+        Supported = 2,
+        AtOrAboveMaximum = 3
+    }
+
+    internal enum CoCoUniTaskInstallForm
+    {
+        None = 0,
+        UpmRegistered = 1,
+        AssemblyOnly = 2
+    }
+
+    internal enum CoCoUniTaskVersionCompatibility
+    {
+        Unknown = 0,
+        BelowMinimum = 1,
+        Supported = 2,
+        AtOrAboveMaximum = 3
+    }
+
+    internal static class CoCoUniTaskVersionPolicy
+    {
+        internal const string MinimumVersion = "2.5.11";
+        internal const string MaximumExclusiveVersion = "3.0.0";
+        internal const string SupportedRange = "[2.5.11,3.0.0)";
+
+        internal static CoCoUniTaskVersionCompatibility Evaluate(string dependency)
+        {
+            string version = ExtractVersion(dependency);
+            if (version == null)
+                return CoCoUniTaskVersionCompatibility.Unknown;
+
+            if (Compare(version, MinimumVersion) < 0)
+                return CoCoUniTaskVersionCompatibility.BelowMinimum;
+
+            return Compare(version, MaximumExclusiveVersion) >= 0
+                ? CoCoUniTaskVersionCompatibility.AtOrAboveMaximum
+                : CoCoUniTaskVersionCompatibility.Supported;
+        }
+
+        // 接受 "2.5.11" 或 git URL 尾缀 "...#2.5.11"；其余（file: 路径等）返回 null → Unknown，
+        // 交由 Unity versionDefines 机制自行评估 resolved 版本。
+        internal static string ExtractVersion(string dependency)
+        {
+            if (string.IsNullOrEmpty(dependency))
+                return null;
+
+            var token = dependency.Trim();
+            var hashIndex = token.LastIndexOf('#');
+            if (hashIndex >= 0)
+                token = token.Substring(hashIndex + 1);
+
+            var parts = token.Split('.');
+            if (parts.Length != 3)
+                return null;
+
+            foreach (var part in parts)
+            {
+                if (!int.TryParse(part, out _))
+                    return null;
+            }
+
+            return token;
+        }
+
+        private static int Compare(string left, string right)
+        {
+            var leftParts = left.Split('.');
+            var rightParts = right.Split('.');
+
+            for (var index = 0; index < 3; index++)
+            {
+                var comparison = int.Parse(leftParts[index]).CompareTo(int.Parse(rightParts[index]));
+                if (comparison != 0)
+                    return comparison;
+            }
+
+            return 0;
+        }
+    }
+
+    internal static class AddressablesVersionPolicy
+    {
+        internal const string MinimumVersion = "2.9.1";
+        internal const string MaximumExclusiveVersion = "3.0.0";
+        internal const string SupportedRange = "[2.9.1,3.0.0)";
+
+        private static readonly SemanticVersion Minimum =
+            SemanticVersion.ParseRequired(MinimumVersion);
+        private static readonly SemanticVersion MaximumExclusive =
+            SemanticVersion.ParseRequired(MaximumExclusiveVersion);
+
+        internal static AddressablesVersionCompatibility Evaluate(string version)
+        {
+            if (!SemanticVersion.TryParse(version, out SemanticVersion parsed))
+            {
+                return AddressablesVersionCompatibility.Unknown;
+            }
+
+            if (parsed.CompareTo(Minimum) < 0)
+            {
+                return AddressablesVersionCompatibility.BelowMinimum;
+            }
+
+            return parsed.CompareTo(MaximumExclusive) >= 0
+                ? AddressablesVersionCompatibility.AtOrAboveMaximum
+                : AddressablesVersionCompatibility.Supported;
+        }
+
+        private readonly struct SemanticVersion : IComparable<SemanticVersion>
+        {
+            private SemanticVersion(
+                int major,
+                int minor,
+                int patch,
+                string[] prereleaseIdentifiers)
+            {
+                Major = major;
+                Minor = minor;
+                Patch = patch;
+                PrereleaseIdentifiers = prereleaseIdentifiers;
+            }
+
+            private int Major { get; }
+            private int Minor { get; }
+            private int Patch { get; }
+            private string[] PrereleaseIdentifiers { get; }
+
+            public int CompareTo(SemanticVersion other)
+            {
+                int comparison = Major.CompareTo(other.Major);
+                if (comparison != 0) return comparison;
+
+                comparison = Minor.CompareTo(other.Minor);
+                if (comparison != 0) return comparison;
+
+                comparison = Patch.CompareTo(other.Patch);
+                if (comparison != 0) return comparison;
+
+                bool hasPrerelease = PrereleaseIdentifiers.Length != 0;
+                bool otherHasPrerelease = other.PrereleaseIdentifiers.Length != 0;
+                if (!hasPrerelease || !otherHasPrerelease)
+                {
+                    if (hasPrerelease == otherHasPrerelease) return 0;
+                    return hasPrerelease ? -1 : 1;
+                }
+
+                int count = Math.Min(
+                    PrereleaseIdentifiers.Length,
+                    other.PrereleaseIdentifiers.Length);
+                for (int index = 0; index < count; index++)
+                {
+                    comparison = CompareIdentifier(
+                        PrereleaseIdentifiers[index],
+                        other.PrereleaseIdentifiers[index]);
+                    if (comparison != 0) return comparison;
+                }
+
+                return PrereleaseIdentifiers.Length.CompareTo(
+                    other.PrereleaseIdentifiers.Length);
+            }
+
+            internal static SemanticVersion ParseRequired(string version)
+            {
+                if (TryParse(version, out SemanticVersion parsed))
+                {
+                    return parsed;
+                }
+
+                throw new InvalidOperationException(
+                    "The frozen Addressables version boundary is invalid: " + version);
+            }
+
+            internal static bool TryParse(
+                string version,
+                out SemanticVersion parsed)
+            {
+                parsed = default;
+                if (string.IsNullOrWhiteSpace(version)) return false;
+
+                string value = version.Trim();
+                string buildMetadata = string.Empty;
+                int buildIndex = value.IndexOf('+');
+                if (buildIndex >= 0)
+                {
+                    buildMetadata = value.Substring(buildIndex + 1);
+                    value = value.Substring(0, buildIndex);
+                    if (!HasValidIdentifiers(buildMetadata))
+                    {
+                        return false;
+                    }
+                }
+
+                string prerelease = string.Empty;
+                int prereleaseIndex = value.IndexOf('-');
+                if (prereleaseIndex >= 0)
+                {
+                    prerelease = value.Substring(prereleaseIndex + 1);
+                    value = value.Substring(0, prereleaseIndex);
+                    if (string.IsNullOrEmpty(prerelease)) return false;
+                }
+
+                string[] core = value.Split('.');
+                if (core.Length != 3) return false;
+
+                var parts = new int[3];
+                for (int index = 0; index < core.Length; index++)
+                {
+                    if (!TryParseCorePart(core[index], out parts[index]))
+                    {
+                        return false;
+                    }
+                }
+
+                string[] identifiers = string.IsNullOrEmpty(prerelease)
+                    ? Array.Empty<string>()
+                    : prerelease.Split('.');
+                foreach (string identifier in identifiers)
+                {
+                    if (!IsValidIdentifier(identifier)) return false;
+                    if (IsNumeric(identifier) &&
+                        identifier.Length > 1 &&
+                        identifier[0] == '0')
+                    {
+                        return false;
+                    }
+                }
+
+                parsed = new SemanticVersion(
+                    parts[0],
+                    parts[1],
+                    parts[2],
+                    identifiers);
+                return true;
+            }
+
+            private static bool TryParseCorePart(string value, out int part)
+            {
+                part = 0;
+                if (string.IsNullOrEmpty(value)) return false;
+                if (value.Length > 1 && value[0] == '0') return false;
+                foreach (char character in value)
+                {
+                    if (character < '0' || character > '9') return false;
+                }
+
+                return int.TryParse(value, out part) && part >= 0;
+            }
+
+            private static bool IsValidIdentifier(string value)
+            {
+                if (string.IsNullOrEmpty(value)) return false;
+                foreach (char character in value)
+                {
+                    bool asciiDigit = character >= '0' && character <= '9';
+                    bool asciiUpper = character >= 'A' && character <= 'Z';
+                    bool asciiLower = character >= 'a' && character <= 'z';
+                    if (!asciiDigit &&
+                        !asciiUpper &&
+                        !asciiLower &&
+                        character != '-')
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            private static bool HasValidIdentifiers(string value)
+            {
+                if (string.IsNullOrEmpty(value)) return false;
+                foreach (string identifier in value.Split('.'))
+                {
+                    if (!IsValidIdentifier(identifier)) return false;
+                }
+
+                return true;
+            }
+
+            private static bool IsNumeric(string value)
+            {
+                foreach (char character in value)
+                {
+                    if (character < '0' || character > '9') return false;
+                }
+
+                return value.Length != 0;
+            }
+
+            private static int CompareIdentifier(string left, string right)
+            {
+                bool leftNumeric = IsNumeric(left);
+                bool rightNumeric = IsNumeric(right);
+                if (leftNumeric && rightNumeric)
+                {
+                    int lengthComparison = left.Length.CompareTo(right.Length);
+                    return lengthComparison != 0
+                        ? lengthComparison
+                        : string.CompareOrdinal(left, right);
+                }
+
+                if (leftNumeric != rightNumeric)
+                {
+                    return leftNumeric ? -1 : 1;
+                }
+
+                return string.CompareOrdinal(left, right);
             }
         }
     }

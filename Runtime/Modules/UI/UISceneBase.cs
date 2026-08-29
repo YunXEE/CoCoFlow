@@ -11,7 +11,7 @@ namespace CoCoFlow.Runtime.Modules.UI
     public abstract class UISceneBase : MonoBehaviour
     {
         private CanvasGroup _canvasGroup;
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
 
         public string SceneUIName => gameObject.name;
         public bool IsActive => gameObject.activeInHierarchy;

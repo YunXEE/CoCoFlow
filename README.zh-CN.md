@@ -1,165 +1,100 @@
 # CoCoFlow
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+> **版本**：0.4.0 · **Unity**：6000+
+>
+> [English](README.md)
 
-CoCoFlow 是一个面向 Unity 的模块化游戏开发框架，围绕 Context 驱动的 gameplay、显式 State Layer、可复用组件、持久化、编辑器工具和可选 samples 构建。
+CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
+StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
+0.4.0 将当前 Runtime 直接收口为可用版本：停止继续扩张功能，并准确说明包内现有边界。
 
-> **版本**: 0.3.9 · **Unity**: 6000+
+## “成熟”的定义
 
-## 包范围
+本次发布中的 **成熟** 表示：公共 Runtime API 稳定、模块已在实际项目中完成过其职责，
+并且已知边界能够被准确说明。它**不表示**架构最新、效能最高、Editor 工具完整、
+零缺陷或通过商店级认证。
 
-CoCoFlow 提供一套 runtime 基础设施，用于把 gameplay 代码组织在明确的 Context 契约和状态机拓扑之上。这个包关注可复用的框架表面，不提供完整游戏功能。
+| 模块 | 状态 | 准确说明 |
+|---|---|---|
+| Core Engine | **成熟** | Contracts、StateFlow、StateGraph、StateGraphAuthoring Runtime、StateGraphHost；0.4 原生核心。 |
+| Camera | **成熟** | 起源于 0.3.9，当前 Rig、priority、mode API 可稳定使用。 |
+| Persistence | **成熟** | 起源于 0.3.9，现已支持 schema v2、Container 与 StateGraph ContextFrame 持久化。 |
+| UI | **成熟** | 起源于 0.3.9，Panel、Widget、Input、Content ownership API 可用且稳定，但不是高效能 UI 框架。 |
+| Map | **不成熟** | 当前实现可用，但公共 API、配置和序列化结构暂不保证兼容。 |
+| Pooling | **不成熟** | 当前实现可用，但公共 API、配置和序列化结构暂不保证兼容。 |
+| 其他模块 | **暂不评级** | 本次不作成熟或不成熟判断。 |
 
-当前包包含：
+Core Engine 的成熟声明不包含 StateGraph Editor，也不包含
+`Runtime/Core/*.cs` 下旧 EventBus、Services 和 Context 设施。
 
-- Core services、事件总线、Context 契约和 State Layer runtime。
-- Character、Enemy、Item gameplay 基础能力。
-- Input、Camera、UI、Animation、Map、Rendering、Persistence 模块。
-- Setup、状态图查看、持久化存档槽位、Catalog 编辑等编辑器工具。
-- Player、Enemy、Chest、Network 相关可选 samples。
-
-## Runtime 拓扑
+## Core Flow
 
 ```text
-CoCoFlow
-│
-├── Runtime
-│   ├── Core
-│   │   ├── CoCoServices
-│   │   ├── CoCoEventBus
-│   │   ├── ICoCoContext / ICoCoContextProvider<TContext>
-│   │   ├── CoCoStateController / CoCoStateLayer / CoCoStateBase
-│   │   └── CoCoStateDefinition
-│   │
-│   ├── Modules
-│   │   ├── Input
-│   │   ├── Camera
-│   │   ├── UI
-│   │   ├── Animation
-│   │   ├── Map
-│   │   ├── Rendering
-│   │   └── Persistence
-│   │
-│   └── Gameplay
-│       ├── Character
-│       ├── Enemy
-│       └── Item
-│
-└── Editor
-    ├── Core
-    ├── AssetPipeline
-    ├── Modules
-    └── Gameplay
+Raw input / typed events
+        ↓
+Mailbox + Intent 仲裁
+        ↓
+分层 StateGraph Step
+        ↓
+Finalized OperationFrame
+        ↓
+Operators + staged Context candidate
+        ↓
+原子提交
+        ├─ committed ContextFrame
+        ├─ Event Outbox + Trace
+        └─ Temporal / persistence projection
 ```
 
-## 核心概念
+每个 Actor 独占自己的 Runtime 状态。StateLogic 读取不可变输入，只写已声明的
+Operation Section。Host 在启动前校验 binding，每次只暂存一个候选 Tick；整个 Actor
+事务要么一起提交，要么继续保留上一份权威状态。跨对象副作用只从已提交的 Event
+Outbox 离开，不通过直接 State callback 传播。
 
-| 概念 | 说明 |
-|---|---|
-| Context | 可持久化的类型化 gameplay 数据契约，通过 `ICoCoContextProvider<TContext>` 暴露。 |
-| State Layer | 由一个 `CoCoStateController` 拥有的命名状态机平面。多个 layer 可以按显式顺序执行。 |
-| State Definition | 状态声明的元数据，用于描述 Context 读写、外部操作依赖和状态跳转。 |
-| Event Bus | 类型化事件分发系统，可配合 event envelope 做跨系统通信。 |
-| Persistence Context | 场景实体快照路径，用于还原由 Context 驱动的状态机实体。 |
-| Persistence Container | 基于 Catalog 的 runtime 数据路径，用于 inventory、quest、event、fact、reward 和 tag。 |
-
-## 模块
-
-| 模块 | 状态 | 摘要 |
-|---|---|---|
-| Core | 稳定基础 | Service locator、事件总线、Context 契约、State Layer controller、state definition 和日志。 |
-| Input | 可用基础 | Input reader 和 input intent 契约。 |
-| Camera | 活跃基础 | 本地第三人称 Cinemachine rig 调度、玩家内置相机、AimCore 耦合、观战优先级和 cutscene 接管边界。 |
-| UI | 可用基础 | View/controller 抽象和 panel stack 管理。 |
-| Animation | 可用基础 | Animator 辅助、animation event state machine behaviour 和编辑器注入工具。 |
-| Map | 可用基础 | Map manager 和 chunk loading 支持。 |
-| Rendering | 工具层 | Rendering quality 辅助能力。 |
-| Persistence | 活跃模块 | 版本化存档文档、临时文件 JSON 写入、Context 快照、Container 数据、Catalog 编辑器和存档槽位工具。 |
-| Gameplay.Character | 活跃基础 | Character context provider、input driver、lifecycle writer、locomotion 和 navigation motor。 |
-| Gameplay.Enemy | 活跃基础 | Enemy brain、spline navigation source、vision query 和 engagement zone。 |
-| Gameplay.Item | 活跃基础 | Item context、item context provider、input driver 和 item lifecycle writer。 |
-
-## Persistence
-
-Persistence 在每个存档文档中维护两个 section：
-
-- `contextSection`：通过 `PersistenceContext` 捕获的场景实体 Context 快照。
-- `containerSection`：通过 `PersistenceContainerStore` 捕获的 runtime container 数据。
-
-这个模块提供手动存读档入口、存档槽位 metadata、schema migration 入口、临时文件替换写入、Catalog 编辑器，以及用于 container command 的 bridge。
-
-更多设置、数据流和示例用法见 [Module: Persistence](Docs/Module-Persistence.md)。
-
-## Camera
-
-Camera 是只服务本地表现层的第三人称相机模块。它不同步玩法状态，也不重写 Cinemachine 3 的镜头算法。当前模型收束为 Director/Rig：`CameraDirector` 按 active + priority 调度一组 `CameraRig`，每个 `CameraRig` 持有 Free/Aim/Lock/Spectate/Focus/Custom 等 Cinemachine virtual cameras，并把当前相机暴露给 Director。
-
-TPS Aim 通过玩家内部 AimCore 上的 `CameraAimCoupler` 处理。State Layer 显式切换 rig mode 和 coupled 开关；每台 Cinemachine camera 的 Follow/LookAt/ThirdPersonFollow target 仍在 Inspector 里直接配置。
-
-详细拓扑、Scene 组装、AimCore 设置、观战优先级、联机绑定和 cutscene 交接见 [Module-Camera](Docs/Module-Camera.md)。
-
-## Animation
-
-Animation 包含轻量 Animator/SMB 工具层。它通过 `AnimHandler` 封装常用 Animator 调用，通过 `AnimEventSmb` 转发 normalized-time SMB 事件，并提供把 SMB 注入 Animator Controller state 的编辑器工具。
-
-Rig solver、Foot IK、武器挂点和 full-body animation 属于项目层或未来 add-on。CoCoFlow 主 runtime 包不内置 IK solver。
-
-详细拓扑和边界见 [Module-Animation](Docs/Module-Animation.md)。
-
-## 依赖
-
-| Package | Version | 用途 |
-|---|---:|---|
-| Addressables | 2.9.1 | 包 runtime/editor 工作流 |
-| Input System | 1.18.0 | Input 模块 |
-| Newtonsoft Json | 3.2.2 | Persistence |
-| Cinemachine | 3.1.6 | Camera 模块 |
-| AI Navigation | 2.0.0 | Character navigation 和 Enemy samples |
-| Mathematics | 1.3.3 | Enemy 和 spline 相关工作流 |
-| Splines | 2.6.0 | Enemy spline 支持 |
-
-项目可以按 sample 或业务模块需求自行安装可选第三方包。它们不属于 core runtime 的内置表面。
+Temporal Restore 是同会话、精确 Layout 的恢复。持久化存档使用独立的 Persistence
+Schema；两者不是同一种 Wire Format。
 
 ## 安装
 
-可以通过 Unity Package Manager 使用 Git URL 安装，也可以把包放入 Unity 项目的 `Packages/` 目录。
+在 Unity Package Manager 中使用 Git URL：
 
-安装后：
+```text
+https://github.com/YunXEE/CoCoFlow.git#v0.4.0
+```
 
-1. 打开 `CoCoFlow/Setup/Setup Assistant`。
-2. 检查必需 package dependencies。
-3. 按需安装可选 samples。
-4. 使用 `CoCoFlow/State/State Graph Viewer` 查看 `CoCoStateController`。
-5. 使用 `CoCoFlow/Persistence/Catalog Editor` 编辑 persistence catalog asset。
+或在 `Packages/manifest.json` 中加入：
 
-## Samples
+```json
+{
+  "dependencies": {
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.0"
+  }
+}
+```
 
-| Sample | 导入路径 | 用途 |
-|---|---|---|
-| Player Samples | `Assets/CoCoFlow/Player` | 演示带有 `CharacterContextProvider`、locomotion 和显式 State Layers 的 player prefab。 |
-| Enemy Samples | `Assets/CoCoFlow/Enemy` | 演示 enemy context、brain、spline navigation、state scripts 和 prefab 接线。 |
-| Chest Samples | `Assets/CoCoFlow/Chest` | 演示 chest prefab 和 runtime container store 下的 Persistence Context / Container 双路径。 |
-| Network Samples | `Assets/CoCoFlow/Network` | 记录 network adapter 边界，并提供 container event bridge 和本地 camera rig binding samples，不引入 network package 依赖。 |
-
-Samples 是集成参考，不是完整游戏模板。
-
-## 编辑器工具
-
-| 菜单 | 用途 |
-|---|---|
-| `CoCoFlow/Setup/Setup Assistant` | 依赖状态检查和可选 sample setup。 |
-| `CoCoFlow/State/State Graph Viewer` | 只读查看 controller、layer、state、Context 使用、operation 和 transition。 |
-| `CoCoFlow/Persistence/Save Editor` | 本地测试用的手动 save/load slot 工具。 |
-| `CoCoFlow/Persistence/Catalog Editor` | Persistence catalog definitions 的分页编辑器。 |
-| `CoCoFlow/Persistence/Validate Selected Catalog` | Catalog ID 和引用校验。 |
+通过 **Tools > CoCoFlow > Setup Assistant** 检查可选集成依赖和项目设置。
+部分集成程序集只有在外部包和对应 support define 存在时才会编译，详见
+[依赖矩阵](Docs/DependencyMatrix.md)。
 
 ## 文档
 
-- [Context / Network Boundary](Docs/ContextNetworkBoundary.md)
-- [Module: Animation](Docs/Module-Animation.md)
-- [Module: Camera](Docs/Module-Camera.md)
-- [Module: Persistence](Docs/Module-Persistence.md)
-- [Network Context Sync Plan](Samples~/Network%20Samples/CoCoFlow/Network/Docs/ContextSyncPlan.md)
+- [文档入口](Documentation~/index.md)
+- [StateGraph Asset 与 Compiler](Docs/StateGraphCompiler.md)
+- [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
+- [State Flow / Event 边界](Docs/ContextNetworkBoundary.md)
+- [Temporal Rewind](Docs/TemporalRewind.md)
+- [Camera](Docs/Module-Camera.md)
+- [Persistence](Docs/Module-Persistence.md)
+- [UI](Docs/Module-UI.md)
+- [Map](Docs/Module-Map.md)
+- [Pooling](Docs/ObjectPooling.md)
+- [Changelog](CHANGELOG.md)
+
+## 发布策略
+
+CoCoFlow 0.4.x 采用小步迭代。成熟的 Runtime surface 按稳定 API 对待。Map 与 Pooling
+可能在 0.4.x 调整 API、配置和序列化结构。未评级模块应依据实际实现和模块文档判断，
+不能从本表推导成熟度。
 
 ## License
 

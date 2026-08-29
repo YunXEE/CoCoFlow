@@ -5,7 +5,7 @@ using TMPro;
 
 namespace CoCoFlow.Runtime.Modules.UI.Widgets
 {
-    public class UIWidgetSlider : UIWidgetBase
+    public sealed class UIWidgetSlider : UIWidgetBase
     {
         [SerializeField] private Slider slider;
         [SerializeField] private TextMeshProUGUI valueText;

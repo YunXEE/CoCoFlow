@@ -1,0 +1,20 @@
+{
+    "name": "CoCoFlow.Runtime.StateGraphHost",
+    "rootNamespace": "CoCoFlow.Runtime.Core",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

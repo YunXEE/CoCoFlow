@@ -1,0 +1,25 @@
+{
+    "name": "CoCoFlow.Runtime.Content",
+    "rootNamespace": "CoCoFlow.Runtime.Content",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

@@ -1,12 +1,12 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "displayName": "CoCoFlow",
-  "description": "A modular Unity game development framework with Context-driven State Layers, Character/Enemy gameplay foundations, optional samples, and Editor tooling.",
+  "description": "A Unity 6 State Flow and layered HFSM framework with transactional Context commits, Temporal restore, package-owned Locomotion, and Animator projection.",
   "unity": "6000.0",
   "dependencies": {
-    "com.unity.addressables": "2.9.1",
     "com.unity.inputsystem": "1.18.0",
+    "com.unity.localization": "1.5.9",
     "com.unity.cinemachine": "3.1.6",
     "com.unity.ai.navigation": "2.0.0",
     "com.unity.mathematics": "1.3.3",
@@ -18,35 +18,30 @@
   },
   "keywords": [
     "framework",
-    "modular",
-    "state",
-    "state-layer",
-    "context",
-    "eventbus",
-    "servicelocator",
-    "gameplay"
+    "layered-hfsm",
+    "state-graph",
+    "stategraph-runtime",
+    "actor-host",
+    "operator-runtime",
+    "atomic-context-commit",
+    "temporal-rewind",
+    "context-restore",
+    "event-outbox",
+    "content-ownership",
+    "resource-lifecycle",
+    "object-pooling",
+    "pooling",
+    "region-fidelity",
+    "map-streaming",
+    "temporal-entities",
+    "addressables",
+    "core-contracts",
+    "deterministic-tick",
+    "state-flow",
+    "frame-contracts",
+    "actor-mailbox",
+    "gameplay",
+    "unity6"
   ],
-  "category": "Framework",
-  "samples": [
-    {
-      "displayName": "Add-on: Network Samples",
-      "description": "Fusion-oriented network compatibility plan based on input bridges, context snapshots, local camera rig binding, and event envelopes.",
-      "path": "Samples~/Network Samples"
-    },
-    {
-      "displayName": "Add-on: Chest Samples",
-      "description": "Sample chest wiring that demonstrates Persistence Context and Container paths.",
-      "path": "Samples~/Chest Samples"
-    },
-    {
-      "displayName": "Add-on: Enemy Samples",
-      "description": "Sample enemy states, intent/config assets, and a prefab wired to CharacterContextProvider, EnemyBrain, EnemySpline, and one Main State Layer.",
-      "path": "Samples~/Enemy Samples"
-    },
-    {
-      "displayName": "Add-on: Player Samples",
-      "description": "Sample player states and a prefab wired to CharacterContextProvider, CharacterLocomotion, and explicit Main/FullBody/UpperLayer State Layers.",
-      "path": "Samples~/Player Samples"
-    }
-  ]
+  "category": "Framework"
 }

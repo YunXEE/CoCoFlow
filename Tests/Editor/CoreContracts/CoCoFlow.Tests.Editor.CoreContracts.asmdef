@@ -1,0 +1,25 @@
+{
+    "name": "CoCoFlow.Tests.Editor.CoreContracts",
+    "rootNamespace": "CoCoFlow.Runtime.Core.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

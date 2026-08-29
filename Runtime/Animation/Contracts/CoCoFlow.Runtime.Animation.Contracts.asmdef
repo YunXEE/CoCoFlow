@@ -1,0 +1,17 @@
+{
+    "name": "CoCoFlow.Runtime.Animation.Contracts",
+    "rootNamespace": "CoCoFlow.Runtime.Animation.Contracts",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

@@ -22,7 +22,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
         [SerializeField] private PersistenceContainerCatalog catalog;
         [SerializeField] private PersistenceContainerSection section = new PersistenceContainerSection();
 
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
         private static PersistenceContainerStore _activeStore;
 
         public static PersistenceContainerStore ActiveStore => _activeStore;

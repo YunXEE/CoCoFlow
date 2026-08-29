@@ -1,4 +1,5 @@
 using System;
+using CoCoFlow.Runtime.Content;
 using UnityEngine;
 using DG.Tweening;
 using Cysharp.Threading.Tasks; // 引入 UniTask
@@ -20,7 +21,6 @@ namespace CoCoFlow.Runtime.Modules.UI
     public abstract class UIPanelBase : MonoBehaviour
     {
         [Header("UI Routing & Config")]
-        [SerializeField] private string panelAddress;
         [SerializeField] private UILayer layer = UILayer.Panel;
         [SerializeField] private UIPanelConfig config = UIPanelConfig.TakeInputFocus | UIPanelConfig.HideLowerPanels | UIPanelConfig.ShowCursor;
 
@@ -31,9 +31,11 @@ namespace CoCoFlow.Runtime.Modules.UI
 
         private CanvasGroup _canvasGroup;
         private RectTransform _rectTransform;
-        private readonly EventAgent _eventAgent = new EventAgent();
+        private readonly CoCoEventAgent _eventAgent = new CoCoEventAgent();
+        private ContentId _sourceContentId;
+        private bool _hasSourceOwnership;
 
-        public string PanelAddress => panelAddress;
+        public ContentId SourceContentId => _sourceContentId;
         public UILayer Layer => layer;
         public UIPanelConfig Config => config;
 
@@ -98,6 +100,40 @@ namespace CoCoFlow.Runtime.Modules.UI
         public void SetInteractable(bool isInteractable)
         {
             if (_canvasGroup != null) _canvasGroup.interactable = isInteractable;
+        }
+
+        internal void BindSourceOwnership(
+            ContentId sourceContentId,
+            ContentScope sourceScope,
+            ContentLease<GameObject> sourceLease)
+        {
+            if (_hasSourceOwnership)
+            {
+                throw new InvalidOperationException("Panel source ownership is already bound.");
+            }
+
+            if (sourceScope == null) throw new ArgumentNullException(nameof(sourceScope));
+            if (sourceLease == null) throw new ArgumentNullException(nameof(sourceLease));
+            if (!sourceContentId.IsValid) throw new ArgumentException(
+                "Panel source Content Id must be valid.",
+                nameof(sourceContentId));
+            if (sourceLease.Id != sourceContentId)
+            {
+                throw new ArgumentException(
+                    "Panel source lease identity does not match the requested Content Id.",
+                    nameof(sourceLease));
+            }
+            if (sourceLease.OwnerId != sourceScope.OwnerId)
+            {
+                throw new ArgumentException(
+                    "Panel source Scope and Lease must have the same Content Owner Id.",
+                    nameof(sourceLease));
+            }
+
+            var ownership = gameObject.AddComponent<UIPanelSourceOwnership>();
+            ownership.Bind(sourceScope, sourceLease);
+            _sourceContentId = sourceContentId;
+            _hasSourceOwnership = true;
         }
         #endregion
 

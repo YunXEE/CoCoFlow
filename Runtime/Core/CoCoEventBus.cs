@@ -3,14 +3,9 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public delegate void EventCallback<T>(ref T eventData);
+    public delegate void CoCoEventCallback<T>(ref T eventData);
 
-    public interface ICancellableEvent
-    {
-        bool IsCancelled { get; set; }
-    }
-
-    public interface IEventListener<T>
+    public interface ICoCoEventListener<T>
     {
         void OnEvent(ref T eventData);
     }
@@ -58,18 +53,18 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public class EventAgent
+    public sealed class CoCoEventAgent
     {
         private interface IAgentWrapper
         {
             void Unsubscribe();
         }
 
-        private class Wrapper<T> : IEventListener<T>, IAgentWrapper
+        private class Wrapper<T> : ICoCoEventListener<T>, IAgentWrapper
         {
-            private EventCallback<T> _callback;
+            private CoCoEventCallback<T> _callback;
 
-            public Wrapper(EventCallback<T> callback)
+            public Wrapper(CoCoEventCallback<T> callback)
             {
                 this._callback = callback;
             }
@@ -91,7 +86,7 @@ namespace CoCoFlow.Runtime.Core
         /// <summary>
         /// 代理订阅事件
         /// </summary>
-        public void Subscribe<T>(EventCallback<T> callback, int priority = 0)
+        public void Subscribe<T>(CoCoEventCallback<T> callback, int priority = 0)
         {
             if (callback == null) return;
             var wrapper = new Wrapper<T>(callback);
@@ -117,7 +112,7 @@ namespace CoCoFlow.Runtime.Core
     {
         #region Public API
 
-        public static void Subscribe<T>(IEventListener<T> listener, int priority = 0)
+        public static void Subscribe<T>(ICoCoEventListener<T> listener, int priority = 0)
         {
             if (listener == null) return;
 
@@ -135,7 +130,7 @@ namespace CoCoFlow.Runtime.Core
             var newNode = new EventContext<T>.SubNode
             {
                 Priority = priority,
-                ListenerRef = new WeakReference<IEventListener<T>>(listener),
+                ListenerRef = new WeakReference<ICoCoEventListener<T>>(listener),
                 IsPendingRemove = false
             };
 
@@ -149,7 +144,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        public static void Unsubscribe<T>(IEventListener<T> listener)
+        public static void Unsubscribe<T>(ICoCoEventListener<T> listener)
         {
             if (listener == null) return;
 
@@ -231,65 +226,8 @@ namespace CoCoFlow.Runtime.Core
         }
 
         /// <summary>
-        /// 发布可取消事件。当任一个监听器将 IsCancelled 设为 true 时，立即中断后续广播。
-        /// </summary>
-        public static void PublishCancellable<T>(ref T eventData) where T : ICancellableEvent
-        {
-            EventContext<T>.BroadcastDepth++;
-            var list = EventContext<T>.Subscribers;
-
-            try
-            {
-                for (int i = 0; i < list.Count; i++)
-                {
-                    var node = list[i];
-                    if (node.IsPendingRemove) continue;
-
-                    if (node.ListenerRef.TryGetTarget(out var listener))
-                    {
-                        #if UNITY_5_3_OR_NEWER
-                        if (listener is UnityEngine.Object unityObj && unityObj == null)
-                        {
-                            MarkNodeForRemoval(i, ref node);
-                            continue;
-                        }
-                        #endif
-                        try
-                        {
-                            listener.OnEvent(ref eventData);
-                        }
-                        catch (Exception ex)
-                        {
-                            CoCoLog.Error($"[EventBus] 执行 {typeof(T).Name} 回调时发生异常: {ex}");
-                        }
-
-                        if (eventData.IsCancelled)
-                        {
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        MarkNodeForRemoval(i, ref node);
-                    }
-                }
-            }
-            finally
-            {
-                EventContext<T>.BroadcastDepth--;
-                if (EventContext<T>.BroadcastDepth == 0)
-                {
-                    if (EventContext<T>.PendingAdds.Count > 0 || EventContext<T>.NeedsCleanup)
-                    {
-                        Flush<T>();
-                    }
-                }
-            }
-        }
-
-        /// <summary>
         /// 针对普通事件的非 ref 快捷调用。
-        /// 注意：如果事件是结构体，此方法会发生值拷贝。切勿用于可取消事件。
+        /// 注意：如果事件是结构体，此方法会发生值拷贝。
         /// </summary>
         public static void Publish<T>(T eventData)
         {
@@ -305,7 +243,7 @@ namespace CoCoFlow.Runtime.Core
             public struct SubNode
             {
                 public int Priority;
-                public WeakReference<IEventListener<T>> ListenerRef;
+                public WeakReference<ICoCoEventListener<T>> ListenerRef;
                 public bool IsPendingRemove;
             }
 

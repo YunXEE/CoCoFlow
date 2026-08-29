@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
+using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
@@ -13,13 +15,24 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         public static void Register(PersistenceContext context)
         {
             if (context == null || string.IsNullOrEmpty(context.StableEntityId)) return;
+            if (Contexts.TryGetValue(context.StableEntityId, out var previous) &&
+                previous != null &&
+                !ReferenceEquals(previous, context))
+            {
+                previous.CancelDeferredApply();
+            }
+
             Contexts[context.StableEntityId] = context;
 
             var pendingSection = PersistenceSession.PendingDocument?.contextSection;
             if (pendingSection != null &&
                 pendingSection.TryGetRecord(context.StableEntityId, out var record))
             {
-                context.TryApply(record);
+                ApplyRecord(
+                    context,
+                    record,
+                    PersistenceSession.PendingDocumentApplyToken,
+                    false);
             }
         }
 
@@ -35,6 +48,14 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public static void Clear()
         {
+            foreach (var context in Contexts.Values)
+            {
+                if (context != null)
+                {
+                    context.CancelDeferredApply();
+                }
+            }
+
             Contexts.Clear();
         }
 
@@ -43,9 +64,25 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             var section = new PersistenceContextSection();
             foreach (var context in Contexts.Values)
             {
-                if (context != null && context.TryCapture(out var record))
+                if (context == null) continue;
+
+                PersistenceContextOperationResult result = context.TryCaptureDetailed(
+                    out PersistenceContextRecord record,
+                    out string failure);
+                switch (result)
                 {
-                    section.AddOrReplace(record);
+                    case PersistenceContextOperationResult.Applied:
+                        section.AddOrReplace(record);
+                        break;
+                    case PersistenceContextOperationResult.Unsupported:
+                        break;
+                    case PersistenceContextOperationResult.Deferred:
+                    case PersistenceContextOperationResult.Failed:
+                        throw new InvalidOperationException(
+                            FormatFailure(
+                                "capture",
+                                context.StableEntityId,
+                                failure));
                 }
             }
 
@@ -54,6 +91,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public static void ApplySection(PersistenceContextSection section)
         {
+            ApplySection(section, new object());
+        }
+
+        internal static void ApplySection(
+            PersistenceContextSection section,
+            object applyToken)
+        {
             if (section == null) return;
 
             foreach (var record in section.records)
@@ -61,9 +105,84 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 if (record == null || string.IsNullOrEmpty(record.stableEntityId)) continue;
                 if (Contexts.TryGetValue(record.stableEntityId, out var context) && context != null)
                 {
-                    context.TryApply(record);
+                    ApplyRecord(context, record, applyToken, true);
                 }
             }
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static void ApplyRecord(
+            PersistenceContext context,
+            PersistenceContextRecord record,
+            object applyToken,
+            bool throwOnFailure)
+        {
+            bool isStateGraphRecord = record.IsStateGraphContextRecord;
+            if (isStateGraphRecord &&
+                context.HasConsumedStateGraphApply(applyToken))
+            {
+                return;
+            }
+
+            PersistenceContextOperationResult result = context.TryApplyDetailed(
+                record,
+                out string failure);
+            if (result != PersistenceContextOperationResult.Deferred)
+            {
+                context.CancelDeferredApply();
+            }
+
+            if (result == PersistenceContextOperationResult.Applied)
+            {
+                if (isStateGraphRecord)
+                {
+                    context.MarkStateGraphApplyConsumed(applyToken);
+                }
+
+                return;
+            }
+
+            if (result == PersistenceContextOperationResult.Unsupported)
+            {
+                return;
+            }
+
+            if (result == PersistenceContextOperationResult.Deferred)
+            {
+                if (context.TryScheduleDeferredApply(
+                        record,
+                        applyToken,
+                        out failure))
+                {
+                    return;
+                }
+            }
+
+            string message = FormatFailure(
+                "apply",
+                context.StableEntityId,
+                failure);
+            if (throwOnFailure)
+            {
+                throw new InvalidOperationException(message);
+            }
+
+            Debug.LogError($"[PersistenceContextRegistry] {message}", context);
+        }
+
+        private static string FormatFailure(
+            string operation,
+            string stableEntityId,
+            string failure)
+        {
+            string detail = string.IsNullOrEmpty(failure)
+                ? "The operation failed without a diagnostic."
+                : failure;
+            return
+                $"Persistence Context {operation} failed for '{stableEntityId}': {detail}";
         }
 
         #endregion

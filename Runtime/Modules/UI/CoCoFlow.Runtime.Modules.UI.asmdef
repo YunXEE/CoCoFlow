@@ -2,14 +2,15 @@
     "name": "CoCoFlow.Runtime.Modules.UI",
     "rootNamespace": "CoCoFlow.Runtime.Modules.UI",
     "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core",
-        "Unity.ResourceManager",
-        "Unity.Addressables",
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Modules.Input",
         "DOTween.Modules",
         "UniTask",
-        "UniTask.Addressables",
         "UniTask.DOTween",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -22,6 +23,12 @@
         "COCOFLOW_DOTWEEN_SUPPORT",
         "UNITASK_DOTWEEN_SUPPORT"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
     "noEngineReferences": false
 }

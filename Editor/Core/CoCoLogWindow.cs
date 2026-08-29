@@ -6,7 +6,7 @@ using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Editor.Core
 {
-    public class CoCoLoggerWindow : EditorWindow, IEventListener<CoCoLogEvent>
+    public class CoCoLoggerWindow : EditorWindow, ICoCoEventListener<CoCoLogEvent>
     {
         // ==========================================
         // 颜色配置区
@@ -20,7 +20,6 @@ namespace CoCoFlow.Editor.Core
             { "Map" , "#808000"},   //橄榄色
             { "Network", "#FF0040" },   //红色
             { "Persistence" , "#FFC0CB"},   //粉红色
-            { "Rendering" , "#A0522D"},    //茶色
 
             // UI 相关子模块统一使用蓝色
             { "UI", "#0066FF" },

@@ -1,7 +1,9 @@
 {
     "name": "CoCoFlow.Runtime.Core",
     "rootNamespace": "CoCoFlow.Runtime.Core",
-    "references": [],
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

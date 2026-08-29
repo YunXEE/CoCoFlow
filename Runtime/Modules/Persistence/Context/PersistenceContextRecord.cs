@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
@@ -23,6 +24,8 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
     [Serializable]
     public sealed class PersistenceContextRecord
     {
+        internal const string StateGraphContextType = "CoCoFlow.StateGraph.ContextFrame";
+
         public string stableEntityId = string.Empty;
         public string contextType = string.Empty;
         public string ownerId = string.Empty;
@@ -39,5 +42,55 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         public Dictionary<string, PersistenceVector3Data> Vector3Facts = new Dictionary<string, PersistenceVector3Data>();
         public Dictionary<string, PersistenceQuaternionData> QuaternionFacts =
             new Dictionary<string, PersistenceQuaternionData>();
+
+        [JsonProperty("stateGraphContextPayload", NullValueHandling = NullValueHandling.Ignore)]
+        private byte[] stateGraphContextPayload;
+
+        internal bool IsStateGraphContextRecord =>
+            string.Equals(contextType, StateGraphContextType, StringComparison.Ordinal);
+
+        internal bool HasStateGraphContextPayload => stateGraphContextPayload != null;
+        internal bool HasUsableStateGraphContextPayload =>
+            stateGraphContextPayload != null && stateGraphContextPayload.Length > 0;
+
+        internal static PersistenceContextRecord CreateStateGraphContextRecord(
+            string stableEntityId,
+            string prefabKey,
+            byte[] payload)
+        {
+            if (string.IsNullOrEmpty(stableEntityId))
+            {
+                throw new ArgumentException(
+                    "A StateGraph persistence record requires a stable entity id.",
+                    nameof(stableEntityId));
+            }
+
+            if (payload == null || payload.Length == 0)
+            {
+                throw new ArgumentException(
+                    "A StateGraph persistence record requires a non-empty payload.",
+                    nameof(payload));
+            }
+
+            return new PersistenceContextRecord
+            {
+                stableEntityId = stableEntityId,
+                contextType = StateGraphContextType,
+                prefabKey = prefabKey ?? string.Empty,
+                stateGraphContextPayload = payload
+            };
+        }
+
+        internal bool TryGetStateGraphContextPayload(out byte[] payload)
+        {
+            if (stateGraphContextPayload == null || stateGraphContextPayload.Length == 0)
+            {
+                payload = null;
+                return false;
+            }
+
+            payload = stateGraphContextPayload;
+            return true;
+        }
     }
 }

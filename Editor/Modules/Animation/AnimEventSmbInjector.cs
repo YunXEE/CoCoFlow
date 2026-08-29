@@ -1,126 +1,254 @@
-﻿using UnityEngine;
+﻿using System;
+using CoCoFlow.Runtime.Modules.Animation;
 using UnityEditor;
 using UnityEditor.Animations;
-using CoCoFlow.Runtime.Modules.Animation;
+using UnityEngine;
 
 namespace CoCoFlow.Editor.Modules.Animation
 {
-    public class AnimEventSmbInjector : EditorWindow
+    internal sealed class AnimEventSmbInjector : EditorWindow
     {
-        private AnimatorController _targetController;
-        private bool _clearExistingFirst = false;
+        private AnimatorController targetController;
+        private bool replaceExisting;
+        private int stateCount;
+        private int existingSmbCount;
 
-        [MenuItem("CoCoFlow/AssetPipeline/SMB 注入器")]
-        public static void ShowWindow()
+        [MenuItem("CoCoFlow/Animation/Inject Anim Event SMB")]
+        private static void ShowWindow()
         {
-            var window = GetWindow<AnimEventSmbInjector>("SMB 注入器");
-            window.minSize = new Vector2(400, 250);
+            var window = GetWindow<AnimEventSmbInjector>("Anim Event SMB Injector");
+            window.minSize = new Vector2(420f, 260f);
         }
 
         private void OnGUI()
         {
-            EditorGUILayout.Space(5);
-            GUILayout.Label("CoCoFlow Animator SMB 注入管线", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("该工具将遍历目标 Animator Controller 的所有层级和子图，一键注入 AnimationEventSmb。", MessageType.Info);
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Anim Event SMB Injector", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "Adds one AnimEventSmb to each state in the selected Animator Controller, including " +
+                "nested state machines. The Controller remains the animation authoring authority; " +
+                "this utility does not create StateFlow mappings or marker IDs.",
+                MessageType.Info);
 
-            EditorGUILayout.Space(10);
-            _targetController = (AnimatorController)EditorGUILayout.ObjectField("目标 Animator Controller", _targetController, typeof(AnimatorController), false);
-
-            EditorGUILayout.Space(10);
-            _clearExistingFirst = EditorGUILayout.ToggleLeft("注入前先清除旧的 AnimationEventSmb", _clearExistingFirst);
-
-            EditorGUILayout.Space(20);
-
-            if (_targetController == null)
+            EditorGUI.BeginChangeCheck();
+            targetController = (AnimatorController)EditorGUILayout.ObjectField(
+                "Animator Controller",
+                targetController,
+                typeof(AnimatorController),
+                false);
+            if (EditorGUI.EndChangeCheck())
             {
-                EditorGUILayout.HelpBox("请指定一个 Animator Controller 以继续。", MessageType.Warning);
-                GUI.enabled = false;
+                RefreshPreview();
             }
 
-            if (GUILayout.Button("一键执行全面注入", GUILayout.Height(40)))
+            using (new EditorGUI.DisabledScope(targetController == null))
             {
-                ExecuteInjection();
+                replaceExisting = EditorGUILayout.ToggleLeft(
+                    new GUIContent(
+                        "Replace existing AnimEventSmb instances",
+                        "Existing marker configurations on this Controller will be deleted before a fresh SMB is added."),
+                    replaceExisting);
             }
 
-            GUI.enabled = true;
+            DrawPreview();
+            EditorGUILayout.Space();
+            using (new EditorGUI.DisabledScope(targetController == null || EditorApplication.isCompiling))
+            {
+                if (GUILayout.Button(
+                        replaceExisting
+                            ? "Replace Anim Event SMBs"
+                            : "Add Missing Anim Event SMBs",
+                        GUILayout.Height(32f)))
+                {
+                    ExecuteInjection();
+                }
+            }
+        }
+
+        private void DrawPreview()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                if (targetController == null)
+                {
+                    EditorGUILayout.LabelField("Select an Animator Controller to preview the affected states.");
+                    return;
+                }
+
+                EditorGUILayout.LabelField("Target", targetController.name);
+                EditorGUILayout.LabelField("States", stateCount.ToString());
+                EditorGUILayout.LabelField("Existing AnimEventSmb", existingSmbCount.ToString());
+                if (replaceExisting && existingSmbCount > 0)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Replace deletes existing SMB marker configurations on this Animator Controller. " +
+                        "Use it only when the Controller's SMB authoring should be reset.",
+                        MessageType.Warning);
+                }
+            }
+        }
+
+        private void RefreshPreview()
+        {
+            stateCount = 0;
+            existingSmbCount = 0;
+            if (targetController == null)
+            {
+                return;
+            }
+
+            foreach (AnimatorControllerLayer layer in targetController.layers)
+            {
+                CountStateGraph(layer.stateMachine, ref stateCount, ref existingSmbCount);
+            }
         }
 
         private void ExecuteInjection()
         {
-            if (_targetController == null) return;
+            if (targetController == null)
+            {
+                return;
+            }
+
+            if (replaceExisting && existingSmbCount > 0 &&
+                !EditorUtility.DisplayDialog(
+                    "Replace Anim Event SMBs",
+                    "This deletes " + existingSmbCount + " existing AnimEventSmb instances and their marker configurations from '" +
+                    targetController.name + "'. Continue?",
+                    "Replace",
+                    "Cancel"))
+            {
+                return;
+            }
 
             int injectedCount = 0;
             int clearedCount = 0;
-
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(
+                replaceExisting
+                    ? "Replace Anim Event SMBs"
+                    : "Add Anim Event SMBs");
             try
             {
-                // 记录 Undo，防止操作失误导致 Animator 图被错误修改。
-                Undo.RecordObject(_targetController, "Inject SMBs");
-
-                // 遍历所有的动画层 (Layers)
-                foreach (var layer in _targetController.layers)
+                Undo.RegisterCompleteObjectUndo(
+                    targetController,
+                    replaceExisting
+                        ? "Replace Anim Event SMBs"
+                        : "Add Anim Event SMBs");
+                foreach (AnimatorControllerLayer layer in targetController.layers)
                 {
                     ProcessAnimatorStateGraph(layer.stateMachine, ref injectedCount, ref clearedCount);
                 }
-            }
-            finally
-            {
-                // 保存修改
-                EditorUtility.SetDirty(_targetController);
+
+                EditorUtility.SetDirty(targetController);
                 AssetDatabase.SaveAssets();
-
-                string msg = $"注入完成！\n目标: {_targetController.name}\n成功注入了 {injectedCount} 个状态。";
-                if (_clearExistingFirst) msg += $"\n清理了 {clearedCount} 个旧的 SMB。";
-
-                EditorUtility.DisplayDialog("处理完毕", msg, "确定");
+                Undo.CollapseUndoOperations(undoGroup);
+                RefreshPreview();
+                EditorUtility.DisplayDialog(
+                    "Anim Event SMB Injection Complete",
+                    "Controller: " + targetController.name + "\nAdded: " + injectedCount + "\nRemoved: " + clearedCount,
+                    "OK");
+            }
+            catch (Exception exception)
+            {
+                Undo.RevertAllDownToGroup(undoGroup);
+                Debug.LogException(exception);
+                EditorUtility.DisplayDialog(
+                    "Anim Event SMB Injection Failed",
+                    exception.Message,
+                    "OK");
             }
         }
 
-        // 递归处理 Animator 图 (应对 Sub-States)。
-        private void ProcessAnimatorStateGraph(AnimatorStateMachine animatorGraph, ref int injectedCount, ref int clearedCount)
+        private static void CountStateGraph(
+            AnimatorStateMachine animatorGraph,
+            ref int states,
+            ref int existing)
         {
-            // 1. 处理当前层级的所有独立 State
-            foreach (var childState in animatorGraph.states)
+            if (animatorGraph == null)
+            {
+                return;
+            }
+
+            foreach (ChildAnimatorState childState in animatorGraph.states)
+            {
+                if (childState.state == null)
+                {
+                    continue;
+                }
+
+                states++;
+                foreach (StateMachineBehaviour behaviour in childState.state.behaviours)
+                {
+                    if (behaviour is AnimEventSmb)
+                    {
+                        existing++;
+                    }
+                }
+            }
+
+            foreach (ChildAnimatorStateMachine childStateMachine in animatorGraph.stateMachines)
+            {
+                CountStateGraph(childStateMachine.stateMachine, ref states, ref existing);
+            }
+        }
+
+        private void ProcessAnimatorStateGraph(
+            AnimatorStateMachine animatorGraph,
+            ref int injectedCount,
+            ref int clearedCount)
+        {
+            foreach (ChildAnimatorState childState in animatorGraph.states)
             {
                 ProcessState(childState.state, ref injectedCount, ref clearedCount);
             }
 
-            // 2. 递归处理内部嵌套的子图。
-            foreach (var childState in animatorGraph.stateMachines)
+            foreach (ChildAnimatorStateMachine childStateMachine in animatorGraph.stateMachines)
             {
-                ProcessAnimatorStateGraph(childState.stateMachine, ref injectedCount, ref clearedCount);
+                ProcessAnimatorStateGraph(
+                    childStateMachine.stateMachine,
+                    ref injectedCount,
+                    ref clearedCount);
             }
         }
 
-        // 核心注入逻辑
-        private void ProcessState(AnimatorState state, ref int injectedCount, ref int clearedCount)
+        private void ProcessState(
+            AnimatorState state,
+            ref int injectedCount,
+            ref int clearedCount)
         {
-            // 清理模式：干掉已经存在的 AnimationEventSmb
-            if (_clearExistingFirst)
+            if (state == null)
             {
-                var behaviours = state.behaviours;
-                for (int i = behaviours.Length - 1; i >= 0; i--)
+                return;
+            }
+
+            if (replaceExisting)
+            {
+                StateMachineBehaviour[] behaviours = state.behaviours;
+                for (int index = behaviours.Length - 1; index >= 0; index--)
                 {
-                    if (behaviours[i] is AnimEventSmb)
+                    if (behaviours[index] is AnimEventSmb)
                     {
-                        // 在 Unity 底层，销毁 SMB 需要用 Object.DestroyImmediate 并带上 true 允许销毁资产参数
-                        DestroyImmediate(behaviours[i], true);
+                        Undo.DestroyObjectImmediate(behaviours[index]);
                         clearedCount++;
                     }
                 }
             }
 
-            // 防重复检测：如果没开启清理模式，且已经有该 SMB，则跳过
-            if (!_clearExistingFirst)
+            if (!replaceExisting)
             {
-                foreach (var b in state.behaviours)
+                foreach (StateMachineBehaviour behaviour in state.behaviours)
                 {
-                    if (b is AnimEventSmb) return;
+                    if (behaviour is AnimEventSmb)
+                    {
+                        return;
+                    }
                 }
             }
 
-            // 注入新的 SMB
-            state.AddStateMachineBehaviour<AnimEventSmb>();
+            AnimEventSmb added = state.AddStateMachineBehaviour<AnimEventSmb>();
+            Undo.RegisterCreatedObjectUndo(added, "Add Anim Event SMB");
             injectedCount++;
         }
     }

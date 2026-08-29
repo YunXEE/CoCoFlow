@@ -3,26 +3,25 @@
     "rootNamespace": "CoCoFlow.Tests.Runtime.ContextLifecycle",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Gameplay.Character",
-        "CoCoFlow.Runtime.Gameplay.Enemy",
-        "CoCoFlow.Runtime.Gameplay.Item",
         "CoCoFlow.Runtime.Modules.Camera",
         "CoCoFlow.Runtime.Modules.Input",
         "CoCoFlow.Runtime.Modules.Persistence",
         "Unity.Cinemachine",
-        "Unity.Splines",
-        "Unity.Mathematics"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
     "autoReferenced": false,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

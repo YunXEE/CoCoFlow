@@ -1,0 +1,23 @@
+{
+    "name": "CoCoFlow.Editor.StateGraph",
+    "rootNamespace": "CoCoFlow.Editor.StateGraph",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
+        "CoCoFlow.Runtime.StateGraphHost"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

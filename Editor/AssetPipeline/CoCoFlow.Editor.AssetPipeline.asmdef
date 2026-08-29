@@ -1,6 +1,0 @@
-{
-  "name": "CoCoFlow.Editor.AssetPipeline",
-  "includePlatforms": [
-    "Editor"
-  ]
-}

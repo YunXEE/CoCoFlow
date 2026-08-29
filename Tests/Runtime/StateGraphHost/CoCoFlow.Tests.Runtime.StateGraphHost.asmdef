@@ -1,0 +1,35 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.StateGraphHost",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.StateGraphHost",
+    "references": [
+        "CoCoFlow.Runtime.Animation.Contracts",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.Locomotion.Contracts",
+        "CoCoFlow.Runtime.Modules.Animation",
+        "CoCoFlow.Runtime.Modules.Input",
+        "CoCoFlow.Runtime.Modules.Locomotion",
+        "CoCoFlow.Runtime.Modules.Persistence",
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

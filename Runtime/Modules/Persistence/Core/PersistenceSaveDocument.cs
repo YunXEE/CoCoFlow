@@ -7,7 +7,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
     [Serializable]
     public sealed class PersistenceSaveDocument
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         public int schemaVersion = CurrentSchemaVersion;
         public PersistenceSaveSlotMetadata metadata = new PersistenceSaveSlotMetadata();

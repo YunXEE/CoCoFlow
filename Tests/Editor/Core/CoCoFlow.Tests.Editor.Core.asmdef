@@ -1,0 +1,24 @@
+{
+    "name": "CoCoFlow.Tests.Editor.Core",
+    "rootNamespace": "CoCoFlow.Editor.Core.Tests",
+    "references": [
+        "CoCoFlow.Editor.Core",
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

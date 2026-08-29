@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "tiers": [
+    {
+      "tierId": {
+        "value": "off"
+      },
+      "name": "0 - Unloaded",
+      "capabilities": []
+    },
+    {
+      "tierId": {
+        "value": "represented"
+      },
+      "name": "1 - Represented",
+      "capabilities": [
+        {
+          "value": "cocoflow.represented"
+        }
+      ]
+    },
+    {
+      "tierId": {
+        "value": "background"
+      },
+      "name": "2 - Background",
+      "capabilities": [
+        {
+          "value": "cocoflow.represented"
+        },
+        {
+          "value": "cocoflow.background"
+        }
+      ]
+    },
+    {
+      "tierId": {
+        "value": "enterable"
+      },
+      "name": "3 - Enterable",
+      "capabilities": [
+        {
+          "value": "cocoflow.represented"
+        },
+        {
+          "value": "cocoflow.background"
+        },
+        {
+          "value": "cocoflow.enterable"
+        }
+      ]
+    },
+    {
+      "tierId": {
+        "value": "full"
+      },
+      "name": "4 - Full",
+      "capabilities": [
+        {
+          "value": "cocoflow.represented"
+        },
+        {
+          "value": "cocoflow.background"
+        },
+        {
+          "value": "cocoflow.enterable"
+        },
+        {
+          "value": "cocoflow.full"
+        }
+      ]
+    }
+  ],
+  "participants": []
+}

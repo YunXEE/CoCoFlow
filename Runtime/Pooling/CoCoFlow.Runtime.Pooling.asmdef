@@ -1,0 +1,26 @@
+{
+    "name": "CoCoFlow.Runtime.Pooling",
+    "rootNamespace": "CoCoFlow.Runtime.Pooling",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Content",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

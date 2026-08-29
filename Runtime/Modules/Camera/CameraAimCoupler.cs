@@ -1,12 +1,14 @@
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Input;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace CoCoFlow.Runtime.Modules.Camera
 {
-    public class CameraAimCoupler : MonoBehaviour
+    public sealed class CameraAimCoupler : MonoBehaviour
     {
         [Header("Input")]
-        [SerializeField] private MonoBehaviour inputStateProvider;
+        [SerializeField] private InputReader inputReader;
+        [SerializeField] private InputActionReference lookAction;
         [SerializeField] private Vector2 lookSensitivity = new Vector2(180f, 120f);
         [SerializeField] private Vector2 pitchRange = new Vector2(-70f, 70f);
 
@@ -14,7 +16,6 @@ namespace CoCoFlow.Runtime.Modules.Camera
         [SerializeField] private Transform syncTarget;
         [SerializeField] private bool coupled;
 
-        private IInputStateProvider _inputStateProvider;
         private float _yaw;
         private float _pitch;
 
@@ -33,11 +34,14 @@ namespace CoCoFlow.Runtime.Modules.Camera
             syncTarget = target;
         }
 
-        public void SetInputStateProvider(MonoBehaviour provider)
+        public void SetInputReader(InputReader reader)
         {
-            inputStateProvider = provider;
-            _inputStateProvider = null;
-            ResolveInputStateProvider();
+            inputReader = reader;
+        }
+
+        public void SetLookAction(InputActionReference actionReference)
+        {
+            lookAction = actionReference;
         }
 
         public void SetLookAngles(float yaw, float pitch)
@@ -47,11 +51,6 @@ namespace CoCoFlow.Runtime.Modules.Camera
             ApplyAimRotation();
         }
 
-        private void Awake()
-        {
-            ResolveInputStateProvider();
-        }
-
         private void Update()
         {
             SampleInput(Time.deltaTime);
@@ -59,10 +58,12 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
         private void SampleInput(float deltaTime)
         {
-            var source = ResolveInputStateProvider();
-            if (source == null) return;
+            if (inputReader == null ||
+                !inputReader.TryReadValue(lookAction, out Vector2 look))
+            {
+                return;
+            }
 
-            var look = source.LookInput;
             _yaw += look.x * lookSensitivity.x * deltaTime;
             _pitch = ClampPitch(_pitch - look.y * lookSensitivity.y * deltaTime);
 
@@ -96,18 +97,6 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
             transform.rotation = aimWorldRotation;
             CacheLookAnglesFromLocalRotation();
-        }
-
-        private IInputStateProvider ResolveInputStateProvider()
-        {
-            if (_inputStateProvider != null) return _inputStateProvider;
-
-            if (inputStateProvider is IInputStateProvider provider)
-            {
-                _inputStateProvider = provider;
-            }
-
-            return _inputStateProvider;
         }
 
         private float ClampPitch(float value)

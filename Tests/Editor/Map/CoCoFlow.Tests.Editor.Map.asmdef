@@ -1,0 +1,33 @@
+{
+    "name": "CoCoFlow.Tests.Editor.Map",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Map.Tests",
+    "references": [
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Modules.Map",
+        "UniTask"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT",
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

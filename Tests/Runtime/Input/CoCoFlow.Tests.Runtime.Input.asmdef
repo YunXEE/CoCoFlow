@@ -1,0 +1,23 @@
+{
+    "name": "CoCoFlow.Tests.Runtime.Input",
+    "rootNamespace": "CoCoFlow.Tests.Runtime.Input",
+    "references": [
+        "CoCoFlow.Runtime.Modules.Input",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,1435 @@
+using System;
+using UnityEngine;
+
+namespace CoCoFlow.Runtime.Core
+{
+    internal sealed class CoCoStateGraphTemporalController :
+        ICoCoContextRestoreReadSource,
+        IDisposable
+    {
+        private readonly CoCoStateGraphHost _host;
+        private readonly CoCoContextFrameLayout _layout;
+        private readonly CoCoStateGraphTransaction _transaction;
+        private readonly CoCoActorEventInboxCore _inbox;
+        private readonly MonoBehaviour _bindingComponent;
+        private readonly ICoCoContextRestoreBinding _binding;
+        private readonly ICoCoStateGraphTemporalParticipant _participant;
+        private readonly CoCoTemporalHistory _history;
+        private readonly CoCoContextRestoreReadLease _readLease;
+        private bool _participantAttached;
+        private CoCoTemporalMode _mode;
+        private CoCoTemporalFrameInfo _previewInfo;
+        private CoCoContextFrameReadView _activeAuthorityView;
+        private CoCoContextRestoreReadView _activeRestoreView;
+        private ulong _nextReadToken;
+        private ulong _activeReadToken;
+        private int _previewDepth;
+        private bool _hasAppliedPreviewProjection;
+        private bool _readsRestoreCandidate;
+        private bool _isDisposed;
+
+        private CoCoStateGraphTemporalController(
+            CoCoStateGraphHost host,
+            CoCoContextFrameLayout layout,
+            CoCoStateGraphTransaction transaction,
+            CoCoActorEventInboxCore inbox,
+            MonoBehaviour bindingComponent,
+            ICoCoContextRestoreBinding binding,
+            ICoCoStateGraphTemporalParticipant participant,
+            bool participantAttached,
+            CoCoTemporalHistory history)
+        {
+            _host = host;
+            _layout = layout;
+            _transaction = transaction;
+            _inbox = inbox;
+            _bindingComponent = bindingComponent;
+            _binding = binding;
+            _participant = participant;
+            _participantAttached = participantAttached;
+            _history = history;
+            _readLease = new CoCoContextRestoreReadLease();
+            _mode = history == null
+                ? CoCoTemporalMode.Disabled
+                : CoCoTemporalMode.Ready;
+        }
+
+        internal CoCoTemporalMode Mode => _mode;
+
+        internal CoCoTemporalState State
+        {
+            get
+            {
+                CoCoTemporalFrameInfo current = ToPublicInfo(_transaction.CurrentContext);
+                CoCoTemporalFrameInfo preview = _mode == CoCoTemporalMode.Previewing &&
+                                                    _previewDepth > 0
+                    ? _previewInfo
+                    : current;
+                ulong dropped = _inbox?.Counters.RewindRestoreDropped ?? 0UL;
+                bool canConfirm = _mode == CoCoTemporalMode.Previewing &&
+                                  _previewDepth > 0 &&
+                                  _history != null &&
+                                  _previewDepth < _history.Count &&
+                                  !_host.Fault.IsFaulted &&
+                                  IsBindingLive &&
+                                  (_participant == null ||
+                                   _participant.CanConfirmPreview(_previewDepth));
+                return new CoCoTemporalState(
+                    _mode,
+                    _history?.Capacity ?? 0,
+                    _history?.Count ?? 0,
+                    _previewDepth,
+                    current,
+                    preview,
+                    dropped,
+                    canConfirm);
+            }
+        }
+
+        internal static bool TryValidateConfiguration(
+            CoCoStateGraphHost host,
+            CoCoContextFrameLayout layout,
+            CoCoContextCodecRegistry codecs,
+            MonoBehaviour bindingComponent,
+            int capacity,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (host == null ||
+                layout == null ||
+                codecs == null ||
+                (capacity != 0 && capacity < 2))
+            {
+                diagnostic = ConfigurationError(
+                    "Temporal configuration requires one Host, frozen Context layout and codec registry, and a capacity of zero or at least two committed entries.");
+                return false;
+            }
+
+            bool hasBinding = bindingComponent != null;
+            if (capacity > 0 &&
+                (!hasBinding ||
+                 !(bindingComponent is ICoCoContextRestoreBinding) ||
+                 !CoCoStateGraphHostBoundary.Contains(host, bindingComponent)))
+            {
+                diagnostic = ConfigurationError(
+                    "Enabled Temporal history requires one live Restore Binding inside the Host boundary.");
+                return false;
+            }
+
+            CoCoContextProjectionCodec codec = null;
+            if (capacity > 0 &&
+                !CoCoContextProjectionCodec.TryCreate(
+                    layout,
+                    codecs,
+                    CoCoContextProjection.Temporal,
+                    out codec,
+                    out CoCoDiagnosticCode diagnosticCode))
+            {
+                diagnostic = HistoryError(
+                    diagnosticCode,
+                    "Temporal projection codec preflight rejected the Context layout or codec registry.");
+                return false;
+            }
+
+            if (capacity > 0 && codec != null &&
+                ((long)capacity + 1L) * codec.MaxEncodedSize + layout.ByteSize > int.MaxValue)
+            {
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.InvalidFrameLayout,
+                    "Temporal history exceeds the checked managed payload budget.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal static bool TryCreate(
+            CoCoStateGraphHost host,
+            CoCoContextFrameLayout layout,
+            CoCoContextCodecRegistry codecs,
+            CoCoStateGraphTransaction transaction,
+            CoCoActorEventInboxCore inbox,
+            MonoBehaviour bindingComponent,
+            int capacity,
+            out CoCoStateGraphTemporalController controller,
+            out CoCoDiagnostic diagnostic)
+        {
+            controller = null;
+            diagnostic = CoCoDiagnostic.None;
+            if (transaction == null ||
+                !TryValidateConfiguration(
+                    host,
+                    layout,
+                    codecs,
+                    bindingComponent,
+                    capacity,
+                    out diagnostic))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = ConfigurationError(
+                        "Temporal controller requires one live Host transaction.");
+                }
+
+                return false;
+            }
+
+            CoCoTemporalHistory history = null;
+            try
+            {
+                if (capacity > 0 &&
+                    !CoCoTemporalHistory.TryCreate(
+                        layout,
+                        codecs,
+                        capacity,
+                        out history,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    diagnostic = HistoryError(
+                        diagnosticCode,
+                        "Temporal history could not allocate its fixed projection payload.");
+                    return false;
+                }
+
+                MonoBehaviour activeBindingComponent =
+                    bindingComponent != null &&
+                    bindingComponent is ICoCoContextRestoreBinding &&
+                    CoCoStateGraphHostBoundary.Contains(host, bindingComponent)
+                        ? bindingComponent
+                        : null;
+                var participant =
+                    activeBindingComponent as ICoCoStateGraphTemporalParticipant;
+                bool participantAttached = false;
+                if (capacity > 0 && participant != null)
+                {
+                    try
+                    {
+                        participantAttached =
+                            participant.TryAttachTemporalHost(
+                                host,
+                                capacity,
+                                out diagnostic);
+                    }
+                    catch (Exception)
+                    {
+                        TryDetachParticipantNoFail(participant);
+                        diagnostic = HistoryError(
+                            CoCoDiagnosticCode.CommitPreparationFailed,
+                            "Temporal participant attachment threw before Host publication.");
+                    }
+
+                    if (!participantAttached || diagnostic.IsError)
+                    {
+                        if (participantAttached)
+                        {
+                            TryDetachParticipantNoFail(participant);
+                        }
+
+                        history?.Dispose();
+                        return false;
+                    }
+                }
+
+                controller = new CoCoStateGraphTemporalController(
+                    host,
+                    layout,
+                    transaction,
+                    inbox,
+                    activeBindingComponent,
+                    activeBindingComponent as ICoCoContextRestoreBinding,
+                    participant,
+                    participantAttached,
+                    history);
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+            catch (Exception)
+            {
+                TryDetachParticipantNoFail(
+                    bindingComponent as ICoCoStateGraphTemporalParticipant);
+                history?.Dispose();
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal history setup threw before Host publication.");
+                return false;
+            }
+        }
+
+        internal bool TryPrepareCapture(
+            in CoCoFinalizedContextCommit candidate,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_history == null)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            try
+            {
+                if (!_history.TryPrepareCapture(
+                        candidate,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    _history.CancelPreparedCapture();
+                    diagnostic = HistoryError(
+                        diagnosticCode,
+                        "Temporal projection capture rejected the finalized Context candidate.");
+                    return false;
+                }
+
+                if (_participant != null)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    if (!_participant.IsTemporalParticipantLive(_host) ||
+                        !candidate.TryGetMetadata(
+                            out CoCoStateFlowFrameHeader header,
+                            out CoCoContextRevision revision,
+                            out CoCoContextFrameOrigin origin) ||
+                        !_participant.TryPrepareForwardCapture(
+                            new CoCoTemporalFrameInfo(
+                                header.Identity.GraphInstanceId,
+                                header.TickFrame,
+                                revision,
+                                origin),
+                            out diagnostic))
+                    {
+                        _participant.CancelPreparedCaptureNoFail();
+                        _history.CancelPreparedCapture();
+                        if (!diagnostic.IsError)
+                        {
+                            diagnostic = HistoryError(
+                                CoCoDiagnosticCode.CommitPreparationFailed,
+                                "Temporal participant rejected the finalized capture candidate.");
+                        }
+
+                        return false;
+                    }
+                }
+
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+            catch (Exception)
+            {
+                _participant?.CancelPreparedCaptureNoFail();
+                _history.CancelPreparedCapture();
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal projection capture threw before the authority barrier.");
+                return false;
+            }
+        }
+
+        internal void PublishCaptureNoFail()
+        {
+            if (_history == null)
+            {
+                return;
+            }
+
+            _history.PublishCaptureNoFail();
+            _participant?.PublishForwardCaptureNoFail();
+        }
+
+        internal void CancelPreparedCapture()
+        {
+            if (_history == null)
+            {
+                return;
+            }
+
+            _history.CancelPreparedCapture();
+            _participant?.CancelPreparedCaptureNoFail();
+        }
+
+        internal void DrainPublishedCleanupNoFail()
+        {
+            if (_history == null)
+            {
+                return;
+            }
+
+            DrainParticipantCleanupNoFail();
+        }
+
+        private void DrainParticipantCleanupNoFail()
+        {
+            try
+            {
+                _participant?.DrainPublishedCleanupNoFail();
+            }
+            catch (Exception)
+            {
+                // Post-barrier cleanup is diagnostics-only and cannot roll back authority.
+            }
+        }
+
+        internal bool TryImportPersistence(
+            CoCoStateGraphRuntime runtime,
+            CoCoStateGraphPersistencePayloadCodec codec,
+            in CoCoStateGraphPersistenceEnvelope envelope,
+            in CoCoProjectionRestoreSource persistedSource,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_isDisposed ||
+                runtime == null ||
+                codec == null ||
+                !envelope.IsValid ||
+                !persistedSource.IsValid ||
+                runtime.IsFaulted ||
+                (runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended) ||
+                _mode == CoCoTemporalMode.Previewing)
+            {
+                diagnostic = TemporalLifecycleError(
+                    "Persistence import requires one healthy Running or Suspended Host outside Temporal preview.");
+                return false;
+            }
+
+            if (!CoCoStateGraphPersistencePayloadCodec.TryCreateImportedTickFrame(
+                    runtime.Clock,
+                    envelope,
+                    persistedSource,
+                    out CoCoTickFrame importedTickFrame,
+                    out diagnostic) ||
+                !CoCoStateGraphPersistencePayloadCodec.TryCreatePersistedSourceInfo(
+                    envelope,
+                    persistedSource,
+                    out CoCoTemporalFrameInfo persistedInfo,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            if (_binding != null &&
+                (!IsBindingComponentLive ||
+                 !TryEnsurePersistenceParticipantAttached(out diagnostic) ||
+                 !TryRequireLiveBinding(out diagnostic)))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = ConfigurationError(
+                        "Persistence import requires its original live Restore Binding inside the Host boundary.");
+                }
+
+                return false;
+            }
+
+            if (_inbox != null && !_inbox.BeginRewindOrRestore())
+            {
+                diagnostic = MailboxError(
+                    "Inbox could not enter Restore mode for Persistence import.");
+                return false;
+            }
+
+            if (!_transaction.TryPreparePersistenceRestore(
+                    runtime,
+                    codec.Projection,
+                    envelope.DurablePayload,
+                    importedTickFrame,
+                    _history,
+                    out CoCoPreparedActorRestore preparedRestore,
+                    out CoCoContextRestoreReadView restoreSource,
+                    out _,
+                    out CoCoTemporalFrameInfo targetAuthority,
+                    out _,
+                    out diagnostic))
+            {
+                _history?.CancelPreparedCapture();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                return false;
+            }
+
+            try
+            {
+                if (_participant != null &&
+                    (!_participant.IsTemporalParticipantLive(_host) ||
+                     !_participant.TryPrepareAuthorityReset(
+                         targetAuthority,
+                         out diagnostic)))
+                {
+                    _participant.CancelPreparedAuthorityResetNoFail();
+                    _history?.CancelPreparedCapture();
+                    preparedRestore.Cancel();
+                    _inbox?.CancelRewindOrRestoreNoFail();
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = HistoryError(
+                            CoCoDiagnosticCode.CommitPreparationFailed,
+                            "Temporal participant rejected the imported authority baseline.");
+                    }
+
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal participant authority reset threw before the Persistence authority barrier.");
+                return false;
+            }
+
+            bool worldMayBeDirty = false;
+            if (_binding != null &&
+                !TryApplyRestore(
+                    CoCoContextRestoreApplyKind.Confirm,
+                    persistedInfo,
+                    importedTickFrame,
+                    restoreSource,
+                    out worldMayBeDirty,
+                    out diagnostic))
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                if (worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            if (_host.IsTemporalOperationCancellationRequested ||
+                !preparedRestore.IsValid ||
+                (_history != null && !_history.HasPreparedCapture) ||
+                (_participant != null &&
+                 !_participant.IsTemporalParticipantLive(_host)) ||
+                (_binding != null && !IsBindingLive) ||
+                (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
+            {
+                _participant?.CancelPreparedAuthorityResetNoFail();
+                _history?.CancelPreparedCapture();
+                preparedRestore.Cancel();
+                _inbox?.CancelRewindOrRestoreNoFail();
+                diagnostic = TemporalLifecycleError(
+                    "Persistence import proof changed during Unity projection before authority publication.");
+                if (worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            preparedRestore.CommitNoFail();
+            _history?.PublishAuthorityResetNoFail();
+            _participant?.CommitPreparedAuthorityResetNoFail();
+            _inbox?.ResumeAfterTimelineResetNoFail(importedTickFrame.TimelineEpoch);
+            _mode = _history == null
+                ? CoCoTemporalMode.Disabled
+                : CoCoTemporalMode.Ready;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = ToPublicInfo(_transaction.CurrentContext);
+            DrainParticipantCleanupNoFail();
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryBegin(
+            CoCoStateGraphRuntime runtime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireHealthyRunning(runtime, CoCoTemporalMode.Ready, out diagnostic) ||
+                _history == null ||
+                _history.Count < 2)
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = TemporalLifecycleError(
+                        "Temporal preview requires at least current authority and one older committed entry.");
+                }
+
+                return false;
+            }
+
+            if (!TryRequireLiveBinding(out diagnostic))
+            {
+                return false;
+            }
+
+            if (_inbox != null && !_inbox.BeginRewindOrRestore())
+            {
+                diagnostic = MailboxError(
+                    "Inbox could not enter Rewind mode at the resolved Running boundary.");
+                return false;
+            }
+
+            if (_participant != null &&
+                !_participant.TryBeginPreview(_history.Count, out diagnostic))
+            {
+                _inbox?.CancelRewindOrRestoreNoFail();
+                return false;
+            }
+
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = ToPublicInfo(_transaction.CurrentContext);
+            _mode = CoCoTemporalMode.Previewing;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryPreview(
+            CoCoStateGraphRuntime runtime,
+            int historyDepth,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireHealthyRunning(runtime, CoCoTemporalMode.Previewing, out diagnostic) ||
+                _history == null ||
+                historyDepth < 0 ||
+                historyDepth >= _history.Count)
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = HistoryError(
+                        CoCoDiagnosticCode.InvalidRestoreMetadata,
+                        "Temporal preview depth is outside the current bounded history.");
+                }
+
+                return false;
+            }
+
+            if (!TryRequireLiveBinding(out diagnostic))
+            {
+                if (_hasAppliedPreviewProjection)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            bool applied;
+            bool worldMayBeDirty;
+            CoCoTemporalFrameInfo previewInfo;
+            if (historyDepth == 0)
+            {
+                CoCoContextFrameReadView authority = _transaction.PreviousContext;
+                previewInfo = ToPublicInfo(_transaction.CurrentContext);
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Preview,
+                        historyDepth,
+                        previewInfo,
+                        previewInfo.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                applied = TryApplyAuthority(
+                    CoCoContextRestoreApplyKind.Preview,
+                    previewInfo,
+                    previewInfo.TickFrame,
+                    authority,
+                    out worldMayBeDirty,
+                    out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
+            }
+            else
+            {
+                CoCoTemporalSelection selection;
+                try
+                {
+                    if (!_history.TrySelect(
+                            historyDepth,
+                            out selection,
+                            out CoCoDiagnosticCode diagnosticCode))
+                    {
+                        diagnostic = HistoryError(
+                            diagnosticCode,
+                            "Temporal history could not materialize the requested preview.");
+                        return false;
+                    }
+                }
+                catch (Exception)
+                {
+                    diagnostic = HistoryError(
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "Temporal history preview decoding threw before Unity projection.");
+                    return false;
+                }
+
+                previewInfo = ToPublicInfo(selection.Info);
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Preview,
+                        historyDepth,
+                        previewInfo,
+                        previewInfo.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                applied = TryApplyRestore(
+                    CoCoContextRestoreApplyKind.Preview,
+                    previewInfo,
+                    previewInfo.TickFrame,
+                    selection.RestoreView,
+                    out worldMayBeDirty,
+                    out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
+            }
+
+            if (!applied)
+            {
+                if (_hasAppliedPreviewProjection || worldMayBeDirty)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                }
+
+                return false;
+            }
+
+            _previewDepth = historyDepth;
+            _hasAppliedPreviewProjection = true;
+            _previewInfo = previewInfo;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryConfirm(
+            CoCoStateGraphRuntime runtime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireHealthyRunning(runtime, CoCoTemporalMode.Previewing, out diagnostic) ||
+                _history == null ||
+                _previewDepth <= 0 ||
+                _previewDepth >= _history.Count)
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = TemporalLifecycleError(
+                        "Temporal Confirm requires one successfully previewed historical depth greater than zero.");
+                }
+
+                return false;
+            }
+
+            if (!TryRequireLiveBinding(out diagnostic))
+            {
+                _host.LatchWorldCorrectionFault(diagnostic);
+                return false;
+            }
+
+            if (_inbox != null && !_inbox.CanResumeAfterTimelineReset)
+            {
+                diagnostic = MailboxError(
+                    "Inbox cannot complete the Temporal timeline reset.");
+                return false;
+            }
+
+            CoCoTemporalSelection selection;
+            try
+            {
+                if (!_history.TrySelect(
+                        _previewDepth,
+                        out selection,
+                        out CoCoDiagnosticCode diagnosticCode))
+                {
+                    diagnostic = HistoryError(
+                        diagnosticCode,
+                        "Temporal Confirm could not reacquire the previewed history entry.");
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Temporal Confirm decoding threw before restore preparation.");
+                return false;
+            }
+
+            if (!TryCreateResumedTickFrame(
+                    runtime,
+                    selection.Info,
+                    out CoCoTickFrame resumedTickFrame,
+                    out diagnostic) ||
+                !_transaction.TryPrepareTemporalRestore(
+                    runtime,
+                    _history,
+                    selection,
+                    resumedTickFrame,
+                    out CoCoPreparedActorRestore preparedRestore,
+                    out CoCoContextRestoreReadView restoreSource,
+                    out _,
+                    out diagnostic))
+            {
+                _history.CancelPreparedCapture();
+                return false;
+            }
+
+            CoCoTemporalFrameInfo sourceInfo = ToPublicInfo(selection.Info);
+            if (_participant != null &&
+                (!_participant.TryPrepareBranchCapture(
+                     _previewDepth,
+                     sourceInfo,
+                     out diagnostic) ||
+                 !_participant.TryPrepareProjection(
+                     CoCoContextRestoreApplyKind.Confirm,
+                     _previewDepth,
+                     sourceInfo,
+                     resumedTickFrame,
+                     out diagnostic)))
+            {
+                _participant.CancelPreparedCaptureNoFail();
+                preparedRestore.Cancel();
+                _history.CancelPreparedCapture();
+                return false;
+            }
+
+            bool applied = TryApplyRestore(
+                CoCoContextRestoreApplyKind.Confirm,
+                sourceInfo,
+                resumedTickFrame,
+                restoreSource,
+                out _,
+                out diagnostic);
+            _participant?.FinishProjectionNoFail(applied);
+            if (!applied)
+            {
+                _participant?.CancelPreparedCaptureNoFail();
+                preparedRestore.Cancel();
+                _history.CancelPreparedCapture();
+                _host.LatchWorldCorrectionFault(diagnostic);
+                return false;
+            }
+
+            if (_host.IsTemporalOperationCancellationRequested ||
+                !preparedRestore.IsValid ||
+                !_history.HasPreparedCapture ||
+                (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
+            {
+                _participant?.CancelPreparedCaptureNoFail();
+                preparedRestore.Cancel();
+                _history.CancelPreparedCapture();
+                diagnostic = TemporalLifecycleError(
+                    "Temporal restore proof changed during Unity projection before authority publication.");
+                _host.LatchWorldCorrectionFault(diagnostic);
+                return false;
+            }
+
+            preparedRestore.CommitNoFail();
+            _history.PublishBranchCaptureNoFail();
+            _participant?.PublishBranchCaptureNoFail();
+            _inbox?.ResumeAfterTimelineResetNoFail(resumedTickFrame.TimelineEpoch);
+            _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Confirm);
+            _mode = CoCoTemporalMode.Ready;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = ToPublicInfo(_transaction.CurrentContext);
+            DrainPublishedCleanupNoFail();
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryCancel(
+            CoCoStateGraphRuntime runtime,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireHealthyRunning(runtime, CoCoTemporalMode.Previewing, out diagnostic))
+            {
+                return false;
+            }
+
+            if (_hasAppliedPreviewProjection &&
+                !TryRequireLiveBinding(out diagnostic))
+            {
+                _host.LatchWorldCorrectionFault(diagnostic);
+                return false;
+            }
+
+            if (_inbox != null && !_inbox.CanCancelRewindOrRestore)
+            {
+                diagnostic = MailboxError(
+                    "Inbox cannot cancel the current Temporal preview session.");
+                return false;
+            }
+
+            CoCoTemporalFrameInfo current = ToPublicInfo(_transaction.CurrentContext);
+            if (_hasAppliedPreviewProjection)
+            {
+                CoCoContextFrameReadView authority = _transaction.PreviousContext;
+                if (_participant != null &&
+                    !_participant.TryPrepareProjection(
+                        CoCoContextRestoreApplyKind.Cancel,
+                        0,
+                        current,
+                        current.TickFrame,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                bool applied = TryApplyAuthority(
+                        CoCoContextRestoreApplyKind.Cancel,
+                        current,
+                        current.TickFrame,
+                        authority,
+                        out _,
+                        out diagnostic);
+                _participant?.FinishProjectionNoFail(applied);
+                if (!applied)
+                {
+                    _host.LatchWorldCorrectionFault(diagnostic);
+                    return false;
+                }
+            }
+
+            _inbox?.CancelRewindOrRestoreNoFail();
+            _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Cancel);
+            _mode = CoCoTemporalMode.Ready;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = current;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        internal bool TryCorrectWorld(
+            CoCoStateGraphRuntime runtime,
+            bool requiresWorldCorrection,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed ||
+                runtime == null ||
+                !requiresWorldCorrection ||
+                !runtime.IsFaulted ||
+                (runtime.Lifecycle != CoCoRuntimeLifecycleState.Running &&
+                 runtime.Lifecycle != CoCoRuntimeLifecycleState.Suspended))
+            {
+                diagnostic = TemporalLifecycleError(
+                    "World correction requires one live faulted Host with an explicit correction requirement.");
+                return false;
+            }
+
+            if (!TryRequireLiveBinding(out diagnostic))
+            {
+                return false;
+            }
+
+            bool closesPreview = _mode == CoCoTemporalMode.Previewing;
+            if (closesPreview &&
+                _inbox != null &&
+                !_inbox.CanCancelRewindOrRestore)
+            {
+                diagnostic = MailboxError(
+                    "Inbox cannot close the faulted Temporal preview during world correction.");
+                return false;
+            }
+
+            if (!runtime.TryPrepareTemporalRecovery(
+                    out CoCoPreparedTemporalRecovery recovery,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            CoCoContextFrameReadView authority = _transaction.PreviousContext;
+            CoCoTemporalFrameInfo current = ToPublicInfo(_transaction.CurrentContext);
+            if (_participant != null &&
+                !_participant.TryPrepareProjection(
+                    CoCoContextRestoreApplyKind.Correction,
+                    0,
+                    current,
+                    current.TickFrame,
+                    out diagnostic))
+            {
+                recovery.Cancel();
+                return false;
+            }
+
+            bool applied = TryApplyAuthority(
+                CoCoContextRestoreApplyKind.Correction,
+                current,
+                current.TickFrame,
+                authority,
+                out _,
+                out diagnostic);
+            _participant?.FinishProjectionNoFail(applied);
+            if (!applied)
+            {
+                recovery.Cancel();
+                return false;
+            }
+
+            if (_host.IsTemporalOperationCancellationRequested ||
+                !recovery.IsValid ||
+                (closesPreview &&
+                 _inbox != null &&
+                 !_inbox.CanCancelRewindOrRestore))
+            {
+                recovery.Cancel();
+                diagnostic = TemporalLifecycleError(
+                    "World correction proof changed during Unity projection.");
+                return false;
+            }
+
+            if (closesPreview)
+            {
+                _inbox?.CancelRewindOrRestoreNoFail();
+            }
+
+            recovery.CompleteNoFail();
+            _host.ClearWorldCorrectionRequirementNoFail();
+            _participant?.CompletePreviewNoFail(
+                CoCoContextRestoreApplyKind.Correction);
+            _mode = _history == null
+                ? CoCoTemporalMode.Disabled
+                : CoCoTemporalMode.Ready;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _previewInfo = current;
+            DrainPublishedCleanupNoFail();
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            ClearActiveRead();
+            if (_participantAttached)
+            {
+                TryDetachParticipantNoFail(_participant);
+                _participantAttached = false;
+            }
+
+            _history?.Dispose();
+            _previewInfo = default;
+            _previewDepth = 0;
+            _hasAppliedPreviewProjection = false;
+            _mode = CoCoTemporalMode.Disabled;
+        }
+
+        bool ICoCoContextRestoreReadSource.IsReadActive(ulong token) =>
+            !_isDisposed && token != 0UL && token == _activeReadToken;
+
+        bool ICoCoContextRestoreReadSource.TryRead<TValue>(
+            ulong token,
+            CoCoStateSlotId slotId,
+            out TValue value)
+        {
+            value = default;
+            if (_isDisposed || token == 0UL || token != _activeReadToken)
+            {
+                return false;
+            }
+
+            if (_readsRestoreCandidate)
+            {
+                return _activeRestoreView.TryRead(slotId, out value);
+            }
+
+            try
+            {
+                if (!_layout.TryResolveSlot(
+                        slotId,
+                        out CoCoStateSlot<TValue> slot))
+                {
+                    return false;
+                }
+
+                value = _activeAuthorityView.Read(slot);
+                return true;
+            }
+            catch (Exception)
+            {
+                value = default;
+                return false;
+            }
+        }
+
+        private bool TryApplyAuthority(
+            CoCoContextRestoreApplyKind applyKind,
+            in CoCoTemporalFrameInfo source,
+            in CoCoTickFrame targetTickFrame,
+            in CoCoContextFrameReadView authority,
+            out bool worldMayBeDirty,
+            out CoCoDiagnostic diagnostic)
+        {
+            worldMayBeDirty = false;
+            if (!authority.IsValid)
+            {
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.InvalidFrameHandle,
+                    "Current Context authority is not available for Unity projection.");
+                return false;
+            }
+
+            _activeAuthorityView = authority;
+            _readsRestoreCandidate = false;
+            return TryInvokeBinding(
+                applyKind,
+                source,
+                targetTickFrame,
+                out worldMayBeDirty,
+                out diagnostic);
+        }
+
+        private bool TryApplyRestore(
+            CoCoContextRestoreApplyKind applyKind,
+            in CoCoTemporalFrameInfo source,
+            in CoCoTickFrame targetTickFrame,
+            in CoCoContextRestoreReadView restore,
+            out bool worldMayBeDirty,
+            out CoCoDiagnostic diagnostic)
+        {
+            worldMayBeDirty = false;
+            if (!restore.IsValid)
+            {
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.InvalidFrameHandle,
+                    "Temporal restore view expired before Unity projection.");
+                return false;
+            }
+
+            _activeRestoreView = restore;
+            _readsRestoreCandidate = true;
+            return TryInvokeBinding(
+                applyKind,
+                source,
+                targetTickFrame,
+                out worldMayBeDirty,
+                out diagnostic);
+        }
+
+        private bool TryInvokeBinding(
+            CoCoContextRestoreApplyKind applyKind,
+            in CoCoTemporalFrameInfo source,
+            in CoCoTickFrame targetTickFrame,
+            out bool worldMayBeDirty,
+            out CoCoDiagnostic diagnostic)
+        {
+            worldMayBeDirty = false;
+            if (!TryRequireLiveBinding(out diagnostic) ||
+                _nextReadToken == ulong.MaxValue)
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = TemporalLifecycleError(
+                        "Restore Binding callback tokens are exhausted.");
+                }
+
+                ClearActiveRead();
+                return false;
+            }
+
+            ulong token = ++_nextReadToken;
+            _activeReadToken = token;
+            if (!_readLease.TryAttach(this, token))
+            {
+                ClearActiveRead();
+                diagnostic = TemporalLifecycleError(
+                    "Restore Binding reader lease could not attach at the synchronous callback boundary.");
+                return false;
+            }
+
+            var context = new CoCoContextRestoreBindingContext(
+                applyKind,
+                source,
+                targetTickFrame,
+                new CoCoContextRestoreReader(_readLease, token));
+            bool applied;
+            worldMayBeDirty = true;
+            try
+            {
+                applied = _binding.TryApply(context, out diagnostic);
+            }
+            catch (Exception)
+            {
+                applied = false;
+                diagnostic = BindingError(
+                    "Restore Binding threw during synchronous Unity projection.");
+            }
+            finally
+            {
+                ClearActiveRead();
+            }
+
+            if (!applied || diagnostic.IsError || !IsBindingLive ||
+                _host.IsTemporalOperationCancellationRequested)
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = BindingError(
+                        !IsBindingLive
+                            ? "Restore Binding was destroyed during Unity projection."
+                            : "Restore Binding rejected or invalidated synchronous Unity projection.");
+                }
+
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryRequireHealthyRunning(
+            CoCoStateGraphRuntime runtime,
+            CoCoTemporalMode requiredMode,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isDisposed ||
+                runtime == null ||
+                runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
+                runtime.IsFaulted ||
+                _mode != requiredMode)
+            {
+                diagnostic = TemporalLifecycleError(
+                    "Temporal control requires one healthy Running Host in the expected Temporal mode.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryRequireLiveBinding(out CoCoDiagnostic diagnostic)
+        {
+            if (IsBindingLive)
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            diagnostic = ConfigurationError(
+                "Temporal Unity projection requires its original live Restore Binding inside the Host boundary.");
+            return false;
+        }
+
+        private bool IsBindingLive =>
+            _binding != null &&
+            IsBindingComponentLive &&
+            (!_participantAttached ||
+             IsParticipantLiveNoThrow());
+
+        private bool IsBindingComponentLive =>
+            _bindingComponent != null &&
+            CoCoStateGraphHostBoundary.Contains(_host, _bindingComponent);
+
+        private bool TryEnsurePersistenceParticipantAttached(
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_participant == null)
+            {
+                return true;
+            }
+
+            if (_participantAttached)
+            {
+                if (IsParticipantLiveNoThrow())
+                {
+                    return true;
+                }
+
+                diagnostic = ConfigurationError(
+                    "Persistence Restore Binding participant is no longer attached to its exact Host.");
+                return false;
+            }
+
+            bool attached = false;
+            try
+            {
+                attached = _participant.TryAttachTemporalHost(
+                    _host,
+                    0,
+                    out diagnostic);
+            }
+            catch (Exception)
+            {
+                TryDetachParticipantNoFail(_participant);
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.CommitPreparationFailed,
+                    "Persistence Restore Binding participant attachment threw before the Inbox barrier.");
+                return false;
+            }
+
+            if (!attached || diagnostic.IsError)
+            {
+                if (attached)
+                {
+                    TryDetachParticipantNoFail(_participant);
+                }
+
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = HistoryError(
+                        CoCoDiagnosticCode.CommitPreparationFailed,
+                        "Persistence Restore Binding participant rejected reset-only attachment.");
+                }
+
+                return false;
+            }
+
+            _participantAttached = true;
+            if (IsParticipantLiveNoThrow())
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            TryDetachParticipantNoFail(_participant);
+            _participantAttached = false;
+            diagnostic = ConfigurationError(
+                "Persistence Restore Binding participant became invalid during reset-only attachment.");
+            return false;
+        }
+
+        private bool IsParticipantLiveNoThrow()
+        {
+            try
+            {
+                return _participant != null &&
+                       _participant.IsTemporalParticipantLive(_host);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void TryDetachParticipantNoFail(
+            ICoCoStateGraphTemporalParticipant participant)
+        {
+            try
+            {
+                participant?.DetachTemporalHostNoFail();
+            }
+            catch (Exception)
+            {
+                // Attachment rollback and Host teardown cannot be rejected.
+            }
+        }
+
+        private void ClearActiveRead()
+        {
+            _readLease.Detach();
+            _activeReadToken = 0UL;
+            _activeAuthorityView = default;
+            _activeRestoreView = default;
+            _readsRestoreCandidate = false;
+        }
+
+        private static bool TryCreateResumedTickFrame(
+            CoCoStateGraphRuntime runtime,
+            in CoCoTemporalHistoryEntryInfo source,
+            out CoCoTickFrame resumed,
+            out CoCoDiagnostic diagnostic)
+        {
+            resumed = default;
+            diagnostic = CoCoDiagnostic.None;
+            if (runtime == null || !source.IsValid)
+            {
+                diagnostic = HistoryError(
+                    CoCoDiagnosticCode.InvalidRestoreMetadata,
+                    "Temporal restore source metadata is incomplete.");
+                return false;
+            }
+
+            CoCoTickFrame sourceTick = source.Header.TickFrame;
+            ulong currentEpoch = runtime.Clock.TimelineEpoch.Value;
+            ulong currentSequence = runtime.Clock.ExecutionSequence.Value;
+            ulong sourceEpoch = sourceTick.TimelineEpoch.Value;
+            ulong sourceSequence = sourceTick.ExecutionSequence.Value;
+            ulong maximumEpoch = currentEpoch > sourceEpoch ? currentEpoch : sourceEpoch;
+            ulong maximumSequence = currentSequence > sourceSequence
+                ? currentSequence
+                : sourceSequence;
+            if (maximumEpoch == ulong.MaxValue || maximumSequence == ulong.MaxValue ||
+                !CoCoTickFrame.TryCreate(
+                    sourceTick.DeltaTime,
+                    sourceTick.TimelineId,
+                    sourceTick.TimelinePosition,
+                    sourceTick.Tick,
+                    sourceTick.ClockDomainId,
+                    new CoCoExecutionSequence(maximumSequence + 1UL),
+                    new CoCoTimelineEpoch(maximumEpoch + 1UL),
+                    out resumed,
+                    out diagnostic))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = HistoryError(
+                        CoCoDiagnosticCode.InvalidTimelinePosition,
+                        "Temporal restore cannot allocate a strictly newer Epoch and ExecutionSequence.");
+                }
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private static CoCoTemporalFrameInfo ToPublicInfo(
+            in CoCoTemporalHistoryEntryInfo info) =>
+            info.IsValid
+                ? new CoCoTemporalFrameInfo(
+                    info.Header.Identity.GraphInstanceId,
+                    info.Header.TickFrame,
+                    info.Revision,
+                    info.Origin)
+                : default;
+
+        private static CoCoTemporalFrameInfo ToPublicInfo(CoCoContextFrame frame) =>
+            frame.IsAlive
+                ? new CoCoTemporalFrameInfo(
+                    frame.Header.Identity.GraphInstanceId,
+                    frame.Header.TickFrame,
+                    frame.Revision,
+                    frame.Origin)
+                : default;
+
+        private static CoCoDiagnostic ConfigurationError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Context,
+                CoCoDiagnosticCode.InvalidActorBinding,
+                message);
+
+        private static CoCoDiagnostic HistoryError(
+            CoCoDiagnosticCode code,
+            string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                code == CoCoDiagnosticCode.None
+                    ? CoCoDiagnosticCode.InvalidRestoreMetadata
+                    : code,
+                message);
+
+        private static CoCoDiagnostic BindingError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Restore,
+                CoCoDiagnosticCode.WorldCorrectionRequired,
+                message);
+
+        private static CoCoDiagnostic MailboxError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Mailbox,
+                CoCoDiagnosticCode.MailboxUnavailable,
+                message);
+
+        private static CoCoDiagnostic TemporalLifecycleError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Lifecycle,
+                CoCoDiagnosticCode.InvalidLifecycleTransition,
+                message);
+    }
+}

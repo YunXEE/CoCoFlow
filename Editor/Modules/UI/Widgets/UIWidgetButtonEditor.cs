@@ -9,7 +9,7 @@ namespace CoCoFlow.Editor.Modules.UI.Widgets
         {
             serializedObject.Update();
 
-            var actionTypeProp = serializedObject.FindProperty("_actionType");
+            var actionTypeProp = serializedObject.FindProperty("actionType");
             EditorGUILayout.PropertyField(actionTypeProp);
 
             int currentType = actionTypeProp.enumValueIndex;
@@ -17,11 +17,11 @@ namespace CoCoFlow.Editor.Modules.UI.Widgets
             // 根据不同的动作类型切换显示具体的配置项
             if (currentType == (int)Runtime.Modules.UI.Widgets.UIButtonActionType.OpenPanel)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("_targetPanelAddress"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("targetPanelSource"));
             }
             else if (currentType == (int)Runtime.Modules.UI.Widgets.UIButtonActionType.CustomGameLogic)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("_onCustomClick"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("onCustomClick"));
             }
 
             serializedObject.ApplyModifiedProperties();

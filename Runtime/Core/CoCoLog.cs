@@ -6,12 +6,12 @@ using System.Diagnostics;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public enum LogLevel { Log, Warning, Error }
+    public enum CoCoLogLevel { Log, Warning, Error }
 
     // 使用 struct 配合 ref EventBus，实现零 GC 传递
     public struct CoCoLogEvent
     {
-        public LogLevel Level;
+        public CoCoLogLevel Level;
         public string ModuleName;
         public string ClassName;
         public string Message;
@@ -34,7 +34,7 @@ namespace CoCoFlow.Runtime.Core
         [Conditional("COCOFLOW_LOG")]
         public static void Log(string message, [CallerFilePath] string sourceFilePath = "")
         {
-            DispatchLog(LogLevel.Log, message, sourceFilePath);
+            DispatchLog(CoCoLogLevel.Log, message, sourceFilePath);
         }
 
         /// <summary>
@@ -44,7 +44,7 @@ namespace CoCoFlow.Runtime.Core
         public static void Warning(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
-            DispatchLog(LogLevel.Warning, message, info);
+            DispatchLog(CoCoLogLevel.Warning, message, info);
 
             UnityEngine.Debug.LogWarning($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
@@ -55,7 +55,7 @@ namespace CoCoFlow.Runtime.Core
         public static void Error(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
-            DispatchLog(LogLevel.Error, message, info);
+            DispatchLog(CoCoLogLevel.Error, message, info);
 
             UnityEngine.Debug.LogError($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
@@ -65,7 +65,7 @@ namespace CoCoFlow.Runtime.Core
         #region Internal Logic
 
         // 修改了一下 DispatchLog 的签名，避免重复解析路径
-        private static void DispatchLog(LogLevel level, string message, (string Module, string Class) info)
+        private static void DispatchLog(CoCoLogLevel level, string message, (string Module, string Class) info)
         {
             var logEvent = new CoCoLogEvent
             {
@@ -80,7 +80,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         // 兼容 Log 调用的重载
-        private static void DispatchLog(LogLevel level, string message, string sourceFilePath)
+        private static void DispatchLog(CoCoLogLevel level, string message, string sourceFilePath)
         {
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(level, message, info);

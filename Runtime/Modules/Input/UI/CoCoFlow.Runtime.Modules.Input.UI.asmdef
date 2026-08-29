@@ -1,0 +1,29 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Input.UI",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Input.UI",
+    "references": [
+        "CoCoFlow.Runtime.Modules.Input",
+        "CoCoFlow.Runtime.Modules.Localization.UI",
+        "CoCoFlow.Runtime.Modules.UI",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_DOTWEEN_SUPPORT",
+        "UNITASK_DOTWEEN_SUPPORT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

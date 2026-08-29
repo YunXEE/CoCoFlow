@@ -1,0 +1,403 @@
+# CoCoFlow StateGraph Asset and Compiler
+
+> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
+>
+> The Compiler and StateGraphAuthoring Runtime are included in the Core Engine
+> maturity statement. The StateGraph Editor is current tooling, but it is not
+> part of the Runtime API maturity guarantee.
+
+CoCoFlow contains a Unity authoring schema and an engine-independent compiler
+for its layered HFSM. The compiler produces immutable graph lookup data plus
+Intent, Operation, and Context requirement manifests. StateGraph Runtime,
+StateGraphHost, Operators, Temporal restore, and Persistence consume those
+compiled contracts without mutating the authored Asset.
+
+The current serialized StateGraph schema version is `1`. Transition windows use
+normalized ActionProgress. Unsupported schema versions fail validation; the
+package does not expose an automatic migration path for non-v1 graph Assets.
+
+## Authoring authority
+
+`CoCoStateGraphAsset` is the sole serialized authoring truth. Its public
+topology is:
+
+```text
+Graph
+  -> Layer
+    -> recursive State
+  -> Layer-owned Transition
+```
+
+The schema does not expose Machine or Node concepts. Each State stores its
+parent and initial-child identities; each Transition is stored once by its
+owning Layer and addresses source and target States in that same Layer. The
+compiler derives child ranges, active-path metadata, and adjacency lookups from
+this flat serialized schema.
+
+Cross-Layer transitions, references, queries, messages, and calls are invalid.
+Communication between independent Layers must leave StateGraph and use the
+later State Flow boundaries.
+
+The Asset Layer list is semantic order: first is the lowest composition Layer
+and last is the highest. Reordering the list preserves Layer IDs but changes
+runtime composition and the content fingerprint. The compiler preserves that
+list order, and a Layer's `DenseIndex` is its composition index rather than an
+ID-derived sort position.
+
+## Constrained Editor and presentation state
+
+The Editor edits one Layer and one recursive State scope at a time. It supports Layer,
+State, and Transition creation, deletion, reordering, Condition/Window/Priority
+editing, breadcrumb navigation, validation, search, and layout. It is not an
+unrestricted visual-scripting surface: Transition endpoints must be leaves in
+the selected Layer, and there is no Machine, Node, Completion, Interrupt, or
+cross-Layer communication entry point.
+
+Every topology mutation passes through one Undo-aware authoring operation. A
+State-subtree deletion removes every incident Transition. When deleting a Layer
+initial State or composite initial child, the user must explicitly choose a
+valid surviving sibling when one exists; the Editor never selects one
+implicitly. With no surviving sibling, the user may explicitly confirm clearing
+the reference and leaving a compiler-invalid draft. Invalid operations are
+rejected before mutation, create no Undo entry, and do not dirty the Asset.
+
+The Graph Asset also contains an internal, separately versioned Editor layout.
+It maps each stable State ID to a local coordinate in its recursive editing
+scope. Layout entries participate in Asset copy, Layer duplication, subtree
+copy, ID remapping, Undo, and Redo, but are presentation-only: the authoring
+snapshot does not read them, runtime schema remains version 1, and layout changes
+do not contribute to the content fingerprint or compilation-cache key.
+
+Selected Layer, State breadcrumb/foldout, pan/zoom, search, and selection are
+session state keyed by Asset GUID and stable identities. They survive Domain
+Reload only, do not enter the Asset, and do not affect any fingerprint.
+Diagnostics are recomputed after reload; only a still-valid selected location
+is restored. Opening or importing an Asset must not synthesize persistent layout
+or mark the Asset dirty.
+
+Copy/Paste is limited to one Asset. A pasted subtree receives new State
+and Transition IDs, retains only subtree-internal Transitions, and may target the
+same or a different Layer. Cross-Asset and cross-Editor-session clipboard
+transfer are not supported. See
+[StateGraph Editor and Runtime Debugger](StateGraphEditor.md) for the complete
+workflow.
+
+## Standard attributed authoring path
+
+The package also exposes a small standard path for projects that do not need a
+fully custom binding provider:
+
+- a concrete `CoCoStateLogic` that implements `ICoCoStateUpdate`, has a public
+  parameterless constructor, and is marked with `CoCoStateAttribute` becomes a
+  Catalog State; its descriptor ID is derived deterministically from the
+  attribute name;
+- `CoCoIntentConsumeAttribute(typeof(RawInputIntent))` declares the one
+  package-provided standard Intent lane;
+- `CoCoOperationProvideAttribute` declares an Operation Section whose owning
+  `ICoCoStandardOperatorRegistrar` must be discoverable from an Operator's
+  `CoCoOperatorRegistrationAttribute`;
+- each standard State receives one deterministic Graph-owned Context block and
+  Stored state slot marked for Temporal and Durable projection;
+- the current standard registration uses `EmptyStateConfig` and
+  `StatelessMemory`. States that need custom frozen config or activation memory
+  still require explicit Catalog/provider registration.
+
+The builder rejects abstract or non-State types, unsupported Intent types,
+unknown Operation Sections, duplicate descriptor IDs, missing registrars, and
+Catalog freeze failures. The Editor catalog bootstrap and Add State wizard use
+the same attributed State surface; Runtime binding is described in
+[StateGraph Runtime and Host](StateGraphRuntime.md).
+
+## Stable identity
+
+Graph, Layer, State, and Transition identities are serialized as two unsigned
+64-bit parts and are owned by the Asset, never generated by the compiler or by
+a runtime instance.
+
+- Rename, move, reorder, Config edits, save/reload, and domain reload preserve
+  existing identities.
+- Duplicating an entire Asset creates a new graph and remaps every internal
+  identity and reference.
+- Duplicating a Layer keeps the Graph identity but remaps the Layer, every
+  contained State and Transition, and every Layer-internal reference. Authoring
+  Config data is deep-copied and does not remain shared with the source Layer.
+- Duplicating a State subtree remaps only the copied States and their internal
+  Transitions. References that would escape the copied subtree are not silently
+  retargeted. Its Editor-layout entries are remapped with the same new State IDs.
+- An invalid, missing, or duplicate identity is a compile Error. Runtime code
+  never repairs serialized identity.
+
+`Duplicate Layer` inserts the copy after its source in one Undo transaction.
+It preserves author data and every Layer-owned Transition, remaps Initial,
+Parent, InitialChild, Source, and Target references, and leaves graph-level
+Event declarations unchanged. A damaged or externally referencing source Layer
+is rejected without modifying the Asset; Redo restores the IDs generated by the
+original operation.
+
+## Compile boundary
+
+Compilation follows one direction:
+
+```text
+CoCoStateGraphAsset
+  -> immutable authoring snapshot
+  + frozen descriptor catalog
+  -> CoCoStateGraphCompiler
+  -> CoCoStateGraphCompileResult
+  -> immutable CoCoCompiledStateGraph
+```
+
+The snapshot boundary validates the serialized envelope without evaluating
+user properties or callbacks. After that preflight, it calls the descriptor's
+explicit Freezer exactly once for each present, valid Config. A Freezer can
+write only to a framework-owned, schema-bound writer; it cannot return an
+arbitrary frozen object or provide its own fingerprint.
+
+Editor layout and session state stop before this boundary. Neither becomes part
+of the immutable authoring snapshot, schema version, compile diagnostics,
+content fingerprint, or cache key.
+
+Each frozen Schema declares stable 128-bit Field IDs and exact scalar or
+one-dimensional-array value types. The framework canonicalizes fields by ID,
+requires each declared field exactly once, defensively copies arrays, seals the
+writer after the Freezer returns, and computes both Schema and value
+fingerprints itself. Snapshot values are limited to primitive and enum values,
+`decimal`, non-null strings, and frozen arrays of those scalar types. Nested
+authoring data must be flattened into stable fields, and optional data uses an
+explicit discriminant. No user class, nullable value, collection, delegate,
+Unity object, or user `GetHashCode()` implementation can enter or influence the
+compiled snapshot.
+
+The serialized Config envelope contains persistent data fields only: primitive
+values, supported enums, strings, serializable pure-data objects, and
+one-dimensional arrays or `List<T>`. Collections must be non-null and cannot be
+nested or jagged. Nested objects use inline value semantics and therefore
+cannot be null, polymorphic, aliased, or cyclic. The Asset's top-level Config
+field supplies the single `SerializeReference` boundary. Non-serialized or
+readonly instance state, dictionaries, delegates, Unity objects, and
+unsupported types are compile Errors. No reflective fallback attempts to
+reinterpret rejected data.
+
+State and Condition behavior is represented by stable descriptor identities
+registered before compilation. Compilation verifies and freezes those
+descriptors; creating StateLogic, Condition, Memory, Adapter, or Reducer
+instances is a Host runtime boundary. The pure `CoCoStateGraphCompiler` itself
+does not invoke a Freezer, StateLogic, Condition, Reducer, Factory, or
+Event-to-Intent Adapter.
+
+The compiler records graph-level Event-to-Intent declarations. Each declaration
+serializes only one `(EventTypeId, IntentId)` pair; the catalog supplies and the
+compiled declaration captures the Event Domain, unmanaged Event payload type,
+and exact unmanaged Intent value type.
+Declarations are resolved and validated by Event and Intent identity, retained
+in Asset list order, automatically add their provided Intent to the Graph's
+requirements, and cannot exceed that Intent's static `MaxContributions` lower
+bound. One Event may provide several
+different Intents, but a pair cannot repeat, and one Event identity cannot
+change Domain or payload type. Every Event declaration in one Graph must resolve
+to the same EventDomain; a mixed-Domain Graph is a compile Error. They do not
+select an Adapter implementation,
+instance, priority, broadcast policy, projection capacity, Inbox, or
+reliability policy.
+
+The Asset declaration list is the authoritative Adapter execution order. The
+compiler preserves that declaration index in the immutable manifest. The Host
+binding Provider must cover the manifest exactly, but it cannot sort or otherwise
+change the declared runtime order.
+
+Descriptor logic, Conditions, Freezers, and token implementations must live in
+`noEngineReferences` author assemblies whose complete dependency closure is
+engine-independent. That closure may use the BCL and the pure Contracts,
+StateFlow, and StateGraph assemblies, but it must not reference the legacy
+Unity-facing `CoCoFlow.Runtime.Core`, StateGraphAuthoring, Editor, Gameplay,
+Modules, or Unity assemblies. Runtime registration retains its direct-reference
+guard as a fast boundary check. Editor Analyze and the Player build preflight
+then walk the complete resolved assembly dependency graph from every registered
+Logic, Condition, Config, Schema, Memory, Freezer, Intent, Reducer, Factory,
+Operation Section, View Factory, StateBlock/Slot value, Rebuilder, Event, and
+provided-Intent root. Missing asmdefs, engine references, forbidden assemblies,
+and unprovable custom precompiled dependencies fail closed. The pure compiler
+still performs no assembly discovery or scanning.
+
+Intent reducers, Operation Section views, and derived StateSlot rebuilders are
+registered through closed generic AOT tokens, never executable instances. A
+token contains its compile-time implementation type plus a nonzero,
+deterministic semantic fingerprint; both contribute to the catalog fingerprint.
+This distinguishes different bindings implemented by the same type without
+`Type.GetType`, `Activator`, assembly scanning, or Compiler callbacks. The
+catalog and CompiledGraph retain only copied token metadata, so mutating a
+later Host-owned factory cannot change an existing compiled result.
+
+`CoCoCompiledStateGraph` contains immutable per-Layer State and Transition
+tables, hierarchy and adjacency lookups, and the data required to reconstruct
+an active path. It is not generated C# and is not a second serialized authoring
+Asset.
+
+## Frozen manifests
+
+One successful compile produces three deterministic, deduplicated manifests:
+
+- `CoCoIntentRequirementManifest`: the Intents the Graph can read, including
+  stable identity, value and Reducer types, capacity, and dense index. It also
+  carries a non-null collection of the Graph's static Event-to-Intent
+  declarations; this does not create a fourth Manifest.
+- `CoCoGraphOperationProvisionManifest`: the OperationFrame Sections the Graph
+  can produce, including each Section's complete immutable Shape.
+- `CoCoContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
+  Slot state required to resume graph evaluation deterministically.
+
+State descriptors may contribute to all three manifests. Conditions may declare
+the Intent and previous Context state they read, but cannot declare or write an
+Operation Section. A Condition only reads frozen Intent, previous Context,
+Tick, Config, LocalSeconds, and ActionProgress during runtime evaluation.
+Repeated identical requirement IDs canonicalize to one sorted entry. Reusing a
+Manifest ID for different registered metadata is a compile-time
+`ManifestConflict`.
+
+These are static declarations, not live StateFlow layouts or registries. The
+Compiler does not retain factories/rebuilders or materialize runtime layouts
+from a CompiledGraph. Host binding must explicitly match each AOT token's type
+and semantic fingerprint before it can supply executable instances.
+
+The Compiler does not synthesize Context Slots. Instead, the Project Provider
+maps the existing requirements to exactly
+one producer per direct Slot: a concrete compiled State's Graph-state record, a
+Graph auxiliary producer, canonical Claim arbitration, one Operator Outcome, or
+the Host's single Actor binding. Existing Derived rebuilders remain the only
+Derived producers. Missing, extra, duplicate, owner/type/policy-incompatible, or
+multiply classified bindings reject Host startup.
+
+For Context bindings, the Project Provider supplies the actual Layout default
+and a nonzero semantic fingerprint. That fingerprint is a trusted declaration
+token compared with the Manifest; it is not a canonical hash that the framework
+recomputes from `defaultValue`. Adding canonical value hashing would change this
+frozen contract and requires an explicit contract change.
+
+An Operation Section Shape is complete: total byte size, deterministic
+field count, and each field's dense index, ordinal name, unmanaged value type,
+byte offset, and size. Catalog registration and the StateFlow Registry use the
+same Shape builder. Their fingerprints include the Shape fingerprint, but
+binding correctness compares every field rather than trusting the fingerprint
+alone. The Editor linker step emits temporary `Library/` preservation metadata
+for the validated Section interfaces and recursively used unmanaged value
+metadata so High Managed Stripping does not erase the static Shape contract.
+
+StateGraphHost owns the actual Source, Event-to-Intent Adapter instances, Inbox,
+and runtime binding coverage. Transaction preflight includes Context producer,
+Operator, Claim, Actor-binding, and Outbox coverage. This preflight
+runs before Clock creation and before `CoCoStateGraphRuntime.TryCreate`, so an
+invalid setup keeps the Host in `Created` without invoking Runtime factories,
+reset/fingerprint work, Graph capture, or Router registration. Runtime binding
+remains outside graph compilation: a missing project Factory does not turn the
+immutable Asset compile result into a scene-dependent error. A valid Provider
+binds compiled Adapter declarations without changing their Asset-defined order.
+
+All three manifests may be empty where the graph contract permits it. A valid
+terminal or no-operation graph is not rejected merely because it has no Intent
+or Operation Section entry.
+
+The Editor overlay presents exactly these three existing manifests. Event-to-Intent
+declarations remain entries within the Intent manifest and do not create a
+fourth Manifest or a ContextGraph. The Editor obtains State and Condition choices
+through deterministic internal Catalog enumeration by stable identity; it adds
+no public label/category metadata or runtime discovery API.
+
+The Catalog-parameterized Simple preset creates one Layer with two generic leaf
+States and one same-Layer Transition. The Combo preset creates the generic
+`Step1 -> Step2 -> Step3 -> Step4 -> Exit` topology. Presets are ordinary
+Undoable authoring operations and do not generate gameplay StateLogic, animation
+timing, Samples, Machine/Node concepts, or cross-Layer references.
+
+## Transition contract
+
+- Source and target must both be leaves in the same Layer. Composite States can
+  occur on an active path but cannot be transitioned to or from directly.
+- Every Transition carries an explicit Priority. Outgoing edges of the same
+  source leaf must use unique Priorities; another source or Layer may reuse the
+  same value.
+- State Update requests zero or more predeclared outgoing Transition handles.
+  It cannot invent an edge or target at runtime. Window and Condition evaluation
+  happens after Update, then the highest eligible Priority is the sole winner
+  for that Layer and Tick.
+- `Always` has no timed interval. `LocalSeconds` and `ActionProgress` use
+  `double` intervals with the exact form `[StartInclusive, EndExclusive)`.
+- A timed interval requires finite values, `StartInclusive >= 0`, and
+  `StartInclusive < EndExclusive`. `ActionProgress` also requires
+  `EndExclusive <= 1`. An open-ended `LocalSeconds` window is represented by
+  `double.MaxValue`.
+- Timed evaluation sweeps the Tick's progress interval using
+  `previous < end && current >= start`, so a large Delta cannot jump over an
+  eligible window. ActionProgress must be finite and monotonically non-decreasing
+  within one leaf Activation; an equal value is a valid stall. Any decrease,
+  including below the last committed value, cancels the candidate and latches
+  Fault. Transactional rollback restores the last committed authority but never
+  permits progress to move backwards. Reaching `1` does not complete or exit the
+  State.
+- Zero Conditions means true. Multiple Conditions are retained in author order
+  and evaluated as AND; OR remains internal to a registered Condition rather
+  than becoming a public expression tree.
+- Completion, `RequireSourceCompletion`, `AllowDuringSourceActivation`, and the
+  entire InterruptPolicy are absent. A leaf with no outgoing edge is valid and
+  performs no Transition evaluation. Self-loops and ordinary cycles are valid.
+
+The Runtime evaluates this declaration-and-request model. A Transition Tick
+keeps the source path effective through Update and Exit; the committed target
+enters and updates on the next accepted Tick.
+
+## Validation and diagnostics
+
+Draft Assets may be saved while invalid. A full compile succeeds only when the
+diagnostic set contains zero Errors; Warnings do not produce a partial or
+pruned graph.
+
+Errors include invalid or duplicate identities, missing State references,
+hierarchy cycles, invalid initial children, non-leaf Transition endpoints,
+duplicate outgoing Priority, illegal descriptor or Config data, invalid or
+duplicate Event-to-Intent declarations, mixed EventDomains, capacity
+violations, and every Cross-Layer edge. An unreachable State is a Warning. A
+parent and child declaring the same Operation Section also produces a
+non-blocking warning because the child will override the parent; the same
+Section declared in different Layers is normal composition and is not warned.
+A State with no outgoing Transition is valid, and ordinary Transition cycles
+are valid HFSM behavior.
+
+Every graph diagnostic carries severity, code, and a location that can identify
+the Graph, Layer, State, Transition, Condition, Event Adapter declaration, and
+serialized field path involved. Editor navigation consumes this location; the
+pure compiler does not depend on `UnityEditor`.
+
+## Sharing, cache, and threads
+
+The Unity-facing compilation cache keys results by Graph identity, deterministic
+content fingerprint, catalog fingerprint, and compiler schema version. Repeated
+requests for an unchanged Asset return the same result identity and share one
+immutable compiled graph. Successful and failed compile results are both cached;
+a cached failure remains a failure with a null Graph. A throwing cache factory
+is evicted so an exception does not poison that key. Semantic Asset or catalog
+changes produce a different key.
+
+Compiled data is safe for concurrent read-only access and contains no per-Actor
+mutable state. Asset access, snapshot extraction, import handling, and cache
+invalidation remain on the Unity main thread. The Compiler does not add Jobs, Burst,
+parallel scheduling, or a background compilation service.
+
+Multiple Hosts using one Asset share only the immutable compiled graph. Each
+owns a separate GraphInstance, StateLogic/Condition instances, double Memory
+banks, ActiveLeaf values, Clock, Intent Runtime, ContextFrame storage, Inbox,
+Temporal Ring/cursor, pending staged Tick, and Fault state. Its ContextFrame is
+the sole retainable complete Actor commit record; the Temporal Ring stores only
+preallocated projection payloads and does not retain that Frame. Graph, Clock,
+and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
+
+## Boundaries
+
+- Animation projection and Animator behavior belong to the Animation module.
+- Durable save documents and schema migration belong to Persistence.
+- Production gameplay States and project content are consumer-owned.
+- Compiler maturity does not claim background compilation, Jobs/Burst
+  execution, complete cross-module performance certification, or Editor visual
+  polish.
+
+There is no generated mega-`.cs` file, build-time baked compiled Asset,
+cross-Layer change-state surface, legacy StateGraph compatibility runtime, or
+automatic non-v1 migration path.

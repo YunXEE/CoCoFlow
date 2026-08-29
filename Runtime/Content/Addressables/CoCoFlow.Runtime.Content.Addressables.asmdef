@@ -1,0 +1,34 @@
+{
+    "name": "CoCoFlow.Runtime.Content.Addressables",
+    "rootNamespace": "CoCoFlow.Runtime.Content",
+    "references": [
+        "CoCoFlow.Runtime.Content",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "Unity.Addressables",
+        "Unity.ResourceManager",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "COCOFLOW_UNITASK_SUPPORT",
+        "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.addressables",
+            "expression": "[2.9.1,3.0.0)",
+            "define": "COCOFLOW_ADDRESSABLES_2_9_OR_NEWER"
+        },
+        {
+            "name": "com.cysharp.unitask",
+            "expression": "[2.5.11,3.0.0)",
+            "define": "COCOFLOW_UNITASK_SUPPORT"
+        }
+    ],
+    "noEngineReferences": false
+}

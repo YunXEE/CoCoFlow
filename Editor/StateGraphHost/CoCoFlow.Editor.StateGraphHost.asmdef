@@ -1,0 +1,22 @@
+{
+    "name": "CoCoFlow.Editor.StateGraphHost",
+    "rootNamespace": "CoCoFlow.Editor.StateGraphHost",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.StateGraphHost"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
