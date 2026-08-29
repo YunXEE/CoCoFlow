@@ -1,23 +1,20 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Contract status: `0.4.0-pre.7` · Updated 2026-07-22
+> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
+>
+> The Compiler and StateGraphAuthoring Runtime are included in the Core Engine
+> maturity statement. The StateGraph Editor is current tooling, but it is not
+> part of the Runtime API maturity guarantee.
 
-Pre3 introduced the Unity authoring schema and engine-independent compiler for
-the CoCoFlow 0.4 layered HFSM. Pre4 freezes the execution-facing parts of that
-schema and adds the staged Runtime and Host. Pre5 consumes its Operation and
-Context manifests without changing the Compiler or authoring schema. Pre6 adds
-Host-owned Temporal projection history and Restore orchestration while likewise
-leaving the Compiler and serialized graph schema unchanged, as described in
-[StateGraph Runtime and Host](StateGraphRuntime.md) and
-[Temporal Rewind](TemporalRewind.md). Pre7 adds the constrained authoring Editor,
-separately versioned presentation layout, deterministic Catalog-driven presets,
-and manifest overlays without changing runtime schema v1 or compiler identity.
+CoCoFlow contains a Unity authoring schema and an engine-independent compiler
+for its layered HFSM. The compiler produces immutable graph lookup data plus
+Intent, Operation, and Context requirement manifests. StateGraph Runtime,
+StateGraphHost, Operators, Temporal restore, and Persistence consume those
+compiled contracts without mutating the authored Asset.
 
-The serialized Schema remains version 1. Because no StateGraph asset had been
-formally delivered before Pre4, this prerelease v1 is redefined in place and no
-migration is promised for experimental Pre3 assets. Completion and
-InterruptPolicy fields are removed, and the normalized transition window is
-now the ActionProgress window.
+The current serialized StateGraph schema version is `1`. Transition windows use
+normalized ActionProgress. Unsupported schema versions fail validation; the
+package does not expose an automatic migration path for non-v1 graph Assets.
 
 ## Authoring authority
 
@@ -49,7 +46,7 @@ ID-derived sort position.
 
 ## Constrained Editor and presentation state
 
-Pre7 edits one Layer and one recursive State scope at a time. It supports Layer,
+The Editor edits one Layer and one recursive State scope at a time. It supports Layer,
 State, and Transition creation, deletion, reordering, Condition/Window/Priority
 editing, breadcrumb navigation, validation, search, and layout. It is not an
 unrestricted visual-scripting surface: Transition endpoints must be leaves in
@@ -78,12 +75,38 @@ Diagnostics are recomputed after reload; only a still-valid selected location
 is restored. Opening or importing an Asset must not synthesize persistent layout
 or mark the Asset dirty.
 
-Copy/Paste in Pre7 is limited to one Asset. A pasted subtree receives new State
+Copy/Paste is limited to one Asset. A pasted subtree receives new State
 and Transition IDs, retains only subtree-internal Transitions, and may target the
 same or a different Layer. Cross-Asset and cross-Editor-session clipboard
-transfer are deferred. See
+transfer are not supported. See
 [StateGraph Editor and Runtime Debugger](StateGraphEditor.md) for the complete
 workflow.
+
+## Standard attributed authoring path
+
+The package also exposes a small standard path for projects that do not need a
+fully custom binding provider:
+
+- a concrete `CoCoStateLogic` that implements `ICoCoStateUpdate`, has a public
+  parameterless constructor, and is marked with `CoCoStateAttribute` becomes a
+  Catalog State; its descriptor ID is derived deterministically from the
+  attribute name;
+- `CoCoIntentConsumeAttribute(typeof(RawInputIntent))` declares the one
+  package-provided standard Intent lane;
+- `CoCoOperationProvideAttribute` declares an Operation Section whose owning
+  `ICoCoStandardOperatorRegistrar` must be discoverable from an Operator's
+  `CoCoOperatorRegistrationAttribute`;
+- each standard State receives one deterministic Graph-owned Context block and
+  Stored state slot marked for Temporal and Durable projection;
+- the current standard registration uses `EmptyStateConfig` and
+  `StatelessMemory`. States that need custom frozen config or activation memory
+  still require explicit Catalog/provider registration.
+
+The builder rejects abstract or non-State types, unsupported Intent types,
+unknown Operation Sections, duplicate descriptor IDs, missing registrars, and
+Catalog freeze failures. The Editor catalog bootstrap and Add State wizard use
+the same attributed State surface; Runtime binding is described in
+[StateGraph Runtime and Host](StateGraphRuntime.md).
 
 ## Stable identity
 
@@ -178,7 +201,7 @@ instance, priority, broadcast policy, projection capacity, Inbox, or
 reliability policy.
 
 The Asset declaration list is the authoritative Adapter execution order. The
-compiler preserves that declaration index in the immutable manifest. Pre4's
+compiler preserves that declaration index in the immutable manifest. The Host
 binding Provider must cover the manifest exactly, but it cannot sort or otherwise
 change the declared runtime order.
 
@@ -231,13 +254,13 @@ Repeated identical requirement IDs canonicalize to one sorted entry. Reusing a
 Manifest ID for different registered metadata is a compile-time
 `ManifestConflict`.
 
-These are static declarations, not live StateFlow layouts or registries. Pre3
-does not retain factories/rebuilders or materialize runtime layouts from a
-CompiledGraph. A later Host binding must explicitly match each AOT token's type
+These are static declarations, not live StateFlow layouts or registries. The
+Compiler does not retain factories/rebuilders or materialize runtime layouts
+from a CompiledGraph. Host binding must explicitly match each AOT token's type
 and semantic fingerprint before it can supply executable instances.
 
-Pre5 does not change these Manifests or make the Compiler synthesize Context
-Slots. Instead, the Project Provider maps the existing requirements to exactly
+The Compiler does not synthesize Context Slots. Instead, the Project Provider
+maps the existing requirements to exactly
 one producer per direct Slot: a concrete compiled State's Graph-state record, a
 Graph auxiliary producer, canonical Claim arbitration, one Operator Outcome, or
 the Host's single Actor binding. Existing Derived rebuilders remain the only
@@ -248,9 +271,9 @@ For Context bindings, the Project Provider supplies the actual Layout default
 and a nonzero semantic fingerprint. That fingerprint is a trusted declaration
 token compared with the Manifest; it is not a canonical hash that the framework
 recomputes from `defaultValue`. Adding canonical value hashing would change this
-frozen contract and is outside Pre5.
+frozen contract and requires an explicit contract change.
 
-An Operation Section Shape is complete in Pre3: total byte size, deterministic
+An Operation Section Shape is complete: total byte size, deterministic
 field count, and each field's dense index, ordinal name, unmanaged value type,
 byte offset, and size. Catalog registration and the StateFlow Registry use the
 same Shape builder. Their fingerprints include the Shape fingerprint, but
@@ -259,9 +282,9 @@ alone. The Editor linker step emits temporary `Library/` preservation metadata
 for the validated Section interfaces and recursively used unmanaged value
 metadata so High Managed Stripping does not erase the static Shape contract.
 
-Pre4 owns the actual Host, Source, Event-to-Intent Adapter instances, Inbox, and
-base runtime binding coverage. Pre5 extends transaction preflight with Context
-producer, Operator, Claim, Actor-binding, and Outbox coverage. This preflight
+StateGraphHost owns the actual Source, Event-to-Intent Adapter instances, Inbox,
+and runtime binding coverage. Transaction preflight includes Context producer,
+Operator, Claim, Actor-binding, and Outbox coverage. This preflight
 runs before Clock creation and before `CoCoStateGraphRuntime.TryCreate`, so an
 invalid setup keeps the Host in `Created` without invoking Runtime factories,
 reset/fingerprint work, Graph capture, or Router registration. Runtime binding
@@ -273,7 +296,7 @@ All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
 or Operation Section entry.
 
-Pre7's overlay presents exactly these three existing manifests. Event-to-Intent
+The Editor overlay presents exactly these three existing manifests. Event-to-Intent
 declarations remain entries within the Intent manifest and do not create a
 fourth Manifest or a ContextGraph. The Editor obtains State and Condition choices
 through deterministic internal Catalog enumeration by stable identity; it adds
@@ -355,7 +378,7 @@ changes produce a different key.
 
 Compiled data is safe for concurrent read-only access and contains no per-Actor
 mutable state. Asset access, snapshot extraction, import handling, and cache
-invalidation remain on the Unity main thread. Pre3 does not add Jobs, Burst,
+invalidation remain on the Unity main thread. The Compiler does not add Jobs, Burst,
 parallel scheduling, or a background compilation service.
 
 Multiple Hosts using one Asset share only the immutable compiled graph. Each
@@ -366,14 +389,15 @@ the sole retainable complete Actor commit record; the Temporal Ring stores only
 preallocated projection payloads and does not retain that Frame. Graph, Clock,
 and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
 
-## Deferred boundaries
+## Boundaries
 
-- **Pre11** owns Animator/Playable/SMB replacement and visual reverse mapping.
-- **Pre13** owns durable persistence and migration.
-- **Pre16** owns production gameplay States and replacement Samples.
-- **Pre16** owns complete cross-module performance and lifecycle certification;
-  Pre17 may polish visuals and XML without redefining Pre7's authoring boundary.
+- Animation projection and Animator behavior belong to the Animation module.
+- Durable save documents and schema migration belong to Persistence.
+- Production gameplay States and project content are consumer-owned.
+- Compiler maturity does not claim background compilation, Jobs/Burst
+  execution, complete cross-module performance certification, or Editor visual
+  polish.
 
 There is no generated mega-`.cs` file, build-time baked compiled Asset,
-cross-Layer change-state surface, 0.3.9 compatibility runtime, or automatic
-migration path in Pre7.
+cross-Layer change-state surface, legacy StateGraph compatibility runtime, or
+automatic non-v1 migration path.

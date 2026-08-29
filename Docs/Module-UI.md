@@ -1,61 +1,100 @@
 # Module: UI
 
-> Pre9 integration status: `0.4.0-pre.9` · Updated 2026-07-23
+> **Maturity: Mature** · Documentation baseline: `0.4.0` · Updated 2026-08-29
+>
+> The module originated in 0.3.9. Its Panel, Widget, Input, and Content
+> ownership APIs are stable and usable. This maturity statement does not claim
+> that UI is a high-performance or large-scale interface framework.
 
-The retained UI module now consumes Content for panel Prefab Source ownership.
-Its navigation stack, input focus, pause/cursor policy, DOTween transitions, and
-`UIManager` singleton remain transitional behavior owned by Pre12.
+The UI module provides a compact stack-based panel runtime, panel/widget base
+classes, input-map integration, Content-backed prefab ownership, and DOTween
+transitions.
 
-## Localized text boundary
+## Current runtime
 
-Pre14 adds `UIWidgetLocalizedText` in the separate
-`CoCoFlow.Runtime.Modules.Localization.UI` assembly. It derives from
-`UIWidgetBase` but does not change `UIWidgetBase`, `UIPanelBase`, navigation, or
-`UIManager`. Like UI V2 itself, this assembly and
-`CoCoFlow.Runtime.Modules.Input.UI` are optional extensions gated by the
-UniTask, DOTween, and UniTask.DOTween support defines. Localization Core and
-Input Core do not inherit those optional dependencies.
+`UIManager` is a scene singleton. Its public surface opens, toggles, closes, or
+closes all panels through `ContentReference` values of kind `PrefabSource`.
 
-The Widget subscribes to `LocalizedString.StringChanged` only while enabled,
-refreshes from `ResetState()`, accepts Smart String arguments, and displays its
-serialized fallback when the target, Table/Entry, load, or resolved text is not
-valid. `LastDiagnostic` keeps that failure visible without reopening the
-Screen. Input prompt composition remains in `InputPromptPresenter`, not in a
-second Widget.
+```text
+ContentReference
+      ↓ acquire Prefab Source
+Content Scope + Lease
+      ↓ Instantiate
+UIPanelBase → panel stack → ShowAsync / HideAsync
+      ↓ Destroy
+release panel ownership → release source lease
+```
 
-## Panel ownership
+Each successfully opened panel receives a distinct `ContentOwnerId`,
+`ContentScope`, and source `ContentLease<GameObject>`. The lease keeps the
+prefab source available while that instance exists. A
+`UIPanelSourceOwnership` component releases the scope and lease when the panel
+instance is destroyed. A lease owns the source, not the instantiated object.
 
-`UIManager` receives an explicit `CoCoContentHost` and opens a
-`ContentReference` whose kind is Prefab Source. Each successful panel instance
-owns an independent Content Scope/Lease binding:
+Panel roots are selected from `UILayer`: HUD panels use `hudRoot`, Popup panels
+use `popupRoot`, and other stack panels use `panelRoot`.
 
-1. Content acquires the prefab source.
-2. UI validates `UIPanelBase` and instantiates the GameObject.
-3. The source lease remains alive while that instance exists.
-4. Instance destruction releases its ownership binding.
-5. The last source lease starts backend release.
+## Navigation and panel policy
 
-The Content lease is not an instance handle and does not pool or reuse the
-panel. UI continues to own `Instantiate` and `Destroy` after Pre9.
+The manager keeps a LIFO `Stack<UIPanelBase>` and serializes transitions with
+one `_isTransitioning` gate. Calls that arrive while another transition is in
+progress are ignored rather than queued.
 
-Raw Addressables addresses and handles are no longer part of this module. A
-panel button and the pause-panel binding use `ContentReference`; Direct and
-Addressables sources therefore follow the same UI path.
+`UIPanelConfig` controls the current policy:
 
-## Pooling boundary
+| Flag | Current behavior |
+|---|---|
+| `PauseGame` | Reference-counts pause locks and sets `Time.timeScale` to `0`; the last release restores `1`. |
+| `TakeInputFocus` | Switches the bound `InputReader` to the configured UI action map. |
+| `HideLowerPanels` | Disables interaction on the panel directly below; it does not virtualize or unload that panel. |
+| `ShowCursor` | Reference-counts cursor locks and shows/unlocks the cursor until the last release. |
 
-The Pre9 Pooling contract can support project-owned virtualized inventory cells
-and other repeated UI elements, but this retained UI module is not migrated.
-`UIManager` does not create a `PoolScope`, return `PooledHandle` values, or
-silently replace its existing panel ownership.
+The optional Pause and Cancel action references open the configured pause panel
+or pop the current panel when their performed events arrive. When the stack
+becomes empty, the manager switches back to the configured player action map.
 
-A downstream UI implementation may adopt Pooling only when it can define an
-explicit reset/bind/activate contract for every pooled element. Pooling remains
-Content-backed, so optional Addressables still enter through
-`ContentReference` rather than through UI or Pool-owned handles.
+`UIPanelBase` requires a `CanvasGroup` and implements asynchronous scale/fade
+show and hide transitions through UniTask and DOTween. Derived panels can use
+`OnBeforeShow` and `OnAfterHide` for local lifecycle work.
 
-## Deferred
+## Widgets and scene UI
 
-Pre12 owns navigation queues, history/back behavior, loading overlays, focus
-arbitration, transition interruption, the final UI authoring model, and any
-decision to migrate retained panel or repeated-cell consumers to Pooling.
+`UIWidgetBase` requires a `CanvasGroup`, discovers its owning `UIPanelBase` or
+`UISceneBase`, resets on enable, and exposes a consistent interactable state.
+The package includes button, slider, selector, indicator, and panel examples.
+
+`UISceneBase` represents world-space or scene UI that does not participate in
+the panel stack. `UIWidgetContainer` provides deterministic row, column, and
+grid placement plus an Editor preview; its Dynamic mode reserves layout slots
+but does not create a virtualized data source.
+
+Localization UI and Input prompt integrations live in separate optional
+assemblies. They extend the widget surface without changing panel navigation or
+ownership.
+
+## Efficiency boundaries
+
+The following are current implementation limits, not reasons to treat the API
+as unstable:
+
+- panels are opened with `Instantiate` and closed with `Destroy`;
+- `UIManager` remains a singleton with one panel stack and serial transitions;
+- there is no automatic panel or widget Pooling;
+- there is no virtualized list/data-view system;
+- calls are not designed for high-throughput concurrent navigation;
+- transition interruption and queueing are not provided.
+
+Projects that need pooled cells or panels must define their own reset, bind,
+activate, and ownership rules. The separate Pooling module is not silently
+inserted into UI.
+
+## Dependencies and boundaries
+
+The UI assembly is enabled only when its UniTask and DOTween support defines
+are present. It also integrates with Content, Input System, and TextMeshPro.
+Raw Addressables handles are not exposed by UI; optional Addressables sources
+enter through `ContentReference`.
+
+“Mature” applies to the existing Runtime API and documented behavior. It does
+not include a claim of optimal performance, complete Editor authoring, automatic
+focus arbitration beyond the current stack, or marketplace readiness.

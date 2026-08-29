@@ -1,10 +1,10 @@
 # Module: Map Region Fidelity
 
-> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
+> **Maturity: Immature** · `0.4.0` implementation snapshot · Updated 2026-08-29
 >
-> Verification: dual-host package-wide EditMode/PlayMode (editor and player
-> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-rc.2`; Package Validation Suite remains locally waived.
+> The current implementation is usable, but its public APIs, configuration, and
+> serialized structures are not compatibility-guaranteed and may change during
+> later 0.4.x releases.
 
 Map no longer means “push a Scene when a trigger fires.” It is the runtime
 authority that resolves overlapping gameplay demand into a transactional
@@ -367,11 +367,11 @@ sequences, Temporal retention/dirty-flush state, degradation and faults, and
 old-plus-candidate peak ownership. The snapshot never exposes a raw
 `ContentScope`, `ContentLease`, candidate object, or Pool handle.
 
-## Breaking migration
+## Earlier API migration
 
-Pre10 removes `MapResourceManager`, `MapStreamTrigger`, and
-`MapChunkLoadedEvent` with no compatibility layer, migration component, or
-legacy script-GUID preservation.
+The current implementation does not include `MapResourceManager`,
+`MapStreamTrigger`, or `MapChunkLoadedEvent`, and provides no compatibility
+layer, migration component, or legacy script-GUID preservation for them.
 
 - `DemandScene` becomes a retained Region demand lease.
 - `ReleaseScene` becomes lease disposal.
@@ -383,11 +383,10 @@ namespaced capabilities and explicit catalog entries, and keep project-specific
 simulation behind participants. Direct Content/Scene ownership outside the
 built-in participant contract is unsupported.
 
-## Deferred
+## Current limits
 
-Pre10 validation reserves observations for warm transition, large Coverage,
-overlapping Regions, old-plus-candidate peak, and cleanup time. Those
-measurements remain `UNVERIFIED` until recorded. The runtime does not impose a
+Warm transition, large Coverage, overlapping Regions, old-plus-candidate peak,
+and cleanup-time measurements are not release guarantees. The runtime does not impose a
 hidden performance budget, automatic fidelity downgrade, distance heuristic,
 or universal streaming policy. Projects express those choices by creating and
 updating demands.

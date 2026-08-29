@@ -1,12 +1,12 @@
 # Object Pooling and Instance Ownership
 
-> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
+> **Maturity: Immature** · `0.4.0` implementation snapshot · Updated 2026-08-29
 >
-> Verification: dual-host package-wide EditMode/PlayMode (editor and player
-> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-rc.2`; Package Validation Suite remains locally waived.
+> The current implementation is usable, but its public APIs, configuration, and
+> serialized structures are not compatibility-guaranteed and may change during
+> later 0.4.x releases.
 
-Pre9 adds a Unity-facing GameObject instance-ownership boundary on top of
+Pooling provides a Unity-facing GameObject instance-ownership boundary on top of
 Content. It reduces repeated `Instantiate`/`Destroy` work for high-frequency
 transient objects without bypassing content acquisition or exposing a competing
 generic pool API.
@@ -293,11 +293,11 @@ Do not use this module to pool Additive Scenes, permanent world roots, durable
 entities, or objects whose ownership/reset contract is unknown. Raw local Unity
 pooling remains available to project code outside CoCoFlow guarantees.
 
-Pre10 Map may opt a participant slot into Pooling through an explicit compiled
+Map may opt a participant slot into Pooling through an explicit compiled
 plan. It does not pool Additive Scenes or permanent world roots, and it does not
 grant a participant access to the shared Pool Runtime. The retained UI and Enemy
-implementations keep their existing ownership behavior until their owning
-downstream Pre explicitly adopts Pooling.
+implementations keep their existing ownership behavior unless their owning
+module or project explicitly adopts Pooling.
 
 ## Diagnostics
 
@@ -310,7 +310,7 @@ exception objects.
 Rental stack capture remains explicit and bounded. It should be disabled when
 measuring the Ready idle-hit allocation path.
 
-## Deferred
+## Current limits
 
 - generic non-GameObject pools and a custom public container;
 - Unity versions below Unity 6;

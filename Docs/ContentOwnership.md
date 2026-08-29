@@ -1,12 +1,8 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
->
-> Verification: dual-host package-wide EditMode/PlayMode (editor and player
-> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-rc.2`; Package Validation Suite remains locally waived.
+> Documentation baseline: `0.4.0` · Updated 2026-08-29
 
-Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
+Content provides one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity
 reference to pass through Content. Small, fixed project references may remain
 ordinary Direct References when no runtime release boundary is needed.
@@ -29,7 +25,7 @@ ordinary Direct References when no runtime release boundary is needed.
 
 Content supports three kinds: Asset, Prefab Source, and Additive Scene. A
 Prefab Source lease keeps the source available; it never owns an instantiated
-GameObject. The Pre9 Pooling module consumes that source lease and separately
+GameObject. The Pooling module consumes that source lease and separately
 owns physical instances and rental generations.
 
 ## Runtime and backend boundary
@@ -79,7 +75,7 @@ while reporting load failure returns `FailureWithCleanup`; Content executes that
 cleanup exactly once before deciding whether retry is safe. Successful cleanup
 removes the failed generation. Failed cleanup retains a diagnostic tombstone and
 blocks a second generation for that key because the old backend ownership may
-have been partially released. Pre8 deliberately has no automatic release retry.
+have been partially released. Content deliberately has no automatic release retry.
 
 All registry state transitions are serialized on the Unity main thread.
 Expected cancellation and backend failures are represented by structured
@@ -98,8 +94,9 @@ normally available in Editor/Development builds and disabled in Release builds.
 ## Consumer boundaries
 
 - UI owns panel instances and keeps one Prefab Source lease alive until each
-  instance is actually destroyed. Pre9 does not migrate the retained UI module
-  to Pooling; navigation and any later pooled-UI policy remain Pre12.
+  instance is actually destroyed. UI does not automatically route panels
+  through Pooling; navigation and any pooled-UI policy remain explicit UI or
+  project responsibilities.
 - Map resolves owner-scoped Region demand into transactional Region-global and
   per-Chunk participant nodes. Its built-in Content participant is the sole
   Additive Scene lease authority for Map-managed scenes. Public Map participant

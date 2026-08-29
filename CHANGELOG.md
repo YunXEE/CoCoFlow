@@ -2,8 +2,53 @@
 
 All notable changes to CoCoFlow are documented in this file.
 
-The project uses `0.4.0-rc.N` for release-candidate packages; the earlier pre-release line is preserved in the history below. The 0.4 line targets new
-projects and does not include a migration runtime for 0.3.9 projects.
+The earlier release-candidate and pre-release lines are preserved in the history
+below. The 0.4 line targets new projects and does not include an automatic
+migration runtime for 0.3.9 projects.
+
+## [0.4.0] - 2026-08-29
+
+Closes the expanded RC2 line as a usable 0.4.0 release. Runtime code, Editor
+code, assembly definitions, and serialized assets are unchanged from RC2; this
+release changes only documentation, version metadata, validation configuration,
+and the Setup Assistant version assertion.
+
+The release standard is deliberately practical: stop adding features, ship the
+Runtime that already works, document its limits, and continue with small 0.4.x
+iterations. This is not a claim of zero defects, complete optimization,
+marketplace certification, or store readiness.
+
+### Maturity policy
+
+- **Mature** means stable public Runtime API, proven use in a real project, and
+  accurately documented boundaries. It does not require newest architecture,
+  maximum performance, or complete Editor tooling.
+- **Core Engine** is mature for Contracts, StateFlow, StateGraph,
+  StateGraphAuthoring Runtime, and StateGraphHost. StateGraph Editor and the
+  older `Runtime/Core/*.cs` EventBus/Services/Context facilities are outside
+  this declaration.
+- **Camera**, **Persistence**, and **UI** are mature. They originated in 0.3.9,
+  but their current Runtime APIs are stable and usable.
+- UI remains efficiency-limited: panels use `Instantiate`/`Destroy`,
+  `UIManager` is a singleton with one panel stack and serial transitions, and
+  there is no automatic Pooling, virtualized list, or high-throughput guarantee.
+- **Map** and **Pooling** are immature implementation snapshots. Their public
+  APIs, configuration, and serialized structures have no compatibility
+  guarantee during 0.4.x.
+- Other modules receive no maturity classification in this release.
+
+### Verification
+
+- No Unity suite was rerun on the final documentation/version commit or tag.
+- Runtime-identical RC2 evidence is inherited from
+  `6fc755a01089d830e59bf6df56e0e94834a54eb5`:
+  - Unity `6000.3.20f1`: EditMode `660/660`, Editor PlayMode `367/367`,
+    Player `359/359`.
+  - Unity `6000.5.5f1`: EditMode `660/660`, Editor PlayMode `367/367`,
+    Player `359/359`.
+- Final release packaging is verified statically for JSON, version consistency,
+  Markdown links, contradictory maturity wording, whitespace, and a strict
+  no-Runtime/no-Editor/no-asmdef/no-asset diff boundary.
 
 ## [0.4.0-rc.2] - 2026-08-29
 

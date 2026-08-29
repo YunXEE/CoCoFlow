@@ -1,10 +1,6 @@
 # CoCoFlow Temporal Rewind
 
-> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
->
-> Verification: dual-host package-wide EditMode/PlayMode (editor and player
-> mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-rc.2`; Package Validation Suite remains locally waived.
+> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
 `CoCoStateGraphHost`. It records bounded projections of successful Context
@@ -14,7 +10,7 @@ formal Restore into a new TimelineEpoch when the caller confirms.
 It is not reverse StateGraph execution, a world snapshot, durable persistence,
 or a cross-Actor side-effect rollback system.
 
-Pre7's internal Editor debug step is also not Temporal Rewind. It executes one
+The internal Editor debug step is also not Temporal Rewind. It executes one
 ordinary positive-delta forward Tick from a healthy Suspended Host and can
 therefore commit state, record history/Trace, run Operators, and publish
 committed events.
@@ -69,7 +65,7 @@ Each entry also records value-only source metadata:
 - Context Revision and Origin.
 
 The representation is internal, exact-layout, and same-session. It is not a
-stable wire format or a Pre13 durable-save document.
+stable wire format or a Persistence durable-save document.
 
 ## Capacity and capture
 
@@ -104,7 +100,7 @@ Lifecycle:   Created / Running / Suspended / Stopped / Disposed
 Temporal:    Disabled / Ready / Previewing
 ```
 
-Pre6 does not add a Runtime lifecycle state, global Temporal manager, or shared
+Temporal does not add a Runtime lifecycle state, global manager, or shared
 mutable history. Each Host owns its Ring, cursor, binding, and orchestration.
 
 The public Host surface is synchronous:
@@ -289,7 +285,7 @@ general recovery path.
 
 ## Map and Pooling Temporal decorator chain
 
-Pre10 composes optional availability decorators into the Host's one synchronous
+The Host can compose optional availability decorators into its one synchronous
 Restore-binding slot:
 
 ```text
@@ -389,11 +385,10 @@ cross-Actor consequences.
 - negative Delta or reverse StateGraph/Operator execution;
 - multi-Actor or whole-world rollback;
 - undoing already delivered cross-Actor consequences;
-- Animator, Playable, AnimationClip, or root-motion reverse mapping (Pre11);
-- durable saves, migration, containers, or world facts (Pre13);
-- production gameplay States and replacement Samples (Pre16);
-- complete cross-module certification (Pre16) and final visual/XML polish
-  (Pre17);
+- Animator, Playable, AnimationClip, or root-motion reverse mapping;
+- durable saves, migration, containers, or world facts;
+- production gameplay States and project-owned content;
+- complete cross-module performance certification or Editor visual polish;
 - a global Temporal manager, runtime capacity resizing, or shared history.
 - using Pooling Temporal as multi-Actor or whole-world rollback, durable entity
   reconstruction, or automatic domain-payload capture;

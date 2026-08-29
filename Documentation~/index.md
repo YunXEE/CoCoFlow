@@ -1,25 +1,43 @@
 # CoCoFlow Documentation
 
-This page is the Unity Package Manager documentation entry point for CoCoFlow.
-The current package line is `0.4.0-rc.2`; it establishes Golden Path v2 from
-raw input through standard StateGraph binding, transactional Context commit,
-package-owned Locomotion, and Animator snapshot projection. Starter gameplay
-content and UI V2 are outside this package anchor.
+This is the Unity Package Manager documentation entry point for CoCoFlow
+`0.4.0`.
+
+The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
+Here, mature means stable public Runtime APIs, proven project use, and documented
+boundaries—not maximum performance, complete Editor tooling, zero defects, or
+marketplace certification. Map and Pooling are explicitly immature and do not
+guarantee API, configuration, or serialized compatibility. Other modules are
+unrated in this release.
+
+## Start here
 
 - [Package overview](../README.md)
 - [简体中文概览](../README.zh-CN.md)
-- [StateGraph Editor and Runtime Debugger](../Docs/StateGraphEditor.md)
+- [Changelog](../CHANGELOG.md)
+- [Dependency matrix](../Docs/DependencyMatrix.md)
+
+## Core Engine
+
 - [StateGraph Asset and Compiler](../Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md)
-- [Temporal Rewind](../Docs/TemporalRewind.md)
 - [State Flow / Event Boundary](../Docs/ContextNetworkBoundary.md)
+- [Temporal Rewind](../Docs/TemporalRewind.md)
+- [StateGraph Editor and Runtime Debugger](../Docs/StateGraphEditor.md)
+
+The StateGraph Editor page describes current tooling; Editor behavior is not
+part of the Runtime API maturity guarantee. Older EventBus, Services, and
+Context facilities under `Runtime/Core/*.cs` are also outside the Core Engine
+maturity statement.
+
+## Modules
+
+- [Camera](../Docs/Module-Camera.md) — mature
+- [Persistence](../Docs/Module-Persistence.md) — mature
+- [UI](../Docs/Module-UI.md) — mature, with documented efficiency limits
+- [Map Region Fidelity](../Docs/Module-Map.md) — immature
+- [Object Pooling](../Docs/ObjectPooling.md) — immature
 - [Content acquisition and ownership](../Docs/ContentOwnership.md)
-- [Object pooling and instance ownership](../Docs/ObjectPooling.md)
-- [UI module](../Docs/Module-UI.md)
-- [Input module](../Docs/Module-Input.md)
-- [Localization module](../Docs/Module-Localization.md)
-- [Map Region Fidelity](../Docs/Module-Map.md)
-- [Animation V2 module](../Docs/Module-Animation.md)
-- [Camera module](../Docs/Module-Camera.md)
-- [Persistence module](../Docs/Module-Persistence.md)
-- [Changelog](../CHANGELOG.md)
+- [Input](../Docs/Module-Input.md)
+- [Localization](../Docs/Module-Localization.md)
+- [Animation](../Docs/Module-Animation.md)

@@ -344,17 +344,30 @@
 
 ## Package surface
 
-- [ ] `package.json` is valid JSON and uses the expected `0.4.0-rc.N` version.
+- [ ] `package.json` is valid JSON and uses the expected release version
+      (`0.4.0` for this final release; `0.4.0-rc.N` only for RC branches).
 - [ ] Every `ValidationExceptions.json` entry targets the same package version;
       new exceptions are justified individually rather than added broadly.
 - [ ] Package dependencies changed only when this Pre owns the affected module.
 - [ ] No obsolete `samples` manifest property or `CoCoFlow.Runtime.Addon.*`
       assembly is exposed.
-- [ ] Public README and module docs distinguish authoritative 0.4 contracts from
-      transitional 0.3.9 implementations.
+- [ ] Public README and module docs distinguish mature 0.4 Runtime surfaces,
+      mature modules that originated in 0.3.9, explicitly immature modules,
+      and unrated modules without implying scheduled replacement.
 - [ ] `CHANGELOG.md` describes user-visible contract, package, migration, and
       deferred-work consequences without rewriting prior release history.
 - [ ] New Unity-visible files include their `.meta` files; GUIDs are unique.
+
+### 0.4.0 final release
+
+- [ ] The release commit changes no `Runtime/`, `Editor/`, asmdef, prefab,
+      scene, or serialized asset relative to `v0.4.0-rc.2`.
+- [ ] Inherited Unity evidence names its tested Runtime SHA and is not presented
+      as a rerun on the final documentation/version commit.
+- [ ] The `dev/0.4.0 -> master` PR passes `CI Static / gate` before merge.
+- [ ] After the approved merge commit, remote `master`, lightweight tag
+      `v0.4.0`, and the tagged `package.json` all identify version `0.4.0`.
+- [ ] No GitHub Release is created for this release.
 
 ## Verification（验证证据规范）
 

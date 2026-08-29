@@ -1,6 +1,6 @@
 # Module: Localization
 
-> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
+> Documentation baseline: `0.4.0` · Updated 2026-08-29
 
 CoCoFlow depends directly on Unity's official
 `com.unity.localization@1.5.9`. Localization remains a presentation module:
@@ -12,12 +12,12 @@ does not change CoCoFlow Content's Direct/Addressables ownership contract.
 
 - `CoCoFlow.Runtime.Modules.Localization` owns diagnostics and compiles by
   default with the official package.
-- `CoCoFlow.Runtime.Modules.Localization.UI` is an optional UI V2 extension
+- `CoCoFlow.Runtime.Modules.Localization.UI` is an optional UI extension
   that owns `UIWidgetLocalizedText`.
-- `CoCoFlow.Runtime.Modules.Input.UI` is an optional UI V2 extension that
+- `CoCoFlow.Runtime.Modules.Input.UI` is an optional UI extension that
   composes binding prompts and glyphs.
 
-The two UI extension assemblies follow the existing UI V2 dependency contract:
+The two UI extension assemblies follow the existing UI dependency contract:
 `COCOFLOW_UNITASK_SUPPORT`, `COCOFLOW_DOTWEEN_SUPPORT`, and
 `UNITASK_DOTWEEN_SUPPORT` must all be enabled. A default installation without
 those optional integrations still compiles Localization Core and Input Core,

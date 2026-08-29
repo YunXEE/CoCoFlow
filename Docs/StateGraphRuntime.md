@@ -1,14 +1,15 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Contract status: `0.4.0-pre.7` · Updated 2026-07-22
+> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
+>
+> StateGraph Runtime and StateGraphHost are included in the Core Engine maturity
+> statement. Editor inspection is described here only as current tooling.
 
-Pre6 extends the Pre5 composite Actor commit with Host-owned Temporal projection
-history. It adds authority-neutral Preview, a single formal Restore into a new
-TimelineEpoch, and one explicit Unity binding for Preview, Confirm, Cancel, and
-world Correction. StateGraph still executes only forward positive-delta Ticks.
-Pre7 makes the Host's scene-instance references explicit, adds a committed-only
-Editor debugger snapshot, and permits one internal positive-delta debug Tick
-from a healthy Suspended Host without turning that operation into rewind.
+The Runtime executes only forward, finite, positive-delta Ticks. StateGraphHost
+owns the composite Actor transaction, committed Context authority, Event
+ingress/egress, Clock, Trace, and optional Temporal history. Temporal Preview is
+authority-neutral; a confirmed Restore creates a new TimelineEpoch through one
+explicit Unity projection binding.
 
 ## Unity assembly model
 
@@ -29,6 +30,26 @@ Actor GameObject
 runtime and disallows duplicate instances on the same GameObject. Runtime,
 Clock, Inbox, Router, StateLogic, Condition, ActivationMemory, and Factory
 objects are ordinary C# objects, not components or extra Inspector assets.
+
+### Standard binding startup
+
+`CoCoFlowRuntimeBootstrap` attempts standard provider installation before and
+after scene load. It leaves an already installed project provider untouched;
+otherwise it scans loaded non-package assemblies for concrete
+`CoCoStateAttribute` logic classes. Finding no attributed State is a valid
+no-op for projects that do not use the standard path.
+
+For a standard graph, Host source slot `0` is the scene `InputReader` and the
+only automatically registered Intent is `RawInputIntent` with the package
+pass-through reducer. Operator registrars bind only the compiled Operation
+Sections and Context blocks they own. Each compiled attributed State is given a
+fresh StateLogic factory plus its deterministic Graph-state slot. Missing,
+extra, duplicate, or type-incompatible coverage rejects Host startup before
+Router registration or the first Tick.
+
+Projects needing additional Intent types, custom config/memory, or another
+construction policy install an explicit `ICoCoStateGraphProjectBindingProvider`
+instead of relying on this standard provider.
 
 The Host exposes lifecycle control, Manual Step, read-only authority inspection,
 and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,
@@ -212,11 +233,11 @@ TryBegin -> Write -> TryFinalize -> FinalizedFrame -> Commit / Cancel
 ```
 
 Finalize freezes candidate bytes only. It does not consume a sequence or update
-the last committed Tick. Pre4 returns a single-use staged Tick containing the
+the last committed Tick. The Runtime returns a single-use staged Tick containing the
 candidate active leaves, State memory, Clock, and finalized OperationFrame, and
 refuses another Step while that Tick is unresolved.
 
-Pre5 resolves that staged Tick in one fixed transaction:
+StateGraphHost resolves that staged Tick in one fixed transaction:
 
 ```text
 Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
@@ -303,7 +324,7 @@ the stopped one.
   the Host faults with `RequiresWorldCorrection`; CoCoFlow does not fabricate a
   Unity-world rollback.
 
-Pre7 also exposes one internal Editor-only debug seam for a healthy Suspended
+The package also exposes one internal Editor-only debug seam for a healthy Suspended
 Host. It accepts one explicit finite positive delta under Update, FixedUpdate,
 or Manual driving, executes exactly one ordinary forward Tick through the same
 Intent, Graph, Operator, Context, Temporal, Trace, and Outbox boundaries, and
@@ -316,7 +337,7 @@ fabricate a successful suspension.
 Callback or Condition exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
 faulted Host rejects normal Resume and new gameplay input. Recovery requires
-Stop followed by a fresh instance, except for the narrow Pre6 world-correction
+Stop followed by a fresh instance, except for the narrow world-correction
 path described below. CoCoFlow does not expose a general `ClearFault()` API.
 
 ## Temporal mode and public orchestration
@@ -381,7 +402,7 @@ matching recoverable fault after successful projection.
 
 ## Committed debugger snapshot and Trace
 
-The Pre7 Runtime Debugger reads an internal immutable Host snapshot copied from
+The Runtime Debugger reads an internal immutable Host snapshot copied from
 the latest committed authority boundary. It is a current point-in-time view of
 explicitly copied identity and diagnostic state, including Host/Graph identity,
 lifecycle and Fault, committed Context/Tick/Clock/Epoch information, and each
@@ -485,7 +506,7 @@ Transition ID without changing the stored evidence.
 
 ## Restore authority barrier
 
-Formal Confirm retains the Pre5 single-use validation/prepare discipline:
+Formal Confirm uses the same single-use validation/prepare discipline:
 
 ```text
 validate source and selection generation
@@ -513,17 +534,18 @@ Inbox contents, IntentFrame, CoCoEventAgent subscription, unpublished Outbox,
 half-executed Operator work, another Actor, or already delivered cross-Actor
 consequences.
 
-## Explicitly deferred
+## Boundaries
 
-- **Pre11**: Animator/Playable/SMB replacement and presentation reverse mapping.
-- **Pre13**: durable persistence and migration.
+- StateGraph does not expose cross-Layer calls, queries, signals, or
+  Transitions, nor an arbitrary change-state API.
+- Durable file storage is owned by Persistence. StateGraphHost exposes a
+  Durable Context projection payload seam; it does not own slots, JSON files,
+  scene spawning, or save-slot policy.
+- Animation, physics, navigation, and other Unity-world projection remain
+  explicit Operator or restore-binding responsibilities.
+- The Runtime maturity statement does not claim whole-world rollback,
+  cross-Actor transactionality, complete Editor tooling, or zero defects.
 
-Pre7 does not add cross-Layer calls, queries, signals, or Transitions; an
-arbitrary state-change API; persistence; a production Sample;
-or a migration runtime for the retained 0.3.9 implementation.
-
-The serialized StateGraph Schema remains version 1 because it had not been
-formally delivered with production assets. Pre4 redefines that prerelease v1 in
-place—removing Completion/Interrupt fields and changing the normalized window
-to ActionProgress—and provides no migration promise for experimental Pre3
-assets.
+The serialized StateGraph schema remains version `1`, uses ActionProgress for
+normalized transition windows, and exposes no automatic migration for
+non-v1 graph Assets.
