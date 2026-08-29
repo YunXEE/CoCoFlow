@@ -17,266 +17,15 @@ namespace CoCoFlow.Tests.Runtime.Animation
         {
             Assert.AreEqual(16, AnimContractLimits.ParameterLaneCount);
             Assert.AreEqual(8, AnimContractLimits.TriggerLaneCount);
-            Assert.AreEqual(4, AnimContractLimits.PlaybackLayerCount);
-            Assert.AreEqual(8, AnimContractLimits.ModulationLaneCount);
             Assert.AreEqual(16, AnimContractLimits.FeedbackCapacity);
-
-            Assert.AreEqual(
-                new[]
-                {
-                    "Control",
-                    "Layer00",
-                    "Layer01",
-                    "Layer02",
-                    "Layer03"
-                },
-                typeof(IAnimPlaybackOperationSection)
-                    .GetProperties()
-                    .Select(property => property.Name)
-                    .OrderBy(name => name, StringComparer.Ordinal)
-                    .ToArray());
         }
 
         [Test]
-        public void StepCommand_RejectsZeroAndNegativeDelta()
-        {
-            Assert.IsTrue(
-                CoCoActivationId.TryCreate(
-                    11UL,
-                    out CoCoActivationId activationId));
-
-            Assert.IsFalse(
-                AnimPlaybackCommand.TryCreateStep(
-                    activationId,
-                    0f,
-                    out _));
-            Assert.IsFalse(
-                AnimPlaybackCommand.TryCreateStep(
-                    activationId,
-                    -0.01f,
-                    out _));
-            Assert.IsFalse(
-                AnimPlaybackCommand.TryCreateStep(
-                    activationId,
-                    float.NaN,
-                    out _));
-            Assert.IsFalse(
-                AnimPlaybackCommand.TryCreateStep(
-                    activationId,
-                    float.PositiveInfinity,
-                    out _));
-            Assert.IsTrue(
-                AnimPlaybackCommand.TryCreateStep(
-                    activationId,
-                    0.01f,
-                    out AnimPlaybackCommand command));
-            Assert.AreEqual(AnimPlaybackCommandKind.Step, command.Kind);
-            Assert.Greater(command.StepDeltaSeconds, 0f);
-            Assert.IsFalse(
-                AnimOperator.IsPlaybackControlAllowed(
-                    AnimPlaybackCommandKind.Step,
-                    true,
-                    false));
-            Assert.IsTrue(
-                AnimOperator.IsPlaybackControlAllowed(
-                    AnimPlaybackCommandKind.Step,
-                    true,
-                    true));
-            Assert.IsFalse(
-                AnimOperator.IsPlaybackControlAllowed(
-                    AnimPlaybackCommandKind.Stop,
-                    false,
-                    true));
-        }
-
-        [Test]
-        public void OperatorVariants_ShareOneHostExclusiveAnimationIdentity()
+        public void AutoOperator_UsesOneHostExclusiveAnimationIdentity()
         {
             Assert.AreEqual(
                 AnimContractIds.OperatorId,
                 AnimContractIds.AutoOperatorId);
-            Assert.AreEqual(
-                AnimOperatorContracts.AdvancedDescriptor.OperatorId,
-                AnimOperatorContracts.AutoDescriptor.OperatorId);
-        }
-
-        [Test]
-        public void PlaybackToken_IdentityIncludesGraphEpochSequenceActivationAndLayer()
-        {
-            Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
-                    7UL,
-                    out CoCoGraphInstanceId firstGraph));
-            Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
-                    8UL,
-                    out CoCoGraphInstanceId secondGraph));
-            Assert.IsTrue(
-                CoCoActivationId.TryCreate(
-                    12UL,
-                    out CoCoActivationId activationId));
-            Assert.IsTrue(
-                CoCoOperationSequence.TryCreate(
-                    34UL,
-                    out CoCoOperationSequence operationSequence));
-
-            Assert.IsTrue(
-                AnimPlaybackToken.TryCreate(
-                    firstGraph,
-                    activationId,
-                    new CoCoTimelineEpoch(5UL),
-                    operationSequence,
-                    AnimPlaybackLayerSlot.Layer02,
-                    out AnimPlaybackToken first));
-            Assert.IsTrue(
-                AnimPlaybackToken.TryCreate(
-                    secondGraph,
-                    activationId,
-                    new CoCoTimelineEpoch(5UL),
-                    operationSequence,
-                    AnimPlaybackLayerSlot.Layer02,
-                    out AnimPlaybackToken second));
-
-            Assert.IsTrue(first.IsValid);
-            Assert.AreNotEqual(first, second);
-            Assert.AreEqual(firstGraph, first.GraphInstanceId);
-            Assert.AreEqual(new CoCoTimelineEpoch(5UL), first.TimelineEpoch);
-            Assert.AreEqual(operationSequence, first.OperationSequence);
-            Assert.AreEqual(activationId, first.SourceActivationId);
-            Assert.AreEqual(AnimPlaybackLayerSlot.Layer02, first.Layer);
-        }
-
-        [Test]
-        public void PlaybackPublicationFence_RequiresCommittedReplacementAfterRebuild()
-        {
-            Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
-                    21UL,
-                    out CoCoGraphInstanceId graph));
-            Assert.IsTrue(
-                CoCoActivationId.TryCreate(
-                    22UL,
-                    out CoCoActivationId activation));
-            Assert.IsTrue(
-                CoCoOperationSequence.TryCreate(
-                    23UL,
-                    out CoCoOperationSequence operationSequence));
-            Assert.IsTrue(
-                AnimBindingId.TryCreate(
-                    24UL,
-                    out AnimBindingId binding));
-            Assert.IsTrue(
-                AnimPlaybackToken.TryCreate(
-                    graph,
-                    activation,
-                    new CoCoTimelineEpoch(0UL),
-                    operationSequence,
-                    AnimPlaybackLayerSlot.Layer00,
-                    out AnimPlaybackToken token));
-
-            AnimPlaybackContext invalidated = CreatePlaybackContext(
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer00,
-                    token,
-                    binding,
-                    AnimPlaybackStatus.Playing,
-                    0.25f),
-                false);
-            CoCoStateFlowFrameIdentity oldIdentity =
-                CreateContextIdentity(graph, 1UL);
-            CoCoStateFlowFrameIdentity unrelatedIdentity =
-                CreateContextIdentity(graph, 2UL);
-            CoCoStateFlowFrameIdentity stagedIdentity =
-                CreateContextIdentity(graph, 3UL);
-            var fence = new AnimOperator.PlaybackPublicationFence();
-
-            fence.Invalidate(invalidated);
-            Assert.IsFalse(
-                fence.CanPublish(invalidated, oldIdentity));
-            Assert.IsFalse(
-                fence.CanPublish(invalidated, unrelatedIdentity),
-                "An unrelated commit can copy the invalidated Animation slot.");
-
-            fence.MarkOutcomeStaged(stagedIdentity);
-            Assert.IsFalse(
-                fence.CanPublish(invalidated, unrelatedIdentity),
-                "Staging alone must not restore publication authority.");
-            Assert.IsTrue(
-                fence.CanPublish(invalidated, stagedIdentity),
-                "The exact committed replacement may publish even when its reset value is identical.");
-            Assert.IsFalse(fence.IsActive);
-
-            fence.Invalidate(invalidated);
-            fence.MarkOutcomeStaged(CreateContextIdentity(graph, 4UL));
-            Assert.IsFalse(
-                fence.CanPublish(
-                    invalidated,
-                    CreateContextIdentity(graph, 5UL)),
-                "A cancelled candidate must not clear the rebuild fence.");
-            AnimPlaybackContext replacement = CreatePlaybackContext(
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer00,
-                    token,
-                    binding,
-                    AnimPlaybackStatus.Playing,
-                    0.5f),
-                false);
-            Assert.IsTrue(
-                fence.CanPublish(
-                    replacement,
-                    CreateContextIdentity(graph, 6UL)),
-                "A different committed Animation snapshot replaces the invalidated publication.");
-
-            AnimPlaybackContext held = CreatePlaybackContext(
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer00,
-                    default,
-                    default,
-                    AnimPlaybackStatus.None,
-                    0f),
-                true);
-            fence.Invalidate(held);
-            Assert.IsFalse(
-                fence.CanPublish(
-                    held,
-                    CreateContextIdentity(graph, 7UL)),
-                "A rebuilt runtime must not expose a copied Held snapshot without a token.");
-            Assert.IsTrue(
-                fence.CanPublish(
-                    CreatePlaybackContext(held.Layer00, false),
-                    CreateContextIdentity(graph, 8UL)));
-        }
-
-        [Test]
-        public void RotationNormalization_AcceptsHugeFiniteAndRejectsInvalidMagnitude()
-        {
-            var huge = new Vector4(
-                float.MaxValue,
-                float.MaxValue,
-                float.MaxValue,
-                float.MaxValue);
-            Assert.IsTrue(
-                AnimModulationMath.TryNormalizeRotation(
-                    huge,
-                    out Vector4 normalized));
-            Assert.That(normalized.magnitude, Is.EqualTo(1f).Within(0.00001f));
-            Assert.That(normalized.x, Is.EqualTo(0.5f).Within(0.00001f));
-            Assert.That(normalized.y, Is.EqualTo(0.5f).Within(0.00001f));
-            Assert.That(normalized.z, Is.EqualTo(0.5f).Within(0.00001f));
-            Assert.That(normalized.w, Is.EqualTo(0.5f).Within(0.00001f));
-
-            Assert.IsFalse(
-                AnimModulationMath.TryNormalizeRotation(
-                    new Vector4(0.0000001f, 0f, 0f, 0f),
-                    out _));
-            Assert.IsFalse(
-                AnimModulationMath.TryNormalizeRotation(
-                    new Vector4(float.NaN, 0f, 0f, 1f),
-                    out _));
-            Assert.IsFalse(
-                AnimModulationMath.TryNormalizeRotation(
-                    new Vector4(float.PositiveInfinity, 0f, 0f, 1f),
-                    out _));
         }
 
         [Test]
@@ -395,9 +144,9 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
-        public void ProductionAssembly_HasExactlyTwoMonoOperators()
+        public void ProductionAssembly_HasExactlyOneMonoOperator()
         {
-            Type[] monoTypes = typeof(AnimOperator).Assembly
+            Type[] monoTypes = typeof(AnimAutoOperator).Assembly
                 .GetTypes()
                 .Where(type =>
                     !type.IsAbstract &&
@@ -408,29 +157,12 @@ namespace CoCoFlow.Tests.Runtime.Animation
             CollectionAssert.AreEqual(
                 new[]
                 {
-                    typeof(AnimAutoOperator),
-                    typeof(AnimOperator)
+                    typeof(AnimAutoOperator)
                 },
                 monoTypes);
             Assert.IsTrue(
                 typeof(StateMachineBehaviour).IsAssignableFrom(
                     typeof(AnimEventSmb)));
-            Assert.IsFalse(
-                typeof(MonoBehaviour).IsAssignableFrom(
-                    typeof(AnimRootMotionRelay)));
-        }
-
-        [Test]
-        public void ExactReplaySurface_IsDeferredOnly()
-        {
-            CollectionAssert.AreEqual(
-                new[] { nameof(AnimExactReplayStatus.Deferred) },
-                Enum.GetNames(typeof(AnimExactReplayStatus)));
-            Assert.AreEqual(
-                typeof(AnimExactReplayStatus),
-                typeof(AnimOperator)
-                    .GetProperty(nameof(AnimOperator.ExactTemporalReplay))
-                    ?.PropertyType);
         }
 
         [Test]
@@ -444,18 +176,12 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.IsTrue(
                 descriptor.Requires.Contains(
                     AnimOperatorContracts.TriggerRequirement));
-            Assert.IsFalse(
-                descriptor.Requires.Contains(
-                    AnimOperatorContracts.PlaybackRequirement));
-            Assert.IsFalse(
-                descriptor.Requires.Contains(
-                    AnimOperatorContracts.ModulationRequirement));
+
 
             Type[] forbiddenFieldTypes =
             {
                 typeof(RuntimeAnimatorController),
-                typeof(UnityEngine.Playables.PlayableGraph),
-                typeof(AnimRootMotionRelay)
+                typeof(UnityEngine.Playables.PlayableGraph)
             };
             Type[] fieldTypes = typeof(AnimAutoOperator)
                 .GetFields(
@@ -468,24 +194,6 @@ namespace CoCoFlow.Tests.Runtime.Animation
             {
                 CollectionAssert.DoesNotContain(fieldTypes, forbidden);
             }
-        }
-
-        [Test]
-        public void TickDeltaConversion_RejectsFloatUnderflowAndOverflow()
-        {
-            Assert.IsFalse(
-                AnimOperator.TryConvertTickDeltaSeconds(
-                    double.Epsilon,
-                    out _));
-            Assert.IsFalse(
-                AnimOperator.TryConvertTickDeltaSeconds(
-                    double.MaxValue,
-                    out _));
-            Assert.IsTrue(
-                AnimOperator.TryConvertTickDeltaSeconds(
-                    1d / 60d,
-                    out float deltaSeconds));
-            Assert.That(deltaSeconds, Is.EqualTo(1f / 60f));
         }
 
         [Test]
@@ -1036,33 +744,6 @@ namespace CoCoFlow.Tests.Runtime.Animation
                 .GetField("triggerTime", flags)
                 ?.SetValue(config, triggerTime);
             return config;
-        }
-
-        private static AnimPlaybackContext CreatePlaybackContext(
-            AnimPlaybackLayer layer00,
-            bool isHeld)
-        {
-            return new AnimPlaybackContext(
-                layer00,
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer01,
-                    default,
-                    default,
-                    AnimPlaybackStatus.None,
-                    0f),
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer02,
-                    default,
-                    default,
-                    AnimPlaybackStatus.None,
-                    0f),
-                new AnimPlaybackLayer(
-                    AnimPlaybackLayerSlot.Layer03,
-                    default,
-                    default,
-                    AnimPlaybackStatus.None,
-                    0f),
-                isHeld);
         }
 
         private static CoCoStateFlowFrameIdentity CreateContextIdentity(

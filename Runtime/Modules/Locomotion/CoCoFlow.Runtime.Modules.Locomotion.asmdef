@@ -1,0 +1,20 @@
+{
+    "name": "CoCoFlow.Runtime.Modules.Locomotion",
+    "rootNamespace": "CoCoFlow.Runtime.Modules.Locomotion",
+    "references": [
+        "CoCoFlow.Runtime.Locomotion.Contracts",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraphHost"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

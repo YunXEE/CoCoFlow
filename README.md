@@ -2,12 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> **Version**: 0.4.0-rc.0 · **Unity**: 6000+
+> **Version**: 0.4.0-rc.2 · **Unity**: 6000+
 >
-> Pre15 freezes the 0.4 public API surface, exits the legacy Mono FSM and
-> input-bridge runtimes, moves project Gameplay into the Sample boundary,
-> and closes dependency-combination and Player verification on Unity
-> 6000.3/6000.5.
+> RC2 establishes Golden Path v2: raw input enters the standard StateGraph
+> binding, package-owned Locomotion commits through Context authority, and
+> Animator state is projected from the committed snapshot. The previously
+> planned Player/Enemy/Chest, UI V2, and Adventure sample content is not part
+> of this package anchor.
 
 CoCoFlow is a Unity 6 State Flow and layered HFSM framework for new
 single-player 3D adventure and action projects. Its 0.4 architecture separates
@@ -647,7 +648,6 @@ from focused suite runs.
 - [Module: UI](Docs/Module-UI.md)
 - [Module: Input](Docs/Module-Input.md)
 - [Module: Localization](Docs/Module-Localization.md)
-- [Project Scaffold](Docs/ProjectScaffold.md)
 - [Map Region Fidelity](Docs/Module-Map.md)
 - [Module: Animation](Docs/Module-Animation.md)
 - [Module: Camera](Docs/Module-Camera.md)

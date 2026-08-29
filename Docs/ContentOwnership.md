@@ -1,10 +1,10 @@
 # Content Acquisition and Ownership
 
-> Contract status: `0.4.0-rc.0` · Updated 2026-08-22
+> Contract status: `0.4.0-rc.2` · Updated 2026-08-29
 >
 > Verification: dual-host package-wide EditMode/PlayMode (editor and player
 > mode) matrix evidence recorded through the Pre15 line — see CHANGELOG
-> `0.4.0-rc.0`; Package Validation Suite remains locally waived.
+> `0.4.0-rc.2`; Package Validation Suite remains locally waived.
 
 Pre8 adds one Unity-facing acquisition and ownership boundary for content whose
 runtime lifetime must be explicit. It does not require every serialized Unity

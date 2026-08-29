@@ -35,27 +35,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         AnimTriggerCommand Slot07 { get; }
     }
 
-    public interface IAnimPlaybackOperationSection : ICoCoOperationSection
-    {
-        AnimPlaybackCommand Control { get; }
-        AnimPlaybackCommand Layer00 { get; }
-        AnimPlaybackCommand Layer01 { get; }
-        AnimPlaybackCommand Layer02 { get; }
-        AnimPlaybackCommand Layer03 { get; }
-    }
-
-    public interface IAnimModulationOperationSection : ICoCoOperationSection
-    {
-        AnimModulationCommand Slot00 { get; }
-        AnimModulationCommand Slot01 { get; }
-        AnimModulationCommand Slot02 { get; }
-        AnimModulationCommand Slot03 { get; }
-        AnimModulationCommand Slot04 { get; }
-        AnimModulationCommand Slot05 { get; }
-        AnimModulationCommand Slot06 { get; }
-        AnimModulationCommand Slot07 { get; }
-    }
-
     public sealed class AnimParameterOperationSectionView : IAnimParameterOperationSection
     {
         private readonly CoCoOperationSectionReader _reader;
@@ -112,53 +91,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public AnimTriggerCommand Slot07 => Read(7);
 
         private AnimTriggerCommand Read(int index) => _reader.Read(_fields[index]);
-    }
-
-    public sealed class AnimPlaybackOperationSectionView : IAnimPlaybackOperationSection
-    {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<AnimPlaybackCommand>[] _fields;
-
-        internal AnimPlaybackOperationSectionView(
-            CoCoOperationSectionReader reader,
-            CoCoOperationSectionField<AnimPlaybackCommand>[] fields)
-        {
-            _reader = reader ?? throw new ArgumentNullException(nameof(reader));
-            _fields = fields ?? throw new ArgumentNullException(nameof(fields));
-        }
-
-        public AnimPlaybackCommand Control => Read(0);
-        public AnimPlaybackCommand Layer00 => Read(1);
-        public AnimPlaybackCommand Layer01 => Read(2);
-        public AnimPlaybackCommand Layer02 => Read(3);
-        public AnimPlaybackCommand Layer03 => Read(4);
-
-        private AnimPlaybackCommand Read(int index) => _reader.Read(_fields[index]);
-    }
-
-    public sealed class AnimModulationOperationSectionView : IAnimModulationOperationSection
-    {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<AnimModulationCommand>[] _fields;
-
-        internal AnimModulationOperationSectionView(
-            CoCoOperationSectionReader reader,
-            CoCoOperationSectionField<AnimModulationCommand>[] fields)
-        {
-            _reader = reader ?? throw new ArgumentNullException(nameof(reader));
-            _fields = fields ?? throw new ArgumentNullException(nameof(fields));
-        }
-
-        public AnimModulationCommand Slot00 => Read(0);
-        public AnimModulationCommand Slot01 => Read(1);
-        public AnimModulationCommand Slot02 => Read(2);
-        public AnimModulationCommand Slot03 => Read(3);
-        public AnimModulationCommand Slot04 => Read(4);
-        public AnimModulationCommand Slot05 => Read(5);
-        public AnimModulationCommand Slot06 => Read(6);
-        public AnimModulationCommand Slot07 => Read(7);
-
-        private AnimModulationCommand Read(int index) => _reader.Read(_fields[index]);
     }
 
     public sealed class AnimParameterOperationSectionViewFactory :
@@ -233,91 +165,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
     }
 
-    public sealed class AnimPlaybackOperationSectionViewFactory :
-        ICoCoOperationSectionViewFactory<IAnimPlaybackOperationSection>
-    {
-        private const int FieldCount = 1 + AnimContractLimits.PlaybackLayerCount;
-        private CoCoOperationSectionField<AnimPlaybackCommand>[] _fields;
-
-        public CoCoOperationSectionHandle<IAnimPlaybackOperationSection> Handle { get; private set; }
-
-        public IAnimPlaybackOperationSection Create(
-            in CoCoOperationSectionViewContext<IAnimPlaybackOperationSection> context)
-        {
-            CoCoOperationSectionField<AnimPlaybackCommand>[] fields =
-                AnimOperationFieldResolver.Resolve<
-                    IAnimPlaybackOperationSection,
-                    AnimPlaybackCommand>(
-                    context,
-                    FieldCount);
-            Handle = context.Handle;
-            _fields = fields;
-            return new AnimPlaybackOperationSectionView(context.Reader, fields);
-        }
-
-        public bool TryGetControlField(
-            out CoCoOperationSectionField<AnimPlaybackCommand> field) =>
-            TryGetField(0, out field);
-
-        public bool TryGetLayerField(
-            AnimPlaybackLayerSlot layer,
-            out CoCoOperationSectionField<AnimPlaybackCommand> field)
-        {
-            int index = (int)layer;
-            return TryGetField(index, out field);
-        }
-
-        private bool TryGetField(
-            int index,
-            out CoCoOperationSectionField<AnimPlaybackCommand> field)
-        {
-            if (_fields == null || index < 0 || index >= _fields.Length)
-            {
-                field = default;
-                return false;
-            }
-
-            field = _fields[index];
-            return field.IsValid;
-        }
-    }
-
-    public sealed class AnimModulationOperationSectionViewFactory :
-        ICoCoOperationSectionViewFactory<IAnimModulationOperationSection>
-    {
-        private CoCoOperationSectionField<AnimModulationCommand>[] _fields;
-
-        public CoCoOperationSectionHandle<IAnimModulationOperationSection> Handle { get; private set; }
-
-        public IAnimModulationOperationSection Create(
-            in CoCoOperationSectionViewContext<IAnimModulationOperationSection> context)
-        {
-            CoCoOperationSectionField<AnimModulationCommand>[] fields =
-                AnimOperationFieldResolver.Resolve<
-                    IAnimModulationOperationSection,
-                    AnimModulationCommand>(
-                    context,
-                    AnimContractLimits.ModulationLaneCount);
-            Handle = context.Handle;
-            _fields = fields;
-            return new AnimModulationOperationSectionView(context.Reader, fields);
-        }
-
-        public bool TryGetField(
-            int lane,
-            out CoCoOperationSectionField<AnimModulationCommand> field)
-        {
-            if (_fields == null || lane < 0 || lane >= _fields.Length)
-            {
-                field = default;
-                return false;
-            }
-
-            field = _fields[lane];
-            return field.IsValid;
-        }
-    }
-
     /// <summary>
     /// Per-project factory instances. The same instances must be supplied to project binding.
     /// </summary>
@@ -327,14 +174,10 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         {
             Parameters = new AnimParameterOperationSectionViewFactory();
             Triggers = new AnimTriggerOperationSectionViewFactory();
-            Playback = new AnimPlaybackOperationSectionViewFactory();
-            Modulation = new AnimModulationOperationSectionViewFactory();
         }
 
         public AnimParameterOperationSectionViewFactory Parameters { get; }
         public AnimTriggerOperationSectionViewFactory Triggers { get; }
-        public AnimPlaybackOperationSectionViewFactory Playback { get; }
-        public AnimModulationOperationSectionViewFactory Modulation { get; }
 
         public static bool TryCreateParameterRequirement(
             out CoCoOperationSectionRequirement requirement,
@@ -354,23 +197,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
                 out requirement,
                 out diagnostic);
 
-        public static bool TryCreatePlaybackRequirement(
-            out CoCoOperationSectionRequirement requirement,
-            out CoCoDiagnostic diagnostic) =>
-            CoCoOperationSectionRequirement.TryCreate<IAnimPlaybackOperationSection>(
-                AnimContractIds.PlaybackSectionId,
-                CoCoOperationSectionMode.Discrete,
-                out requirement,
-                out diagnostic);
-
-        public static bool TryCreateModulationRequirement(
-            out CoCoOperationSectionRequirement requirement,
-            out CoCoDiagnostic diagnostic) =>
-            CoCoOperationSectionRequirement.TryCreate<IAnimModulationOperationSection>(
-                AnimContractIds.ModulationSectionId,
-                CoCoOperationSectionMode.Continuous,
-                out requirement,
-                out diagnostic);
     }
 
     internal static class AnimOperationFieldResolver

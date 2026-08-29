@@ -43,6 +43,14 @@ namespace CoCoFlow.Runtime.Core
 
         bool IsPresent<TIntent>(CoCoIntentHandle<TIntent> handle)
             where TIntent : unmanaged;
+
+        /// <summary>
+        /// Returns the first present slot of type TIntent in this frame.
+        /// Standard single-intent-per-type wiring uses this; frames with
+        /// multiple ids of one type resolve handles explicitly.
+        /// </summary>
+        bool TryFirst<TIntent>(out TIntent value)
+            where TIntent : unmanaged;
     }
 
     public enum CoCoIntentContributionResult
@@ -496,6 +504,26 @@ namespace CoCoFlow.Runtime.Core
                    _layout.Matches(handle) &&
                    _slots[handle.DenseIndex] is CoCoIntentFrameSlot<TIntent> slot &&
                    slot.IsPresent;
+        }
+
+        public bool TryFirst<TIntent>(out TIntent value)
+            where TIntent : unmanaged
+        {
+            if (_isFrozen)
+            {
+                for (int index = 0; index < _slots.Length; index++)
+                {
+                    if (_slots[index] is CoCoIntentFrameSlot<TIntent> slot &&
+                        slot.IsPresent)
+                    {
+                        value = slot.Value;
+                        return true;
+                    }
+                }
+            }
+
+            value = default;
+            return false;
         }
 
         internal void Prepare(in CoCoStateFlowFrameHeader header)

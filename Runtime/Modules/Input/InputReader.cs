@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -11,7 +12,8 @@ namespace CoCoFlow.Runtime.Modules.Input
     [DefaultExecutionOrder(-100)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(PlayerInput))]
-    public sealed class InputReader : MonoBehaviour
+    public sealed class InputReader : MonoBehaviour,
+        ICoCoIntentFrameSource<RawInputIntent>
     {
         private struct BufferedInput
         {
@@ -57,6 +59,17 @@ namespace CoCoFlow.Runtime.Modules.Input
         private bool _runtimeInitialized;
         private bool _bindingOverrideLoadAttempted;
         private bool _hasStarted;
+
+        // Raw intent channel: fixed ring of pre-tick records, drained whole
+        // into RawInputIntent at TrySample. Sibling of the ActionChanged
+        // broadcast; fences clear it exactly like the rest of the reader.
+        private readonly RawInputRecord[] _rawQueue =
+            new RawInputRecord[RawInputQueueCapacity];
+        private int _rawQueueHead;
+        private int _rawQueueCount;
+        private ulong _rawSequence;
+
+        private const int RawInputQueueCapacity = 32;
 
         public PlayerInput PlayerInput => playerInput;
         public InputActionAsset Actions => playerInput != null ? playerInput.actions : null;
@@ -154,6 +167,114 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             value = action.ReadValue<TValue>();
             return true;
+        }
+
+        /// <summary>
+        /// Freezes the raw input stream for one tick: every discrete record
+        /// queued since the last drain (arrival order, capped at eight,
+        /// overflow dropped) plus one Held record per actuated continuous
+        /// convenience action and the currently active action map name.
+        /// </summary>
+        public bool TrySample(
+            in CoCoTickFrame tickFrame,
+            out RawInputIntent intent)
+        {
+            intent = default;
+            if (!isActiveAndEnabled || !_runtimeInitialized)
+            {
+                ClearRawQueue();
+                return false;
+            }
+
+            intent.ActiveMap = CoCoFixedString64.FromString(
+                playerInput != null && playerInput.currentActionMap != null
+                    ? playerInput.currentActionMap.name
+                    : string.Empty);
+
+            // Discrete records: drain whole, arrival order, cap at eight.
+            while (_rawQueueCount > 0)
+            {
+                RawInputRecord record = _rawQueue[_rawQueueHead];
+                _rawQueue[_rawQueueHead] = default;
+                _rawQueueHead = (_rawQueueHead + 1) % _rawQueue.Length;
+                _rawQueueCount--;
+                if (intent.Count < RawInputIntent.RecordCapacity)
+                {
+                    intent.Set(intent.Count++, record);
+                }
+            }
+
+            // Continuous actions: one Held record per actuated action per
+            // tick; released actions simply stop appearing.
+            AppendHeldIfActuated(
+                moveAction,
+                MoveInput,
+                ref intent);
+            AppendHeldIfActuated(
+                lookAction,
+                LookInput,
+                ref intent);
+            AppendHeldIfActuated(
+                zoomAction,
+                ZoomInput,
+                ref intent);
+
+            return true;
+        }
+
+        private void AppendHeldIfActuated(
+            InputActionReference actionReference,
+            Vector2 value,
+            ref RawInputIntent intent)
+        {
+            if (value.sqrMagnitude <= 0.0000001f ||
+                intent.Count >= RawInputIntent.RecordCapacity ||
+                !TryResolveAction(actionReference, out InputAction action))
+            {
+                return;
+            }
+
+            _rawSequence++;
+            intent.Set(intent.Count++, new RawInputRecord
+            {
+                Action = CoCoFixedString64.FromString(action.name),
+                ValueX = value.x,
+                ValueY = value.y,
+                Phase = RawInputPhase.Held,
+                Sequence = _rawSequence
+            });
+        }
+
+        private void AppendRawRecord(string actionName, RawInputPhase phase)
+        {
+            if (_rawQueueCount >= _rawQueue.Length)
+            {
+                return; // fixed capacity, drop; same policy as the intent cap
+            }
+
+            _rawSequence++;
+            int tail = (_rawQueueHead + _rawQueueCount) % _rawQueue.Length;
+            _rawQueue[tail] = new RawInputRecord
+            {
+                Action = CoCoFixedString64.FromString(actionName),
+                ValueX = 0f,
+                ValueY = phase == RawInputPhase.Performed ? 1f : 0f,
+                Phase = phase,
+                Sequence = _rawSequence
+            };
+            _rawQueueCount++;
+        }
+
+        private void ClearRawQueue()
+        {
+            if (_rawQueueCount == 0)
+            {
+                return;
+            }
+
+            Array.Clear(_rawQueue, 0, _rawQueue.Length);
+            _rawQueueHead = 0;
+            _rawQueueCount = 0;
         }
 
         public bool TryResolveAction(
@@ -290,6 +411,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         public void FenceInput()
         {
             ClearBuffer();
+            ClearRawQueue();
             MoveInput = Vector2.zero;
             LookInput = Vector2.zero;
             ZoomInput = Vector2.zero;
@@ -513,6 +635,9 @@ namespace CoCoFlow.Runtime.Modules.Input
             PublishActionChanged(new InputActionEvent(
                 context.action,
                 InputActionPhase.Performed));
+            AppendRawRecord(
+                context.action.name,
+                RawInputPhase.Performed);
             PublishActionName(
                 OnActionPerformed,
                 context.action.name,
@@ -535,6 +660,9 @@ namespace CoCoFlow.Runtime.Modules.Input
             PublishActionChanged(new InputActionEvent(
                 context.action,
                 InputActionPhase.Canceled));
+            AppendRawRecord(
+                context.action.name,
+                RawInputPhase.Canceled);
             PublishActionName(
                 OnActionCanceled,
                 context.action.name,

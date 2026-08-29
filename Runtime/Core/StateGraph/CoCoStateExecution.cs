@@ -165,11 +165,45 @@ namespace CoCoFlow.Runtime.Core
                    _context.TryWriteOperation(_callbackToken, field, value);
         }
 
+        /// <summary>
+        /// Resolves a Section field by its stable dense index for writing.
+        /// Standard-path State logics use the constants published by the
+        /// Section contract instead of constructor-injected handles. Write
+        /// still fails unless this State declares the Section as provided.
+        /// </summary>
+        public CoCoOperationSectionField<TValue> ResolveField<TSection, TValue>(
+            int fieldIndex)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            return _context != null &&
+                   _context.TryResolveOperationField<TSection, TValue>(
+                       _callbackToken,
+                       fieldIndex,
+                       out CoCoOperationSectionField<TValue> field)
+                ? field
+                : default;
+        }
+
         public bool EnableDiscrete<TSection>(CoCoOperationSectionHandle<TSection> handle)
             where TSection : class, ICoCoOperationSection
         {
             return _context != null &&
                    _context.TryEnableDiscreteOperation(_callbackToken, handle);
+        }
+
+        /// <summary>
+        /// Resolves a discrete section handle by its interface type, then
+        /// enables it for this tick — the standard-path way to fire a
+        /// discrete section (triggers, one-shots) without an injected
+        /// requirement.
+        /// </summary>
+        public bool TryEnableDiscrete<TSection>()
+            where TSection : class, ICoCoOperationSection
+        {
+            return _context != null &&
+                   _context.TryResolveAndEnableDiscreteOperation<TSection>(
+                       _callbackToken);
         }
     }
 
@@ -268,6 +302,8 @@ namespace CoCoFlow.Runtime.Core
         private bool _hasError;
         private bool _isCallbackActive;
         private ulong _callbackGeneration;
+        private CoCoTransitionHandle[] _outgoingTransitions;
+        private IReadOnlyList<CoCoTransitionHandle> _readOnlyOutgoingTransitions;
 
         internal CoCoStateExecutionContext()
         {
@@ -298,6 +334,50 @@ namespace CoCoFlow.Runtime.Core
 
             _hasError = true;
             return null;
+        }
+
+        /// <summary>
+        /// Outgoing transitions of this state in declaration order —
+        /// the standard-path way for an Update callback to request a
+        /// transition without constructor-injected handles. Attached
+        /// once when the runtime builds the layer.
+        /// </summary>
+        public IReadOnlyList<CoCoTransitionHandle> OutgoingTransitions =>
+            _readOnlyOutgoingTransitions;
+
+        internal void AttachOutgoingTransitions(
+            CoCoTransitionHandle[] transitions)
+        {
+            _outgoingTransitions = transitions;
+            _readOnlyOutgoingTransitions = transitions == null
+                ? null
+                : Array.AsReadOnly(transitions);
+        }
+
+        /// <summary>
+        /// Requests the outgoing transition whose target state runs the
+        /// given logic type — the standard-path way to address transitions
+        /// on authored graphs, whose edge ids are generated Guids (D74
+        /// name-addressing, typed form). At most one edge per source may
+        /// target a given logic.
+        /// </summary>
+        public bool TryRequestTransitionTo<TTargetLogic>()
+            where TTargetLogic : CoCoStateLogic
+        {
+            for (int index = 0; index < _outgoingTransitions.Length; index++)
+            {
+                CoCoTransitionHandle handle = _outgoingTransitions[index];
+                if (_runtime != null &&
+                    _runtime.TryGetStateLogicType(
+                        handle.TargetStateId,
+                        out Type logicType) &&
+                    logicType == typeof(TTargetLogic))
+                {
+                    return RequestTransition(handle);
+                }
+            }
+
+            return false;
         }
 
         public bool RequestTransition(CoCoTransitionHandle handle)
@@ -341,6 +421,23 @@ namespace CoCoFlow.Runtime.Core
             _operationRank.IsValid &&
             _activationId.IsValid;
 
+        internal bool TryResolveOperationField<TSection, TValue>(
+            ulong callbackToken,
+            int fieldIndex,
+            out CoCoOperationSectionField<TValue> field)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            field = default;
+            if (!IsOperationWriterValid(callbackToken))
+            {
+                return false;
+            }
+
+            field = _operationWriter.ResolveField<TSection, TValue>(fieldIndex);
+            return field.IsValid;
+        }
+
         internal bool TryWriteOperation<TValue>(
             ulong callbackToken,
             CoCoOperationSectionField<TValue> field,
@@ -350,6 +447,23 @@ namespace CoCoFlow.Runtime.Core
             if (!IsOperationWriterValid(callbackToken) ||
                 !IsOperationSectionAllowed(field.SectionIndex) ||
                 !_operationWriter.Write(_operationRank, field, value))
+            {
+                MarkInvalidOperationUse();
+                return false;
+            }
+
+            return true;
+        }
+
+        internal bool TryResolveAndEnableDiscreteOperation<TSection>(
+            ulong callbackToken)
+            where TSection : class, ICoCoOperationSection
+        {
+            if (!IsOperationWriterValid(callbackToken) ||
+                !_operationWriter.TryResolveTypedHandle(
+                    out CoCoOperationSectionHandle<TSection> handle) ||
+                !IsOperationSectionAllowed(handle.DenseIndex) ||
+                !_operationWriter.EnableDiscrete(_operationRank, handle, _activationId))
             {
                 MarkInvalidOperationUse();
                 return false;

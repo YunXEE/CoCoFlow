@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0-rc.0",
+  "version": "0.4.0-rc.2",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with project-owned semantic Input, official Localization Core, optional UI V2 prompts, preview-first project scaffolding, transactional Region fidelity, Temporal restore, and Animator Controller Operators.",
+  "description": "A Unity 6 State Flow and layered HFSM framework prerelease with RawInput-to-StateGraph standard binding, transactional Context commits, Temporal restore, package-owned Locomotion, and Animator projection.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.inputsystem": "1.18.0",

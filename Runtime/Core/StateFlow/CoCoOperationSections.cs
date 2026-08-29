@@ -787,6 +787,63 @@ namespace CoCoFlow.Runtime.Core
         public IReadOnlyList<CoCoOperationSectionDescriptor> Sections => _readOnlyDescriptors;
         public bool IsFrozen => LayoutId.IsValid;
 
+        /// <summary>
+        /// Resolves a field by Section type and its stable dense field index.
+        /// Standard State logics use contract-owned field constants instead
+        /// of constructor-injected handles. Section types are unique per
+        /// registry.
+        /// </summary>
+        /// <summary>
+        /// Resolves a section handle by interface type for enabling a
+        /// discrete section from a standard state logic (no injected
+        /// requirement needed). Section types are unique per registry.
+        /// </summary>
+        public bool TryResolveTypedHandle<TSection>(
+            out CoCoOperationSectionHandle<TSection> handle)
+            where TSection : class, ICoCoOperationSection
+        {
+            for (int index = 0; index < _descriptors.Length; index++)
+            {
+                if (_descriptors[index].SectionType != typeof(TSection))
+                {
+                    continue;
+                }
+
+                handle = new CoCoOperationSectionHandle<TSection>(
+                    this,
+                    _descriptors[index].SectionId,
+                    index);
+                return true;
+            }
+
+            handle = default;
+            return false;
+        }
+
+        public bool TryResolveTypedField<TSection, TValue>(
+            int fieldIndex,
+            out CoCoOperationSectionField<TValue> field)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            for (int index = 0; index < _descriptors.Length; index++)
+            {
+                if (_descriptors[index].SectionType != typeof(TSection))
+                {
+                    continue;
+                }
+
+                var handle = new CoCoOperationSectionHandle<TSection>(
+                    this,
+                    _descriptors[index].SectionId,
+                    index);
+                return TryResolveField(handle, fieldIndex, out field);
+            }
+
+            field = default;
+            return false;
+        }
+
         public bool TryResolve<TSection>(
             CoCoOperationSectionRequirement requirement,
             out CoCoOperationSectionHandle<TSection> handle)
@@ -1694,6 +1751,28 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool IsValid => _frame != null && _frame.IsWriting(_token);
+
+        internal bool TryResolveTypedHandle<TSection>(
+            out CoCoOperationSectionHandle<TSection> handle)
+            where TSection : class, ICoCoOperationSection
+        {
+            handle = default;
+            return _frame != null &&
+                   _frame.Registry.TryResolveTypedHandle(out handle);
+        }
+
+        internal CoCoOperationSectionField<TValue> ResolveField<TSection, TValue>(
+            int fieldIndex)
+            where TSection : class, ICoCoOperationSection
+            where TValue : unmanaged
+        {
+            return _frame != null &&
+                   _frame.Registry.TryResolveTypedField<TSection, TValue>(
+                       fieldIndex,
+                       out CoCoOperationSectionField<TValue> field)
+                ? field
+                : default;
+        }
 
         public bool Write<TValue>(
             CoCoOperationSectionField<TValue> field,

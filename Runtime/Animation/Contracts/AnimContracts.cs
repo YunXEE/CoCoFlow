@@ -10,8 +10,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     {
         public const int ParameterLaneCount = 16;
         public const int TriggerLaneCount = 8;
-        public const int PlaybackLayerCount = 4;
-        public const int ModulationLaneCount = 8;
         public const int FeedbackCapacity = 16;
     }
 
@@ -24,8 +22,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public const ulong ParameterSectionSemanticFingerprint = 0x414E494D00001001UL;
         public const ulong TriggerSectionSemanticFingerprint = 0x414E494D00001002UL;
-        public const ulong PlaybackSectionSemanticFingerprint = 0x414E494D00001003UL;
-        public const ulong ModulationSectionSemanticFingerprint = 0x414E494D00001004UL;
         public const ulong FeedbackReducerSemanticFingerprint = 0x414E494D00002001UL;
         public const ulong FeedbackAdapterSemanticFingerprint = 0x414E494D00002002UL;
 
@@ -34,12 +30,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public static CoCoOperationSectionId TriggerSectionId { get; } =
             CreateOperationSectionId(0x414E494D00000002UL);
-
-        public static CoCoOperationSectionId PlaybackSectionId { get; } =
-            CreateOperationSectionId(0x414E494D00000003UL);
-
-        public static CoCoOperationSectionId ModulationSectionId { get; } =
-            CreateOperationSectionId(0x414E494D00000004UL);
 
         public static CoCoOperatorId OperatorId { get; } =
             CreateOperatorId(0x414E494D00000102UL);
@@ -55,11 +45,31 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public static CoCoEventTypeId FeedbackEventTypeId { get; } =
             CreateEventTypeId(0x414E494D00000301UL);
 
-        public static CoCoStateBlockId PlaybackContextBlockId { get; } =
+        public static CoCoStateBlockId SnapshotBlockId { get; } =
             CreateStateBlockId(0x414E494D00000401UL);
 
-        public static CoCoStateSlotId PlaybackContextSlotId { get; } =
+        public static CoCoStateSlotId SnapshotSlotId { get; } =
             CreateStateSlotId(0x414E494D00000402UL);
+
+        private static CoCoStateBlockId CreateStateBlockId(ulong low)
+        {
+            if (!CoCoStateBlockId.TryCreate(CoCoFlowHigh, low, out CoCoStateBlockId id))
+            {
+                throw new InvalidOperationException("The fixed Animation Context Block id is invalid.");
+            }
+
+            return id;
+        }
+
+        private static CoCoStateSlotId CreateStateSlotId(ulong low)
+        {
+            if (!CoCoStateSlotId.TryCreate(CoCoFlowHigh, low, out CoCoStateSlotId id))
+            {
+                throw new InvalidOperationException("The fixed Animation Context Slot id is invalid.");
+            }
+
+            return id;
+        }
 
         private static CoCoOperationSectionId CreateOperationSectionId(ulong low)
         {
@@ -106,26 +116,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             if (!CoCoEventTypeId.TryCreate(CoCoFlowHigh, low, out CoCoEventTypeId id))
             {
                 throw new InvalidOperationException("The fixed Animation Event Type id is invalid.");
-            }
-
-            return id;
-        }
-
-        private static CoCoStateBlockId CreateStateBlockId(ulong low)
-        {
-            if (!CoCoStateBlockId.TryCreate(CoCoFlowHigh, low, out CoCoStateBlockId id))
-            {
-                throw new InvalidOperationException("The fixed Animation State Block id is invalid.");
-            }
-
-            return id;
-        }
-
-        private static CoCoStateSlotId CreateStateSlotId(ulong low)
-        {
-            if (!CoCoStateSlotId.TryCreate(CoCoFlowHigh, low, out CoCoStateSlotId id))
-            {
-                throw new InvalidOperationException("The fixed Animation State Slot id is invalid.");
             }
 
             return id;
@@ -305,435 +295,6 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
     }
 
-    public enum AnimPlaybackCommandKind : byte
-    {
-        None = 0,
-        Play = 1,
-        CrossFade = 2,
-        Stop = 3,
-        Step = 4
-    }
-
-    public enum AnimPlaybackLayerSlot : byte
-    {
-        None = 0,
-        Layer00 = 1,
-        Layer01 = 2,
-        Layer02 = 3,
-        Layer03 = 4
-    }
-
-    public enum AnimPlaybackStatus : byte
-    {
-        None = 0,
-        Playing = 1,
-        CrossFading = 2,
-        Held = 3,
-        Completed = 4,
-        Interrupted = 5
-    }
-
-    public readonly struct AnimPlaybackCommand
-    {
-        private AnimPlaybackCommand(
-            AnimPlaybackCommandKind kind,
-            AnimBindingId stateBindingId,
-            CoCoActivationId sourceActivationId,
-            float startNormalizedTime,
-            float transitionDurationSeconds,
-            float stepDeltaSeconds)
-        {
-            Kind = kind;
-            StateBindingId = stateBindingId;
-            SourceActivationId = sourceActivationId;
-            StartNormalizedTime = startNormalizedTime;
-            TransitionDurationSeconds = transitionDurationSeconds;
-            StepDeltaSeconds = stepDeltaSeconds;
-        }
-
-        public AnimPlaybackCommandKind Kind { get; }
-        public AnimBindingId StateBindingId { get; }
-        public CoCoActivationId SourceActivationId { get; }
-        public float StartNormalizedTime { get; }
-        public float TransitionDurationSeconds { get; }
-        public float StepDeltaSeconds { get; }
-        public bool IsLayerCommand => Kind == AnimPlaybackCommandKind.Play ||
-                                      Kind == AnimPlaybackCommandKind.CrossFade;
-        public bool IsControlCommand => Kind == AnimPlaybackCommandKind.Stop ||
-                                        Kind == AnimPlaybackCommandKind.Step;
-        public bool IsValid => SourceActivationId.IsValid &&
-                               ((Kind == AnimPlaybackCommandKind.Play &&
-                                 StateBindingId.IsValid &&
-                                 AnimMath.IsFiniteNonNegative(StartNormalizedTime)) ||
-                                (Kind == AnimPlaybackCommandKind.CrossFade &&
-                                 StateBindingId.IsValid &&
-                                 AnimMath.IsFiniteNonNegative(StartNormalizedTime) &&
-                                 AnimMath.IsFiniteNonNegative(TransitionDurationSeconds)) ||
-                                Kind == AnimPlaybackCommandKind.Stop ||
-                                (Kind == AnimPlaybackCommandKind.Step &&
-                                 AnimMath.IsFinitePositive(StepDeltaSeconds)));
-
-        public static bool TryCreatePlay(
-            AnimBindingId stateBindingId,
-            CoCoActivationId sourceActivationId,
-            float startNormalizedTime,
-            out AnimPlaybackCommand command)
-        {
-            if (!stateBindingId.IsValid ||
-                !sourceActivationId.IsValid ||
-                !AnimMath.IsFiniteNonNegative(startNormalizedTime))
-            {
-                command = default;
-                return false;
-            }
-
-            command = new AnimPlaybackCommand(
-                AnimPlaybackCommandKind.Play,
-                stateBindingId,
-                sourceActivationId,
-                startNormalizedTime,
-                default,
-                default);
-            return true;
-        }
-
-        public static bool TryCreateCrossFade(
-            AnimBindingId stateBindingId,
-            CoCoActivationId sourceActivationId,
-            float transitionDurationSeconds,
-            float startNormalizedTime,
-            out AnimPlaybackCommand command)
-        {
-            if (!stateBindingId.IsValid ||
-                !sourceActivationId.IsValid ||
-                !AnimMath.IsFiniteNonNegative(transitionDurationSeconds) ||
-                !AnimMath.IsFiniteNonNegative(startNormalizedTime))
-            {
-                command = default;
-                return false;
-            }
-
-            command = new AnimPlaybackCommand(
-                AnimPlaybackCommandKind.CrossFade,
-                stateBindingId,
-                sourceActivationId,
-                startNormalizedTime,
-                transitionDurationSeconds,
-                default);
-            return true;
-        }
-
-        public static bool TryCreateStop(
-            CoCoActivationId sourceActivationId,
-            out AnimPlaybackCommand command)
-        {
-            if (!sourceActivationId.IsValid)
-            {
-                command = default;
-                return false;
-            }
-
-            command = new AnimPlaybackCommand(
-                AnimPlaybackCommandKind.Stop,
-                default,
-                sourceActivationId,
-                default,
-                default,
-                default);
-            return true;
-        }
-
-        public static bool TryCreateStep(
-            CoCoActivationId sourceActivationId,
-            float positiveDeltaSeconds,
-            out AnimPlaybackCommand command)
-        {
-            if (!sourceActivationId.IsValid || !AnimMath.IsFinitePositive(positiveDeltaSeconds))
-            {
-                command = default;
-                return false;
-            }
-
-            command = new AnimPlaybackCommand(
-                AnimPlaybackCommandKind.Step,
-                default,
-                sourceActivationId,
-                default,
-                default,
-                positiveDeltaSeconds);
-            return true;
-        }
-    }
-
-    public readonly struct AnimPlaybackToken : IEquatable<AnimPlaybackToken>
-    {
-        private readonly bool _hasTimelineEpoch;
-
-        private AnimPlaybackToken(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoActivationId sourceActivationId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoOperationSequence operationSequence,
-            AnimPlaybackLayerSlot layer)
-        {
-            GraphInstanceId = graphInstanceId;
-            SourceActivationId = sourceActivationId;
-            TimelineEpoch = timelineEpoch;
-            OperationSequence = operationSequence;
-            Layer = layer;
-            _hasTimelineEpoch = true;
-        }
-
-        public CoCoGraphInstanceId GraphInstanceId { get; }
-        public CoCoActivationId SourceActivationId { get; }
-        public CoCoTimelineEpoch TimelineEpoch { get; }
-        public CoCoOperationSequence OperationSequence { get; }
-        public AnimPlaybackLayerSlot Layer { get; }
-        public bool IsValid => GraphInstanceId.IsValid &&
-                               SourceActivationId.IsValid &&
-                               _hasTimelineEpoch &&
-                               OperationSequence.IsValid &&
-                               Layer >= AnimPlaybackLayerSlot.Layer00 &&
-                               Layer <= AnimPlaybackLayerSlot.Layer03;
-
-        public static bool TryCreate(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoActivationId sourceActivationId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoOperationSequence operationSequence,
-            AnimPlaybackLayerSlot layer,
-            out AnimPlaybackToken token)
-        {
-            if (!graphInstanceId.IsValid ||
-                !sourceActivationId.IsValid ||
-                !operationSequence.IsValid ||
-                layer < AnimPlaybackLayerSlot.Layer00 ||
-                layer > AnimPlaybackLayerSlot.Layer03)
-            {
-                token = default;
-                return false;
-            }
-
-            token = new AnimPlaybackToken(
-                graphInstanceId,
-                sourceActivationId,
-                timelineEpoch,
-                operationSequence,
-                layer);
-            return true;
-        }
-
-        public bool Equals(AnimPlaybackToken other) =>
-            GraphInstanceId == other.GraphInstanceId &&
-            SourceActivationId == other.SourceActivationId &&
-            TimelineEpoch == other.TimelineEpoch &&
-            OperationSequence == other.OperationSequence &&
-            Layer == other.Layer &&
-            _hasTimelineEpoch == other._hasTimelineEpoch;
-
-        public override bool Equals(object obj) => obj is AnimPlaybackToken other && Equals(other);
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hashCode = GraphInstanceId.GetHashCode();
-                hashCode = (hashCode * 397) ^ SourceActivationId.GetHashCode();
-                hashCode = (hashCode * 397) ^ TimelineEpoch.GetHashCode();
-                hashCode = (hashCode * 397) ^ OperationSequence.GetHashCode();
-                hashCode = (hashCode * 397) ^ (int)Layer;
-                hashCode = (hashCode * 397) ^ _hasTimelineEpoch.GetHashCode();
-                return hashCode;
-            }
-        }
-
-        public static bool operator ==(AnimPlaybackToken left, AnimPlaybackToken right) =>
-            left.Equals(right);
-
-        public static bool operator !=(AnimPlaybackToken left, AnimPlaybackToken right) =>
-            !left.Equals(right);
-    }
-
-    /// <summary>
-    /// One layer record published through the playback Context outcome.
-    /// </summary>
-    public readonly struct AnimPlaybackLayer
-    {
-        public AnimPlaybackLayer(
-            AnimPlaybackLayerSlot slot,
-            AnimPlaybackToken token,
-            AnimBindingId stateBindingId,
-            AnimPlaybackStatus status,
-            float normalizedTime)
-        {
-            Slot = slot;
-            Token = token;
-            StateBindingId = stateBindingId;
-            Status = status;
-            NormalizedTime = normalizedTime;
-        }
-
-        public AnimPlaybackLayerSlot Slot { get; }
-        public AnimPlaybackToken Token { get; }
-        public AnimBindingId StateBindingId { get; }
-        public AnimPlaybackStatus Status { get; }
-        public float NormalizedTime { get; }
-        public bool IsActive => Status == AnimPlaybackStatus.Playing ||
-                                Status == AnimPlaybackStatus.CrossFading ||
-                                Status == AnimPlaybackStatus.Held;
-        public bool IsValid => Slot >= AnimPlaybackLayerSlot.Layer00 &&
-                               Slot <= AnimPlaybackLayerSlot.Layer03 &&
-                               Status >= AnimPlaybackStatus.None &&
-                               Status <= AnimPlaybackStatus.Interrupted &&
-                               AnimMath.IsFiniteNonNegative(NormalizedTime) &&
-                               (Status == AnimPlaybackStatus.None ||
-                                (Token.IsValid && StateBindingId.IsValid && Token.Layer == Slot));
-    }
-
-    /// <summary>
-    /// Fixed four-layer playback snapshot written by AnimOperator as one atomic outcome.
-    /// </summary>
-    public readonly struct AnimPlaybackContext
-    {
-        public AnimPlaybackContext(
-            AnimPlaybackLayer layer00,
-            AnimPlaybackLayer layer01,
-            AnimPlaybackLayer layer02,
-            AnimPlaybackLayer layer03,
-            bool isHeld)
-        {
-            Layer00 = layer00;
-            Layer01 = layer01;
-            Layer02 = layer02;
-            Layer03 = layer03;
-            IsHeld = isHeld;
-        }
-
-        public AnimPlaybackLayer Layer00 { get; }
-        public AnimPlaybackLayer Layer01 { get; }
-        public AnimPlaybackLayer Layer02 { get; }
-        public AnimPlaybackLayer Layer03 { get; }
-        public bool IsHeld { get; }
-
-        public AnimPlaybackLayer GetLayer(AnimPlaybackLayerSlot slot)
-        {
-            switch (slot)
-            {
-                case AnimPlaybackLayerSlot.Layer00:
-                    return Layer00;
-                case AnimPlaybackLayerSlot.Layer01:
-                    return Layer01;
-                case AnimPlaybackLayerSlot.Layer02:
-                    return Layer02;
-                case AnimPlaybackLayerSlot.Layer03:
-                    return Layer03;
-                default:
-                    return default;
-            }
-        }
-    }
-
-    public enum AnimModulationKind : byte
-    {
-        None = 0,
-        FloatParameter = 1,
-        LayerWeight = 2,
-        PresentationOffsetPosition = 3,
-        PresentationOffsetRotation = 4
-    }
-
-    public enum AnimModulationInterpolation : byte
-    {
-        None = 0,
-        Immediate = 1,
-        AdapterOwned = 2
-    }
-
-    public readonly struct AnimModulationCommand
-    {
-        private AnimModulationCommand(
-            AnimModulationKind kind,
-            AnimBindingId bindingId,
-            AnimModulationInterpolation interpolation,
-            CoCoActivationId sourceActivationId,
-            uint serial,
-            float durationSeconds,
-            float valueX,
-            float valueY,
-            float valueZ,
-            float valueW)
-        {
-            Kind = kind;
-            BindingId = bindingId;
-            Interpolation = interpolation;
-            SourceActivationId = sourceActivationId;
-            Serial = serial;
-            DurationSeconds = durationSeconds;
-            ValueX = valueX;
-            ValueY = valueY;
-            ValueZ = valueZ;
-            ValueW = valueW;
-        }
-
-        public AnimModulationKind Kind { get; }
-        public AnimBindingId BindingId { get; }
-        public AnimModulationInterpolation Interpolation { get; }
-        public CoCoActivationId SourceActivationId { get; }
-        public uint Serial { get; }
-        public float DurationSeconds { get; }
-        public float ValueX { get; }
-        public float ValueY { get; }
-        public float ValueZ { get; }
-        public float ValueW { get; }
-        public bool IsValid => Kind >= AnimModulationKind.FloatParameter &&
-                               Kind <= AnimModulationKind.PresentationOffsetRotation &&
-                               BindingId.IsValid &&
-                               Interpolation >= AnimModulationInterpolation.Immediate &&
-                               Interpolation <= AnimModulationInterpolation.AdapterOwned &&
-                               SourceActivationId.IsValid &&
-                               Serial != 0U &&
-                               AnimMath.IsFiniteNonNegative(DurationSeconds) &&
-                               AnimMath.IsFinite(ValueX) &&
-                               AnimMath.IsFinite(ValueY) &&
-                               AnimMath.IsFinite(ValueZ) &&
-                               AnimMath.IsFinite(ValueW) &&
-                               (Interpolation != AnimModulationInterpolation.Immediate ||
-                                DurationSeconds == 0f);
-
-        public static bool TryCreate(
-            AnimModulationKind kind,
-            AnimBindingId bindingId,
-            AnimModulationInterpolation interpolation,
-            CoCoActivationId sourceActivationId,
-            uint serial,
-            float durationSeconds,
-            float valueX,
-            float valueY,
-            float valueZ,
-            float valueW,
-            out AnimModulationCommand command)
-        {
-            command = new AnimModulationCommand(
-                kind,
-                bindingId,
-                interpolation,
-                sourceActivationId,
-                serial,
-                durationSeconds,
-                valueX,
-                valueY,
-                valueZ,
-                valueW);
-            if (!command.IsValid)
-            {
-                command = default;
-                return false;
-            }
-
-            return true;
-        }
-    }
-
     internal static class AnimMath
     {
         public static bool IsFinite(float value) =>
@@ -744,5 +305,143 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public static bool IsFinitePositive(float value) =>
             IsFinite(value) && value > 0f;
+    }
+
+    /// <summary>
+    /// Engine-fact snapshot of one Animator: per-layer state hash,
+    /// normalized time and layer weight plus the engine's current
+    /// parameter values. Fixed-size and unmanaged so it can live in one
+    /// Context slot. Layout is bound to the controller the snapshot was
+    /// taken from — projecting onto a mismatched controller fails loudly.
+    /// </summary>
+    public struct AnimSnapshotState
+    {
+        public const int MaxLayers = 4;
+        public const int MaxParameterLanes = 16;
+
+        public int Layer0StateHash;
+        public float Layer0Time;
+        public float Layer0Weight;
+        public int Layer1StateHash;
+        public float Layer1Time;
+        public float Layer1Weight;
+        public int Layer2StateHash;
+        public float Layer2Time;
+        public float Layer2Weight;
+        public int Layer3StateHash;
+        public float Layer3Time;
+        public float Layer3Weight;
+        public float Lane0;
+        public float Lane1;
+        public float Lane2;
+        public float Lane3;
+        public float Lane4;
+        public float Lane5;
+        public float Lane6;
+        public float Lane7;
+        public float Lane8;
+        public float Lane9;
+        public float Lane10;
+        public float Lane11;
+        public float Lane12;
+        public float Lane13;
+        public float Lane14;
+        public float Lane15;
+        public byte LayerCount;
+        public byte LaneCount;
+
+        public readonly float LayerTime(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0Time;
+                case 1: return Layer1Time;
+                case 2: return Layer2Time;
+                case 3: return Layer3Time;
+                default: return 0f;
+            }
+        }
+
+        public readonly int LayerStateHash(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0StateHash;
+                case 1: return Layer1StateHash;
+                case 2: return Layer2StateHash;
+                case 3: return Layer3StateHash;
+                default: return 0;
+            }
+        }
+
+        public readonly float LayerWeight(int index)
+        {
+            switch (index)
+            {
+                case 0: return Layer0Weight;
+                case 1: return Layer1Weight;
+                case 2: return Layer2Weight;
+                case 3: return Layer3Weight;
+                default: return 0f;
+            }
+        }
+
+        public readonly float Lane(int index)
+        {
+            switch (index)
+            {
+                case 0: return Lane0;
+                case 1: return Lane1;
+                case 2: return Lane2;
+                case 3: return Lane3;
+                case 4: return Lane4;
+                case 5: return Lane5;
+                case 6: return Lane6;
+                case 7: return Lane7;
+                case 8: return Lane8;
+                case 9: return Lane9;
+                case 10: return Lane10;
+                case 11: return Lane11;
+                case 12: return Lane12;
+                case 13: return Lane13;
+                case 14: return Lane14;
+                case 15: return Lane15;
+                default: return 0f;
+            }
+        }
+
+        public void SetLayer(int index, int hash, float time, float weight)
+        {
+            switch (index)
+            {
+                case 0: Layer0StateHash = hash; Layer0Time = time; Layer0Weight = weight; break;
+                case 1: Layer1StateHash = hash; Layer1Time = time; Layer1Weight = weight; break;
+                case 2: Layer2StateHash = hash; Layer2Time = time; Layer2Weight = weight; break;
+                case 3: Layer3StateHash = hash; Layer3Time = time; Layer3Weight = weight; break;
+            }
+        }
+
+        public void SetLane(int index, float value)
+        {
+            switch (index)
+            {
+                case 0: Lane0 = value; break;
+                case 1: Lane1 = value; break;
+                case 2: Lane2 = value; break;
+                case 3: Lane3 = value; break;
+                case 4: Lane4 = value; break;
+                case 5: Lane5 = value; break;
+                case 6: Lane6 = value; break;
+                case 7: Lane7 = value; break;
+                case 8: Lane8 = value; break;
+                case 9: Lane9 = value; break;
+                case 10: Lane10 = value; break;
+                case 11: Lane11 = value; break;
+                case 12: Lane12 = value; break;
+                case 13: Lane13 = value; break;
+                case 14: Lane14 = value; break;
+                case 15: Lane15 = value; break;
+            }
+        }
     }
 }

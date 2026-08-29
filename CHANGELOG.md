@@ -5,6 +5,47 @@ All notable changes to CoCoFlow are documented in this file.
 The project uses `0.4.0-rc.N` for release-candidate packages; the earlier pre-release line is preserved in the history below. The 0.4 line targets new
 projects and does not include a migration runtime for 0.3.9 projects.
 
+## [0.4.0-rc.2] - 2026-08-29
+
+Promotes the rc.1R Core surgery directly as the rc.2 package anchor. RC2 is
+defined by the package-level Golden Path v2 rather than the previously planned
+Starter gameplay slice.
+
+### Added
+
+- Raw input contracts and runtime sampling, standard state descriptors, and
+  automatic StateGraph binding from attributed state logic.
+- Package-owned Locomotion Sections, Operator, configuration, and registration,
+  with movement committed through Context authority.
+- Animator snapshot projection, typed authored transitions, one-stop Add State
+  script creation, and typed Host inspector wiring.
+- End-to-end coverage for RawInput, standard binding, Locomotion, rejected-tick
+  behavior, persistence restore, and post-restore timeline continuation.
+
+### Changed
+
+- The consumer path is now
+  `RawInput -> StateGraph -> Operation Sections -> Operators -> Context commit`;
+  state scripts no longer need project-owned provider glue for the standard
+  path.
+- Standard binding is installed after scene load, and a rejected Locomotion
+  tick stops loudly at the last committed world state until restore/restart.
+
+### Removed
+
+- The incomplete advanced `AnimOperator` path and its UniTask/DOTween adapters;
+  `AnimAutoOperator` remains the supported Animator projection route.
+- Project Scaffold and the orphaned semantic Input command queue. Graph-driven
+  Add State authoring replaces generated project glue.
+
+### Scope
+
+- The former rc.2 Player/Enemy/Chest slice, UI V2 expansion, DOTween screen
+  transitions, HUD/menu work, and `Samples~/Adventure` scene are intentionally
+  outside this RC. They carry no automatic commitment to a later version.
+- There is no separate rc.1 package/tag for the rc.1R implementation; it is
+  promoted directly to `v0.4.0-rc.2`.
+
 ## [0.4.0-rc.0] - 2026-08-24
 
 Anchors the start of the 0.4.0 release-candidate line. Documentation-only
