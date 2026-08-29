@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Animation.Contracts;
@@ -156,3 +157,4 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
     }
 }
+#endif
