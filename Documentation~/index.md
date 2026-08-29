@@ -1,9 +1,10 @@
 # CoCoFlow Documentation
 
 This page is the Unity Package Manager documentation entry point for CoCoFlow.
-The current package line is `0.4.0-rc.0`; it freezes the 0.4 public API
-surface, exits the legacy runtimes, and closes dependency-combination and
-Player verification on Unity 6000.3/6000.5.
+The current package line is `0.4.0-rc.2`; it establishes Golden Path v2 from
+raw input through standard StateGraph binding, transactional Context commit,
+package-owned Locomotion, and Animator snapshot projection. Starter gameplay
+content and UI V2 are outside this package anchor.
 
 - [Package overview](../README.md)
 - [简体中文概览](../README.zh-CN.md)
