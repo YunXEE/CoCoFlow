@@ -204,14 +204,27 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _intents.Clear();
+            // BUG-032: drive typed engine facts (Int/Bool) onto the live
+            // Animator, then one tick so the snapshot slot records them.
+            Animator animator = _animation.Animator;
+            animator.SetInteger("Gear", -1234567);
+            animator.SetBool("Boost", true);
+            Require(_host.TryStep(Step, out _));
+
             int hashAtSave = JourneyMemory.LastAnimHash;
             float timeAtSave = JourneyMemory.LastAnimTime;
             float yAtSave = _actor.transform.position.y;
+            int gearAtSave = animator.GetInteger("Gear");
+            bool boostAtSave = animator.GetBool("Boost");
             Assert.Greater(yAtSave, 0.05f, "airborne at save");
             Assert.AreEqual("Jump", JourneyMemory.Current);
 
             PersistenceSaveLoadSystem.SaveGame(0);
-            for (int index = 0; index < 5; index++)
+            // Typed drift first: the live Animator and the committed slot
+            // both leave the saved Int/Bool values before the load.
+            animator.SetInteger("Gear", 42);
+            animator.SetBool("Boost", false);
+            for (int index = 0; index < 6; index++)
             {
                 Require(_host.TryStep(Step, out _));
             }
@@ -229,6 +242,27 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "Animator snapshot restored (state hash)");
             Assert.AreEqual(timeAtSave, JourneyMemory.LastAnimTime, 0.02f,
                 "Animator snapshot restored (normalized time)");
+
+            // BUG-032: the durable payload round-trips the typed lane
+            // payloads — the restored slot still carries the saved raw
+            // Int bits and the Boolean flag exactly as captured at save.
+            Require(
+                _host.CurrentContext.Layout.TryResolveSlot(
+                    AnimContractIds.SnapshotSlotId,
+                    out CoCoStateSlot<AnimSnapshotState> restoredSlot),
+                "restored authority must expose the Animator snapshot slot");
+            AnimSnapshotState restoredSnapshot =
+                _host.CurrentContext.Read(restoredSlot);
+            Assert.GreaterOrEqual(restoredSnapshot.LaneCount, 2,
+                "both typed lanes survive the durable cycle");
+            Assert.AreEqual(
+                gearAtSave,
+                System.BitConverter.SingleToInt32Bits(restoredSnapshot.Lane(0)),
+                "Integer lane restored with exact raw bits");
+            Assert.AreEqual(
+                boostAtSave,
+                restoredSnapshot.Lane(1) != 0f,
+                "Boolean lane restored");
 
             Require(_host.TryStep(Step, out CoCoDiagnostic resume), resume.Message);
             yield return null;
@@ -358,6 +392,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             AnimatorState attack = baseLayer.stateMachine.AddState("Attack");
             controllerAsset.AddParameter(
                 "Attack", AnimatorControllerParameterType.Trigger);
+            controllerAsset.AddParameter(
+                "Gear", AnimatorControllerParameterType.Int);
+            controllerAsset.AddParameter(
+                "Boost", AnimatorControllerParameterType.Bool);
             AnimatorStateTransition fire = idle.AddTransition(attack);
             fire.duration = 0f;
             fire.AddCondition(AnimatorConditionMode.If, 0f, "Attack");
@@ -381,9 +419,36 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 ?.SetValue(boxedBinding, "Attack");
             SetField(_animation, "triggerBindings",
                 new[] { (AnimTriggerBinding)boxedBinding, });
+            SetField(_animation, "parameterBindings", new[]
+            {
+                ParameterBinding(101UL, "Gear", AnimParameterValueKind.Integer),
+                ParameterBinding(102UL, "Boost", AnimParameterValueKind.Boolean),
+            });
             Require(
                 _animation.TryRebuildBindings(out CoCoDiagnostic rebuild),
                 "animator bindings rebuild: " + rebuild.Message);
+        }
+
+        private static AnimParameterBinding ParameterBinding(
+            ulong bindingId,
+            string parameterName,
+            AnimParameterValueKind kind)
+        {
+            // struct reflection writes through the boxed copy — keep it.
+            object boxed = new AnimParameterBinding();
+            SetBindingField(boxed, "bindingId", bindingId);
+            SetBindingField(boxed, "parameterName", parameterName);
+            SetBindingField(boxed, "parameterKind", kind);
+            return (AnimParameterBinding)boxed;
+        }
+
+        private static void SetBindingField(object boxed, string field, object value)
+        {
+            typeof(AnimParameterBinding)
+                .GetField(field,
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(boxed, value);
         }
 
         private bool StartHost()
