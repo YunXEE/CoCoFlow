@@ -27,7 +27,6 @@ namespace CoCoFlow.Editor.StateGraph
         private static readonly string[] ForbiddenAssemblyPrefixes =
         {
             "CoCoFlow.Editor",
-            "CoCoFlow.Runtime.Gameplay",
             "CoCoFlow.Runtime.Modules",
             "UnityEditor",
             "UnityEngine",

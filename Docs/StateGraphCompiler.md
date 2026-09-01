@@ -209,7 +209,7 @@ Descriptor logic, Conditions, Freezers, and token implementations must live in
 `noEngineReferences` author assemblies whose complete dependency closure is
 engine-independent. That closure may use the BCL and the pure Contracts,
 StateFlow, and StateGraph assemblies, but it must not reference the legacy
-Unity-facing `CoCoFlow.Runtime.Core`, StateGraphAuthoring, Editor, Gameplay,
+Unity-facing `CoCoFlow.Runtime.Core`, StateGraphAuthoring, Editor,
 Modules, or Unity assemblies. Runtime registration retains its direct-reference
 guard as a fast boundary check. Editor Analyze and the Player build preflight
 then walk the complete resolved assembly dependency graph from every registered

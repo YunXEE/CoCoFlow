@@ -437,7 +437,7 @@ StateLogic 和 Layer 的程序集/API 表面不得引用：
 Editor Analyze 与 Player build preflight 会从 Catalog 记录的全部作者类型 root
 遍历完整已解析程序集依赖闭包。每个可达自定义程序集都必须有 asmdef 且
 `noEngineReferences:true`；命中 Unity、Editor、legacy Core、StateGraphAuthoring、
-Gameplay、Modules，或遇到无法证明安全的自定义 precompiled dependency 时失败关闭。
+Modules，或遇到无法证明安全的自定义 precompiled dependency 时失败关闭。
 Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；纯 Compiler 本身不
 扫描程序集。
 

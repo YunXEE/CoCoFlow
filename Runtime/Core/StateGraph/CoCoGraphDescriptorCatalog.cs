@@ -1641,7 +1641,6 @@ namespace CoCoFlow.Runtime.Core
             "UnityEngine",
             "UnityEditor",
             "CoCoFlow.Editor",
-            "CoCoFlow.Runtime.Gameplay",
             "CoCoFlow.Runtime.Modules"
         };
 
@@ -1669,7 +1668,7 @@ namespace CoCoFlow.Runtime.Core
                     if (IsForbidden(references[referenceIndex].Name))
                     {
                         diagnostic = Error(
-                            "Graph authoring assemblies cannot reference Unity, Editor, Gameplay, or Module assemblies.");
+                            "Graph authoring assemblies cannot reference Unity, Editor, or Module assemblies.");
                         return false;
                     }
                 }
