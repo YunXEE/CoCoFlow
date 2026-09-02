@@ -1110,14 +1110,11 @@ namespace CoCoFlow.Editor.StateGraph
                     string text = isChinese ? zh : english;
                     switch (element)
                     {
-                        case Button button:
+                        case Button button: // ToolbarButton : Button，同一分支覆盖
                             button.text = text;
                             break;
                         case Label label:
                             label.text = text;
-                            break;
-                        case ToolbarButton toolbarButton:
-                            toolbarButton.text = text;
                             break;
                         case PopupField<string> popup:
                             popup.label = text;
