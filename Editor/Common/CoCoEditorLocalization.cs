@@ -43,8 +43,8 @@ namespace CoCoFlow.Editor.Common
             }
         }
 
-        /// <summary>是否中文（便捷属性）。</summary>
-        public static bool IsChinese =>
+        /// <summary>是否中文（私有便捷属性，不在冻结签名表——BUG-044 修正）。</summary>
+        private static bool IsChinese =>
             CurrentLanguage == CoCoEditorLanguage.SimplifiedChinese;
 
         /// <summary>

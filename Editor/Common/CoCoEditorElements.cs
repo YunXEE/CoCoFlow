@@ -173,6 +173,7 @@ namespace CoCoFlow.Editor.Common
         /// 分级诊断行（ccflow-diagnostic-row）：徽章 + 消息 + 可选定位动作。
         /// kind 使用 Common 自己的语义（Common 不依赖 Runtime severity；
         /// P03 侧 severity→kind 映射归 P03，见方案 §2.1）。
+        /// BUG-044：徽章携带可读严重度文本（D3：不单靠颜色）；Locate 文案走双语层（D10）。
         /// </summary>
         public static VisualElement CreateDiagnosticRow(
             string message,
@@ -181,7 +182,7 @@ namespace CoCoFlow.Editor.Common
         {
             var row = new VisualElement();
             row.AddToClassList("ccflow-diagnostic-row");
-            row.Add(CreateBadge(string.Empty, kind));
+            row.Add(CreateBadge(KindLabel(kind), kind));
 
             var messageLabel = new Label(message) { name = "ccflow-diagnostic-message" };
             messageLabel.AddToClassList("ccflow-diagnostic-row__message");
@@ -189,7 +190,10 @@ namespace CoCoFlow.Editor.Common
 
             if (locate != null)
             {
-                var locateButton = new Button(locate) { text = "Locate" };
+                var locateButton = new Button(locate)
+                {
+                    text = CoCoEditorLocalization.Text("Locate", "定位")
+                };
                 locateButton.AddToClassList("ccflow-diagnostic-row__locate");
                 row.Add(locateButton);
             }
@@ -214,6 +218,24 @@ namespace CoCoFlow.Editor.Common
                 case CoCoEditorBadgeKind.Error: return "ccflow-badge--error";
                 case CoCoEditorBadgeKind.Info: return "ccflow-badge--info";
                 default: return "ccflow-badge--neutral";
+            }
+        }
+
+        /// <summary>BUG-044：徽章可读严重度短标签（双语，D3 不单靠颜色）。</summary>
+        private static string KindLabel(CoCoEditorBadgeKind kind)
+        {
+            switch (kind)
+            {
+                case CoCoEditorBadgeKind.Success:
+                    return CoCoEditorLocalization.Text("OK", "成功");
+                case CoCoEditorBadgeKind.Warning:
+                    return CoCoEditorLocalization.Text("Warn", "警告");
+                case CoCoEditorBadgeKind.Error:
+                    return CoCoEditorLocalization.Text("Error", "错误");
+                case CoCoEditorBadgeKind.Info:
+                    return CoCoEditorLocalization.Text("Info", "信息");
+                default:
+                    return CoCoEditorLocalization.Text("Note", "注记");
             }
         }
     }

@@ -56,6 +56,9 @@ namespace CoCoFlow.Editor.Core
         /// <summary>过滤项模块名（注册顺序稳定）。</summary>
         public IEnumerable<string> ModuleNames => _moduleFilters.Keys;
 
+        /// <summary>过滤项模块数（BUG-043：窗口据此检测模块集合变化并重建过滤控件）。</summary>
+        public int ModuleCount => _moduleFilters.Count;
+
         /// <summary>预注册已知模块过滤项（默认启用）。窗口 OnEnable 调一次。</summary>
         public void PreloadKnownModules()
         {
@@ -164,6 +167,7 @@ namespace CoCoFlow.Editor.Core
         private Button _clearButton;
         private ToolbarToggle _autoScrollToggle;
         private int _generation;
+        private int _lastFilterModuleCount = -1;
 
         // 帧级合并刷新（方案 §3.2）
         private bool _pendingRefresh;
@@ -264,6 +268,7 @@ namespace CoCoFlow.Editor.Core
             rootVisualElement.Add(card);
 
             RebuildFilterToggles();
+            _lastFilterModuleCount = _data.ModuleCount; // BUG-043：基线
         }
 
         private void RebuildFilterToggles()
@@ -313,8 +318,23 @@ namespace CoCoFlow.Editor.Core
             rootVisualElement.Add(_logList);
             _logList.style.flexGrow = 1f;
 
+            RebuildEmptyState();
+            UpdateEmptyVisibility();
+        }
+
+        /// <summary>
+        /// BUG-043：空状态按当前语言重建（CreateGUI 与 OnLanguageChanged 均调用）。
+        /// 同步修正实施期批量改名误伤的文案（"No _logs yet" → "No logs yet"，随本单留痕）。
+        /// </summary>
+        private void RebuildEmptyState()
+        {
+            if (_emptyState != null && _emptyState.parent != null)
+            {
+                _emptyState.RemoveFromHierarchy();
+            }
+
             _emptyState = CoCoEditorElements.CreateEmptyState(
-                CoCoEditorLocalization.Text("No _logs yet", "暂无日志"),
+                CoCoEditorLocalization.Text("No logs yet", "暂无日志"),
                 CoCoEditorLocalization.Text(
                     "CoCoLog events will appear here while the project runs.",
                     "工程运行时产生的 CoCoLog 事件将显示在这里。"),
@@ -325,7 +345,6 @@ namespace CoCoFlow.Editor.Core
                     "Use the CoCoFlow/Tests injection menu in a test host.",
                     "在测试宿主中使用 CoCoFlow/Tests 注入菜单。"));
             rootVisualElement.Add(_emptyState);
-
             UpdateEmptyVisibility();
         }
 
@@ -415,6 +434,14 @@ namespace CoCoFlow.Editor.Core
                 return;
             }
 
+            // BUG-043：模块集合变化（新模块首现）→ 重建过滤控件，开关即时出现
+            int moduleCount = _data.ModuleCount;
+            if (moduleCount != _lastFilterModuleCount)
+            {
+                _lastFilterModuleCount = moduleCount;
+                RebuildFilterToggles();
+            }
+
             _logList.itemsSource = new List<CoCoLogEvent>(_data.VisibleEvents);
             _logList.RefreshItems();
             UpdateCountLabel();
@@ -451,6 +478,7 @@ namespace CoCoFlow.Editor.Core
         private void OnLanguageChanged()
         {
             RebuildLocalizedTexts();
+            RebuildEmptyState(); // BUG-043：空状态四段文案随语言重建
         }
 
         private void RebuildLocalizedTexts()

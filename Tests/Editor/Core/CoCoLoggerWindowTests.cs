@@ -34,11 +34,13 @@ namespace CoCoFlow.Editor.Core.Tests
         public void UnknownModule_IsRegisteredAndVisibleByDefault()
         {
             var data = new CoCoLoggerWindowData();
+            Assert.AreEqual(0, data.ModuleCount, "初始无模块");
             data.Add(MakeEvent(module: "BrandNewModule"));
 
             Assert.IsTrue(data.IsModuleVisible("BrandNewModule"));
             CollectionAssert.Contains(data.ModuleNames.ToList(), "BrandNewModule");
             Assert.AreEqual(1, data.VisibleEvents.Count, "默认启用的未知模块应出现在投影中");
+            Assert.AreEqual(1, data.ModuleCount, "BUG-043：模块集合变化可检测（ModuleCount 变化）");
         }
 
         [Test]
@@ -195,9 +197,19 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.IsTrue(row.ClassListContains("ccflow-diagnostic-row"));
             Assert.IsNotNull(row.Q<Label>("ccflow-diagnostic-message"));
 
-            // 绑定语义由 Button(Action clicked) 构造契约保证（引擎行为，不在 focused 测试中模拟点击）
+            // BUG-044：徽章携带可读严重度文本（D3 不单靠颜色）
+            var badgeText = row.Q<VisualElement>("level-badge")?.Q<Label>("ccflow-badge-text");
+            if (badgeText == null)
+            {
+                badgeText = row.Q(className: "ccflow-badge")?.Q<Label>("ccflow-badge-text");
+            }
+
+            Assert.IsNotNull(badgeText, "诊断徽章应含文本 Label");
+            StringAssert.IsMatch("Error|错误", badgeText.text, "严重度文本非空且随语言");
+
             var locate = row.Q<Button>();
             Assert.IsNotNull(locate, "提供 locate 时应有按钮");
+            StringAssert.IsMatch("Locate|定位", locate.text, "BUG-044：Locate 文案走双语层");
 
             VisualElement bare = CoCoEditorElements.CreateDiagnosticRow("info", CoCoEditorBadgeKind.Info);
             Assert.IsNull(bare.Q<Button>(), "未提供 locate 时不应有按钮");
