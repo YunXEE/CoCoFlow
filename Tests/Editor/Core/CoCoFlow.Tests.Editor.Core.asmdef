@@ -3,6 +3,7 @@
     "rootNamespace": "CoCoFlow.Editor.Core.Tests",
     "references": [
         "CoCoFlow.Editor.Core",
+        "CoCoFlow.Editor.Common",
         "CoCoFlow.Runtime.Core"
     ],
     "includePlatforms": [
