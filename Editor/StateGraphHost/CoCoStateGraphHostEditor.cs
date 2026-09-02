@@ -229,8 +229,8 @@ namespace CoCoFlow.Editor.StateGraphHost
                         MonoBehaviour);
             }
 
-            List<MonoBehaviour> duplicates =
-                CoCoStateGraphHostBindingRules.FindDuplicateReferences(assigned);
+            List<int> duplicateIndices =
+                CoCoStateGraphHostBindingRules.FindDuplicateIndices(assigned);
             var host = (CoCoStateGraphHost)target;
 
             for (int index = 0; index < array.arraySize; index++)
@@ -240,7 +240,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     index,
                     host,
                     kind,
-                    duplicates));
+                    duplicateIndices));
             }
 
             var footer = new VisualElement();
@@ -271,7 +271,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             int index,
             CoCoStateGraphHost host,
             BindingListKind kind,
-            List<MonoBehaviour> duplicates)
+            List<int> duplicateIndices)
         {
             var row = new VisualElement();
             row.AddToClassList("ccflow-host-binding-row");
@@ -325,7 +325,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 row.Add(BuildHintRow(hint.Value));
             }
 
-            if (component != null && duplicates.Contains(component))
+            if (component != null && duplicateIndices.Contains(index))
             {
                 row.Add(BuildHintRow(new CoCoBindingHint(
                     CoCoBindingHintKind.Warning,
@@ -1096,8 +1096,8 @@ namespace CoCoFlow.Editor.StateGraphHost
                         MonoBehaviour);
             }
 
-            List<MonoBehaviour> duplicates =
-                CoCoStateGraphHostBindingRules.FindDuplicateReferences(assigned);
+            List<int> duplicateIndices =
+                CoCoStateGraphHostBindingRules.FindDuplicateIndices(assigned);
             for (int index = 0; index < assigned.Count; index++)
             {
                 CoCoBindingHint? hint = buildHint(host, assigned[index]);
@@ -1107,7 +1107,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 }
 
                 MonoBehaviour component = assigned[index];
-                if (component != null && duplicates.Contains(component))
+                if (component != null && duplicateIndices.Contains(index))
                 {
                     hints.Add(new CoCoBindingHint(
                         CoCoBindingHintKind.Warning,

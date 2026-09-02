@@ -91,6 +91,9 @@ namespace CoCoFlow.Editor.StateGraphHost
             window.Focus();
         }
 
+        private readonly System.Collections.Generic.Dictionary<string, bool>
+            _foldoutStates = new System.Collections.Generic.Dictionary<string, bool>();
+
         private void OnEnable()
         {
             CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
@@ -580,13 +583,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             Repaint();
         }
 
-        private void OnInspectorUpdate()
-        {
-            if (Application.isPlaying && _host != null)
-            {
-                MarkDirty();
-            }
-        }
+        // 注：Play 期刷新由 300ms 周期轮询单路驱动（避免 OnInspectorUpdate
+        // 双路触发快照拷贝与 UI 重建，见交付审计线程处置）。
 
         private void PullAndRefresh()
         {
@@ -844,9 +842,14 @@ namespace CoCoFlow.Editor.StateGraphHost
                 var foldout = new Foldout
                 {
                     text = section.Title,
-                    value = true
+                    value = !_foldoutStates.TryGetValue(
+                        section.Title,
+                        out bool collapsed) || !collapsed
                 };
                 foldout.AddToClassList("ccflow-foldout");
+                string capturedTitle = section.Title;
+                foldout.RegisterValueChangedCallback(evt =>
+                    _foldoutStates[capturedTitle] = !evt.newValue);
                 IReadOnlyList<CoCoDebuggerSnapshotRow> rows = section.Rows;
                 for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
                 {

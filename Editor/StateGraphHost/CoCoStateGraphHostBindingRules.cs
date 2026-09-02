@@ -48,8 +48,6 @@ namespace CoCoFlow.Editor.StateGraphHost
     /// </summary>
     internal static class CoCoStateGraphHostBindingRules
     {
-        internal const int MaximumRestoreChainDepth = 32;
-
         internal const string DownstreamPropertyName = "downstreamRestoreBinding";
 
         // ----- 接口识别 -----
@@ -150,8 +148,8 @@ namespace CoCoFlow.Editor.StateGraphHost
         // ----- 单项提示（不含重复；重复在数组层检测） -----
 
         /// <summary>
-        /// Intent Source 装配提示：空引用（Info）、无接口（Error）、
-        /// 越界（Warning；Runtime 在清单解析时拒绝越界且要求唯一）。
+        /// Intent Source 装配提示：空引用（Error；Runtime 冻结要求每个索引恰好绑定
+        /// 一次，null 条目导致无法启动）、无接口（Error）、越界（Warning）。
         /// </summary>
         internal static CoCoBindingHint? BuildIntentSourceHint(
             CoCoStateGraphHost host,
@@ -160,10 +158,13 @@ namespace CoCoFlow.Editor.StateGraphHost
             if (component == null)
             {
                 return new CoCoBindingHint(
-                    CoCoBindingHintKind.Info,
+                    CoCoBindingHintKind.Error,
                     null,
-                    "empty Intent Source slot — the slot stays unbound at startup",
-                    "Intent Source 空槽位——启动时保持未绑定");
+                    "empty Intent Source slot — every Host Intent Source index " +
+                        "must bind exactly once at startup; remove the entry or " +
+                        "assign a component",
+                    "Intent Source 空槽位——运行时冻结要求每个索引恰好绑定一次；" +
+                        "请移除该条目或指定组件");
             }
 
             if (!IsIntentFrameSource(component))
@@ -304,14 +305,14 @@ namespace CoCoFlow.Editor.StateGraphHost
             return null;
         }
 
-        /// <summary>数组内重复引用（第二次及以后出现者；Runtime 要求组件唯一）。</summary>
-        internal static List<MonoBehaviour> FindDuplicateReferences(
+        /// <summary>数组内重复引用（返回第二次及以后出现者的索引；Runtime 要求组件唯一）。</summary>
+        internal static List<int> FindDuplicateIndices(
             IReadOnlyList<MonoBehaviour> references)
         {
-            var duplicates = new List<MonoBehaviour>();
+            var duplicateIndices = new List<int>();
             if (references == null)
             {
-                return duplicates;
+                return duplicateIndices;
             }
 
             var seen = new HashSet<MonoBehaviour>();
@@ -325,11 +326,11 @@ namespace CoCoFlow.Editor.StateGraphHost
 
                 if (!seen.Add(component))
                 {
-                    duplicates.Add(component);
+                    duplicateIndices.Add(index);
                 }
             }
 
-            return duplicates;
+            return duplicateIndices;
         }
 
         // ----- Restore 链走查（D5：预览 + 自动连接共用） -----
@@ -361,8 +362,8 @@ namespace CoCoFlow.Editor.StateGraphHost
         }
 
         /// <summary>
-        /// 从根走查下游链（深度上限 32，环防护）；在首个断点
-        /// （失销 / 未实现契约 / 重复节点 / 越界节点）处停止并标记该节点。
+        /// 从根走查下游链（无深度上限，与 Runtime 校验器一致；环防护经已访问集）
+        /// 在首个断点（失销 / 未实现契约 / 重复节点 / 越界节点）处停止并标记。
         /// 失销判定与 Runtime 一致：ReferenceEquals 遍历 + Unity 伪装 null
         /// 检查（TemporalContracts 对失销节点显式拒绝，不静默截断）。
         /// </summary>
@@ -379,8 +380,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             var seen = new HashSet<MonoBehaviour>();
             MonoBehaviour current = root;
-            int guard = 0;
-            while (!ReferenceEquals(current, null) && guard++ < MaximumRestoreChainDepth)
+            while (!ReferenceEquals(current, null))
             {
                 bool isDestroyed = current == null; // Unity 伪装 null：真实引用存在但已失销
                 bool implementsContract =

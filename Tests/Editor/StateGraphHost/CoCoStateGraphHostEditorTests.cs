@@ -494,7 +494,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
             CoCoBindingHint? nullHint =
                 CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, null);
-            Assert.That(nullHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Info));
+            // Runtime 冻结要求每个 Intent Source 索引恰好绑定一次：null 条目 → Error。
+            Assert.That(nullHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
 
             CoCoBindingHint? wrongHint =
                 CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, plain);
@@ -569,17 +570,18 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
-        public void DuplicateReferencesReportSecondAndLaterOccurrences()
+        public void DuplicateIndicesReportSecondAndLaterOccurrences()
         {
             CoCoStateGraphHost host = CreateHost("Duplicates");
             GameObject child = CreateChild(host.transform, "Child", false);
             var source = child.AddComponent<EditorHostIntentSourceComponent>();
 
             var references = new List<MonoBehaviour> { source, null, source };
-            List<MonoBehaviour> duplicates =
-                CoCoStateGraphHostBindingRules.FindDuplicateReferences(references);
+            List<int> duplicates =
+                CoCoStateGraphHostBindingRules.FindDuplicateIndices(references);
 
-            Assert.That(duplicates, Is.EqualTo(new[] { source }));
+            // 仅第二次及以后出现者被标记；首次出现保持无警告。
+            Assert.That(duplicates, Is.EqualTo(new[] { 2 }));
         }
 
         // ===== Restore 链（D5：预览 + 候选 + WirePlan） =====
