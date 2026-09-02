@@ -93,8 +93,16 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphEditorWindow window = CreateStateGraphWindow(CreateAsset());
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
             // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
-            Assert.GreaterOrEqual(window.rootVisualElement.styleSheets.Count, 2,
-                "shared ccflow sheet and sg sheet must both be attached");
+            StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
+                "Packages/com.yunxee.cocoflow/Editor/Common/CoCoEditorCommon.uss");
+            StyleSheet own = AssetDatabase.LoadAssetAtPath<StyleSheet>(
+                "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss");
+            Assert.NotNull(shared);
+            Assert.NotNull(own);
+            Assert.IsTrue(window.rootVisualElement.styleSheets.Contains(shared),
+                "shared ccflow sheet must be attached");
+            Assert.IsTrue(window.rootVisualElement.styleSheets.Contains(own),
+                "sg sheet must be attached");
         }
 
         [Test]
