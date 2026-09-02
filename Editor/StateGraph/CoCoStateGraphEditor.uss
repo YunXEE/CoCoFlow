@@ -1,5 +1,51 @@
+/* CoCoFlow StateGraph Editor 专用视觉（sg-）。
+ * 语义组件一律复用 Editor/Common 的 ccflow-（P02 冻结）；此处只承载
+ * StateGraph 特有的画布/节点/布局样式。深色（Pro）主题唯一支持形态（P02 D15 继承）。 */
+
+/* ── 窗口骨架 ─────────────────────────────────────── */
+
+#state-graph-header-card {
+    margin-bottom: 8px;
+}
+
+#state-graph-header-meta {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 4px;
+}
+
+#state-graph-header-eyebrow {
+    font-size: 11px;
+    -unity-font-style: bold;
+    opacity: 0.72;
+    margin-bottom: 2px;
+}
+
+#state-graph-header-title {
+    font-size: 18px;
+    -unity-font-style: bold;
+    margin-bottom: 2px;
+}
+
+#state-graph-header-subtitle {
+    opacity: 0.7;
+    white-space: normal;
+}
+
+#state-graph-header-asset-field {
+    min-width: 260px;
+    flex-grow: 1;
+}
+
 #state-graph-toolbar-host {
     flex-shrink: 0;
+}
+
+#state-graph-tree {
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-bottom: 12px;
 }
 
 #state-graph-details {
@@ -8,15 +54,207 @@
     padding-bottom: 12px;
 }
 
-.state-graph-heading {
-    margin-top: 12px;
-    margin-bottom: 5px;
-    padding-bottom: 3px;
-    font-size: 13px;
-    -unity-font-style: bold;
-    border-bottom-width: 1px;
-    border-bottom-color: rgb(75, 79, 85);
+.sg-tree-row {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    -unity-text-align: middle-left;
+    white-space: normal;
 }
+
+.sg-tree-count {
+    opacity: 0.7;
+    margin-left: 6px;
+}
+
+/* ── 详情区 ───────────────────────────────────────── */
+
+.sg-card {
+    margin-bottom: 8px;
+}
+
+.sg-card-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-card-row > VisualElement {
+    margin-right: 4px;
+}
+
+.sg-id-label {
+    opacity: 0.6;
+    white-space: normal;
+    font-size: 10px;
+    margin-bottom: 3px;
+}
+
+.sg-muted {
+    opacity: 0.65;
+    white-space: normal;
+}
+
+.sg-navigation {
+    /* Play Mode 只读态下保持可用的导航控件（窗口内查询语义） */
+}
+
+.sg-transition-row {
+    flex-direction: row;
+    align-items: center;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.16);
+}
+
+.sg-transition-row:hover {
+    background-color: rgba(45, 112, 180, 0.12);
+}
+
+.sg-transition-row--selected {
+    background-color: rgba(45, 112, 180, 0.18);
+}
+
+.sg-transition-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    -unity-text-align: middle-left;
+}
+
+.sg-condition-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-condition-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+}
+
+.sg-breadcrumb {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 1;
+    overflow: hidden;
+}
+
+.sg-breadcrumb__segment {
+    padding-left: 6px;
+    padding-right: 6px;
+    margin-left: 0px;
+    margin-right: 2px;
+}
+
+.sg-breadcrumb__separator {
+    opacity: 0.45;
+    margin-right: 2px;
+}
+
+.sg-breadcrumb__current {
+    -unity-font-style: bold;
+    padding-left: 6px;
+    padding-right: 6px;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    border-bottom-left-radius: 9px;
+    border-bottom-right-radius: 9px;
+    background-color: rgba(45, 112, 180, 0.3);
+}
+
+.sg-header-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* ── 画布（D2/D8：自研画布 + Animator 边体验） ────── */
+
+#state-graph-canvas {
+    background-color: rgb(27, 30, 33);
+}
+
+#state-graph-canvas-content {
+}
+
+#state-graph-canvas-hint {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    opacity: 0.55;
+    white-space: normal;
+    -unity-text-align: middle-left;
+    picking-mode: ignore;
+}
+
+.state-card {
+    padding-left: 9px;
+    padding-right: 9px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    background-color: rgba(41, 46, 54, 0.96);
+    border-left-color: rgb(84, 97, 110);
+    border-right-color: rgb(84, 97, 110);
+    border-top-color: rgb(84, 97, 110);
+    border-bottom-color: rgb(84, 97, 110);
+}
+
+.state-card--selected {
+    background-color: rgba(51, 92, 128, 0.97);
+    border-left-color: rgb(96, 156, 214);
+    border-right-color: rgb(96, 156, 214);
+    border-top-color: rgb(96, 156, 214);
+    border-bottom-color: rgb(96, 156, 214);
+}
+
+.state-card--initial {
+    border-left-color: rgb(89, 219, 122);
+    border-right-color: rgb(89, 219, 122);
+    border-top-color: rgb(89, 219, 122);
+    border-bottom-color: rgb(89, 219, 122);
+}
+
+.state-card__title {
+    -unity-font-style: bold;
+    font-size: 13px;
+    color: rgb(232, 235, 238);
+    white-space: normal;
+}
+
+.state-card__descriptor {
+    font-size: 9px;
+    color: rgb(178, 184, 192);
+    white-space: normal;
+}
+
+.state-card__drill {
+    height: 20px;
+    margin-top: 3px;
+}
+
+#transition-source-connector {
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+    border-bottom-left-radius: 7px;
+    border-bottom-right-radius: 7px;
+    background-color: rgb(112, 174, 219);
+}
+
+/* ── 空状态 ───────────────────────────────────────── */
 
 #state-graph-empty {
     padding: 24px;

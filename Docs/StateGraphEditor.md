@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.0` · Updated 2026-08-29
+> Documentation baseline: `0.4.1` · Updated 2026-09-02
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
@@ -9,6 +9,12 @@ The package provides a constrained Unity authoring surface for the layered
 HFSM contract. It edits Layer, recursive State, and same-Layer Transition data;
 it is not a general visual-scripting system and does not introduce Machine,
 Node, cross-Layer communication, or arbitrary state-change concepts.
+
+The Editor windows use the package's unified UI Toolkit visual language
+(`ccflow-`) shared with the other mature CoCoFlow Editors, and render bilingual
+(English / Simplified Chinese) static chrome from the Editor language
+preference. Asset names, descriptor names, and Runtime diagnostic payloads are
+never translated.
 
 ## Authoring surface
 
@@ -22,17 +28,31 @@ Graph Asset
 ```
 
 Composite States are navigated through foldout, drill-in, and breadcrumb
-controls. A Transition can connect only two leaves in the selected Layer. Its
-runtime declaration consists of Conditions, one Window, and a Priority that is
-unique among the outgoing Transitions of its source. Completion and Interrupt
-are not authoring fields. The interaction rejects a cross-Layer or composite
-endpoint before mutation, while Compiler validation remains the final gate.
+controls; double-clicking a composite State card on the canvas drills into its
+scope, and the breadcrumb segments navigate back to any ancestor scope. A
+Transition can connect only two leaves in the selected Layer. Its runtime
+declaration consists of Conditions, one Window, and a Priority that is unique
+among the outgoing Transitions of its source. Completion and Interrupt are not
+authoring fields. The interaction rejects a cross-Layer or composite endpoint
+before mutation, while Compiler validation remains the final gate.
 
-The Asset Inspector is an entry point, summary, and diagnostic surface. It does
-not provide a second raw serialized topology editor that can bypass the command
-boundary. All Asset authoring becomes read-only while Unity is entering or
-running Play Mode; navigation, search, Analyze, and diagnostic location remain
-available without mutating serialized data.
+Canvas edges follow the Animator-style presentation: every edge is anchored on
+the center line of its two State cards (clipped at the card borders), multiple
+Transitions between the same pair of States render as parallel offset lines,
+self-loops render as a loop above the card, and every edge carries a direction
+arrowhead. Clicking an edge selects that Transition for editing in the details
+pane.
+
+The Asset Inspector is an entry point, summary, and diagnostic surface built
+with the same unified visual language. It shows identity and count summaries,
+a read-only Host-requirements card derived from the three compilation
+manifests, the Event Adapter Declarations editor (the single non-topology
+authoring surface outside the graph editor), Analyze with Locate, and the graph
+editor entry points. It does not provide a second raw serialized topology
+editor that can bypass the command boundary. All Asset authoring becomes
+read-only while Unity is entering or running Play Mode; navigation, search,
+Analyze, and diagnostic location remain available without mutating serialized
+data.
 
 ## Commands, Undo, and identity
 

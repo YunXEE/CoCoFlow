@@ -1,10 +1,16 @@
 using System;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>
+    /// 测试/宿主目录注入点（既有契约，原样保留）：Provider 变更触发 CatalogChanged，
+    /// controller 订阅以重载目录。
+    /// </summary>
     public static class CoCoStateGraphEditorCatalogProvider
     {
         private static Func<CoCoGraphDescriptorCatalog> provider;
@@ -27,272 +33,279 @@ namespace CoCoFlow.Editor.StateGraph
         internal static event Action CatalogChanged;
     }
 
+    /// <summary>
+    /// CoCoStateGraphAsset 的 Inspector（P03：IMGUI→UITK 迁移，方案 D5）。
+    /// 真实可达面等价：摘要统计 / Event Adapter Declarations（唯一编辑面）/
+    /// Open Editor / Add Layer / Analyze+Locate / Play Mode 只读；
+    /// 新增：三 manifest 需求摘要卡。不提供第二裸拓扑编辑面；
+    /// 不可达的层/状态操作死代码随迁移退出（审计 B1 处置）。
+    /// </summary>
     [CustomEditor(typeof(CoCoStateGraphAsset))]
     internal sealed class CoCoStateGraphAssetEditor : UnityEditor.Editor
     {
-        private int selectedLayerIndex;
-        private int selectedStateIndex;
         private CoCoStateGraphAssetCompileResult analysisResult;
         private string analysisFailure = string.Empty;
-        private string authoringFailure = string.Empty;
         private string locatedPropertyPath = string.Empty;
+        private VisualElement root;
+        private VisualElement manifestCard;
 
-        public override void OnInspectorGUI()
+        private static string L(string english, string chinese) =>
+            CoCoEditorLocalization.Text(english, chinese);
+
+        private void OnEnable()
         {
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private void OnDisable()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+        }
+
+        private void OnPlayModeStateChanged(PlayModeStateChange change)
+        {
+            Rebuild();
+        }
+
+        public override VisualElement CreateInspectorGUI()
+        {
+            root = new VisualElement();
+            CoCoEditorElements.ApplyTheme(root);
+            Rebuild();
+            return root;
+        }
+
+        private void Rebuild()
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            root.Clear();
             var asset = (CoCoStateGraphAsset)target;
             serializedObject.UpdateIfRequiredOrScript();
-
-            EditorGUILayout.LabelField("Schema", asset.SchemaVersion.ToString());
-            EditorGUILayout.LabelField("Graph ID", asset.GraphId.IsValid ? asset.GraphId.ToString() : "Invalid");
-            EditorGUILayout.Space();
-
-            SerializedProperty eventAdapterDeclarations =
-                serializedObject.FindProperty("eventAdapterDeclarations");
             bool authoringReadOnly = EditorApplication.isPlayingOrWillChangePlaymode;
-            EditorGUI.BeginDisabledGroup(authoringReadOnly);
-            EditorGUI.BeginChangeCheck();
-            EditorGUILayout.PropertyField(
-                eventAdapterDeclarations,
-                new GUIContent("Event Adapter Declarations"),
-                true);
-            if (EditorGUI.EndChangeCheck())
-            {
-                serializedObject.ApplyModifiedProperties();
-                analysisResult = null;
-                authoringFailure = string.Empty;
-            }
-            EditorGUI.EndDisabledGroup();
 
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Layers", asset.Layers.Count.ToString());
+            DrawSummaryCard(asset);
+            DrawEventAdapterCard(authoringReadOnly);
+            DrawManifestCard(asset);
+            DrawEntryCard(asset, authoringReadOnly);
+
+            if (authoringReadOnly)
+            {
+                root.Add(new HelpBox(
+                    L(
+                        "StateGraph authoring is read-only while entering or running Play Mode.",
+                        "进入或运行 Play Mode 期间 StateGraph 授权为只读。"),
+                    HelpBoxMessageType.Info));
+            }
+
+            DrawAnalysisCard(asset);
+            root.Add(new Label(
+                L(
+                    "Topology is edited through the State Graph Editor so stable IDs, EditorLayout, and Undo remain atomic. Event Adapter declarations remain non-topology authoring data in this Inspector.",
+                    "拓扑通过 State Graph 编辑器编辑，以保证稳定 ID、EditorLayout 与 Undo 的原子性。Event Adapter 声明仍为本 Inspector 内的非拓扑授权数据。"))
+            {
+                name = "state-graph-inspector-boundary-note"
+            });
+            root.Query<Label>("state-graph-inspector-boundary-note").ForEach(note =>
+                note.AddToClassList("sg-muted"));
+        }
+
+        private void DrawSummaryCard(CoCoStateGraphAsset asset)
+        {
+            var card = CoCoEditorElements.CreateCard(L("Summary", "摘要"));
+            card.Add(new Label(L("Schema", "Schema 版本") + ": " + asset.SchemaVersion));
+            card.Add(new Label(L("Graph ID", "图 ID") + ": " +
+                (asset.GraphId.IsValid ? asset.GraphId.ToString() : L("Invalid", "无效"))));
+
             int stateCount = 0;
             int transitionCount = 0;
             foreach (CoCoStateGraphLayerRecord layer in asset.Layers)
             {
-                if (layer != null)
+                if (layer == null)
                 {
-                    stateCount += layer.States.Count;
-                    transitionCount += layer.Transitions.Count;
+                    continue;
                 }
+
+                stateCount += layer.States.Count;
+                transitionCount += layer.Transitions.Count;
             }
 
-            EditorGUILayout.LabelField("States", stateCount.ToString());
-            EditorGUILayout.LabelField("Transitions", transitionCount.ToString());
-            if (GUILayout.Button("Open State Graph Editor"))
+            var badges = new VisualElement();
+            badges.style.flexDirection = FlexDirection.Row;
+            badges.style.flexWrap = Wrap.Wrap;
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"{asset.Layers.Count} Layer(s)", $"{asset.Layers.Count} 层"),
+                CoCoEditorBadgeKind.Neutral));
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"{stateCount} State(s)", $"{stateCount} 个 State"),
+                CoCoEditorBadgeKind.Neutral));
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"{transitionCount} Transition(s)", $"{transitionCount} 个 Transition"),
+                CoCoEditorBadgeKind.Neutral));
+            card.Add(badges);
+            root.Add(card);
+        }
+
+        /// <summary>Event Adapter Declarations：全产品唯一编辑面（等价迁移）。</summary>
+        private void DrawEventAdapterCard(bool authoringReadOnly)
+        {
+            var card = CoCoEditorElements.CreateCard(L("Event Adapter Declarations", "Event Adapter 声明"));
+            SerializedProperty eventAdapterDeclarations =
+                serializedObject.FindProperty("eventAdapterDeclarations");
+            var field = new PropertyField(
+                eventAdapterDeclarations,
+                L("Event Adapter Declarations", "Event Adapter 声明"));
+            field.name = "state-graph-event-adapters";
+            field.Bind(serializedObject);
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ =>
             {
-                CoCoStateGraphEditorWindow.Open(asset);
+                // 等价旧链：绑定编辑 → Apply → 分析结果失效。
+                serializedObject.ApplyModifiedProperties();
+                analysisResult = null;
+            });
+            if (authoringReadOnly)
+            {
+                field.SetEnabled(false);
             }
 
-            EditorGUI.BeginDisabledGroup(authoringReadOnly);
-            if (GUILayout.Button("Add Layer"))
+            card.Add(field);
+            root.Add(card);
+        }
+
+        /// <summary>新增（维护者 D5 裁决）：三 manifest 需求摘要，只读。</summary>
+        private void DrawManifestCard(CoCoStateGraphAsset asset)
+        {
+            manifestCard = CoCoEditorElements.CreateCard(
+                L("Host Requirements (manifests)", "Host 需求（manifest）"));
+
+            if (analysisResult?.Succeeded != true)
+            {
+                var hint = new Label(L(
+                    "Run Analyze to compute the Intent, Operation, and Context requirements this graph expects from its Host.",
+                    "运行 Analyze 计算此图对 Host 的 Intent、Operation 与 Context 需求。"));
+                hint.AddToClassList("sg-muted");
+                manifestCard.Add(hint);
+                root.Add(manifestCard);
+                return;
+            }
+
+            var intentCount = analysisResult.Graph.IntentRequirements.Requirements.Count;
+            var operationCount = analysisResult.Graph.OperationProvides.Provides.Count;
+            var contextCount = analysisResult.Graph.ContextStateRequirements.Blocks.Count;
+            var badges = new VisualElement();
+            badges.style.flexDirection = FlexDirection.Row;
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"Intent {intentCount}", $"Intent {intentCount}"), CoCoEditorBadgeKind.Info));
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"Operation {operationCount}", $"Operation {operationCount}"),
+                CoCoEditorBadgeKind.Info));
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"Context {contextCount}", $"Context {contextCount}"), CoCoEditorBadgeKind.Info));
+            manifestCard.Add(badges);
+
+            foreach (CoCoIntentRequirement requirement in analysisResult.Graph.IntentRequirements.Requirements)
+            {
+                manifestCard.Add(new Label($"Intent  {requirement.ValueType.Name}  {requirement.IntentId}"));
+            }
+
+            foreach (CoCoGraphOperationProvision provision in analysisResult.Graph.OperationProvides.Provides)
+            {
+                manifestCard.Add(new Label($"Operation  {provision.SectionType.Name}  {provision.SectionId}"));
+            }
+
+            foreach (CoCoContextStateBlockRequirement block in analysisResult.Graph.ContextStateRequirements.Blocks)
+            {
+                manifestCard.Add(new Label($"Context block  {block.BlockId}"));
+            }
+
+            root.Add(manifestCard);
+        }
+
+        private void DrawEntryCard(CoCoStateGraphAsset asset, bool authoringReadOnly)
+        {
+            var card = CoCoEditorElements.CreateCard(L("Actions", "操作"));
+
+            var open = CoCoEditorElements.CreatePrimaryButton(
+                L("Open State Graph Editor", "打开 State Graph 编辑器"),
+                () => CoCoStateGraphEditorWindow.Open(asset));
+            card.Add(open);
+
+            var addLayer = new Button(() =>
             {
                 CoCoStateGraphAuthoringOperations.AddLayer(asset);
                 serializedObject.UpdateIfRequiredOrScript();
                 analysisResult = null;
-                authoringFailure = string.Empty;
-            }
-            EditorGUI.EndDisabledGroup();
-
+                Rebuild();
+            })
+            {
+                text = L("Add Layer", "添加 Layer")
+            };
             if (authoringReadOnly)
             {
-                EditorGUILayout.HelpBox(
-                    "StateGraph authoring is read-only while entering or running Play Mode.",
-                    MessageType.Info);
+                addLayer.SetEnabled(false);
             }
 
-            DrawAnalysis(asset);
+            card.Add(addLayer);
 
-            EditorGUILayout.Space();
-            EditorGUILayout.HelpBox(
-                "Topology is edited through the State Graph Editor so stable IDs, EditorLayout, and Undo remain atomic. " +
-                "Event Adapter declarations remain non-topology authoring data in this Inspector.",
-                MessageType.Info);
+            var analyze = new Button(() => Analyze(asset))
+            {
+                text = L("Analyze With Registered Catalog", "以注册目录分析")
+            };
+            card.Add(analyze);
+            root.Add(card);
         }
 
-        private void DrawSelectedLayerOperations(
-            CoCoStateGraphAsset asset,
-            SerializedProperty layers)
+        private void DrawAnalysisCard(CoCoStateGraphAsset asset)
         {
-            if (layers == null || !layers.isArray || layers.arraySize == 0)
-            {
-                return;
-            }
-
-            selectedLayerIndex = Mathf.Clamp(selectedLayerIndex, 0, layers.arraySize - 1);
-            string[] layerLabels = new string[layers.arraySize];
-            for (int index = 0; index < layers.arraySize; index++)
-            {
-                SerializedProperty layer = layers.GetArrayElementAtIndex(index);
-                string displayName = layer.FindPropertyRelative("displayName")?.stringValue;
-                layerLabels[index] = string.IsNullOrWhiteSpace(displayName)
-                    ? $"Layer {index + 1}"
-                    : displayName;
-            }
-
-            int previousLayerIndex = selectedLayerIndex;
-            selectedLayerIndex = EditorGUILayout.Popup("Authoring Layer", selectedLayerIndex, layerLabels);
-            if (selectedLayerIndex != previousLayerIndex)
-            {
-                authoringFailure = string.Empty;
-            }
-
-            SerializedProperty selectedLayer = layers.GetArrayElementAtIndex(selectedLayerIndex);
-            if (!TryReadLayerId(selectedLayer, out CoCoLayerId layerId))
-            {
-                EditorGUILayout.HelpBox("The selected Layer has an invalid stable ID.", MessageType.Error);
-                return;
-            }
-
-            EditorGUILayout.LabelField("Selected Layer ID", layerId.ToString());
-
-            if (GUILayout.Button("Duplicate Layer"))
-            {
-                if (CoCoStateGraphAuthoringOperations.DuplicateLayer(
-                        asset,
-                        layerId,
-                        out _))
-                {
-                    selectedLayerIndex++;
-                    authoringFailure = string.Empty;
-                }
-                else
-                {
-                    authoringFailure =
-                        "The selected Layer could not be duplicated because its topology IDs or references are invalid.";
-                }
-
-                serializedObject.UpdateIfRequiredOrScript();
-                analysisResult = null;
-                if (string.IsNullOrEmpty(authoringFailure))
-                {
-                    return;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(authoringFailure))
-            {
-                EditorGUILayout.HelpBox(authoringFailure, MessageType.Warning);
-            }
-
-            if (GUILayout.Button("Add Root State"))
-            {
-                CoCoStateGraphAuthoringOperations.AddState(
-                    asset,
-                    layerId,
-                    default,
-                    default);
-                serializedObject.UpdateIfRequiredOrScript();
-                analysisResult = null;
-                authoringFailure = string.Empty;
-                return;
-            }
-
-            SerializedProperty states = selectedLayer.FindPropertyRelative("states");
-            if (states == null || !states.isArray || states.arraySize == 0)
-            {
-                return;
-            }
-
-            selectedStateIndex = Mathf.Clamp(selectedStateIndex, 0, states.arraySize - 1);
-            string[] stateLabels = new string[states.arraySize];
-            for (int index = 0; index < states.arraySize; index++)
-            {
-                SerializedProperty state = states.GetArrayElementAtIndex(index);
-                string displayName = state.FindPropertyRelative("displayName")?.stringValue;
-                stateLabels[index] = string.IsNullOrWhiteSpace(displayName)
-                    ? $"State {index + 1}"
-                    : displayName;
-            }
-
-            selectedStateIndex = EditorGUILayout.Popup("Authoring State", selectedStateIndex, stateLabels);
-            SerializedProperty selectedState = states.GetArrayElementAtIndex(selectedStateIndex);
-            if (!TryReadStateId(selectedState, out CoCoStateId stateId))
-            {
-                EditorGUILayout.HelpBox("The selected State has an invalid stable ID.", MessageType.Error);
-                return;
-            }
-
-            EditorGUILayout.LabelField("Selected State ID", stateId.ToString());
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Add Child State"))
-            {
-                CoCoStateGraphAuthoringOperations.AddState(
-                    asset,
-                    layerId,
-                    stateId,
-                    default);
-                serializedObject.UpdateIfRequiredOrScript();
-                analysisResult = null;
-                authoringFailure = string.Empty;
-            }
-
-            if (GUILayout.Button("Duplicate Subtree"))
-            {
-                CoCoStateGraphAuthoringOperations.DuplicateStateSubtree(
-                    asset,
-                    layerId,
-                    stateId,
-                    out _);
-                serializedObject.UpdateIfRequiredOrScript();
-                analysisResult = null;
-                authoringFailure = string.Empty;
-            }
-
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawAnalysis(CoCoStateGraphAsset asset)
-        {
-            EditorGUILayout.Space();
-            if (GUILayout.Button("Analyze With Registered Catalog"))
-            {
-                Analyze(asset);
-            }
+            var card = CoCoEditorElements.CreateCard(L("Analysis", "分析"));
 
             if (!string.IsNullOrEmpty(analysisFailure))
             {
-                EditorGUILayout.HelpBox(analysisFailure, MessageType.Warning);
+                card.Add(new HelpBox(analysisFailure, HelpBoxMessageType.Warning));
             }
 
             if (analysisResult == null)
             {
+                card.Add(new Label(L("Not analyzed yet.", "尚未分析。")));
+                root.Add(card);
                 return;
             }
 
-            EditorGUILayout.LabelField(
-                analysisResult.Succeeded ? "Compilation succeeded" : "Compilation blocked",
-                $"{analysisResult.Diagnostics.Count} diagnostic(s)");
+            card.Add(new Label(analysisResult.Succeeded
+                ? L("Compilation succeeded", "编译成功")
+                : L("Compilation blocked", "编译阻断") + $" · {analysisResult.Diagnostics.Count} " +
+                  L("diagnostic(s)", "条诊断")));
+
             foreach (CoCoGraphDiagnostic graphDiagnostic in analysisResult.Diagnostics)
             {
-                MessageType messageType = graphDiagnostic.Diagnostic.Severity == CoCoDiagnosticSeverity.Error
-                    ? MessageType.Error
-                    : graphDiagnostic.Diagnostic.Severity == CoCoDiagnosticSeverity.Warning
-                        ? MessageType.Warning
-                        : MessageType.Info;
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                EditorGUILayout.HelpBox(graphDiagnostic.Diagnostic.Message, messageType);
-                if (GUILayout.Button("Locate"))
-                {
-                    locatedPropertyPath = CoCoStateGraphDiagnosticNavigator.TrySelect(
-                        asset,
-                        graphDiagnostic.Location,
-                        out string propertyPath)
-                        ? propertyPath
-                        : string.Empty;
-                }
-
-                EditorGUILayout.EndVertical();
+                CoCoGraphDiagnostic captured = graphDiagnostic;
+                card.Add(CoCoEditorElements.CreateDiagnosticRow(
+                    captured.Diagnostic.Message,
+                    CoCoStateGraphEditorWindow.SeverityToBadgeKind(captured.Diagnostic.Severity),
+                    () =>
+                    {
+                        locatedPropertyPath = CoCoStateGraphDiagnosticNavigator.TrySelect(
+                            asset,
+                            captured.Location,
+                            out string propertyPath)
+                            ? propertyPath
+                            : string.Empty;
+                        Rebuild();
+                    }));
             }
 
             if (!string.IsNullOrEmpty(locatedPropertyPath))
             {
-                EditorGUILayout.LabelField("Located Property");
-                EditorGUILayout.SelectableLabel(
-                    locatedPropertyPath,
-                    EditorStyles.textField,
-                    GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                var located = new Label(
+                    L("Located Property", "定位到的属性") + ": " + locatedPropertyPath);
+                located.AddToClassList("sg-id-label");
+                card.Add(located);
             }
+
+            root.Add(card);
         }
 
         private void Analyze(CoCoStateGraphAsset asset)
@@ -303,8 +316,10 @@ namespace CoCoFlow.Editor.StateGraph
             Func<CoCoGraphDescriptorCatalog> provider = CoCoStateGraphEditorCatalogProvider.Provider;
             if (provider == null)
             {
-                analysisFailure =
-                    "No descriptor catalog provider is registered. Project Editor setup must inject a frozen catalog.";
+                analysisFailure = L(
+                    "No descriptor catalog provider is registered. Project Editor setup must inject a frozen catalog.",
+                    "未注册描述符目录 Provider。项目 Editor 设置必须注入冻结目录。");
+                Rebuild();
                 return;
             }
 
@@ -313,7 +328,10 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoGraphDescriptorCatalog catalog = provider();
                 if (catalog == null)
                 {
-                    analysisFailure = "The registered descriptor catalog provider returned null.";
+                    analysisFailure = L(
+                        "The registered descriptor catalog provider returned null.",
+                        "注册的描述符目录 Provider 返回了 null。");
+                    Rebuild();
                     return;
                 }
 
@@ -328,6 +346,7 @@ namespace CoCoFlow.Editor.StateGraph
                     }
 
                     analysisFailure = string.Join(Environment.NewLine, messages);
+                    Rebuild();
                     return;
                 }
 
@@ -335,54 +354,12 @@ namespace CoCoFlow.Editor.StateGraph
             }
             catch (Exception exception)
             {
-                analysisFailure = $"StateGraph analysis failed before compilation: {exception.Message}";
-            }
-        }
-
-        private static bool TryReadLayerId(SerializedProperty layer, out CoCoLayerId layerId)
-        {
-            if (TryReadSerializedId(layer?.FindPropertyRelative("layerId"), out ulong high, out ulong low))
-            {
-                return CoCoLayerId.TryCreate(high, low, out layerId);
+                analysisFailure = L(
+                    $"StateGraph analysis failed before compilation: {exception.Message}",
+                    $"StateGraph 分析在编译前失败：{exception.Message}");
             }
 
-            layerId = default;
-            return false;
-        }
-
-        private static bool TryReadStateId(SerializedProperty state, out CoCoStateId stateId)
-        {
-            if (TryReadSerializedId(state?.FindPropertyRelative("stateId"), out ulong high, out ulong low))
-            {
-                return CoCoStateId.TryCreate(high, low, out stateId);
-            }
-
-            stateId = default;
-            return false;
-        }
-
-        private static bool TryReadSerializedId(
-            SerializedProperty serializedId,
-            out ulong high,
-            out ulong low)
-        {
-            high = 0UL;
-            low = 0UL;
-            if (serializedId == null)
-            {
-                return false;
-            }
-
-            SerializedProperty highProperty = serializedId.FindPropertyRelative("high");
-            SerializedProperty lowProperty = serializedId.FindPropertyRelative("low");
-            if (highProperty == null || lowProperty == null)
-            {
-                return false;
-            }
-
-            high = highProperty.ulongValue;
-            low = lowProperty.ulongValue;
-            return true;
+            Rebuild();
         }
     }
 }

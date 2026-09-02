@@ -1,16 +1,33 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>
+    /// StateGraph 自研画布（P03 重做，D2：不迁 GraphView）。
+    /// 指针语义与既有交互测试逐条锚定：中键平移、滚轮缩放(0.25–2)、
+    /// 卡片拖动（错误指针忽略/取消还原/捕获丢失还原/单次提交）、
+    /// 过渡拖拽（捕获/取消/恰完成一次）、右键上下文菜单。
+    /// D8：边呈现照搬 Animator——中心锚定、双向平行偏移、方向三角、
+    /// 自环回环、点击线选中 Transition、双击 Composite 下钻。
+    /// </summary>
     internal sealed class CoCoStateGraphEditorCanvas : VisualElement, IDisposable
     {
         private const float CanvasSize = 4096f;
         private const float CardWidth = 188f;
         private const float CardHeight = 96f;
+        private const float ParallelSpacing = 16f;
+        private const float ArrowLength = 12f;
+        private const float ArrowWidth = 5f;
+        private const float LoopHeight = 44f;
+        private const float LoopRadius = 30f;
+
+        private static readonly Color EdgeColor = new Color(0.44f, 0.68f, 0.86f, 0.9f);
+        private static readonly Color SelectedEdgeColor = new Color(1f, 0.72f, 0.2f, 1f);
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement content;
@@ -19,6 +36,7 @@ namespace CoCoFlow.Editor.StateGraph
             new Dictionary<CoCoSerializedId128, Rect>();
         private readonly Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord> visibleStates =
             new Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord>();
+        private readonly List<EdgeHit> edgeHits = new List<EdgeHit>();
 
         private bool panning;
         private int panPointerId;
@@ -37,7 +55,6 @@ namespace CoCoFlow.Editor.StateGraph
             style.flexGrow = 1f;
             style.position = Position.Relative;
             style.overflow = Overflow.Hidden;
-            style.backgroundColor = new Color(0.105f, 0.115f, 0.13f, 1f);
 
             content = new VisualElement { name = "state-graph-canvas-content" };
             content.style.position = Position.Absolute;
@@ -69,6 +86,9 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal event Action<Vector2> ContextRequested;
 
+        /// <summary>当前边命中几何数（重绘后更新；测试/诊断用）。</summary>
+        internal int EdgeHitCount => edgeHits.Count;
+
         public void Dispose()
         {
             controller.Changed -= OnControllerChanged;
@@ -93,6 +113,7 @@ namespace CoCoFlow.Editor.StateGraph
             content.Add(edgeLayer);
             stateRects.Clear();
             visibleStates.Clear();
+            edgeHits.Clear();
 
             IReadOnlyList<CoCoStateGraphStateRecord> states = controller.VisibleStates;
             for (int index = 0; index < states.Count; index++)
@@ -108,6 +129,18 @@ namespace CoCoFlow.Editor.StateGraph
                 content.Add(card);
                 visibleStates[state.StateId] = state;
                 stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, CardHeight));
+            }
+
+            if (states.Count == 0)
+            {
+                var hint = new Label(CoCoEditorLocalization.Text(
+                    "Right-click to add a State here.",
+                    "右键在此添加 State。"))
+                {
+                    name = "state-graph-canvas-hint"
+                };
+                hint.AddToClassList("sg-muted");
+                content.Add(hint);
             }
 
             ApplyView();
@@ -127,55 +160,322 @@ namespace CoCoFlow.Editor.StateGraph
             controller.SetPosition(stateId, position);
         }
 
+        // ── D8：边几何（Animator 对齐） ────────────────────
+
+        /// <summary>一次点击命中的边几何缓存（图空间）。</summary>
+        private struct EdgeHit
+        {
+            internal CoCoSerializedId128 TransitionId;
+            internal Vector2 Start;
+            internal Vector2 End;
+            internal bool IsLoop;
+            internal Vector2 LoopCenter;
+            internal float LoopRadius;
+        }
+
         private void DrawEdges(MeshGenerationContext context)
         {
             Painter2D painter = context.painter2D;
-            painter.lineWidth = 2f;
+            edgeHits.Clear();
+
+            // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
+            var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
             foreach (CoCoStateGraphTransitionRecord transition in controller.VisibleTransitions)
             {
-                if (!stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
+                if (transition == null ||
+                    !stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
                     !stateRects.TryGetValue(transition.TargetStateId, out Rect target))
                 {
                     continue;
                 }
 
-                Vector2 start = new Vector2(source.xMax, source.center.y);
-                Vector2 end = new Vector2(target.xMin, target.center.y);
-                if (target.center.x < source.center.x)
+                (ulong ah, ulong al, ulong bh, ulong bl) key = transition.SourceStateId.High < transition.TargetStateId.High ||
+                    (transition.SourceStateId.High == transition.TargetStateId.High &&
+                     transition.SourceStateId.Low < transition.TargetStateId.Low)
+                    ? (transition.SourceStateId.High, transition.SourceStateId.Low,
+                       transition.TargetStateId.High, transition.TargetStateId.Low)
+                    : (transition.TargetStateId.High, transition.TargetStateId.Low,
+                       transition.SourceStateId.High, transition.SourceStateId.Low);
+                if (!groups.TryGetValue(key, out List<CoCoStateGraphTransitionRecord> list))
                 {
-                    start = new Vector2(source.xMin, source.center.y);
-                    end = new Vector2(target.xMax, target.center.y);
+                    list = new List<CoCoStateGraphTransitionRecord>();
+                    groups[key] = list;
                 }
 
-                bool selected = Matches(transition.TransitionId, controller.Session.SelectedTransitionId);
-                painter.strokeColor = selected
-                    ? new Color(1f, 0.72f, 0.2f, 1f)
-                    : new Color(0.44f, 0.68f, 0.86f, 0.9f);
-                painter.BeginPath();
-                painter.MoveTo(start);
-                painter.LineTo(end);
-                painter.Stroke();
+                list.Add(transition);
+            }
 
-                Vector2 direction = (end - start).normalized;
-                Vector2 normal = new Vector2(-direction.y, direction.x);
-                Vector2 arrowBase = end - direction * 12f;
-                painter.BeginPath();
-                painter.MoveTo(end);
-                painter.LineTo(arrowBase + normal * 5f);
-                painter.MoveTo(end);
-                painter.LineTo(arrowBase - normal * 5f);
-                painter.Stroke();
+            foreach (List<CoCoStateGraphTransitionRecord> group in groups.Values)
+            {
+                // 稳定排序：组内按端点+优先级，保证偏移分布确定性。
+                CoCoSerializedId128 orientationSource = group[0].SourceStateId;
+                group.Sort((left, right) =>
+                {
+                    bool leftForward = left.SourceStateId == orientationSource;
+                    bool rightForward = right.SourceStateId == orientationSource;
+                    if (leftForward != rightForward)
+                    {
+                        return leftForward ? -1 : 1;
+                    }
+
+                    return left.Priority.CompareTo(right.Priority);
+                });
+
+                int count = group.Count;
+                for (int index = 0; index < count; index++)
+                {
+                    CoCoStateGraphTransitionRecord transition = group[index];
+                    float offset = (index - (count - 1) * 0.5f) * ParallelSpacing;
+                    DrawEdge(painter, transition, offset);
+                }
             }
 
             if (transitionDragging && stateRects.TryGetValue(transitionSourceStateId, out Rect sourceRect))
             {
-                painter.strokeColor = new Color(1f, 0.72f, 0.2f, 1f);
+                painter.strokeColor = SelectedEdgeColor;
+                painter.lineWidth = 2f;
                 painter.BeginPath();
                 painter.MoveTo(new Vector2(sourceRect.xMax, sourceRect.center.y));
                 painter.LineTo(transitionPointerPosition);
                 painter.Stroke();
             }
         }
+
+        private void DrawEdge(Painter2D painter, CoCoStateGraphTransitionRecord transition, float offset)
+        {
+            if (!stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
+                !stateRects.TryGetValue(transition.TargetStateId, out Rect target))
+            {
+                return;
+            }
+
+            bool selected = Matches(transition.TransitionId, controller.Session.SelectedTransitionId);
+            painter.strokeColor = selected ? SelectedEdgeColor : EdgeColor;
+            painter.lineWidth = selected ? 3f : 2f;
+
+            if (transition.SourceStateId == transition.TargetStateId)
+            {
+                DrawSelfLoop(painter, transition, source);
+                return;
+            }
+
+            // 中心锚定：两端取卡中心，整体沿法线平移（双向=平行线，Animator 同款）。
+            Vector2 centerDelta = target.center - source.center;
+            Vector2 direction = centerDelta.normalized;
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 a = source.center + normal * offset;
+            Vector2 b = target.center + normal * offset;
+
+            // 视觉段在卡片边界出/入（线不穿卡身）。
+            Vector2 start = a;
+            Vector2 end = b;
+            if (ClipSegmentToRectExit(a, b, source, out float tExit) &&
+                ClipSegmentToRectEnter(a, b, target, out float tEnter) &&
+                tEnter > tExit)
+            {
+                start = Vector2.Lerp(a, b, tExit);
+                end = Vector2.Lerp(a, b, tEnter);
+            }
+            else
+            {
+                start = source.center + direction * (source.width * 0.5f);
+                end = target.center - direction * (target.width * 0.5f);
+            }
+
+            painter.BeginPath();
+            painter.MoveTo(start);
+            painter.LineTo(end);
+            painter.Stroke();
+            DrawArrowHead(painter, end, (end - start).normalized);
+
+            edgeHits.Add(new EdgeHit
+            {
+                TransitionId = transition.TransitionId,
+                Start = start,
+                End = end
+            });
+        }
+
+        private void DrawSelfLoop(Painter2D painter, CoCoStateGraphTransitionRecord transition, Rect rect)
+        {
+            Vector2 topRight = new Vector2(rect.center.x + rect.width * 0.22f, rect.yMin);
+            Vector2 topLeft = new Vector2(rect.center.x - rect.width * 0.22f, rect.yMin);
+            Vector2 controlRight = topRight + new Vector2(20f, -LoopHeight);
+            Vector2 controlLeft = topLeft + new Vector2(-20f, -LoopHeight);
+
+            painter.BeginPath();
+            painter.MoveTo(topRight);
+            painter.BezierCurveTo(controlRight, controlLeft, topLeft);
+            painter.Stroke();
+
+            Vector2 arrowDirection = (topLeft - controlLeft).normalized;
+            DrawArrowHead(painter, topLeft, arrowDirection);
+
+            edgeHits.Add(new EdgeHit
+            {
+                TransitionId = transition.TransitionId,
+                IsLoop = true,
+                LoopCenter = new Vector2(rect.center.x, rect.yMin - LoopHeight * 0.62f),
+                LoopRadius = LoopRadius,
+                Start = topRight,
+                End = topLeft
+            });
+        }
+
+        private static void DrawArrowHead(Painter2D painter, Vector2 tip, Vector2 direction)
+        {
+            if (direction.sqrMagnitude <= 0f)
+            {
+                return;
+            }
+
+            direction.Normalize();
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 basePoint = tip - direction * ArrowLength;
+            painter.BeginPath();
+            painter.MoveTo(tip);
+            painter.LineTo(basePoint + normal * ArrowWidth);
+            painter.MoveTo(tip);
+            painter.LineTo(basePoint - normal * ArrowWidth);
+            painter.Stroke();
+        }
+
+        /// <summary>线段 a→b 从内部离开矩形 clip 的参数 t（a 在矩形内）。</summary>
+        private static bool ClipSegmentToRectExit(Vector2 a, Vector2 b, Rect clip, out float tExit)
+        {
+            if (!ClipSegmentToRect(a, b, clip, out float tEnter, out float tLeave))
+            {
+                tExit = 0f;
+                return false;
+            }
+
+            tExit = tLeave;
+            return tLeave > 0f && tLeave <= 1f;
+        }
+
+        /// <summary>线段 a→b 进入矩形 clip 的参数 t（b 在矩形内）。</summary>
+        private static bool ClipSegmentToRectEnter(Vector2 a, Vector2 b, Rect clip, out float tEnter)
+        {
+            if (!ClipSegmentToRect(a, b, clip, out float enter, out float leave))
+            {
+                tEnter = 1f;
+                return false;
+            }
+
+            tEnter = enter;
+            return enter >= 0f && enter < 1f;
+        }
+
+        /// <summary>Liang-Barsky：线段与 AABB 的相交参数区间。</summary>
+        private static bool ClipSegmentToRect(
+            Vector2 a,
+            Vector2 b,
+            Rect rect,
+            out float tEnter,
+            out float tLeave)
+        {
+            tEnter = 0f;
+            tLeave = 1f;
+            Vector2 delta = b - a;
+            float[] p = { -delta.x, delta.x, -delta.y, delta.y };
+            float[] q =
+            {
+                a.x - rect.xMin,
+                rect.xMax - a.x,
+                a.y - rect.yMin,
+                rect.yMax - a.y
+            };
+
+            for (int index = 0; index < 4; index++)
+            {
+                if (Mathf.Approximately(p[index], 0f))
+                {
+                    if (q[index] < 0f)
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                float t = q[index] / p[index];
+                if (p[index] < 0f)
+                {
+                    if (t > tLeave)
+                    {
+                        return false;
+                    }
+
+                    if (t > tEnter)
+                    {
+                        tEnter = t;
+                    }
+                }
+                else
+                {
+                    if (t < tEnter)
+                    {
+                        return false;
+                    }
+
+                    if (t < tLeave)
+                    {
+                        tLeave = t;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>D8：点击线=选中该 Transition（距离命中，阈值随缩放换算）。</summary>
+        internal bool TryHitEdge(Vector2 graphPosition, float threshold, out CoCoSerializedId128 transitionId)
+        {
+            transitionId = default;
+            float best = threshold;
+            bool found = false;
+            foreach (EdgeHit hit in edgeHits)
+            {
+                float distance;
+                if (hit.IsLoop)
+                {
+                    distance = Mathf.Abs(Vector2.Distance(graphPosition, hit.LoopCenter) - hit.LoopRadius);
+                    // 回环中心区域也算命中（环内部点击）。
+                    if (Vector2.Distance(graphPosition, hit.LoopCenter) <= hit.LoopRadius)
+                    {
+                        distance = 0f;
+                    }
+                }
+                else
+                {
+                    distance = DistancePointToSegment(graphPosition, hit.Start, hit.End);
+                }
+
+                if (distance <= best)
+                {
+                    best = distance;
+                    transitionId = hit.TransitionId;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        private static float DistancePointToSegment(Vector2 point, Vector2 start, Vector2 end)
+        {
+            Vector2 segment = end - start;
+            float lengthSquared = segment.sqrMagnitude;
+            if (lengthSquared <= 0f)
+            {
+                return Vector2.Distance(point, start);
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(point - start, segment) / lengthSquared);
+            return Vector2.Distance(point, start + segment * t);
+        }
+
+        // ── 指针交互（语义与既有测试逐条锚定） ────────────
 
         private void BeginTransitionDrag(
             CoCoSerializedId128 sourceStateId,
@@ -204,6 +504,22 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (evt.target != this && evt.target != content && evt.target != edgeLayer)
             {
+                return;
+            }
+
+            if (evt.button == 0)
+            {
+                // D8：左键点击边=选中 Transition；未命中维持现状（不启动任何手势）。
+                if (TryHitEdge(
+                        ToGraphPosition(evt.localPosition),
+                        6f / Mathf.Max(CurrentView.Zoom, 0.01f),
+                        out CoCoSerializedId128 hitId) &&
+                    CoCoTransitionId.TryCreate(hitId.High, hitId.Low, out CoCoTransitionId hitTransitionId))
+                {
+                    controller.SelectTransition(hitTransitionId);
+                    evt.StopPropagation();
+                }
+
                 return;
             }
 
@@ -468,6 +784,10 @@ namespace CoCoFlow.Editor.StateGraph
         private static bool Matches(CoCoSerializedId128 id, CoCoTransitionId value) =>
             value.IsValid && id.High == value.High && id.Low == value.Low;
 
+        /// <summary>
+        /// 画布 State 卡（D8：双击 Composite=下钻，等价 Animator 双击子状态机）。
+        /// 拖动语义与既有交互测试逐条锚定，未改动。
+        /// </summary>
         private sealed class CoCoStateGraphStateCard : VisualElement
         {
             private readonly CoCoStateGraphEditorController controller;
@@ -499,43 +819,31 @@ namespace CoCoFlow.Editor.StateGraph
                 style.top = position.y;
                 style.width = CardWidth;
                 style.height = CardHeight;
-                style.paddingLeft = 9f;
-                style.paddingRight = 9f;
-                style.paddingTop = 7f;
-                style.paddingBottom = 7f;
-                style.borderTopLeftRadius = 5f;
-                style.borderTopRightRadius = 5f;
-                style.borderBottomLeftRadius = 5f;
-                style.borderBottomRightRadius = 5f;
-                style.backgroundColor = IsSelected()
-                    ? new Color(0.2f, 0.36f, 0.5f, 1f)
-                    : new Color(0.16f, 0.18f, 0.21f, 1f);
-                Color border = IsInitial()
-                    ? new Color(0.35f, 0.86f, 0.48f, 1f)
-                    : new Color(0.33f, 0.38f, 0.43f, 1f);
-                style.borderLeftColor = border;
-                style.borderRightColor = border;
-                style.borderTopColor = border;
-                style.borderBottomColor = border;
-                style.borderLeftWidth = 2f;
-                style.borderRightWidth = 2f;
-                style.borderTopWidth = 2f;
-                style.borderBottomWidth = 2f;
+                AddToClassList("state-card");
+                if (IsSelected())
+                {
+                    AddToClassList("state-card--selected");
+                }
+
+                if (IsInitial())
+                {
+                    AddToClassList("state-card--initial");
+                }
 
                 var title = new Label(state.DisplayName);
-                title.style.unityFontStyleAndWeight = FontStyle.Bold;
-                title.style.fontSize = 13f;
+                title.AddToClassList("state-card__title");
                 Add(title);
                 var descriptor = new Label(controller.StateDescriptorLabel(state));
-                descriptor.style.fontSize = 9f;
-                descriptor.style.whiteSpace = WhiteSpace.Normal;
-                descriptor.style.color = new Color(0.72f, 0.76f, 0.8f, 1f);
+                descriptor.AddToClassList("state-card__descriptor");
                 Add(descriptor);
 
                 if (HasChildren())
                 {
-                    var drill = new Button(() => controller.DrillInto(ToStateId())) { text = "Open children" };
-                    drill.style.height = 20f;
+                    var drill = new Button(() => controller.DrillInto(ToStateId()))
+                    {
+                        text = CoCoEditorLocalization.Text("Open children", "打开子级")
+                    };
+                    drill.AddToClassList("state-card__drill");
                     Add(drill);
                 }
                 else
@@ -546,12 +854,9 @@ namespace CoCoFlow.Editor.StateGraph
                     connector.style.top = 39f;
                     connector.style.width = 14f;
                     connector.style.height = 14f;
-                    connector.style.borderTopLeftRadius = 7f;
-                    connector.style.borderTopRightRadius = 7f;
-                    connector.style.borderBottomLeftRadius = 7f;
-                    connector.style.borderBottomRightRadius = 7f;
-                    connector.style.backgroundColor = new Color(0.44f, 0.68f, 0.86f, 1f);
-                    connector.tooltip = "Drag to another leaf State to add an Always Transition";
+                    connector.tooltip = CoCoEditorLocalization.Text(
+                        "Drag to another leaf State to add an Always Transition (double-click a composite to drill in)",
+                        "拖到另一个叶子 State 添加 Always Transition（双击 Composite 卡可下钻）");
                     connector.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
                     connector.RegisterCallback<PointerDownEvent>(evt =>
                     {
@@ -575,6 +880,14 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 if (evt.button != 0 || dragging)
                 {
+                    return;
+                }
+
+                // D8：双击 Composite = DrillInto（Animator 子状态机行为）。
+                if (evt.clickCount == 2 && HasChildren())
+                {
+                    controller.DrillInto(ToStateId());
+                    evt.StopPropagation();
                     return;
                 }
 
