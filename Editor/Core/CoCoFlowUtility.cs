@@ -528,7 +528,7 @@ namespace CoCoFlow.Editor.Core
 
         private DefineRowSemantic ClassifyDefineRow(string define, out CoCoSetupModuleCatalog.BilingualText message)
         {
-            message = null;
+            message = default;
 
             // UniTask 宏：UPM 形态 = versionDefines 自动管理（D-02）。
             if (define == UniTaskDefine)
@@ -559,7 +559,7 @@ namespace CoCoFlow.Editor.Core
                         " according to the resolved UniTask version.",
                         "由 asmdef versionDefines " + UniTaskSupportedRange +
                         " 按解析到的 UniTask 版本自动控制。");
-                    return CoCoEditorBadgeKind.Info;
+                    return DefineRowSemantic.Automatic;
                 }
             }
 
