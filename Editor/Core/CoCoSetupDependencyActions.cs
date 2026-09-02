@@ -76,36 +76,7 @@ namespace CoCoFlow.Editor.Core
             var root = manifest.Root;
 
             var dependencies = GetOrCreateObject(root, "dependencies", manifest);
-            if (!dependencies.TryGetString(CoCoFlowUtility.NewtonsoftPackageName, out var existingNewtonsoft))
-            {
-                dependencies.Set(
-                    CoCoFlowUtility.NewtonsoftPackageName,
-                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
-                manifest.Changed = true;
-                log.Add(
-                    "Added Newtonsoft dependency " + CoCoFlowUtility.NewtonsoftMinimumVersion + ".",
-                    "已添加 Newtonsoft 依赖 " + CoCoFlowUtility.NewtonsoftMinimumVersion + "。");
-            }
-            else if (IsSemanticVersionLower(existingNewtonsoft, CoCoFlowUtility.NewtonsoftMinimumVersion))
-            {
-                dependencies.Set(
-                    CoCoFlowUtility.NewtonsoftPackageName,
-                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
-                manifest.Changed = true;
-                log.Add(
-                    "Updated Newtonsoft from " + existingNewtonsoft + " to " +
-                    CoCoFlowUtility.NewtonsoftMinimumVersion + ".",
-                    "已将 Newtonsoft 从 " + existingNewtonsoft + " 升级到 " +
-                    CoCoFlowUtility.NewtonsoftMinimumVersion + "。");
-            }
-            else
-            {
-                log.Add(
-                    "Newtonsoft dependency already satisfies " + CoCoFlowUtility.NewtonsoftMinimumVersion +
-                    " (" + existingNewtonsoft + ").",
-                    "Newtonsoft 依赖已满足 " + CoCoFlowUtility.NewtonsoftMinimumVersion +
-                    "（" + existingNewtonsoft + "）。");
-            }
+            ApplyNewtonsoftRecommendation(dependencies, manifest, log);
 
             RemoveUniTaskOpenUpmScope(root, manifest, log);
 
@@ -134,6 +105,49 @@ namespace CoCoFlow.Editor.Core
             }
 
             return manifest.Changed;
+        }
+
+        /// <summary>
+        /// Newtonsoft 推荐项三分支（增/升/保留），作用于内存 manifest 对象
+        /// （BUG-052：生产纯函数，ConfigureProjectManifest 与单测共用）。
+        /// </summary>
+        internal static bool ApplyNewtonsoftRecommendation(
+            JsonObject dependencies,
+            ManifestDocument manifest,
+            MessageCollector log)
+        {
+            if (!dependencies.TryGetString(CoCoFlowUtility.NewtonsoftPackageName, out var existing))
+            {
+                dependencies.Set(
+                    CoCoFlowUtility.NewtonsoftPackageName,
+                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
+                manifest.Changed = true;
+                log.Add(
+                    "Added Newtonsoft dependency " + CoCoFlowUtility.NewtonsoftMinimumVersion + ".",
+                    "已添加 Newtonsoft 依赖 " + CoCoFlowUtility.NewtonsoftMinimumVersion + "。");
+                return true;
+            }
+
+            if (IsSemanticVersionLower(existing, CoCoFlowUtility.NewtonsoftMinimumVersion))
+            {
+                dependencies.Set(
+                    CoCoFlowUtility.NewtonsoftPackageName,
+                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
+                manifest.Changed = true;
+                log.Add(
+                    "Updated Newtonsoft from " + existing + " to " +
+                    CoCoFlowUtility.NewtonsoftMinimumVersion + ".",
+                    "已将 Newtonsoft 从 " + existing + " 升级到 " +
+                    CoCoFlowUtility.NewtonsoftMinimumVersion + "。");
+                return true;
+            }
+
+            log.Add(
+                "Newtonsoft dependency already satisfies " + CoCoFlowUtility.NewtonsoftMinimumVersion +
+                " (" + existing + ").",
+                "Newtonsoft 依赖已满足 " + CoCoFlowUtility.NewtonsoftMinimumVersion +
+                "（" + existing + "）。");
+            return false;
         }
 
         public static void RemoveUniTaskOpenUpmScope(

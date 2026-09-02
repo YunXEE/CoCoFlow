@@ -1,6 +1,8 @@
 using System;
 using System.Reflection;
 using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Build;
 
 namespace CoCoFlow.Editor.Core.Tests
 {
@@ -158,6 +160,24 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.That(
                 (int)CoCoUniTaskVersionPolicy.Evaluate(dependency),
                 Is.EqualTo(expected));
+        }
+
+        [TestCase(BuildTarget.StandaloneWindows64, BuildTargetGroup.Standalone, StandaloneBuildSubtarget.Player, "Standalone")]
+        [TestCase(BuildTarget.StandaloneOSX, BuildTargetGroup.Standalone, StandaloneBuildSubtarget.Server, "Server")]
+        [TestCase(BuildTarget.Android, BuildTargetGroup.Android, StandaloneBuildSubtarget.Player, "Android")]
+        public void ResolverMapsActiveTargetToCorrectNamedTarget(
+            BuildTarget activeTarget,
+            BuildTargetGroup group,
+            StandaloneBuildSubtarget subtarget,
+            string expectedTargetName)
+        {
+            // BUG-050：Standalone 子目标为 Server 时 define 存储身份必须是
+            // NamedBuildTarget.Server；其余按 group 解析（D-18 单目标）。
+            NamedBuildTarget resolved = CoCoSetupStatusScanner.ResolveActiveNamedTarget(
+                activeTarget,
+                group,
+                subtarget);
+            Assert.That(resolved.TargetName, Is.EqualTo(expectedTargetName));
         }
 
         private static ModuleView FindModule(string displayName)

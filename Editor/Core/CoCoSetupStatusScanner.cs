@@ -410,10 +410,37 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-        /// <summary>active build target（D-18 唯一目标）。</summary>
+        /// <summary>
+        /// active build target（D-18 唯一目标）。权威链：activeBuildTarget → group →
+        /// NamedBuildTarget；Standalone 子目标为 Dedicated Server 时 define 存储
+        /// 身份是 NamedBuildTarget.Server（BUG-050：不得用 selectedBuildTargetGroup，
+        /// 它在 Build Profiles selected≠active 时漂移，且无法区分 Server）。
+        /// </summary>
         internal static NamedBuildTarget GetActiveNamedBuildTarget()
         {
-            var group = EditorUserBuildSettings.selectedBuildTargetGroup;
+            var activeTarget = EditorUserBuildSettings.activeBuildTarget;
+            var group = BuildPipeline.GetBuildTargetGroup(activeTarget);
+            return ResolveActiveNamedTarget(
+                activeTarget,
+                group,
+                EditorUserBuildSettings.standaloneBuildSubtarget);
+        }
+
+        /// <summary>
+        /// 纯决策函数（可单测）：Standalone 子目标为 Server ⇒ NamedBuildTarget.Server；
+        /// 其余按 group 解析。
+        /// </summary>
+        internal static NamedBuildTarget ResolveActiveNamedTarget(
+            BuildTarget activeTarget,
+            BuildTargetGroup group,
+            StandaloneBuildSubtarget subtarget)
+        {
+            if (group == BuildTargetGroup.Standalone &&
+                subtarget == StandaloneBuildSubtarget.Server)
+            {
+                return NamedBuildTarget.Server;
+            }
+
             return NamedBuildTarget.FromBuildTargetGroup(group);
         }
 

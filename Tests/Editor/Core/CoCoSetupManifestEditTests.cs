@@ -61,7 +61,10 @@ namespace CoCoFlow.Editor.Core.Tests
                 root,
                 "dependencies",
                 manifest);
-            bool changed = ApplyNewtonsoftRecommendation(dependencies, manifest, log);
+            bool changed = CoCoSetupDependencyActions.ApplyNewtonsoftRecommendation(
+                dependencies,
+                manifest,
+                log);
 
             Assert.IsTrue(changed);
             Assert.IsTrue(manifest.Changed);
@@ -84,7 +87,10 @@ namespace CoCoFlow.Editor.Core.Tests
                 root,
                 "dependencies",
                 manifest);
-            bool changed = ApplyNewtonsoftRecommendation(dependencies, manifest, log);
+            bool changed = CoCoSetupDependencyActions.ApplyNewtonsoftRecommendation(
+                dependencies,
+                manifest,
+                log);
 
             Assert.IsTrue(changed);
             Assert.IsTrue(dependencies.TryGetString(
@@ -106,7 +112,10 @@ namespace CoCoFlow.Editor.Core.Tests
                 root,
                 "dependencies",
                 manifest);
-            bool changed = ApplyNewtonsoftRecommendation(dependencies, manifest, log);
+            bool changed = CoCoSetupDependencyActions.ApplyNewtonsoftRecommendation(
+                dependencies,
+                manifest,
+                log);
 
             Assert.IsFalse(changed);
             Assert.IsFalse(manifest.Changed);
@@ -190,43 +199,6 @@ namespace CoCoFlow.Editor.Core.Tests
             Assert.IsTrue(CoCoSetupDependencyActions.IsValidManifestJson("{\"value\":1}"));
             Assert.IsFalse(CoCoSetupDependencyActions.IsValidManifestJson("invalid"));
             Assert.IsFalse(CoCoSetupDependencyActions.IsValidManifestJson("[1,2]"));
-        }
-
-        /// <summary>
-        /// 复刻 ConfigureProjectManifest 的 Newtonsoft 分支（纯内存对象层），
-        /// 避免测试触碰真实 Packages/manifest.json。
-        /// </summary>
-        private static bool ApplyNewtonsoftRecommendation(
-            JsonObject dependencies,
-            ManifestDocument manifest,
-            CoCoSetupDependencyActions.MessageCollector log)
-        {
-            if (!dependencies.TryGetString(
-                    CoCoFlowUtility.NewtonsoftPackageName,
-                    out var existing))
-            {
-                dependencies.Set(
-                    CoCoFlowUtility.NewtonsoftPackageName,
-                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
-                manifest.Changed = true;
-                log.Add("Added Newtonsoft dependency.", "已添加 Newtonsoft 依赖。");
-                return true;
-            }
-
-            if (CoCoSetupDependencyActions.IsSemanticVersionLower(
-                    existing,
-                    CoCoFlowUtility.NewtonsoftMinimumVersion))
-            {
-                dependencies.Set(
-                    CoCoFlowUtility.NewtonsoftPackageName,
-                    new JsonString(CoCoFlowUtility.NewtonsoftMinimumVersion));
-                manifest.Changed = true;
-                log.Add("Updated Newtonsoft.", "已升级 Newtonsoft。");
-                return true;
-            }
-
-            log.Add("Newtonsoft already satisfies.", "Newtonsoft 已满足。");
-            return false;
         }
     }
 }
