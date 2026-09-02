@@ -35,7 +35,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
-        private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.5f);
+        private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement gridLayer;
