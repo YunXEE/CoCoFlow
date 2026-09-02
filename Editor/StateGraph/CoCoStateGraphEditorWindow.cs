@@ -168,6 +168,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             canvas = new CoCoStateGraphEditorCanvas(controller);
             canvas.ContextRequested += OnCanvasContextRequested;
+            canvas.CardContextRequested += OnCardContextRequested;
             workspace.Add(canvas);
 
             details = new ScrollView { name = "state-graph-details" };
@@ -736,6 +737,50 @@ namespace CoCoFlow.Editor.StateGraph
             menu.ShowAsContext();
         }
 
+        /// <summary>卡片右键菜单：子状态机的画布内建立/下钻入口（维护者反馈：可发现性）。</summary>
+        private void OnCardContextRequested(CoCoSerializedId128 stateId)
+        {
+            if (!CoCoStateId.TryCreate(stateId.High, stateId.Low, out CoCoStateId id))
+            {
+                return;
+            }
+
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateGraphStateRecord state = FindState(layer, id);
+            if (state == null)
+            {
+                return;
+            }
+
+            controller.SelectState(id);
+            var menu = new GenericMenu();
+            if (CoCoStateGraphAuthoringOperations.CanEdit(out _))
+            {
+                menu.AddItem(
+                    new GUIContent(L("Add Child State", "添加子 State（下钻后可编内部）")),
+                    false,
+                    () => TryExecuteCanvasAuthoringAction(() => controller.AddState(
+                        id,
+                        ResolveStateDescriptor(addStateDescriptorId),
+                        L("Child State", "子 State"),
+                        new Vector2(80f, 80f))));
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent(L("Add Child State", "添加子 State（下钻后可编内部）")));
+            }
+
+            if (HasChildren(layer, state.StateId))
+            {
+                menu.AddItem(
+                    new GUIContent(L("Open Child Canvas", "打开子级画布")),
+                    false,
+                    () => controller.DrillInto(id));
+            }
+
+            menu.ShowAsContext();
+        }
+
         internal bool TryAddStateAtCanvasPosition(Vector2 position)
         {
             if (controller == null || !CoCoStateGraphAuthoringOperations.CanEdit(out _))
@@ -1019,6 +1064,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (canvas != null)
             {
                 canvas.ContextRequested -= OnCanvasContextRequested;
+                canvas.CardContextRequested -= OnCardContextRequested;
                 canvas.Dispose();
                 canvas = null;
             }

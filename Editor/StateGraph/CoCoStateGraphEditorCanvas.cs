@@ -90,6 +90,7 @@ namespace CoCoFlow.Editor.StateGraph
         private int transitionPointerId;
         private CoCoSerializedId128 transitionSourceStateId;
         private Vector2 transitionPointerPosition;
+        private Vector2 transitionDragStartPanel;
 
         internal CoCoStateGraphEditorCanvas(CoCoStateGraphEditorController controller)
         {
@@ -133,6 +134,9 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal event Action<Vector2> ContextRequested;
 
+        /// <summary>卡片右键（无拖拽位移）：请求该 State 的上下文菜单（建子级/下钻入口）。</summary>
+        internal event Action<CoCoSerializedId128> CardContextRequested;
+
         /// <summary>当前边命中几何数（重绘后更新；测试/诊断用）。</summary>
         internal int EdgeHitCount => edgeHits.Count;
 
@@ -172,7 +176,8 @@ namespace CoCoFlow.Editor.StateGraph
                     state,
                     position,
                     OnCardMoved,
-                    BeginTransitionDrag);
+                    BeginTransitionDrag,
+                    stateId => CardContextRequested?.Invoke(stateId));
                 content.Add(card);
                 visibleStates[state.StateId] = state;
                 stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, CardHeight));
@@ -291,20 +296,19 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (transitionDragging && stateRects.TryGetValue(transitionSourceStateId, out Rect sourceRect))
             {
+                // 维护者反馈：预览线从源卡中心出（与已提交边的中心锚定一致）。
+                Vector2 previewStart = sourceRect.center;
                 painter.strokeColor = SelectedEdgeColor;
                 painter.lineWidth = 2f;
                 painter.fillColor = SelectedEdgeColor;
                 painter.BeginPath();
-                painter.MoveTo(new Vector2(sourceRect.xMax, sourceRect.center.y));
+                painter.MoveTo(previewStart);
                 painter.LineTo(transitionPointerPosition);
                 painter.Stroke();
                 DrawDirectionTriangle(
                     painter,
-                    Vector2.Lerp(
-                        new Vector2(sourceRect.xMax, sourceRect.center.y),
-                        transitionPointerPosition,
-                        0.5f),
-                    (transitionPointerPosition - new Vector2(sourceRect.xMax, sourceRect.center.y)).normalized);
+                    Vector2.Lerp(previewStart, transitionPointerPosition, 0.5f),
+                    (transitionPointerPosition - previewStart).normalized);
             }
         }
 
@@ -589,6 +593,7 @@ namespace CoCoFlow.Editor.StateGraph
             transitionPointerId = pointerId;
             transitionSourceStateId = sourceStateId;
             transitionPointerPosition = ToGraphPosition(PanelToLocal(panelPosition));
+            transitionDragStartPanel = panelPosition;
             this.CapturePointer(pointerId);
             edgeLayer.MarkDirtyRepaint();
         }
@@ -677,7 +682,7 @@ namespace CoCoFlow.Editor.StateGraph
                 transitionPointerPosition = ToGraphPosition(PanelToLocal(evt.position));
                 transitionDragging = false;
                 ReleaseCapturedPointer(transitionPointerId);
-                TryCompleteTransitionDrag();
+                TryCompleteTransitionDrag(evt.position);
                 ResetTransitionDrag();
                 edgeLayer.MarkDirtyRepaint();
                 evt.StopPropagation();
@@ -776,7 +781,7 @@ namespace CoCoFlow.Editor.StateGraph
         private Vector2 PanelToLocal(Vector2 panelPosition) =>
             panelPosition - worldBound.position;
 
-        private void TryCompleteTransitionDrag()
+        private void TryCompleteTransitionDrag(Vector2 endPanelPosition)
         {
             CoCoSerializedId128 targetStateId = default;
             foreach (KeyValuePair<CoCoSerializedId128, Rect> entry in stateRects)
@@ -798,6 +803,13 @@ namespace CoCoFlow.Editor.StateGraph
                     out CoCoStateId sourceId) ||
                 !CoCoStateId.TryCreate(targetStateId.High, targetStateId.Low, out CoCoStateId targetId))
             {
+                // 维护者反馈：右键未拖拽（位移≈0）时弹卡片菜单（建子级/下钻），
+                // 而不是静默取消。
+                if ((endPanelPosition - transitionDragStartPanel).sqrMagnitude <= 25f)
+                {
+                    CardContextRequested?.Invoke(transitionSourceStateId);
+                }
+
                 return;
             }
 
@@ -840,6 +852,7 @@ namespace CoCoFlow.Editor.StateGraph
             transitionPointerId = 0;
             transitionSourceStateId = default;
             transitionPointerPosition = default;
+            transitionDragStartPanel = default;
         }
 
         private void CancelPan(bool releasePointer)
@@ -887,6 +900,7 @@ namespace CoCoFlow.Editor.StateGraph
             private readonly CoCoStateGraphStateRecord state;
             private readonly Action<CoCoSerializedId128, Vector2, bool> moved;
             private readonly Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag;
+            private readonly Action<CoCoSerializedId128> cardContextRequested;
             private Vector2 position;
             private Vector2 pointerStart;
             private Vector2 positionStart;
@@ -899,13 +913,15 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoStateGraphStateRecord state,
                 Vector2 position,
                 Action<CoCoSerializedId128, Vector2, bool> moved,
-                Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag)
+                Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag,
+                Action<CoCoSerializedId128> cardContextRequested)
             {
                 this.controller = controller;
                 this.state = state;
                 this.position = position;
                 this.moved = moved;
                 this.beginTransitionDrag = beginTransitionDrag;
+                this.cardContextRequested = cardContextRequested;
                 name = "state-card";
                 style.position = Position.Absolute;
                 style.left = position.x;
@@ -936,7 +952,9 @@ namespace CoCoFlow.Editor.StateGraph
                 Add(title);
 
                 // 维护者反馈：三行——Name / State 编号（短，次小号淡色）/ Logic 名+编号（最小号）。
-                var idLine = new Label(ShortId(state.StateId.ToString()));
+                // 注意：编号必须取 CoCoStateId（32 位十六进制）；CoCoSerializedId128.ToString()
+                // 是类型名（首 8 字符会是 "CoCoFlow"）。
+                var idLine = new Label(ShortId(ToStateId().ToString()));
                 idLine.AddToClassList("state-card__id");
                 Add(idLine);
 
@@ -978,11 +996,16 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 // 维护者反馈 4：右键从 State 卡拖拽 → 目标叶子 State 建 Always Transition
                 // （替代已移除的左侧连接点；背景右键仍是上下文菜单）。
+                // 复合卡右键（无拖拽语义）直接弹卡片菜单；叶子卡拖拽后若位移≈0 也弹菜单。
                 if (evt.button == 1)
                 {
                     if (!HasChildren())
                     {
                         beginTransitionDrag(state.StateId, evt.pointerId, evt.position);
+                    }
+                    else
+                    {
+                        cardContextRequested(state.StateId);
                     }
 
                     evt.StopPropagation();
