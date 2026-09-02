@@ -256,19 +256,6 @@ namespace CoCoFlow.Editor.StateGraph
             };
             card.Add(addChild);
 
-            if (HasChildren(controller.SelectedLayer, state.StateId))
-            {
-                var openChildren = new Button(() => controller.DrillInto(selectedId))
-                {
-                    text = L("Open Child Canvas", "打开子级画布"),
-                    tooltip = L("Double-click the card on the canvas also drills in.",
-                        "双击画布卡片也可下钻。")
-                };
-                texts.Register(openChildren, "Open Child Canvas", "打开子级画布");
-                openChildren.AddToClassList("sg-navigation");
-                card.Add(openChildren);
-            }
-
             List<CoCoStateId> siblingIds = SiblingIds(controller.SelectedLayer, state);
             StateIdChoice replacement = AddExplicitStateIdPopup("Initial replacement", siblingIds);
 

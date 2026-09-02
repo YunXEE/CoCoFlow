@@ -360,16 +360,6 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            var up = new ToolbarButton(() => controller.DrillUp())
-            {
-                text = L("Up", "返回上级"),
-                tooltip = L("Move to the parent State canvas", "返回父 State 画布")
-            };
-            texts.Register(up, "Up", "返回上级");
-            toolbar.Add(up);
-
-            toolbar.Add(BuildBreadcrumb());
-
             var search = new ToolbarSearchField();
             search.name = "state-graph-search";
             search.SetValueWithoutNotify(controller.Session.SearchText);
@@ -441,105 +431,6 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             });
             slot.Add(layerPopup);
-        }
-
-        /// <summary>
-        /// 可点击分段面包屑（D6）：每段执行既有 DrillUp 语义链；
-        /// 不新增导航数据或公共 API。环段禁用。
-        /// </summary>
-        private VisualElement BuildBreadcrumb()
-        {
-            var breadcrumb = new VisualElement { name = "state-graph-breadcrumb" };
-            breadcrumb.AddToClassList("sg-breadcrumb");
-
-            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
-            if (layer == null)
-            {
-                var none = new Label(L("No Layer", "无 Layer"));
-                texts.Register(none, "No Layer", "无 Layer");
-                breadcrumb.Add(none);
-                return breadcrumb;
-            }
-
-            // 与 controller.BreadcrumbLabel 相同的遍历：沿父链上溯 + 环检测。
-            var segments = new List<(CoCoSerializedId128 ScopeId, string Label, bool Cycle)>();
-            var visited = new HashSet<CoCoSerializedId128>();
-            CoCoStateGraphStateRecord current = FindState(layer, controller.Session.DrillRootStateId);
-            while (current != null)
-            {
-                if (!visited.Add(current.StateId))
-                {
-                    segments.Insert(0, (default, "<cycle>", true));
-                    break;
-                }
-
-                segments.Insert(0, (current.StateId, current.DisplayName, false));
-                current = current.ParentStateId.IsValid
-                    ? FindState(layer, ToStateId(current.ParentStateId))
-                    : null;
-            }
-
-            void AddSeparator()
-            {
-                var separator = new Label("›");
-                separator.AddToClassList("sg-breadcrumb__separator");
-                breadcrumb.Add(separator);
-            }
-
-            var rootButton = new ToolbarButton(() => NavigateBreadcrumbTo(default))
-            {
-                text = layer.DisplayName
-            };
-            rootButton.AddToClassList("sg-breadcrumb__segment");
-            breadcrumb.Add(rootButton);
-
-            for (int index = 0; index < segments.Count; index++)
-            {
-                (CoCoSerializedId128 scopeId, string label, bool cycle) = segments[index];
-                AddSeparator();
-                if (cycle || index == segments.Count - 1)
-                {
-                    var currentLabel = new Label(cycle ? "<cycle>" : label);
-                    currentLabel.AddToClassList("sg-breadcrumb__current");
-                    if (cycle)
-                    {
-                        currentLabel.AddToClassList("sg-muted");
-                    }
-
-                    breadcrumb.Add(currentLabel);
-                    break;
-                }
-
-                CoCoSerializedId128 target = scopeId;
-                var segment = new ToolbarButton(() => NavigateBreadcrumbTo(target))
-                {
-                    text = label
-                };
-                segment.AddToClassList("sg-breadcrumb__segment");
-                breadcrumb.Add(segment);
-            }
-
-            breadcrumb.style.minWidth = 120f;
-            return breadcrumb;
-        }
-
-        private void NavigateBreadcrumbTo(CoCoSerializedId128 targetScopeId)
-        {
-            if (controller == null)
-            {
-                return;
-            }
-
-            // 目标=root（default）或祖先段：重复 DrillUp（既有语义，纯 Session 导航）。
-            int guard = 256;
-            while (guard-- > 0 &&
-                   controller.Session.DrillRootStateId.IsValid &&
-                   new CoCoSerializedId128(
-                       controller.Session.DrillRootStateId.High,
-                       controller.Session.DrillRootStateId.Low) != targetScopeId)
-            {
-                controller.DrillUp();
-            }
         }
 
         /// <summary>
@@ -680,9 +571,9 @@ namespace CoCoFlow.Editor.StateGraph
                 });
                 var open = new Button(() => controller.NavigateToState(stateId))
                 {
-                    text = L("Select / Open Parent Canvas", "选中 / 打开父画布")
+                    text = L("Select", "选中")
                 };
-                texts.Register(open, "Select / Open Parent Canvas", "选中 / 打开父画布");
+                texts.Register(open, "Select", "选中");
                 open.AddToClassList("sg-navigation");
                 foldout.Add(open);
                 AddTreeChildren(foldout, layer, state.StateId, depth + 1);

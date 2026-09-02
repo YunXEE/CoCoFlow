@@ -36,6 +36,9 @@ namespace CoCoFlow.Editor.StateGraph
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
         private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
+        // D9：谱系线（父子结构）默认白；链条点亮时变黄（与 Transition 选中色一致）。
+        private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.55f);
+        private static Color ChainColor => SelectedEdgeColor;
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement gridLayer;
@@ -45,7 +48,13 @@ namespace CoCoFlow.Editor.StateGraph
             new Dictionary<CoCoSerializedId128, Rect>();
         private readonly Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord> visibleStates =
             new Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord>();
+        private readonly Dictionary<CoCoSerializedId128, CoCoStateGraphStateCard> stateCards =
+            new Dictionary<CoCoSerializedId128, CoCoStateGraphStateCard>();
         private readonly List<EdgeHit> edgeHits = new List<EdgeHit>();
+        private readonly HashSet<CoCoSerializedId128> chainStates =
+            new HashSet<CoCoSerializedId128>();
+        private readonly HashSet<CoCoSerializedId128> chainGenealogyChildren =
+            new HashSet<CoCoSerializedId128>();
 
         private Slider zoomSlider;
         private Label zoomLabel;
@@ -178,26 +187,51 @@ namespace CoCoFlow.Editor.StateGraph
             content.Add(edgeLayer);
             stateRects.Clear();
             visibleStates.Clear();
+            stateCards.Clear();
             edgeHits.Clear();
+            BuildChainHighlight();
 
-            IReadOnlyList<CoCoStateGraphStateRecord> states = controller.VisibleStates;
-            for (int index = 0; index < states.Count; index++)
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            if (layer == null)
             {
-                CoCoStateGraphStateRecord state = states[index];
-                Vector2 position = controller.GetPosition(state, index);
+                ApplyView();
+                edgeLayer.MarkDirtyRepaint();
+                return;
+            }
+
+            // D9 全展开：Layer 内全部 State 以合成绝对位置上画布（谱系图）。
+            foreach (CoCoStateGraphStateRecord state in layer.States)
+            {
+                if (state == null)
+                {
+                    continue;
+                }
+
+                visibleStates[state.StateId] = state;
+            }
+
+            foreach (CoCoStateGraphStateRecord state in layer.States)
+            {
+                if (state == null)
+                {
+                    continue;
+                }
+
+                Vector2 position = ComputeAbsolutePosition(layer, state);
                 var card = new CoCoStateGraphStateCard(
                     controller,
                     state,
                     position,
+                    chainStates.Contains(state.StateId),
                     OnCardMoved,
                     BeginTransitionDrag,
                     stateId => CardContextRequested?.Invoke(stateId));
                 content.Add(card);
-                visibleStates[state.StateId] = state;
+                stateCards[state.StateId] = card;
                 stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, CardHeight));
             }
 
-            if (states.Count == 0)
+            if (visibleStates.Count == 0)
             {
                 var hint = new Label(CoCoEditorLocalization.Text(
                     "Right-click: add State / add Composite (sub-state machine) / paste; right-drag from a State to add a Transition.",
@@ -213,17 +247,215 @@ namespace CoCoFlow.Editor.StateGraph
             edgeLayer.MarkDirtyRepaint();
         }
 
-        private void OnCardMoved(CoCoSerializedId128 serializedId, Vector2 position, bool commit)
+        /// <summary>
+        /// 绝对位置 = 祖先链本地位置之和（EditorLayout 每 scope 一条本地坐标，契约不变；
+        /// 拖动父 State 只写它自己的本地记录，后代随合成自动跟随）。
+        /// </summary>
+        private Vector2 ComputeAbsolutePosition(
+            CoCoStateGraphLayerRecord layer,
+            CoCoStateGraphStateRecord state)
         {
-            stateRects[serializedId] = new Rect(position, new Vector2(CardWidth, CardHeight));
-            edgeLayer.MarkDirtyRepaint();
-            if (!commit ||
-                !CoCoStateId.TryCreate(serializedId.High, serializedId.Low, out CoCoStateId stateId))
+            Vector2 absolute = Vector2.zero;
+            var visited = new HashSet<CoCoSerializedId128>();
+            CoCoStateGraphStateRecord current = state;
+            int index = layer.States.IndexOf(current);
+            while (current != null && visited.Add(current.StateId))
+            {
+                absolute += controller.GetPosition(current, Mathf.Max(index, 0));
+                if (!current.ParentStateId.IsValid)
+                {
+                    break;
+                }
+
+                current = FindStateRecord(layer, current.ParentStateId);
+                index = current != null ? layer.States.IndexOf(current) : 0;
+            }
+
+            return absolute;
+        }
+
+        private static CoCoStateGraphStateRecord FindStateRecord(
+            CoCoStateGraphLayerRecord layer,
+            CoCoSerializedId128 stateId)
+        {
+            foreach (CoCoStateGraphStateRecord candidate in layer.States)
+            {
+                if (candidate != null && candidate.StateId == stateId)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 链条高亮集（维护者裁决 D9）：选中的 Transition + 源/目标叶子 +
+        /// 目标侧进入链条（目标的全部祖先）+ 沿途谱系线段。
+        /// </summary>
+        private void BuildChainHighlight()
+        {
+            chainStates.Clear();
+            chainGenealogyChildren.Clear();
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateId selected = controller.Session.SelectedTransitionId;
+            if (layer == null || !selected.IsValid)
             {
                 return;
             }
 
-            controller.SetPosition(stateId, position);
+            CoCoStateGraphTransitionRecord transition = null;
+            foreach (CoCoStateGraphTransitionRecord candidate in layer.Transitions)
+            {
+                if (candidate != null &&
+                    candidate.TransitionId.High == selected.High &&
+                    candidate.TransitionId.Low == selected.Low)
+                {
+                    transition = candidate;
+                    break;
+                }
+            }
+
+            if (transition == null)
+            {
+                return;
+            }
+
+            chainStates.Add(transition.SourceStateId);
+            chainStates.Add(transition.TargetStateId);
+
+            // 目标进入链条：目标叶子的祖先链（运行时激活的 RootPath）。
+            var visited = new HashSet<CoCoSerializedId128>();
+            CoCoSerializedId128 current = transition.TargetStateId;
+            while (current.IsValid && visited.Add(current))
+            {
+                chainStates.Add(current);
+                CoCoStateGraphStateRecord record = FindStateRecord(layer, current);
+                if (record == null || !record.ParentStateId.IsValid)
+                {
+                    break;
+                }
+
+                chainGenealogyChildren.Add(current);
+                current = record.ParentStateId;
+            }
+        }
+
+        private void OnCardMoved(CoCoSerializedId128 serializedId, Vector2 position, bool commit)
+        {
+            MoveStateSubtree(serializedId, position, commit);
+        }
+
+        /// <summary>
+        /// 拖动 State（含子树联动）：实时同步后代卡片与包围盒；
+        /// 提交时只写被拖 State 自己的本地位置记录（一次手势一组 Undo，EditorLayout 契约不变）。
+        /// </summary>
+        private void MoveStateSubtree(CoCoSerializedId128 stateId, Vector2 absolutePosition, bool commit)
+        {
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateGraphStateRecord state = layer == null ? null : FindStateRecord(layer, stateId);
+            if (state == null)
+            {
+                return;
+            }
+
+            Vector2 delta = absolutePosition -
+                (stateRects.TryGetValue(stateId, out Rect existing) ? existing.position : absolutePosition);
+
+            void ApplyPosition(CoCoSerializedId128 id, Vector2 absolute)
+            {
+                stateRects[id] = new Rect(absolute, new Vector2(CardWidth, CardHeight));
+                if (stateCards.TryGetValue(id, out CoCoStateGraphStateCard card))
+                {
+                    card.SetCanvasPosition(absolute);
+                }
+            }
+
+            ApplyPosition(stateId, absolutePosition);
+
+            // 后代：随拖动同位移（拖动中父的本地记录未写，重算会回到旧位置；
+            // 提交后本地记录更新，合成结果与本位移一致）。
+            var queue = new List<CoCoSerializedId128> { stateId };
+            var visited = new HashSet<CoCoSerializedId128> { stateId };
+            while (queue.Count > 0)
+            {
+                CoCoSerializedId128 parent = queue[0];
+                queue.RemoveAt(0);
+                foreach (CoCoStateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate == null || candidate.ParentStateId != parent || !visited.Add(candidate.StateId))
+                    {
+                        continue;
+                    }
+
+                    Vector2 childAbsolute =
+                        (stateRects.TryGetValue(candidate.StateId, out Rect childRect)
+                            ? childRect.position
+                            : ComputeAbsolutePosition(layer, candidate)) + delta;
+                    ApplyPosition(candidate.StateId, childAbsolute);
+                    queue.Add(candidate.StateId);
+                }
+            }
+
+            edgeLayer.MarkDirtyRepaint();
+            if (commit &&
+                CoCoStateId.TryCreate(stateId.High, stateId.Low, out CoCoStateId movedId))
+            {
+                // 本地位置 = 绝对位置 − 父绝对位置（根作用域则即绝对位置）。
+                Vector2 parentAbsolute = Vector2.zero;
+                if (state.ParentStateId.IsValid)
+                {
+                    CoCoStateGraphStateRecord parentRecord = FindStateRecord(layer, state.ParentStateId);
+                    if (parentRecord != null)
+                    {
+                        parentAbsolute = ComputeAbsolutePosition(layer, parentRecord);
+                    }
+                }
+
+                controller.SetPosition(movedId, absolutePosition - parentAbsolute);
+            }
+        }
+
+        /// <summary>
+        /// D9 谱系线：父子结构以流程图式折线表示（父底中心 → 垂直 → 水平 → 垂直 → 子顶中心），
+        /// 默认白；选中 Transition 的进入链条段变黄。谱系线不参与命中（结构线，非流转线）。
+        /// </summary>
+        private void DrawGenealogy(Painter2D painter)
+        {
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            if (layer == null)
+            {
+                return;
+            }
+
+            painter.lineWidth = 1.5f;
+            foreach (CoCoStateGraphStateRecord state in layer.States)
+            {
+                if (state == null || !state.ParentStateId.IsValid)
+                {
+                    continue;
+                }
+
+                if (!stateRects.TryGetValue(state.StateId, out Rect child) ||
+                    !stateRects.TryGetValue(state.ParentStateId, out Rect parent))
+                {
+                    continue;
+                }
+
+                bool inChain = chainGenealogyChildren.Contains(state.StateId);
+                painter.strokeColor = inChain ? ChainColor : GenealogyColor;
+                painter.lineWidth = inChain ? 2.5f : 1.5f;
+
+                Vector2 start = new Vector2(parent.center.x, parent.yMax);
+                Vector2 end = new Vector2(child.center.x, child.yMin);
+                float midY = (start.y + end.y) * 0.5f;
+                painter.BeginPath();
+                painter.MoveTo(start);
+                painter.LineTo(new Vector2(start.x, midY));
+                painter.LineTo(new Vector2(end.x, midY));
+                painter.LineTo(end);
+                painter.Stroke();
+            }
         }
 
         /// <summary>
@@ -282,6 +514,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Painter2D painter = context.painter2D;
             edgeHits.Clear();
+            DrawGenealogy(painter);
 
             // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
             var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
@@ -970,6 +1203,7 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoStateGraphEditorController controller,
                 CoCoStateGraphStateRecord state,
                 Vector2 position,
+                bool inChain,
                 Action<CoCoSerializedId128, Vector2, bool> moved,
                 Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag,
                 Action<CoCoSerializedId128> cardContextRequested)
@@ -995,14 +1229,22 @@ namespace CoCoFlow.Editor.StateGraph
                 if (IsInitial())
                 {
                     AddToClassList("state-card--initial");
+                    var initialBadge = new Label(CoCoEditorLocalization.Text("Initial", "初始"));
+                    initialBadge.AddToClassList("state-card__initial-badge");
+                    Add(initialBadge);
+                }
+
+                if (inChain)
+                {
+                    AddToClassList("state-card--chain");
                 }
 
                 tooltip = CoCoEditorLocalization.Text(
                     HasChildren()
-                        ? "Double-click to open the child canvas"
+                        ? "Composite (sub-state machine): drag to move the subtree"
                         : "Right-drag to another leaf State to add an Always Transition",
                     HasChildren()
-                        ? "双击进入子级画布"
+                        ? "Composite（子状态机）：拖动可移动整棵子树"
                         : "右键拖拽到另一个叶子 State 添加 Always Transition");
 
                 var title = new Label(state.DisplayName);
@@ -1050,6 +1292,14 @@ namespace CoCoFlow.Editor.StateGraph
                 RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
             }
 
+            /// <summary>画布侧同步绝对位置（子树联动拖拽；卡片自身拖动仍走 style.left/top）。</summary>
+            internal void SetCanvasPosition(Vector2 absolute)
+            {
+                position = absolute;
+                style.left = absolute.x;
+                style.top = absolute.y;
+            }
+
             private void OnPointerDown(PointerDownEvent evt)
             {
                 // 维护者反馈 4：右键从 State 卡拖拽 → 目标叶子 State 建 Always Transition
@@ -1072,14 +1322,6 @@ namespace CoCoFlow.Editor.StateGraph
 
                 if (evt.button != 0 || dragging)
                 {
-                    return;
-                }
-
-                // D8：双击 Composite = DrillInto（Animator 子状态机行为）。
-                if (evt.clickCount == 2 && HasChildren())
-                {
-                    controller.DrillInto(ToStateId());
-                    evt.StopPropagation();
                     return;
                 }
 
