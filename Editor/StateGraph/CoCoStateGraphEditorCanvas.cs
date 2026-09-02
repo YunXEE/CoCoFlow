@@ -221,12 +221,24 @@ namespace CoCoFlow.Editor.StateGraph
                     return left.Priority.CompareTo(right.Priority);
                 });
 
+                // 组共享法线：以组内首条边方向为基准；反向边若用自身方向算法线，
+                // 偏移会在世界空间翻转导致两线重叠（Animator 双向平行线要求同侧基准）。
+                if (!stateRects.TryGetValue(group[0].SourceStateId, out Rect canonicalSource) ||
+                    !stateRects.TryGetValue(group[0].TargetStateId, out Rect canonicalTarget))
+                {
+                    continue;
+                }
+
+                Vector2 canonicalDirection =
+                    (canonicalTarget.center - canonicalSource.center).normalized;
+                Vector2 sharedNormal = new Vector2(-canonicalDirection.y, canonicalDirection.x);
+
                 int count = group.Count;
                 for (int index = 0; index < count; index++)
                 {
                     CoCoStateGraphTransitionRecord transition = group[index];
                     float offset = (index - (count - 1) * 0.5f) * ParallelSpacing;
-                    DrawEdge(painter, transition, offset);
+                    DrawEdge(painter, transition, offset, sharedNormal);
                 }
             }
 
@@ -241,7 +253,11 @@ namespace CoCoFlow.Editor.StateGraph
             }
         }
 
-        private void DrawEdge(Painter2D painter, CoCoStateGraphTransitionRecord transition, float offset)
+        private void DrawEdge(
+            Painter2D painter,
+            CoCoStateGraphTransitionRecord transition,
+            float offset,
+            Vector2 sharedNormal)
         {
             if (!stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
                 !stateRects.TryGetValue(transition.TargetStateId, out Rect target))
@@ -259,12 +275,9 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            // 中心锚定：两端取卡中心，整体沿法线平移（双向=平行线，Animator 同款）。
-            Vector2 centerDelta = target.center - source.center;
-            Vector2 direction = centerDelta.normalized;
-            Vector2 normal = new Vector2(-direction.y, direction.x);
-            Vector2 a = source.center + normal * offset;
-            Vector2 b = target.center + normal * offset;
+            // 中心锚定：两端取卡中心，整体沿组共享法线平移（双向=平行线，Animator 同款）。
+            Vector2 a = source.center + sharedNormal * offset;
+            Vector2 b = target.center + sharedNormal * offset;
 
             // 视觉段在卡片边界出/入（线不穿卡身）。
             Vector2 start = a;

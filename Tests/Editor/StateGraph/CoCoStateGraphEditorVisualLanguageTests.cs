@@ -335,10 +335,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(card);
             Assert.IsFalse(controller.Session.DrillRootStateId.IsValid);
             SendPointerDown(card, 3, card.worldBound.center, default, clickCount: 2);
-            Assert.AreEqual(
-                new CoCoSerializedId128(parent.High, parent.Low),
-                controller.Session.DrillRootStateId,
+            Assert.IsTrue(controller.Session.DrillRootStateId.IsValid,
                 "double-click must drill into the composite scope");
+            Assert.AreEqual(
+                parent.High,
+                controller.Session.DrillRootStateId.High);
+            Assert.AreEqual(
+                parent.Low,
+                controller.Session.DrillRootStateId.Low);
         }
 
         // ── 助手 ───────────────────────────────────────────
