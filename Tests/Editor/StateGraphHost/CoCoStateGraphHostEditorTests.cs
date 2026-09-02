@@ -94,6 +94,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
     }
 
+    /// <summary>普通 Restore 节点：只实现基础契约，不可作为链中游。</summary>
     internal sealed class EditorRestoreNodeComponent :
         MonoBehaviour,
         ICoCoContextRestoreBinding
@@ -107,6 +108,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
     }
 
+    /// <summary>装饰器节点：实现契约 + downstream seam（可作链中游）。</summary>
     internal sealed class EditorRestoreDecoratorComponent :
         MonoBehaviour,
         ICoCoContextRestoreBinding,
@@ -182,6 +184,12 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(results, Has.No.Member(nestedSource));
             Assert.That(results, Has.No.Member(outsideSource));
 
+            CoCoStateGraphHostBindingCandidates.FindOperators(
+                host,
+                null,
+                results);
+            Assert.That(results, Has.No.Member(outsideAdapter));
+
             CoCoStateGraphHostBindingCandidates.FindEventAdapters(
                 host,
                 typeof(EditorHostEvent),
@@ -238,7 +246,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Is.SameAs(adapter));
         }
 
-        // ===== Debugger 数据层（D11：直接命中，无私有反射） =====
+        // ===== Debugger 数据层（D11：seed seam 直接命中，无私有反射） =====
 
         [Test]
         public void RejectedRefreshPreservesLastSnapshotAndMarksRetainedStale()
@@ -250,15 +258,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 contentFingerprint,
                 committedSeconds);
             var state = new CoCoStateGraphHostDebuggerState();
-            const BindingFlags instancePrivate =
-                BindingFlags.Instance | BindingFlags.NonPublic;
-            FieldInfo snapshotField =
-                typeof(CoCoStateGraphHostDebuggerState).GetField(
-                    "_snapshot",
-                    instancePrivate);
-            Assert.That(snapshotField, Is.Not.Null);
             state.ObserveIdentity(host);
-            snapshotField.SetValue(state, committed);
+            state.SeedSnapshotForTests(committed);
             Assert.That(
                 state.Freshness,
                 Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
@@ -266,11 +267,10 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             bool accepted = state.TryRefresh(host);
 
             Assert.That(accepted, Is.False);
-            var retained = (CoCoStateGraphHostDebugSnapshot)snapshotField
-                .GetValue(state);
-            Assert.That(retained, Is.SameAs(committed));
-            Assert.That(retained.ContentFingerprint, Is.EqualTo(contentFingerprint));
-            Assert.That(retained.Seconds, Is.EqualTo(committedSeconds));
+            Assert.That(state.Snapshot, Is.SameAs(committed));
+            Assert.That(state.Snapshot.ContentFingerprint,
+                Is.EqualTo(contentFingerprint));
+            Assert.That(state.Snapshot.Seconds, Is.EqualTo(committedSeconds));
             Assert.That(
                 state.Freshness,
                 Is.EqualTo(CoCoDebuggerSnapshotFreshness.RetainedStale));
@@ -388,25 +388,33 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
-        public void SnapshotRowsProjectSectionsAndLayerDetails()
+        public void SnapshotSectionsProjectAllFourSectionsWithLocalizedKeys()
         {
             CoCoStateGraphHostDebugSnapshot snapshot = CreateDebugSnapshot(
                 0xABUL,
                 2.5d);
             var state = new CoCoStateGraphHostDebuggerState();
-            const BindingFlags instancePrivate =
-                BindingFlags.Instance | BindingFlags.NonPublic;
-            typeof(CoCoStateGraphHostDebuggerState).GetField(
-                    "_snapshot",
-                    instancePrivate)
-                .SetValue(state, snapshot);
+            state.SeedSnapshotForTests(snapshot);
 
-            List<CoCoDebuggerSnapshotRow> rows = state.BuildSnapshotRows();
+            List<CoCoDebuggerSnapshotSection> sections =
+                state.BuildSnapshotSections();
 
-            Assert.That(rows, Is.Not.Empty);
-            Assert.That(rows[0].Section, Is.Not.Empty);
-            Assert.That(rows[0].Key, Is.Not.Empty);
-            Assert.That(rows[0].Value, Is.Not.Empty);
+            Assert.That(sections.Count, Is.EqualTo(4));
+            for (int index = 0; index < sections.Count; index++)
+            {
+                Assert.That(sections[index].Title, Is.Not.Empty);
+                Assert.That(sections[index].Rows.Count, Is.GreaterThan(0));
+                for (int rowIndex = 0; rowIndex < sections[index].Rows.Count; rowIndex++)
+                {
+                    Assert.That(sections[index].Rows[rowIndex].Key, Is.Not.Empty);
+                    Assert.That(
+                        sections[index].Rows[rowIndex].Value,
+                        Is.Not.Empty);
+                }
+            }
+
+            Assert.That(state.BuildLayerRows(), Is.Empty);
+            Assert.That(state.BuildClaimRows(), Is.Empty);
         }
 
         [Test]
@@ -419,7 +427,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 CreateTraceEntry(CoCoStateFlowTraceKind.EventPublished),
             };
             var state = new CoCoStateGraphHostDebuggerState();
-            SeedTraceEntries(state, entries, entries.Length);
+            state.SeedTraceEntriesForTests(entries, entries.Length);
 
             List<CoCoDebuggerTraceRow> rows = state.BuildTraceRows();
 
@@ -446,6 +454,22 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         {
             var state = new CoCoStateGraphHostDebuggerState();
             Assert.That(state.BuildTraceRows(), Is.Empty);
+        }
+
+        [Test]
+        public void TraceCountsWithoutHostAreAllZero()
+        {
+            var state = new CoCoStateGraphHostDebuggerState();
+            state.GetTraceCounts(
+                null,
+                out int count,
+                out int capacity,
+                out ulong totalWritten,
+                out int visible);
+            Assert.That(count, Is.EqualTo(0));
+            Assert.That(capacity, Is.EqualTo(0));
+            Assert.That(totalWritten, Is.EqualTo(0UL));
+            Assert.That(visible, Is.EqualTo(0));
         }
 
         // ===== BindingRules（D3 authoring hints） =====
@@ -485,7 +509,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
-        public void OperatorHintsCoverWrongInterfaceAndBoundary()
+        public void OperatorHintsCoverNullWrongInterfaceAndBoundary()
         {
             CoCoStateGraphHost host = CreateHost("Operator Hints");
             GameObject inside = CreateChild(host.transform, "Inside", false);
@@ -499,6 +523,11 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 CoCoStateGraphHostBindingRules.BuildOperatorHint(
                     host, operatorComponent).HasValue,
                 Is.False);
+            // Runtime 逐条校验 Operator 数组：null 条目导致启动拒绝 → Error（P2-03）。
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildOperatorHint(
+                    host, null).Value.Kind,
+                Is.EqualTo(CoCoBindingHintKind.Error));
             Assert.That(
                 CoCoStateGraphHostBindingRules.BuildOperatorHint(
                     host, notOperator).Value.Kind,
@@ -535,7 +564,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(
                 CoCoStateGraphHostBindingRules.BuildActorContextHint(
                     host, outsideActor).Value.Kind,
-                Is.EqualTo(CoCoBindingHintKind.Warning));
+                Is.EqualTo(CoBindingHintKindWarning));
         }
 
         [Test]
@@ -552,12 +581,14 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(duplicates, Is.EqualTo(new[] { source }));
         }
 
-        // ===== Restore 链（D5：预览 + 候选 + 校验） =====
+        // ===== Restore 链（D5：预览 + 候选 + WirePlan） =====
 
         [Test]
         public void RestoreChainPreviewStopsAtNonBindingNodeAndMarksBreak()
         {
-            GameObject rootObject = CreateObject("Chain");
+            CoCoStateGraphHost host = CreateHost("Chain");
+            GameObject rootObject = CreateObject("ChainRoot");
+            rootObject.transform.SetParent(host.transform, false);
             var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
             var plain = CreateChild(rootObject.transform, "Plain", false)
                 .AddComponent<EditorHostOperatorComponent>();
@@ -568,7 +599,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
             var nodes =
                 new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
-            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(root, nodes);
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(
+                root, host, nodes);
 
             Assert.That(nodes.Count, Is.EqualTo(2));
             Assert.That(nodes[0].IsRoot, Is.True);
@@ -583,9 +615,36 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
+        public void RestoreChainPreviewMarksOutOfBoundaryDownstream()
+        {
+            CoCoStateGraphHost host = CreateHost("BoundaryChain");
+            GameObject insideObject = CreateChild(host.transform, "Inside", false);
+            var inside = insideObject.AddComponent<EditorRestoreDecoratorComponent>();
+            var outside = CreateObject("OutsideRestore")
+                .AddComponent<EditorRestoreNodeComponent>();
+            var serialized = new SerializedObject(inside);
+            serialized.FindProperty("downstreamRestoreBinding")
+                .objectReferenceValue = outside;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+
+            var nodes =
+                new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(
+                inside, host, nodes);
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[1].IsInsideBoundary, Is.False);
+            CoCoBindingHint? breakHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+            Assert.That(breakHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+            Assert.That(breakHint.Value.Target, Is.SameAs(outside));
+        }
+
+        [Test]
         public void RestoreChainPreviewGuardsAgainstCycles()
         {
-            GameObject rootObject = CreateObject("Cycle");
+            CoCoStateGraphHost host = CreateHost("Cycle");
+            GameObject rootObject = CreateChild(host.transform, "CycleRoot", false);
             var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
             var serializedRoot = new SerializedObject(root);
             serializedRoot.FindProperty("downstreamRestoreBinding")
@@ -594,7 +653,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
             var nodes =
                 new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
-            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(root, nodes);
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(
+                root, host, nodes);
 
             Assert.That(nodes.Count, Is.EqualTo(2));
             Assert.That(nodes[1].IsRepeat, Is.True);
@@ -604,64 +664,134 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
-        public void RestoreChainCandidatesCollectInsideBoundaryAndSortByHierarchy()
+        public void RestoreChainCandidatesSortByHierarchyParentBeforeChild()
         {
             CoCoStateGraphHost host = CreateHost("Wire");
             var rootChild = CreateChild(host.transform, "B_Root", false);
             var deepChild = CreateChild(rootChild.transform, "A_Deep", false);
             var root = rootChild.AddComponent<EditorRestoreNodeComponent>();
             var deep = deepChild.AddComponent<EditorRestoreNodeComponent>();
-            var outsideObject = CreateObject("OutsideRestore");
-            outsideObject.AddComponent<EditorRestoreNodeComponent>();
 
             var chain = new List<MonoBehaviour>();
             CoCoStateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
 
-            Assert.That(chain, Is.EqualTo(new[] { deep, root }));
-            Assert.That(
-                CoCoStateGraphHostBindingRules.TryValidateRestoreChain(
-                    chain, out CoCoBindingHint failure),
-                Is.True);
-            Assert.That(failure.Kind, Is.EqualTo(CoCoBindingHintKind.Info));
+            // 层级路径排序：父路径 Wire/B_Root 先于子路径 Wire/B_Root/A_Deep。
+            Assert.That(chain, Is.EqualTo(new[] { root, deep }));
         }
 
         [Test]
-        public void RestoreChainValidationFailsOnEmptyCandidates()
+        public void WirePlanResolvesTargetsForDecoratorChainWithPlainTail()
+        {
+            CoCoStateGraphHost host = CreateHost("WirePlan");
+            var rootChild = CreateChild(host.transform, "Root", false);
+            var tailChild = CreateChild(host.transform, "Tail", false);
+            var root = rootChild.AddComponent<EditorRestoreDecoratorComponent>();
+            var tail = tailChild.AddComponent<EditorRestoreDecoratorComponent>();
+
+            var chain = new List<MonoBehaviour> { root, tail };
+            Assert.That(
+                CoCoStateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                    host, chain,
+                    out CoCoStateGraphHostBindingRules.CoCoRestoreWirePlan plan,
+                    out CoCoBindingHint failure),
+                Is.True,
+                failure.English);
+            Assert.That(plan.Root, Is.SameAs(root));
+            Assert.That(plan.Upstreams.Count, Is.EqualTo(1));
+            Assert.That(plan.Upstreams[0], Is.SameAs(root));
+            Assert.That(plan.Downstreams[0], Is.SameAs(tail));
+            // 尾节点具备 downstream 字段 → 列入清空目标。
+            Assert.That(plan.TailToClear, Is.SameAs(tail));
+            Assert.That(
+                CoCoStateGraphHostBindingRules.FindDownstreamProperty(root),
+                Is.Not.Null);
+        }
+
+        [Test]
+        public void WirePlanRejectsNonDecoratorMidNodeWithZeroWritePlan()
+        {
+            CoCoStateGraphHost host = CreateHost("WirePlanBad");
+            var rootChild = CreateChild(host.transform, "Root", false);
+            var tailChild = CreateChild(host.transform, "Tail", false);
+            // root 为普通节点（无 decorator/字段）却位于中游 → 成链不可能。
+            var root = rootChild.AddComponent<EditorRestoreNodeComponent>();
+            var tail = tailChild.AddComponent<EditorRestoreNodeComponent>();
+
+            var chain = new List<MonoBehaviour> { root, tail };
+            Assert.That(
+                CoCoStateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                    host, chain,
+                    out CoCoStateGraphHostBindingRules.CoCoRestoreWirePlan plan,
+                    out CoCoBindingHint failure),
+                Is.False);
+            Assert.That(failure.Kind, Is.EqualTo(CoCoBindingHintKind.Warning));
+            Assert.That(failure.Target, Is.SameAs(root));
+            Assert.That(plan.Root, Is.Null);
+            Assert.That(plan.Upstreams, Is.Null);
+        }
+
+        [Test]
+        public void WirePlanFailsOnEmptyCandidates()
         {
             CoCoStateGraphHost host = CreateHost("EmptyWire");
             var chain = new List<MonoBehaviour>();
 
             Assert.That(
-                CoCoStateGraphHostBindingRules.TryValidateRestoreChain(
-                    chain, out CoCoBindingHint failure),
+                CoCoStateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                    host, chain,
+                    out _,
+                    out CoCoBindingHint failure),
                 Is.False);
             Assert.That(failure.Kind, Is.EqualTo(CoCoBindingHintKind.Warning));
         }
 
-        // ===== 场景候选（现状保持：全场景；Actor Context 边界内） =====
+        // ===== 菜单候选（方案 v3 §2.2：边界过滤 + 最近宿主 + 已分配排除） =====
 
         [Test]
-        public void SceneCandidateScansIncludeOutsideBoundaryAndExcludeAssigned()
+        public void MenuCandidatesStayInsideBoundaryAndExcludeAssignedAndNested()
         {
             CoCoStateGraphHost host = CreateHost("SceneScan");
             GameObject inside = CreateChild(host.transform, "Inside", false);
-            GameObject outside = CreateObject("Outside");
             var insideSource =
                 inside.AddComponent<EditorHostIntentSourceComponent>();
-            var outsideSource =
-                outside.AddComponent<EditorHostIntentSourceComponent>();
-            var outsideOperator =
-                outside.AddComponent<EditorHostOperatorComponent>();
+            var insideOperator =
+                inside.AddComponent<EditorHostOperatorComponent>();
+
+            var nestedObject = CreateChild(host.transform, "Nested", false);
+            nestedObject.AddComponent<CoCoStateGraphHost>();
+            var nestedSource =
+                nestedObject.AddComponent<EditorHostIntentSourceComponent>();
+
+            GameObject outside = CreateObject("Outside");
+            outside.AddComponent<EditorHostIntentSourceComponent>();
+            outside.AddComponent<EditorHostOperatorComponent>();
 
             var results = new List<MonoBehaviour>();
-            CoCoStateGraphHostBindingRules.CollectSceneIntentSources(
+            CoCoStateGraphHostBindingRules.CollectIntentSourceCandidates(
+                host,
                 new[] { insideSource },
                 results);
-            Assert.That(results, Has.No.Member(insideSource));
-            Assert.That(results, Has.Member(outsideSource));
+            // 边界内、未分配、非嵌套宿主才出现；越界与嵌套不出现（P2-02 回归签名方案）。
+            Assert.That(results, Is.Empty);
 
-            CoCoStateGraphHostBindingRules.CollectSceneOperators(null, results);
-            Assert.That(results, Has.Member(outsideOperator));
+            CoCoStateGraphHostBindingRules.CollectIntentSourceCandidates(
+                host,
+                null,
+                results);
+            Assert.That(results, Is.EqualTo(new[] { insideSource }));
+            Assert.That(results, Has.No.Member(nestedSource));
+
+            CoCoStateGraphHostBindingRules.CollectOperatorCandidates(
+                host,
+                new[] { insideOperator },
+                results);
+            Assert.That(results, Is.Empty);
+
+            CoCoStateGraphHostBindingRules.CollectOperatorCandidates(
+                host,
+                null,
+                results);
+            Assert.That(results, Is.EqualTo(new[] { insideOperator }));
         }
 
         [Test]
@@ -751,8 +881,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         /// <summary>
-        /// 经 internal 构造器构造指定 Kind 的 Trace 条目（分组与格式化不依赖
-        /// IsValid；Runtime internal 契约，与快照构造同一反射口径）。
+        /// 经 internal 构造器构造指定 Kind 的 Trace 条目（Runtime internal
+        /// 契约，与快照构造同一反射口径；分组与格式化不依赖 IsValid）。
         /// </summary>
         private static CoCoStateFlowTraceEntry CreateTraceEntry(
             CoCoStateFlowTraceKind kind)
@@ -766,23 +896,6 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             var entry = (CoCoStateFlowTraceEntry)constructor.Invoke(arguments);
             Assert.That(entry.Kind, Is.EqualTo(kind));
             return entry;
-        }
-
-        private static void SeedTraceEntries(
-            CoCoStateGraphHostDebuggerState state,
-            CoCoStateFlowTraceEntry[] entries,
-            int visibleCount)
-        {
-            const BindingFlags instancePrivate =
-                BindingFlags.Instance | BindingFlags.NonPublic;
-            typeof(CoCoStateGraphHostDebuggerState).GetField(
-                    "_traceEntries",
-                    instancePrivate)
-                .SetValue(state, entries);
-            typeof(CoCoStateGraphHostDebuggerState).GetField(
-                    "_visibleTraceCount",
-                    instancePrivate)
-                .SetValue(state, visibleCount);
         }
     }
 }

@@ -461,10 +461,10 @@ The inspector for `CoCoStateGraphHost` is organized into six zones:
 - **Overview** — StateGraph asset, driver, auto-start, time scale.
 - **Bindings** — the three ordered reference arrays (Intent Sources, Event
   Adapters, Operators) plus the single Actor Context reference. Intent Sources
-  and Operators offer scene candidate menus and per-row assembly hints; Actor
-  Context offers boundary-scoped candidates. Event Adapters are presented as
-  an ordered list only: slots must match the compiled adapter manifest
-  slot-for-slot, which the runtime validates at startup.
+  and Operators offer Host-boundary-scoped candidate menus and per-row assembly
+  hints; Actor Context offers the same boundary-scoped candidates. Event
+  Adapters are presented as an ordered list only: slots must match the compiled
+  adapter manifest slot-for-slot, which the runtime validates at startup.
 - **Restore** — Context Restore root, chain preview, and one-click Auto-wire.
   Auto-wire validates the candidate chain first, then writes the root and all
   downstream links as a single Undo gesture; a failed validation writes

@@ -36,6 +36,34 @@ namespace CoCoFlow.Editor.StateGraphHost
         internal string Value { get; }
     }
 
+    /// <summary>快照分区（折叠组）：标题 + 键值行。</summary>
+    internal readonly struct CoCoDebuggerSnapshotSection
+    {
+        internal CoCoDebuggerSnapshotSection(string title, List<CoCoDebuggerSnapshotRow> rows)
+        {
+            Title = title;
+            Rows = rows;
+        }
+
+        internal string Title { get; }
+        internal IReadOnlyList<CoCoDebuggerSnapshotRow> Rows { get; }
+    }
+
+    /// <summary>Layer 投影行：层标识 + 胜出 Transition + 激活 State 摘要。</summary>
+    internal readonly struct CoCoDebuggerLayerRow
+    {
+        internal CoCoDebuggerLayerRow(string layerId, string winner, string activeStates)
+        {
+            LayerId = layerId;
+            Winner = winner;
+            ActiveStates = activeStates;
+        }
+
+        internal string LayerId { get; }
+        internal string Winner { get; }
+        internal string ActiveStates { get; }
+    }
+
     /// <summary>Trace 投影行：组标题或条目文本。</summary>
     internal readonly struct CoCoDebuggerTraceRow
     {
@@ -204,115 +232,192 @@ namespace CoCoFlow.Editor.StateGraphHost
             visible = _visibleTraceCount;
         }
 
-        /// <summary>快照 → 分区键值行投影（Identity/Timeline/Runtime/Context/Layers/Claims）。</summary>
-        internal List<CoCoDebuggerSnapshotRow> BuildSnapshotRows()
+        /// <summary>测试 seam（D11：确定性注入，替代私有字段反射）。</summary>
+        internal void SeedSnapshotForTests(CoCoStateGraphHostDebugSnapshot snapshot)
         {
-            var rows = new List<CoCoDebuggerSnapshotRow>();
+            _snapshot = snapshot;
+        }
+
+        /// <summary>测试 seam（D11：确定性注入，替代私有字段反射）。</summary>
+        internal void SeedTraceEntriesForTests(
+            CoCoStateFlowTraceEntry[] entries,
+            int visibleCount)
+        {
+            _traceEntries = entries ?? Array.Empty<CoCoStateFlowTraceEntry>();
+            _visibleTraceCount = visibleCount;
+        }
+
+        /// <summary>
+        /// 快照 → 分区投影（Identity/Timeline/Runtime/Context 四折叠组；
+        /// Layers/Claims 由 <see cref="BuildLayerRows"/>/
+        /// <see cref="BuildClaimRows"/> 单独投影）。
+        /// </summary>
+        internal List<CoCoDebuggerSnapshotSection> BuildSnapshotSections()
+        {
+            var sections = new List<CoCoDebuggerSnapshotSection>();
+            CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
+            if (snapshot == null)
+            {
+                return sections;
+            }
+
+            sections.Add(new CoCoDebuggerSnapshotSection(
+                CoCoEditorLocalization.Text("Identity", "标识"),
+                new List<CoCoDebuggerSnapshotRow>
+                {
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Graph", "图"),
+                        snapshot.GraphId.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Instance", "实例"),
+                        snapshot.GraphInstanceId.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Schema", "Schema"),
+                        snapshot.SchemaVersion.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Content Fingerprint", "内容指纹"),
+                        snapshot.ContentFingerprint.ToString("X16")),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Catalog Fingerprint", "目录指纹"),
+                        snapshot.CatalogFingerprint.ToString("X16")),
+                }));
+
+            sections.Add(new CoCoDebuggerSnapshotSection(
+                CoCoEditorLocalization.Text("Timeline", "时间线"),
+                new List<CoCoDebuggerSnapshotRow>
+                {
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Timeline", "时间线"),
+                        snapshot.TimelineId.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Clock Domain", "时钟域"),
+                        snapshot.ClockDomainId.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Epoch", "纪元"),
+                        snapshot.TimelineEpoch.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Tick", "Tick"),
+                        snapshot.Tick.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Sequence", "序号"),
+                        snapshot.ExecutionSequence.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Seconds", "秒"),
+                        snapshot.Seconds.ToString("0.######")),
+                }));
+
+            var runtimeRows = new List<CoCoDebuggerSnapshotRow>
+            {
+                new CoCoDebuggerSnapshotRow(
+                    CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
+                    snapshot.Lifecycle.ToString()),
+                new CoCoDebuggerSnapshotRow(
+                    "Fault",
+                    snapshot.Fault.IsFaulted
+                        ? snapshot.Fault.Diagnostic.Message
+                        : CoCoEditorLocalization.Text("none", "无")),
+                new CoCoDebuggerSnapshotRow(
+                    CoCoEditorLocalization.Text("World Correction", "世界修正"),
+                    snapshot.RequiresWorldCorrection
+                        ? CoCoEditorLocalization.Text("required", "需要")
+                        : CoCoEditorLocalization.Text("none", "无")),
+                new CoCoDebuggerSnapshotRow(
+                    CoCoEditorLocalization.Text("Last Diagnostic", "最后诊断"),
+                    snapshot.LastDiagnostic.Domain + "/" + snapshot.LastDiagnostic.Code +
+                        ": " + snapshot.LastDiagnostic.Message),
+            };
+            sections.Add(new CoCoDebuggerSnapshotSection(
+                CoCoEditorLocalization.Text("Runtime", "运行时"),
+                runtimeRows));
+
+            CoCoStateFlowFrameHeader contextHeader = snapshot.ContextHeader;
+            sections.Add(new CoCoDebuggerSnapshotSection(
+                CoCoEditorLocalization.Text("Context", "上下文"),
+                new List<CoCoDebuggerSnapshotRow>
+                {
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Revision", "版本"),
+                        snapshot.ContextRevision.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Origin", "来源"),
+                        snapshot.ContextOrigin.Kind.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        CoCoEditorLocalization.Text("Claims", "占用数"),
+                        snapshot.ClaimCount.ToString()),
+                    new CoCoDebuggerSnapshotRow(
+                        "Header",
+                        contextHeader.IsValid
+                            ? contextHeader.Identity.GraphInstanceId +
+                              "; Kind " + contextHeader.Identity.Kind +
+                              "; Tick " + contextHeader.Identity.Tick +
+                              "; Sequence " + contextHeader.Identity.ExecutionSequence +
+                              "; Layout " + contextHeader.LayoutId
+                            : "<" + CoCoEditorLocalization.Text("none", "无") + ">"),
+                }));
+
+            return sections;
+        }
+
+        /// <summary>Layers 投影行（每层一行：胜出 Transition + 激活 State 摘要）。</summary>
+        internal List<CoCoDebuggerLayerRow> BuildLayerRows()
+        {
+            var rows = new List<CoCoDebuggerLayerRow>();
             CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
             if (snapshot == null)
             {
                 return rows;
             }
 
-            string sectionIdentity = CoCoEditorLocalization.Text("Identity", "标识");
-            string sectionTimeline = CoCoEditorLocalization.Text("Timeline", "时间线");
-            string sectionRuntime = CoCoEditorLocalization.Text("Runtime", "运行时");
-            string sectionContext = CoCoEditorLocalization.Text("Context", "上下文");
-            string sectionLayers = CoCoEditorLocalization.Text("Layers", "层");
-            string sectionClaims = CoCoEditorLocalization.Text("Claims", "占用");
-
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionIdentity, "Graph", snapshot.GraphId.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionIdentity, "Instance", snapshot.GraphInstanceId.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionIdentity, "Schema", snapshot.SchemaVersion.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionIdentity, "Content Fingerprint",
-                snapshot.ContentFingerprint.ToString("X16")));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionIdentity, "Catalog Fingerprint",
-                snapshot.CatalogFingerprint.ToString("X16")));
-
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Timeline", snapshot.TimelineId.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Clock Domain", snapshot.ClockDomainId.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Epoch", snapshot.TimelineEpoch.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Tick", snapshot.Tick.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Sequence", snapshot.ExecutionSequence.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionTimeline, "Seconds", snapshot.Seconds.ToString("0.######")));
-
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionRuntime, "Lifecycle", snapshot.Lifecycle.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionRuntime, "Fault", snapshot.Fault.IsFaulted
-                    ? snapshot.Fault.Diagnostic.Message
-                    : CoCoEditorLocalization.Text("none", "无")));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionRuntime, "World Correction",
-                snapshot.RequiresWorldCorrection
-                    ? CoCoEditorLocalization.Text("required", "需要")
-                    : CoCoEditorLocalization.Text("none", "无")));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionRuntime, "Last Diagnostic",
-                snapshot.LastDiagnostic.Domain + "/" + snapshot.LastDiagnostic.Code +
-                    ": " + snapshot.LastDiagnostic.Message));
-
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionContext, "Revision", snapshot.ContextRevision.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionContext, "Origin", snapshot.ContextOrigin.Kind.ToString()));
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionContext, "Claims", snapshot.ClaimCount.ToString()));
-            CoCoStateFlowFrameHeader contextHeader = snapshot.ContextHeader;
-            rows.Add(new CoCoDebuggerSnapshotRow(
-                sectionContext,
-                "Header",
-                contextHeader.IsValid
-                    ? contextHeader.Identity.GraphInstanceId +
-                      "; Kind " + contextHeader.Identity.Kind +
-                      "; Tick " + contextHeader.Identity.Tick +
-                      "; Sequence " + contextHeader.Identity.ExecutionSequence +
-                      "; Layout " + contextHeader.LayoutId
-                    : "<" + CoCoEditorLocalization.Text("none", "无") + ">"));
-
             for (int layerIndex = 0; layerIndex < snapshot.LayerCount; layerIndex++)
             {
                 CoCoStateGraphHostDebugLayer layer = snapshot.GetLayer(layerIndex);
-                rows.Add(new CoCoDebuggerSnapshotRow(
-                    sectionLayers,
-                    layer.LayerId.ToString(),
-                    CoCoEditorLocalization.Text("Winner", "胜出") + " " +
-                        layer.WinningTransitionId));
+                var states = new System.Text.StringBuilder();
                 for (int stateIndex = 0; stateIndex < layer.ActiveStateCount; stateIndex++)
                 {
                     CoCoStateGraphHostDebugActiveState state =
                         layer.GetActiveState(stateIndex);
-                    rows.Add(new CoCoDebuggerSnapshotRow(
-                        sectionLayers,
-                        "  " + state.StateId,
-                        "Activation " + state.ActivationId +
-                            "; Local " + state.LocalSeconds.ToString("0.######") +
-                            "; Progress " + state.ActionProgress.ToString("0.######")));
+                    if (stateIndex > 0)
+                    {
+                        states.Append("\n");
+                    }
+
+                    states.Append("  ").Append(state.StateId)
+                        .Append("; Activation ").Append(state.ActivationId)
+                        .Append("; Local ").Append(
+                            state.LocalSeconds.ToString("0.######"))
+                        .Append("; Progress ").Append(
+                            state.ActionProgress.ToString("0.######"));
                 }
+
+                rows.Add(new CoCoDebuggerLayerRow(
+                    layer.LayerId.ToString(),
+                    layer.WinningTransitionId.ToString(),
+                    states.ToString()));
+            }
+
+            return rows;
+        }
+
+        /// <summary>Claims 投影行（每条一行）。</summary>
+        internal List<string> BuildClaimRows()
+        {
+            var rows = new List<string>();
+            CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
+            if (snapshot == null)
+            {
+                return rows;
             }
 
             for (int claimIndex = 0; claimIndex < snapshot.ClaimCount; claimIndex++)
             {
                 CoCoOperatorClaimState claim = snapshot.GetClaim(claimIndex);
-                rows.Add(new CoCoDebuggerSnapshotRow(
-                    sectionClaims,
-                    claim.ClaimId.ToString(),
-                    "Section " + claim.SectionId +
-                        "; " + (claim.IsHeld
-                            ? CoCoEditorLocalization.Text("held", "持有")
-                            : CoCoEditorLocalization.Text("free", "空闲")) +
-                        "; Owner " + claim.OwnerOperatorId));
+                rows.Add(
+                    claim.ClaimId +
+                    "; Section " + claim.SectionId +
+                    "; " + (claim.IsHeld
+                        ? CoCoEditorLocalization.Text("held", "持有")
+                        : CoCoEditorLocalization.Text("free", "空闲")) +
+                    "; Owner " + claim.OwnerOperatorId);
             }
 
             return rows;

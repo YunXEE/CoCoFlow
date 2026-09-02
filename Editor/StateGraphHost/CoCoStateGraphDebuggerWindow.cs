@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
@@ -15,19 +16,12 @@ namespace CoCoFlow.Editor.StateGraphHost
     /// delta 才可用）、128 条可见上限；调试记录经 CoCoLog（D7）。
     /// 菜单：CoCoFlow/StateGraph Debugger（D8 维护者裁决）。
     /// 生命周期：CreateGUI 零订阅；订阅只在 OnEnable/OnDisable 对称；generation
-    /// guard + 帧级合并刷新（P02 试点同款契约）。
+    /// guard + 帧级合并刷新；控件经 SyncControlsFromState 与数据层单向同步。
     /// </summary>
     internal sealed class CoCoStateGraphDebuggerWindow : EditorWindow
     {
         private const string ModuleUssPath =
             "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/CoCoStateGraphHostEditor.uss";
-
-        private static readonly string[] TraceFilterLabels =
-        {
-            "All",
-            "State ID",
-            "Transition ID"
-        };
 
         private readonly CoCoStateGraphHostDebuggerState _state =
             new CoCoStateGraphHostDebuggerState();
@@ -57,18 +51,14 @@ namespace CoCoFlow.Editor.StateGraphHost
         private VisualElement _snapshotCard;
         private VisualElement _snapshotFreshnessRow;
         private Label _snapshotFreshnessBadge;
-        private ListView _snapshotList;
-        private System.Collections.Generic.List<CoCoDebuggerSnapshotRow>
-            _snapshotRowsCache =
-                new System.Collections.Generic.List<CoCoDebuggerSnapshotRow>();
+        private VisualElement _snapshotSections;
+        private ListView _layerList;
+        private ListView _claimList;
         private VisualElement _traceCard;
-        private VisualElement _filterRow;
         private ToolbarToggle[] _filterToggles;
         private TextField _filterIdField;
         private Label _traceCountLabel;
         private ListView _traceList;
-        private System.Collections.Generic.List<CoCoDebuggerTraceRow> _traceRowsCache =
-            new System.Collections.Generic.List<CoCoDebuggerTraceRow>();
         private VisualElement _emptyState;
         private VisualElement _diagnosticRow;
 
@@ -84,7 +74,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 GetWindow<CoCoStateGraphDebuggerWindow>();
             window.titleContent = new GUIContent("StateGraph Debugger");
             window.minSize = new Vector2(420f, 320f);
-            window.TryFollowSelection();
+            window.SelectHost(null, followSelection: true);
             window.Show();
         }
 
@@ -94,8 +84,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 GetWindow<CoCoStateGraphDebuggerWindow>();
             window.titleContent = new GUIContent("StateGraph Debugger");
             window.minSize = new Vector2(420f, 320f);
-            window._host = host;
-            window._followSelection = false;
+            window.SelectHost(host, followSelection: false);
             window.Show();
             window.Focus();
         }
@@ -126,15 +115,26 @@ namespace CoCoFlow.Editor.StateGraphHost
             ApplyModuleTheme(root);
 
             BuildToolbar();
-            BuildHeaderCard();
-            BuildControlsCard();
-            BuildMetricsCard();
-            BuildSnapshotCard();
-            BuildTraceCard();
-            BuildDiagnosticRow();
+
+            // 内容区（ScrollView：窄窗口下所有卡可达，P2-04）。
+            var scroll = new ScrollView { name = "ccflow-debugger-scroll" };
+            scroll.Add(BuildHeaderCard());
+            _controlsCard = BuildControlsCard();
+            scroll.Add(_controlsCard);
+            _metricsCard = BuildMetricsCard();
+            scroll.Add(_metricsCard);
+            _snapshotCard = BuildSnapshotCard();
+            scroll.Add(_snapshotCard);
+            _traceCard = BuildTraceCard();
+            scroll.Add(_traceCard);
+            _diagnosticRow = new VisualElement { name = "ccflow-debugger-diagnostic" };
+            scroll.Add(_diagnosticRow);
+            root.Add(scroll);
+
             BuildEmptyState();
 
-            RebindHostField();
+            SyncHostField();
+            SyncControlsFromState();
             RefreshNow();
 
             // Play 期周期轮询（拉取 + 重投影）；重建前旧项必须暂停，防累积。
@@ -171,10 +171,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 name = "host-field"
             };
             _hostField.RegisterValueChangedCallback(evt =>
-            {
-                _host = evt.newValue as CoCoStateGraphHost;
-                ObserveAndRefresh();
-            });
+                SelectHost(evt.newValue as CoCoStateGraphHost, _followSelection));
             _hostField.style.flexGrow = 1f;
             toolbar.Add(_hostField);
 
@@ -190,14 +187,14 @@ namespace CoCoFlow.Editor.StateGraphHost
                 if (_followSelection)
                 {
                     TryFollowSelection();
-                    RefreshNow();
+                    SelectHost(_host, followSelection: true);
                 }
             });
             toolbar.Add(_followToggle);
             rootVisualElement.Add(toolbar);
         }
 
-        private void BuildHeaderCard()
+        private VisualElement BuildHeaderCard()
         {
             VisualElement card = CoCoEditorElements.CreateCard(string.Empty);
             var row = new VisualElement();
@@ -215,12 +212,12 @@ namespace CoCoFlow.Editor.StateGraphHost
             _headerIdentity.style.whiteSpace = WhiteSpace.Normal;
             row.Add(_headerIdentity);
             card.Add(row);
-            rootVisualElement.Add(card);
+            return card;
         }
 
-        private void BuildControlsCard()
+        private VisualElement BuildControlsCard()
         {
-            _controlsCard = CoCoEditorElements.CreateCard(
+            VisualElement card = CoCoEditorElements.CreateCard(
                 CoCoEditorLocalization.Text("Controls", "控制"));
 
             _refreshButton = CoCoEditorElements.CreatePrimaryButton(
@@ -247,7 +244,11 @@ namespace CoCoFlow.Editor.StateGraphHost
                 value = _deltaTime,
                 name = "delta-field"
             };
-            _deltaField.RegisterValueChangedCallback(evt => _deltaTime = evt.newValue);
+            _deltaField.RegisterValueChangedCallback(evt =>
+            {
+                _deltaTime = evt.newValue;
+                UpdateControls(); // 即时反映 step 可用性（P2-01）
+            });
             _deltaField.style.width = 150f;
 
             _stepButton = new Button(() => StepOneTick())
@@ -264,13 +265,13 @@ namespace CoCoFlow.Editor.StateGraphHost
             row.Add(_resumeButton);
             row.Add(_stepButton);
             row.Add(_deltaField);
-            _controlsCard.Add(row);
-            rootVisualElement.Add(_controlsCard);
+            card.Add(row);
+            return card;
         }
 
-        private void BuildMetricsCard()
+        private VisualElement BuildMetricsCard()
         {
-            _metricsCard = CoCoEditorElements.CreateCard(
+            VisualElement card = CoCoEditorElements.CreateCard(
                 CoCoEditorLocalization.Text("Committed State", "已提交状态"));
             var strip = new VisualElement();
             strip.AddToClassList("ccflow-host-metrics");
@@ -279,8 +280,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             _metricSequence = AddMetric(strip, "Sequence");
             _metricLayers = AddMetric(strip, "Layers");
             _metricClaims = AddMetric(strip, "Claims");
-            _metricsCard.Add(strip);
-            rootVisualElement.Add(_metricsCard);
+            card.Add(strip);
+            return card;
         }
 
         private static Label AddMetric(VisualElement strip, string label)
@@ -304,9 +305,9 @@ namespace CoCoFlow.Editor.StateGraphHost
             return value;
         }
 
-        private void BuildSnapshotCard()
+        private VisualElement BuildSnapshotCard()
         {
-            _snapshotCard = CoCoEditorElements.CreateCard(
+            VisualElement card = CoCoEditorElements.CreateCard(
                 CoCoEditorLocalization.Text("Snapshot", "快照"));
 
             _snapshotFreshnessRow = new VisualElement();
@@ -315,21 +316,48 @@ namespace CoCoFlow.Editor.StateGraphHost
             _snapshotFreshnessBadge = new Label(string.Empty);
             _snapshotFreshnessBadge.AddToClassList("ccflow-muted");
             _snapshotFreshnessRow.Add(_snapshotFreshnessBadge);
-            _snapshotCard.Add(_snapshotFreshnessRow);
+            card.Add(_snapshotFreshnessRow);
 
-            _snapshotList = new ListView
+            // 分区折叠组（P2-04：Section 可见 + 信息层级）。
+            _snapshotSections = new VisualElement { name = "ccflow-snapshot-sections" };
+            card.Add(_snapshotSections);
+
+            var layersFoldout = new Foldout
             {
-                name = "snapshot-list",
-                selectionType = SelectionType.None,
-                virtualizationMethod =
-                    CollectionVirtualizationMethod.DynamicHeight,
-                makeItem = MakeSnapshotRow,
-                bindItem = BindSnapshotRow
+                text = CoCoEditorLocalization.Text("Layers", "层"),
+                value = true
             };
-            _snapshotList.style.flexGrow = 1f;
-            _snapshotList.style.maxHeight = 320f;
-            _snapshotCard.Add(_snapshotList);
-            rootVisualElement.Add(_snapshotCard);
+            layersFoldout.AddToClassList("ccflow-foldout");
+            _layerList = new ListView
+            {
+                name = "layer-list",
+                selectionType = SelectionType.None,
+                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
+                makeItem = MakeLayerRow,
+                bindItem = BindLayerRow
+            };
+            _layerList.style.maxHeight = 200f;
+            layersFoldout.Add(_layerList);
+            card.Add(layersFoldout);
+
+            var claimsFoldout = new Foldout
+            {
+                text = CoCoEditorLocalization.Text("Claims", "占用"),
+                value = true
+            };
+            claimsFoldout.AddToClassList("ccflow-foldout");
+            _claimList = new ListView
+            {
+                name = "claim-list",
+                selectionType = SelectionType.None,
+                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
+                makeItem = MakeClaimRow,
+                bindItem = BindClaimRow
+            };
+            _claimList.style.maxHeight = 140f;
+            claimsFoldout.Add(_claimList);
+            card.Add(claimsFoldout);
+            return card;
         }
 
         private static VisualElement MakeSnapshotRow()
@@ -346,27 +374,60 @@ namespace CoCoFlow.Editor.StateGraphHost
             return row;
         }
 
-        private void BindSnapshotRow(VisualElement row, int index)
+        private static VisualElement MakeLayerRow()
         {
-            if (index < 0 || index >= _snapshotRowsCache.Count)
+            var row = new VisualElement();
+            var label = new Label { name = "ccflow-layer-text" };
+            label.AddToClassList("ccflow-host-trace-row");
+            label.style.whiteSpace = WhiteSpace.Normal;
+            row.Add(label);
+            return row;
+        }
+
+        private void BindLayerRow(VisualElement row, int index)
+        {
+            var label = row.Q<Label>("ccflow-layer-text");
+            if (index < 0 || index >= _layerRowsCache.Count)
             {
+                label.text = string.Empty;
                 return;
             }
 
-            CoCoDebuggerSnapshotRow data = _snapshotRowsCache[index];
-            row.Q<Label>("ccflow-kv-key").text = data.Key;
-            row.Q<Label>("ccflow-kv-value").text = data.Value;
+            CoCoDebuggerLayerRow data = _layerRowsCache[index];
+            label.text = data.LayerId +
+                " | " + CoCoEditorLocalization.Text("Winner", "胜出") + " " +
+                data.Winner +
+                (string.IsNullOrEmpty(data.ActiveStates) ? string.Empty : "\n" +
+                    data.ActiveStates);
         }
 
-        private void BuildTraceCard()
+        private static VisualElement MakeClaimRow()
         {
-            _traceCard = CoCoEditorElements.CreateCard(
+            var row = new VisualElement();
+            var label = new Label { name = "ccflow-claim-text" };
+            label.AddToClassList("ccflow-host-trace-row");
+            label.style.whiteSpace = WhiteSpace.Normal;
+            row.Add(label);
+            return row;
+        }
+
+        private void BindClaimRow(VisualElement row, int index)
+        {
+            var label = row.Q<Label>("ccflow-claim-text");
+            label.text = index >= 0 && index < _claimRowsCache.Count
+                ? _claimRowsCache[index]
+                : string.Empty;
+        }
+
+        private VisualElement BuildTraceCard()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
                 CoCoEditorLocalization.Text("Trace", "Trace 历史"));
 
-            _filterRow = new VisualElement();
-            _filterRow.style.flexDirection = FlexDirection.Row;
-            _filterRow.style.flexWrap = Wrap.Wrap;
-            _filterRow.style.marginBottom = 4f;
+            var filterRow = new VisualElement();
+            filterRow.style.flexDirection = FlexDirection.Row;
+            filterRow.style.flexWrap = Wrap.Wrap;
+            filterRow.style.marginBottom = 4f;
 
             _filterToggles = new ToolbarToggle[3];
             for (int index = 0; index < _filterToggles.Length; index++)
@@ -374,7 +435,8 @@ namespace CoCoFlow.Editor.StateGraphHost
                 int captured = index;
                 var toggle = new ToolbarToggle
                 {
-                    text = TraceFilterLabels[index],
+                    text = TraceFilterLabel(
+                        (CoCoStateGraphHostTraceFilterMode)index),
                     name = "trace-filter-" + index
                 };
                 toggle.RegisterValueChangedCallback(evt =>
@@ -391,7 +453,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     }
                 });
                 _filterToggles[index] = toggle;
-                _filterRow.Add(toggle);
+                filterRow.Add(toggle);
             }
 
             _filterIdField = new TextField("ID")
@@ -405,28 +467,26 @@ namespace CoCoFlow.Editor.StateGraphHost
                 MarkDirty();
             });
             _filterIdField.style.width = 280f;
-            _filterRow.Add(_filterIdField);
-            _traceCard.Add(_filterRow);
+            filterRow.Add(_filterIdField);
+            card.Add(filterRow);
 
             _traceCountLabel = new Label(string.Empty);
             _traceCountLabel.AddToClassList("ccflow-muted");
             _traceCountLabel.style.whiteSpace = WhiteSpace.Normal;
             _traceCountLabel.style.marginBottom = 4f;
-            _traceCard.Add(_traceCountLabel);
+            card.Add(_traceCountLabel);
 
             _traceList = new ListView
             {
                 name = "trace-list",
                 selectionType = SelectionType.None,
-                virtualizationMethod =
-                    CollectionVirtualizationMethod.DynamicHeight,
+                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
                 makeItem = MakeTraceRow,
                 bindItem = BindTraceRow
             };
-            _traceList.style.flexGrow = 1f;
             _traceList.style.maxHeight = 260f;
-            _traceCard.Add(_traceList);
-            rootVisualElement.Add(_traceCard);
+            card.Add(_traceList);
+            return card;
         }
 
         private static VisualElement MakeTraceRow()
@@ -441,12 +501,13 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private void BindTraceRow(VisualElement row, int index)
         {
+            var label = row.Q<Label>("ccflow-trace-text");
             if (index < 0 || index >= _traceRowsCache.Count)
             {
+                label.text = string.Empty;
                 return;
             }
 
-            var label = row.Q<Label>("ccflow-trace-text");
             CoCoDebuggerTraceRow data = _traceRowsCache[index];
             label.text = data.Text;
             label.EnableInClassList(
@@ -454,38 +515,42 @@ namespace CoCoFlow.Editor.StateGraphHost
                 data.IsGroupHeader);
         }
 
-        private void BuildDiagnosticRow()
-        {
-            _diagnosticRow = new VisualElement { name = "ccflow-debugger-diagnostic" };
-            rootVisualElement.Add(_diagnosticRow);
-        }
-
         private void BuildEmptyState()
         {
-            _emptyState = CoCoEditorElements.CreateEmptyState(
-                CoCoEditorLocalization.Text(
-                    "Runtime debugging becomes available for a live Play Mode Host",
-                    "运行时调试在 Play 模式的活跃 Host 上可用"),
-                CoCoEditorLocalization.Text(
-                    "Select a CoCoStateGraphHost and enter Play Mode.",
-                    "选择一个 CoCoStateGraphHost 并进入 Play 模式。"),
-                CoCoEditorLocalization.Text(
-                    "Keep Follow Selection on to inspect the Host under selection.",
-                    "保持「跟随选择」开启即可检视当前选中的 Host。"));
+            _emptyState = new VisualElement { name = "ccflow-debugger-empty" };
+            _emptyState.AddToClassList("ccflow-empty");
             rootVisualElement.Add(_emptyState);
         }
 
-        // ===== 数据流 =====
-
-        private void RebindHostField()
+        private void RebuildEmptyState(string title, string message, string firstStep)
         {
-            _hostField.SetValueWithoutNotify(_host);
+            _emptyState.Clear();
+            var titleLabel = new Label(title);
+            titleLabel.AddToClassList("ccflow-empty__title");
+            var messageLabel = new Label(message);
+            messageLabel.AddToClassList("ccflow-empty__message");
+            var firstStepLabel = new Label(firstStep);
+            firstStepLabel.AddToClassList("ccflow-empty__first-step");
+            _emptyState.Add(titleLabel);
+            _emptyState.Add(messageLabel);
+            _emptyState.Add(firstStepLabel);
         }
 
-        private void ObserveAndRefresh()
+        // ===== 宿主选择（唯一路径：Open / ObjectField / Follow / Selection） =====
+
+        private void SelectHost(CoCoStateGraphHost host, bool followSelection)
         {
+            _host = host;
+            _followSelection = followSelection;
+            SyncHostField();
             _state.ObserveIdentity(_host);
-            RefreshNow();
+            PullAndRefresh();
+        }
+
+        private void SyncHostField()
+        {
+            _hostField?.SetValueWithoutNotify(_host);
+            _followToggle?.SetValueWithoutNotify(_followSelection);
         }
 
         private void TryFollowSelection()
@@ -504,8 +569,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
 
             TryFollowSelection();
-            RebindHostField();
-            ObserveAndRefresh();
+            SelectHost(_host, followSelection: true);
             Repaint();
         }
 
@@ -566,7 +630,8 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return;
             }
 
-            if (!_host.TryDebugStepWhileSuspended(_deltaTime, out CoCoDiagnostic diagnostic))
+            if (!_host.TryDebugStepWhileSuspended(
+                    _deltaTime, out CoCoDiagnostic diagnostic))
             {
                 CoCoLog.Error("[StateGraph Debugger] One-tick step failed: " +
                     diagnostic.Message);
@@ -575,22 +640,49 @@ namespace CoCoFlow.Editor.StateGraphHost
             PullAndRefresh();
         }
 
-        // ===== 过滤器 =====
+        // ===== 过滤器（模型 → 控件单向同步） =====
+
+        private static string TraceFilterLabel(
+            CoCoStateGraphHostTraceFilterMode mode)
+        {
+            switch (mode)
+            {
+                case CoCoStateGraphHostTraceFilterMode.StateId:
+                    return CoCoEditorLocalization.Text("State ID", "State ID");
+                case CoCoStateGraphHostTraceFilterMode.TransitionId:
+                    return CoCoEditorLocalization.Text(
+                        "Transition ID", "Transition ID");
+                default:
+                    return CoCoEditorLocalization.Text("All", "全部");
+            }
+        }
 
         private void SetTraceFilterMode(CoCoStateGraphHostTraceFilterMode mode)
         {
             _state.SetTraceFilter(mode, _state.TraceFilterText);
+            SyncFilterControlsFromState();
+            MarkDirty();
+        }
+
+        /// <summary>控件 ← 数据层单向同步（身份重置/delta 变化后调用，P2-01）。</summary>
+        private void SyncControlsFromState()
+        {
+            if (_filterToggles == null)
+            {
+                return;
+            }
+
             for (int index = 0; index < _filterToggles.Length; index++)
             {
                 _filterToggles[index].SetValueWithoutNotify(
-                    (int)mode == index);
+                    (int)_state.TraceFilterMode == index);
             }
 
+            _filterIdField.SetValueWithoutNotify(_state.TraceFilterText);
             _filterIdField.style.display =
-                mode == CoCoStateGraphHostTraceFilterMode.All
+                _state.TraceFilterMode == CoCoStateGraphHostTraceFilterMode.All
                     ? DisplayStyle.None
                     : DisplayStyle.Flex;
-            MarkDirty();
         }
 
         // ===== 刷新（帧级合并 + generation guard） =====
@@ -624,6 +716,10 @@ namespace CoCoFlow.Editor.StateGraphHost
             });
         }
 
+        private readonly List<CoCoDebuggerLayerRow> _layerRowsCache = new();
+        private readonly List<string> _claimRowsCache = new();
+        private readonly List<CoCoDebuggerTraceRow> _traceRowsCache = new();
+
         private void RefreshNow()
         {
             _pendingRefresh = false;
@@ -632,10 +728,11 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return;
             }
 
+            SyncFilterControlsFromState();
             UpdateHeader();
             UpdateControls();
             UpdateMetrics();
-            UpdateSnapshotList();
+            UpdateSnapshotCard();
             UpdateTraceList();
             UpdateDiagnosticRow();
             UpdateEmptyState();
@@ -643,7 +740,6 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private void UpdateHeader()
         {
-            bool live = _host != null && _host.HasLiveRuntime;
             if (_headerBadge != null)
             {
                 var badgeText = _headerBadge.Q<Label>("ccflow-badge-text");
@@ -665,6 +761,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             if (_headerIdentity != null)
             {
+                bool live = _host != null && _host.HasLiveRuntime;
                 _headerIdentity.text = live && _host.GraphInstanceId.IsValid
                     ? _host.name + " · instance " + _host.GraphInstanceId
                     : _host == null ? string.Empty : _host.name;
@@ -673,23 +770,18 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private void UpdateControls()
         {
-            if (_controlsCard == null || _host == null)
-            {
-                if (_controlsCard != null)
-                {
-                    _controlsCard.SetEnabled(false);
-                }
-
-                return;
-            }
-
-            bool live = _host.HasLiveRuntime;
-            _controlsCard.SetEnabled(live);
-            if (!live)
+            if (_controlsCard == null)
             {
                 return;
             }
 
+            if (_host == null || !_host.HasLiveRuntime)
+            {
+                _controlsCard.SetEnabled(false);
+                return;
+            }
+
+            _controlsCard.SetEnabled(true);
             CoCoRuntimeLifecycleState lifecycle = _host.Lifecycle;
             _suspendButton.SetEnabled(
                 lifecycle == CoCoRuntimeLifecycleState.Running &&
@@ -729,16 +821,46 @@ namespace CoCoFlow.Editor.StateGraphHost
             _metricClaims.text = snapshot.ClaimCount.ToString();
         }
 
-        private void UpdateSnapshotList()
+        private void UpdateSnapshotCard()
         {
-            if (_snapshotList == null)
+            if (_snapshotSections == null)
             {
                 return;
             }
 
-            _snapshotRowsCache = _state.BuildSnapshotRows();
-            _snapshotList.itemsSource = _snapshotRowsCache;
-            _snapshotList.RefreshItems();
+            _snapshotSections.Clear();
+            List<CoCoDebuggerSnapshotSection> sections =
+                _state.BuildSnapshotSections();
+            for (int index = 0; index < sections.Count; index++)
+            {
+                CoCoDebuggerSnapshotSection section = sections[index];
+                var foldout = new Foldout
+                {
+                    text = section.Title,
+                    value = true
+                };
+                foldout.AddToClassList("ccflow-foldout");
+                IReadOnlyList<CoCoDebuggerSnapshotRow> rows = section.Rows;
+                for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+                {
+                    VisualElement row = MakeSnapshotRow();
+                    row.Q<Label>("ccflow-kv-key").text = rows[rowIndex].Key;
+                    row.Q<Label>("ccflow-kv-value").text = rows[rowIndex].Value;
+                    foldout.Add(row);
+                }
+
+                _snapshotSections.Add(foldout);
+            }
+
+            _layerRowsCache.Clear();
+            _layerRowsCache.AddRange(_state.BuildLayerRows());
+            _layerList.itemsSource = _layerRowsCache;
+            _layerList.RefreshItems();
+
+            _claimRowsCache.Clear();
+            _claimRowsCache.AddRange(_state.BuildClaimRows());
+            _claimList.itemsSource = _claimRowsCache;
+            _claimList.RefreshItems();
 
             if (_snapshotFreshnessBadge != null)
             {
@@ -753,15 +875,8 @@ namespace CoCoFlow.Editor.StateGraphHost
                         _snapshotFreshnessBadge.style.color =
                             new Color(0.82f, 0.57f, 0.14f);
                         break;
-                    case CoCoDebuggerSnapshotFreshness.Fresh:
-                        _snapshotFreshnessRow.style.display = DisplayStyle.None;
-                        break;
                     default:
-                        _snapshotFreshnessRow.style.display =
-                            _state.Snapshot == null
-                                ? DisplayStyle.None
-                                : DisplayStyle.Flex;
-                        _snapshotFreshnessBadge.text = string.Empty;
+                        _snapshotFreshnessRow.style.display = DisplayStyle.None;
                         break;
                 }
             }
@@ -786,18 +901,15 @@ namespace CoCoFlow.Editor.StateGraphHost
                 $"计数 {count}；容量 {capacity}；累计写入 {totalWritten}；" +
                     $"可见 {visible}");
 
-            if (capacity == 0 && _host != null && _host.Trace == null)
+            if (_host != null && _host.Trace == null)
             {
-                _traceRowsCache =
-                    new System.Collections.Generic.List<CoCoDebuggerTraceRow>
-                    {
-                        new CoCoDebuggerTraceRow(
-                            true,
-                            CoCoEditorLocalization.Text(
-                                "Trace Capacity is 0 — stop the Host, set a positive " +
-                                    "capacity, and restart to record history",
-                                "Trace 容量为 0——停止 Host，设置正容量并重启以记录历史"))
-                    };
+                _traceRowsCache.Clear();
+                _traceRowsCache.Add(new CoCoDebuggerTraceRow(
+                    true,
+                    CoCoEditorLocalization.Text(
+                        "Trace Capacity is 0 — stop the Host, set a positive " +
+                            "capacity, and restart to record history",
+                        "Trace 容量为 0——停止 Host，设置正容量并重启以记录历史")));
                 _traceList.itemsSource = _traceRowsCache;
                 _traceList.RefreshItems();
                 return;
@@ -805,19 +917,17 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             if (!string.IsNullOrEmpty(_state.TraceFilterValidationMessage))
             {
-                _traceRowsCache =
-                    new System.Collections.Generic.List<CoCoDebuggerTraceRow>
-                    {
-                        new CoCoDebuggerTraceRow(
-                            true,
-                            _state.TraceFilterValidationMessage)
-                    };
+                _traceRowsCache.Clear();
+                _traceRowsCache.Add(new CoCoDebuggerTraceRow(
+                    true,
+                    _state.TraceFilterValidationMessage));
                 _traceList.itemsSource = _traceRowsCache;
                 _traceList.RefreshItems();
                 return;
             }
 
-            _traceRowsCache = _state.BuildTraceRows();
+            _traceRowsCache.Clear();
+            _traceRowsCache.AddRange(_state.BuildTraceRows());
             _traceList.itemsSource = _traceRowsCache;
             _traceList.RefreshItems();
         }
@@ -842,6 +952,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 CoCoEditorBadgeKind.Error));
         }
 
+        /// <summary>空状态区分原因（未运行 / 无宿主 / 宿主未启动，P2-04）。</summary>
         private void UpdateEmptyState()
         {
             if (_emptyState == null)
@@ -853,10 +964,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             bool hasHost = _host != null;
             bool live = hasHost && _host.HasLiveRuntime;
             bool show = !playing || !hasHost || !live;
-
             _emptyState.style.display =
                 show ? DisplayStyle.Flex : DisplayStyle.None;
-            var mainList = rootVisualElement;
             _snapshotCard.style.display =
                 show ? DisplayStyle.None : DisplayStyle.Flex;
             _metricsCard.style.display =
@@ -865,7 +974,49 @@ namespace CoCoFlow.Editor.StateGraphHost
                 show ? DisplayStyle.None : DisplayStyle.Flex;
             _controlsCard.style.display =
                 show ? DisplayStyle.None : DisplayStyle.Flex;
-            mainList.MarkDirtyRepaint();
+            if (!show)
+            {
+                return;
+            }
+
+            if (!playing)
+            {
+                RebuildEmptyState(
+                    CoCoEditorLocalization.Text(
+                        "Runtime debugging becomes available in Play Mode",
+                        "运行时调试在 Play 模式可用"),
+                    CoCoEditorLocalization.Text(
+                        "The committed snapshot and Trace reflect a live Host.",
+                        "提交快照与 Trace 反映运行中的 Host。"),
+                    CoCoEditorLocalization.Text(
+                        "Enter Play Mode with a Host in the scene.",
+                        "场景中放置 Host 并进入 Play 模式。"));
+                return;
+            }
+
+            if (!hasHost)
+            {
+                RebuildEmptyState(
+                    CoCoEditorLocalization.Text(
+                        "No Host selected", "未选择宿主"),
+                    CoCoEditorLocalization.Text(
+                        "Pick a CoCoStateGraphHost to observe its committed state.",
+                        "选择一个 CoCoStateGraphHost 以观察其已提交状态。"),
+                    CoCoEditorLocalization.Text(
+                        "Keep Follow Selection on to inspect the Host under selection.",
+                        "保持「跟随选择」开启即可检视当前选中的 Host。"));
+                return;
+            }
+
+            RebuildEmptyState(
+                CoCoEditorLocalization.Text(
+                    "Host runtime is not live", "宿主运行时未启动"),
+                CoCoEditorLocalization.Text(
+                    "The Host has no live runtime yet (not started, stopped, or faulted).",
+                    "该 Host 尚无活跃运行时（未启动、已停止或已故障）。"),
+                CoCoEditorLocalization.Text(
+                    "Check Auto Start / driver settings or start the Host, then refresh.",
+                    "检查自动启动/驱动设置或启动 Host 后刷新。"));
         }
 
         private static CoCoEditorBadgeKind LifecycleToBadgeKind(

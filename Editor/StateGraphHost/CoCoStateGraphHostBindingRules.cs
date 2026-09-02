@@ -50,6 +50,8 @@ namespace CoCoFlow.Editor.StateGraphHost
     {
         internal const int MaximumRestoreChainDepth = 32;
 
+        internal const string DownstreamPropertyName = "downstreamRestoreBinding";
+
         // ----- 接口识别 -----
 
         internal static bool IsIntentFrameSource(MonoBehaviour component)
@@ -188,7 +190,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             return null;
         }
 
-        /// <summary>Operator 装配提示：空引用（Info）、无接口（Error）、越界（Warning）。</summary>
+        /// <summary>Operator 装配提示：空引用（Error；Runtime 对任何 null Operator 条目整体拒绝启动）、无接口（Error）、越界（Warning）。</summary>
         internal static CoCoBindingHint? BuildOperatorHint(
             CoCoStateGraphHost host,
             MonoBehaviour component)
@@ -196,10 +198,12 @@ namespace CoCoFlow.Editor.StateGraphHost
             if (component == null)
             {
                 return new CoCoBindingHint(
-                    CoCoBindingHintKind.Info,
+                    CoCoBindingHintKind.Error,
                     null,
-                    "empty Operator slot — the slot stays unbound at startup",
-                    "Operator 空槽位——启动时保持未绑定");
+                    "empty Operator slot — the runtime rejects every Host Operator " +
+                        "entry before Running, so the Host cannot start",
+                    "Operator 空槽位——运行时在 Running 前逐条校验 Operator 数组，" +
+                        "Host 无法启动");
             }
 
             if (!IsOperator(component))
@@ -336,26 +340,31 @@ namespace CoCoFlow.Editor.StateGraphHost
                 MonoBehaviour component,
                 bool isRoot,
                 bool implementsContract,
-                bool isRepeat)
+                bool isRepeat,
+                bool isInsideBoundary)
             {
                 Component = component;
                 IsRoot = isRoot;
                 ImplementsContract = implementsContract;
                 IsRepeat = isRepeat;
+                IsInsideBoundary = isInsideBoundary;
             }
 
             internal MonoBehaviour Component { get; }
             internal bool IsRoot { get; }
             internal bool ImplementsContract { get; }
             internal bool IsRepeat { get; }
+            internal bool IsInsideBoundary { get; }
         }
 
         /// <summary>
         /// 从根走查下游链（深度上限 32，环防护）；在首个断点
-        /// （未实现契约 / 重复节点）处停止并标记该节点。
+        /// （未实现契约 / 重复节点 / 越界节点）处停止并标记该节点。
+        /// Runtime 对链上每个节点强制同 Host 边界（TemporalContracts）。
         /// </summary>
         internal static void BuildRestoreChainPreview(
             MonoBehaviour root,
+            CoCoStateGraphHost host,
             List<CoCoRestoreChainNode> nodes)
         {
             nodes.Clear();
@@ -371,12 +380,15 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 bool implementsContract = current is ICoCoContextRestoreBinding;
                 bool isRepeat = !seen.Add(current);
+                bool isInsideBoundary =
+                    CoCoStateGraphHostBoundary.Contains(host, current);
                 nodes.Add(new CoCoRestoreChainNode(
                     current,
                     current == root,
                     implementsContract,
-                    isRepeat));
-                if (!implementsContract || isRepeat)
+                    isRepeat,
+                    isInsideBoundary));
+                if (!implementsContract || isRepeat || !isInsideBoundary)
                 {
                     return;
                 }
@@ -386,7 +398,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
         }
 
-        /// <summary>链上首个断点提示（无断点返回 null）。</summary>
+        /// <summary>链上首个断点提示（无断点返回 null）：未实现契约 / 环 / 越界。</summary>
         internal static CoCoBindingHint? BuildRestoreChainBreakHint(
             IReadOnlyList<CoCoRestoreChainNode> nodes)
         {
@@ -398,7 +410,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             for (int index = 0; index < nodes.Count; index++)
             {
                 CoCoRestoreChainNode node = nodes[index];
-                if (node.ImplementsContract && !node.IsRepeat)
+                if (node.ImplementsContract && !node.IsRepeat && node.IsInsideBoundary)
                 {
                     continue;
                 }
@@ -412,6 +424,18 @@ namespace CoCoFlow.Editor.StateGraphHost
                             "ICoCoContextRestoreBinding",
                         node.Component.name + " 中断链——它未实现 " +
                             "ICoCoContextRestoreBinding");
+                }
+
+                if (!node.IsInsideBoundary)
+                {
+                    return new CoCoBindingHint(
+                        CoCoBindingHintKind.Error,
+                        node.Component,
+                        node.Component.name + " is outside the Host boundary — every " +
+                            "chain node must stay inside the same Host boundary or " +
+                            "the runtime rejects the chain",
+                        node.Component.name + " 位于 Host 边界之外——链上每个节点" +
+                            "必须留在同一 Host 边界内，否则运行时拒绝该链");
                 }
 
                 return new CoCoBindingHint(
@@ -456,11 +480,43 @@ namespace CoCoFlow.Editor.StateGraphHost
             SortByHierarchy(chain);
         }
 
-        /// <summary>自动连接前置校验：非空 + 全部实现契约 + 无重复（B2：失败零写入）。</summary>
-        internal static bool TryValidateRestoreChain(
+        /// <summary>
+        /// 自动连接写入计划（B2）：root 赋值 + 逐对 downstream 链接 + 尾节点清空。
+        /// 由 <see cref="TryBuildRestoreWirePlan"/> 在零写入前提下完整解析。
+        /// </summary>
+        internal readonly struct CoCoRestoreWirePlan
+        {
+            internal CoCoRestoreWirePlan(
+                MonoBehaviour root,
+                List<MonoBehaviour> upstreams,
+                List<MonoBehaviour> downstreams,
+                MonoBehaviour tailToClear)
+            {
+                Root = root;
+                Upstreams = upstreams;
+                Downstreams = downstreams;
+                TailToClear = tailToClear;
+            }
+
+            internal MonoBehaviour Root { get; }
+            internal IReadOnlyList<MonoBehaviour> Upstreams { get; }
+            internal IReadOnlyList<MonoBehaviour> Downstreams { get; }
+            internal MonoBehaviour TailToClear { get; }
+        }
+
+        /// <summary>
+        /// 自动连接前置校验与写入目标解析（B2：失败零写入）：
+        /// 非空、全部实现契约、无重复、全在边界内，且每个非尾节点实现
+        /// ICoCoTemporalDecoratorBinding 并具备可写的 downstreamRestoreBinding
+        /// 序列化字段；尾节点如具备该字段则列入清空目标。任何目标缺失立即失败。
+        /// </summary>
+        internal static bool TryBuildRestoreWirePlan(
+            CoCoStateGraphHost host,
             IReadOnlyList<MonoBehaviour> chain,
+            out CoCoRestoreWirePlan plan,
             out CoCoBindingHint failure)
         {
+            plan = default;
             if (chain == null || chain.Count == 0)
             {
                 failure = new CoCoBindingHint(
@@ -500,6 +556,17 @@ namespace CoCoFlow.Editor.StateGraphHost
                     return false;
                 }
 
+                if (!CoCoStateGraphHostBoundary.Contains(host, component))
+                {
+                    failure = new CoCoBindingHint(
+                        CoCoBindingHintKind.Warning,
+                        component,
+                        component.name + " is outside the Host boundary — abort, " +
+                            "nothing was written",
+                        component.name + " 位于 Host 边界之外——中止，未写入任何内容");
+                    return false;
+                }
+
                 if (!seen.Add(component))
                 {
                     failure = new CoCoBindingHint(
@@ -512,29 +579,90 @@ namespace CoCoFlow.Editor.StateGraphHost
                 }
             }
 
+            var upstreams = new List<MonoBehaviour>(chain.Count - 1);
+            var downstreams = new List<MonoBehaviour>(chain.Count - 1);
+            for (int index = 0; index + 1 < chain.Count; index++)
+            {
+                MonoBehaviour upstream = chain[index];
+                MonoBehaviour downstream = chain[index + 1];
+                if (!(upstream is ICoCoTemporalDecoratorBinding))
+                {
+                    failure = new CoCoBindingHint(
+                        CoCoBindingHintKind.Warning,
+                        upstream,
+                        upstream.name + " sits before another binding but implements " +
+                            "no ICoCoTemporalDecoratorBinding — the chain cannot " +
+                            "link, abort, nothing was written",
+                        upstream.name + " 位于另一绑定之前但未实现 " +
+                            "ICoCoTemporalDecoratorBinding——无法成链，中止，未写入任何内容");
+                    return false;
+                }
+
+                if (FindDownstreamProperty(upstream) == null)
+                {
+                    failure = new CoCoBindingHint(
+                        CoCoBindingHintKind.Warning,
+                        upstream,
+                        upstream.name + " has no writable downstreamRestoreBinding " +
+                            "field — the chain cannot link, abort, nothing was " +
+                            "written",
+                        upstream.name + " 没有可写的 downstreamRestoreBinding " +
+                            "字段——无法成链，中止，未写入任何内容");
+                    return false;
+                }
+
+                upstreams.Add(upstream);
+                downstreams.Add(downstream);
+            }
+
+            MonoBehaviour tail = chain[chain.Count - 1];
+            MonoBehaviour tailToClear =
+                chain.Count == 1 || FindDownstreamProperty(tail) != null ? tail : null;
+            plan = new CoCoRestoreWirePlan(
+                chain[0],
+                upstreams,
+                downstreams,
+                tailToClear);
             failure = default;
             return true;
         }
 
-        // ----- 场景候选（菜单用，全场景；现状保持：输入源常在全局 rig） -----
-
-        /// <summary>
-        /// 全场景扫描 Intent Source 候选（排除已分配；越界组件仍列出，
-        /// 由行内提示警告——与现状一致）。
-        /// </summary>
-        internal static void CollectSceneIntentSources(
-            IReadOnlyList<MonoBehaviour> assigned,
-            List<MonoBehaviour> results)
+        /// <summary>downstream 序列化字段查找（写入 seam；只读查询）。</summary>
+        internal static SerializedProperty FindDownstreamProperty(
+            MonoBehaviour component)
         {
-            CollectSceneMatches(assigned, results, IsIntentFrameSource);
+            return new SerializedObject(component)
+                .FindProperty(DownstreamPropertyName);
         }
 
-        /// <summary>全场景扫描 Operator 候选（排除已分配）。</summary>
-        internal static void CollectSceneOperators(
+        // ----- 场景候选（菜单用；方案 v3 §2.2：边界过滤 + 最近宿主 + 已分配排除） -----
+
+        /// <summary>
+        /// Intent Source 候选：复用 CoCoStateGraphHostBindingCandidates
+        /// （边界过滤 + 嵌套宿主排除 + 已分配排除；Runtime 对清单槽位
+        /// 强制同边界，越界候选会被启动拒绝，不列入）。
+        /// </summary>
+        internal static void CollectIntentSourceCandidates(
+            CoCoStateGraphHost host,
             IReadOnlyList<MonoBehaviour> assigned,
             List<MonoBehaviour> results)
         {
-            CollectSceneMatches(assigned, results, IsOperator);
+            CoCoStateGraphHostBindingCandidates.FindIntentSources(
+                host,
+                assigned,
+                results);
+        }
+
+        /// <summary>Operator 候选：同边界规则（Runtime 启动拒绝越界 Operator）。</summary>
+        internal static void CollectOperatorCandidates(
+            CoCoStateGraphHost host,
+            IReadOnlyList<MonoBehaviour> assigned,
+            List<MonoBehaviour> results)
+        {
+            CoCoStateGraphHostBindingCandidates.FindOperators(
+                host,
+                assigned,
+                results);
         }
 
         /// <summary>
@@ -564,47 +692,6 @@ namespace CoCoFlow.Editor.StateGraphHost
                     results.Add(component);
                 }
             }
-        }
-
-        private static void CollectSceneMatches(
-            IReadOnlyList<MonoBehaviour> assigned,
-            List<MonoBehaviour> results,
-            Func<MonoBehaviour, bool> matches)
-        {
-            results.Clear();
-            foreach (MonoBehaviour component in FindObjectsByType<MonoBehaviour>(
-                     FindObjectsInactive.Include,
-                     FindObjectsSortMode.None))
-            {
-                if (component == null ||
-                    !matches(component) ||
-                    ContainsReference(assigned, component))
-                {
-                    continue;
-                }
-
-                results.Add(component);
-            }
-        }
-
-        private static bool ContainsReference(
-            IReadOnlyList<MonoBehaviour> assigned,
-            MonoBehaviour candidate)
-        {
-            if (assigned == null)
-            {
-                return false;
-            }
-
-            for (int index = 0; index < assigned.Count; index++)
-            {
-                if (ReferenceEquals(assigned[index], candidate))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         // ----- 排序（层级路径，其次类型名；语义保持） -----
