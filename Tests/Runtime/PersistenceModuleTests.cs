@@ -829,5 +829,230 @@ namespace CoCoFlow.Tests.Runtime.ContextLifecycle
             internal Component Host { get; }
             internal PersistenceContext Persistence { get; }
         }
+
+        [OneTimeSetUp]
+        public void RegisterTestContextAdapterOnce()
+        {
+            // F6 lifecycle: static singleton, narrow match, idempotent registration.
+            PersistenceContextAdapterRegistry.Register(TestContextAdapter.Instance);
+            PersistenceContextAdapterRegistry.Register(TestContextAdapter.Instance);
+        }
+
+        [Test]
+        public void PendingDocumentAppliesThroughRegisteredAdapterWhenContextRegisters()
+        {
+            var root = new GameObject("Pending Adapter Apply Test");
+            try
+            {
+                var provider = root.AddComponent<TestContextProviderBehaviour>();
+                var persistenceContext = root.AddComponent<PersistenceContext>();
+                SetPrivateField(persistenceContext, "stableEntityId", "scene.test.pending");
+
+                var record = new PersistenceContextRecord
+                {
+                    stableEntityId = "scene.test.pending",
+                    lifecycleState = (int)CoCoLifecycleState.Active,
+                    semanticStateId = 42
+                };
+                record.StringFacts["test.marker"] = "applied";
+
+                var contextSection = new PersistenceContextSection();
+                contextSection.AddOrReplace(record);
+                PersistenceSession.SetPendingDocument(PersistenceSaveDocument.Create(
+                    0,
+                    contextSection,
+                    new PersistenceContainerSection()));
+
+                PersistenceContextRegistry.Register(persistenceContext);
+
+                Assert.AreEqual(CoCoLifecycleState.Active, provider.Context.Lifecycle.State);
+                Assert.AreEqual(42, provider.Context.SemanticStateId);
+                Assert.AreEqual("applied", provider.Context.LastMarker);
+                Assert.AreEqual("scene.test.pending", provider.Context.Identity.StableEntityId);
+            }
+            finally
+            {
+                PersistenceSession.ClearPendingDocument();
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void ContainerBridgeGrantsRewardWithoutContextCoupling()
+        {
+            var root = new GameObject("Reward Grant Bridge Test");
+            var catalog = ScriptableObject.CreateInstance<PersistenceContainerCatalog>();
+            try
+            {
+                catalog.rewardDefinitions.Add(new PersistenceRewardDefinition
+                {
+                    rewardId = "reward.test.gem",
+                    entries = new List<PersistenceContainerEntryTemplate>
+                    {
+                        new PersistenceContainerEntryTemplate
+                        {
+                            entryType = PersistenceContainerEntryType.Item,
+                            definitionId = "item.gem.red",
+                            count = 1
+                        }
+                    }
+                });
+                ConfigureTestContainerCatalog(catalog);
+
+                var store = root.AddComponent<PersistenceContainerStore>();
+                store.SetCatalog(catalog);
+                store.EnsureContainer(
+                    PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                    PersistenceContainerStore.DefaultItemStorageDefinitionId,
+                    PersistenceContainerType.ItemStorage);
+                var bridge = root.AddComponent<PersistenceContainerBridge>();
+                bridge.SetActorId("actor.test");
+                bridge.SetContainerId(PersistenceContainerStore.DefaultPlayerInventoryContainerId);
+
+                Assert.IsTrue(bridge.RequestGrantReward("reward.test.gem"));
+                Assert.AreEqual(
+                    1,
+                    store.GetItemCount(
+                        PersistenceContainerStore.DefaultPlayerInventoryContainerId,
+                        "item.gem.red"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(catalog);
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void LegacyRecordUsesAdapterPathWhenRunningStateGraphHostIsCoLocated()
+        {
+            var root = new GameObject("Co-Located Host Adapter Path Test");
+            Component host = null;
+            try
+            {
+                root.SetActive(false);
+                host = root.AddComponent(ResolveStateGraphHostType());
+                SetPrivateField(host, "autoStart", false);
+                SetHostLifecycleToRunning(host);
+
+                var provider = root.AddComponent<TestContextProviderBehaviour>();
+                var persistenceContext = root.AddComponent<PersistenceContext>();
+                SetPrivateField(persistenceContext, "stableEntityId", "scene.test.colocated");
+                root.SetActive(true);
+
+                object lifecycle = host.GetType()
+                    .GetProperty("Lifecycle", BindingFlags.Instance | BindingFlags.Public)
+                    ?.GetValue(host);
+                Assert.AreEqual("Running", lifecycle?.ToString());
+
+                var record = new PersistenceContextRecord
+                {
+                    stableEntityId = "scene.test.colocated",
+                    lifecycleState = (int)CoCoLifecycleState.Active,
+                    semanticStateId = 7
+                };
+                record.StringFacts["test.marker"] = "colocated-applied";
+
+                Assert.IsTrue(persistenceContext.TryApply(record));
+                Assert.AreEqual(CoCoLifecycleState.Active, provider.Context.Lifecycle.State);
+                Assert.AreEqual(7, provider.Context.SemanticStateId);
+                Assert.AreEqual("colocated-applied", provider.Context.LastMarker);
+                Assert.AreEqual(
+                    "scene.test.colocated",
+                    provider.Context.Identity.StableEntityId);
+            }
+            finally
+            {
+                if (host != null)
+                {
+                    SetPrivateField(host, "_runtime", null);
+                }
+
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        internal sealed class TestEntityContext : CoCoEntityContext
+        {
+            public string LastMarker { get; private set; } = string.Empty;
+
+            public void ApplyMarker(string marker)
+            {
+                LastMarker = marker;
+            }
+        }
+
+        internal sealed class TestContextProviderBehaviour :
+            MonoBehaviour,
+            ICoCoContextProvider<TestEntityContext>
+        {
+            public TestEntityContext Context { get; } = new TestEntityContext();
+        }
+
+        internal sealed class TestContextAdapter : IPersistenceContextAdapter
+        {
+            public static readonly TestContextAdapter Instance = new TestContextAdapter();
+
+            private TestContextAdapter() { }
+
+            public bool CanCapture(ICoCoContext context)
+            {
+                return context is TestEntityContext;
+            }
+
+            public bool CanApply(PersistenceContextRecord record, ICoCoContext context)
+            {
+                return context is TestEntityContext;
+            }
+
+            public PersistenceContextRecord Capture(string stableEntityId, ICoCoContext context)
+            {
+                var entity = (TestEntityContext)context;
+                return new PersistenceContextRecord
+                {
+                    stableEntityId = stableEntityId,
+                    contextType = entity.GetType().AssemblyQualifiedName,
+                    lifecycleState = (int)entity.Lifecycle.State,
+                    semanticStateId = entity.SemanticStateId,
+                    actionStateId = entity.ActionStateId,
+                    lastEventSequence = entity.LastEventSequence
+                };
+            }
+
+            public void Apply(PersistenceContextRecord record, ICoCoContext context)
+            {
+                var entity = (TestEntityContext)context;
+                entity.Identity.StableEntityId = record.stableEntityId;
+                entity.Lifecycle.TransitionTo((CoCoLifecycleState)record.lifecycleState);
+                entity.SemanticStateId = record.semanticStateId;
+                entity.ActionStateId = record.actionStateId;
+                entity.LastEventSequence = record.lastEventSequence;
+                if (record.StringFacts.TryGetValue("test.marker", out string marker))
+                {
+                    entity.ApplyMarker(marker);
+                }
+            }
+        }
+
+        private static void ConfigureTestContainerCatalog(PersistenceContainerCatalog catalog)
+        {
+            catalog.itemDefinitions.Add(new PersistenceItemDefinition
+            {
+                itemId = "item.gem.red",
+                displayName = "Red Gem",
+                stackable = true,
+                maxStack = 99
+            });
+            catalog.containerDefinitions.Add(new PersistenceContainerDefinition
+            {
+                definitionId = PersistenceContainerStore.DefaultItemStorageDefinitionId,
+                containerType = PersistenceContainerType.ItemStorage,
+                sameTypeTransfersOnly = true,
+                acceptedEntryTypes = new List<PersistenceContainerEntryType>
+                {
+                    PersistenceContainerEntryType.Item
+                }
+            });
+        }
     }
 }

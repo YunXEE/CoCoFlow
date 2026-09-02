@@ -6,6 +6,46 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.1] - Unreleased
+
+Legacy Gameplay sample exit and boundary cleanup. No new Runtime capability.
+
+### Removed
+
+- The entire `Samples~/Gameplay` sample tree (Character/Enemy/Item runtime,
+Editor tooling, and sample tests, 5193 lines of C#). Git history remains the
+  archive; no Legacy or Archive copy is created.
+- Runtime public API: `PersistenceCharacterContextAdapter`,
+  `PersistenceItemContextAdapter`, and their default registrations in
+  `PersistenceContextAdapterRegistry`. The registry is now a pure extension
+  point: hosts that need Context capture implement
+  `IPersistenceContextAdapter` and call `Register` themselves.
+- Runtime internal helper `PersistenceContextReflection` (lost its only
+  consumers together with the built-in adapters).
+- Core interfaces `ICoCoIntent`, `ICoCoIntentSource<T>`, and
+  `ICoCoContextFrameResolver` — the mutable-object intent pattern of 0.3.x.
+  The official intent path is the StateFlow `IntentFrame` contract family.
+- Package dependencies `com.unity.splines` and `com.unity.ai.navigation`
+  (their only package consumers lived in the sample; hosts keep using them
+  via their own manifests when needed).
+- The `CoCoFlow.Runtime.Gameplay` prefix entries from the StateGraph authoring
+  forbidden-assembly guards (runtime catalog, Editor closure validator,
+  boundary tests, contracts checklist, and compiler docs), plus the matching
+  diagnostic message wording and the `gameplay` package keyword. If an official
+  Gameplay layer is ever reintroduced under a `CoCoFlow` prefix, these guard
+  entries must be re-added explicitly.
+
+### Tests
+
+- Migrated eight sample tests that proved package contracts into the formal
+  `Tests/Runtime` suites with fully test-owned fixtures: event envelope
+  creation fields, typed event + envelope dual subscription, event sequence
+  vs stable/runtime identity separation, `CoCoEntityContext` projection,
+  `PersistenceContext` stable-id semantics, pending-document apply through a
+  registered host adapter, container reward granting, and legacy-record apply
+  on an actor with a running StateGraph host.
+- The remaining 35 sample-specific tests were removed with the sample.
+
 ## [0.4.0] - 2026-08-29
 
 Closes the expanded RC2 line as a usable 0.4.0 release. Runtime code, Editor

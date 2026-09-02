@@ -25,7 +25,7 @@ namespace CoCoFlow.Runtime.Core.Tests
         };
 
         [Test]
-        public void ContractsAssemblyHasNoEngineGameplayModuleOrEditorReferences()
+        public void ContractsAssemblyHasNoEngineModuleOrEditorReferences()
         {
             string[] assemblyReferences = typeof(CoCoStateLogic).Assembly
                 .GetReferencedAssemblies()
@@ -34,7 +34,6 @@ namespace CoCoFlow.Runtime.Core.Tests
 
             Assert.IsFalse(assemblyReferences.Any(name =>
                 name.StartsWith("Unity", StringComparison.Ordinal) ||
-                name.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
                 name.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
                 name.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
         }
@@ -54,7 +53,6 @@ namespace CoCoFlow.Runtime.Core.Tests
                 cocoFlowReferences);
             Assert.IsFalse(stateFlowAssembly.GetReferencedAssemblies().Any(reference =>
                 reference.Name.StartsWith("Unity", StringComparison.Ordinal) ||
-                reference.Name.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
                 reference.Name.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
                 reference.Name.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
         }
@@ -78,7 +76,6 @@ namespace CoCoFlow.Runtime.Core.Tests
                 cocoFlowReferences);
             Assert.IsFalse(stateGraphAssembly.GetReferencedAssemblies().Any(reference =>
                 reference.Name.StartsWith("Unity", StringComparison.Ordinal) ||
-                reference.Name.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
                 reference.Name.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) ||
                 reference.Name.StartsWith("CoCoFlow.Editor", StringComparison.Ordinal)));
         }
