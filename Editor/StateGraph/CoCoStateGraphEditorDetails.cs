@@ -82,10 +82,10 @@ namespace CoCoFlow.Editor.StateGraph
 
             var order = new VisualElement();
             order.style.flexDirection = FlexDirection.Row;
-            var moveUp = new Button(() => controller.MoveSelectedLayer(-1)) { text = L("Move Layer Up", "上移 Layer") };
-            texts.Register(moveUp, "Move Layer Up", "上移 Layer");
-            var moveDown = new Button(() => controller.MoveSelectedLayer(1)) { text = L("Move Layer Down", "下移 Layer") };
-            texts.Register(moveDown, "Move Layer Down", "下移 Layer");
+            var moveUp = new Button(() => controller.MoveSelectedLayer(-1)) { text = L("Move Layer Up", "Layer 上移") };
+            texts.Register(moveUp, "Move Layer Up", "Layer 上移");
+            var moveDown = new Button(() => controller.MoveSelectedLayer(1)) { text = L("Move Layer Down", "Layer 下移") };
+            texts.Register(moveDown, "Move Layer Down", "Layer 下移");
             order.Add(moveUp);
             order.Add(moveDown);
             card.Add(order);
@@ -141,14 +141,14 @@ namespace CoCoFlow.Editor.StateGraph
 
                 createStatus.text =
                     createNewScriptName.value.Trim() +
-                    "Logic.cs " + L("generated. Waiting for script compilation...", "已生成。等待脚本编译……");
+                    "Logic.cs " + L("generated. Waiting for script compilation...", "已生成，等待脚本编译……");
                 pendingCreateSelectName = createNewScriptName.value.Trim() + "Logic";
                 awaitingCompilation = true;
             })
             {
-                text = L("Create New Logic Script", "创建新逻辑脚本")
+                text = L("Create New Logic Script", "生成新逻辑脚本")
             };
-            texts.Register(createScript, "Create New Logic Script", "创建新逻辑脚本");
+            texts.Register(createScript, "Create New Logic Script", "生成新逻辑脚本");
             card.Add(createScript);
 
             var addHere = new Button(() =>
@@ -165,9 +165,9 @@ namespace CoCoFlow.Editor.StateGraph
                 controller.Session.DrillRootStateId,
                 NextPosition()))
             {
-                text = L("Paste Subtree Here", "在此粘贴子树")
+                text = L("Paste Subtree Here", "粘贴子树到此处")
             };
-            texts.Register(pasteHere, "Paste Subtree Here", "在此粘贴子树");
+            texts.Register(pasteHere, "Paste Subtree Here", "粘贴子树到此处");
             card.Add(pasteHere);
 
             details.Add(card);
@@ -236,9 +236,9 @@ namespace CoCoFlow.Editor.StateGraph
             row.style.flexDirection = FlexDirection.Row;
             var setInitial = new Button(() => controller.SetSelectedStateInitial())
             {
-                text = L("Set Initial", "设为 Initial")
+                text = L("Set Initial", "设为初始")
             };
-            texts.Register(setInitial, "Set Initial", "设为 Initial");
+            texts.Register(setInitial, "Set Initial", "设为初始");
             var copy = new Button(() => controller.CopySelectedState()) { text = L("Copy", "复制") };
             texts.Register(copy, "Copy", "复制");
             row.Add(setInitial);
@@ -260,11 +260,11 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 var openChildren = new Button(() => controller.DrillInto(selectedId))
                 {
-                    text = L("Open Child Canvas", "打开子画布"),
+                    text = L("Open Child Canvas", "打开子级画布"),
                     tooltip = L("Double-click the card on the canvas also drills in.",
-                        "双击画布卡片同样可下钻。")
+                        "双击画布卡片也可下钻。")
                 };
-                texts.Register(openChildren, "Open Child Canvas", "打开子画布");
+                texts.Register(openChildren, "Open Child Canvas", "打开子级画布");
                 openChildren.AddToClassList("sg-navigation");
                 card.Add(openChildren);
             }
@@ -291,7 +291,7 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     ShowNotification(new GUIContent(
                         L("Choose an explicit replacement before moving the initial State.",
-                            "移动初始 State 前请选择显式替换。")));
+                            "移动初始 State 前请先选择替换目标。")));
                     return;
                 }
 
@@ -301,9 +301,9 @@ namespace CoCoFlow.Editor.StateGraph
                     new Vector2(80f, 80f));
             })
             {
-                text = L("Reparent Subtree", "移动子树")
+                text = L("Reparent Subtree", "移动子树（改父级）")
             };
-            texts.Register(reparent, "Reparent Subtree", "移动子树");
+            texts.Register(reparent, "Reparent Subtree", "移动子树（改父级）");
             card.Add(reparent);
 
             var delete = CoCoEditorElements.CreateDangerButton(

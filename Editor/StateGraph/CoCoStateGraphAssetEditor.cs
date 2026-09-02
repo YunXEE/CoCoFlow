@@ -116,9 +116,9 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void DrawSummaryCard(CoCoStateGraphAsset asset)
         {
-            var card = CoCoEditorElements.CreateCard(L("Summary", "摘要"));
+            var card = CoCoEditorElements.CreateCard(L("Summary", "概要"));
             card.Add(new Label(L("Schema", "Schema 版本") + ": " + asset.SchemaVersion));
-            card.Add(new Label(L("Graph ID", "图 ID") + ": " +
+            card.Add(new Label(L("Graph ID", "Graph ID") + ": " +
                 (asset.GraphId.IsValid ? asset.GraphId.ToString() : L("Invalid", "无效"))));
 
             int stateCount = 0;
@@ -253,7 +253,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             var analyze = new Button(() => Analyze(asset))
             {
-                text = L("Analyze With Registered Catalog", "以注册目录分析")
+                text = L("Analyze With Registered Catalog", "使用注册目录分析")
             };
             card.Add(analyze);
             root.Add(card);

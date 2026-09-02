@@ -133,8 +133,7 @@ namespace CoCoFlow.Editor.StateGraph
                 rootVisualElement.styleSheets.Add(styleSheet);
             }
 
-            headerHost = new VisualElement { name = "state-graph-header-host" };
-            rootVisualElement.Add(headerHost);
+            // 维护者反馈 5：顶部页头并入左栏最上方，不再占独立横条。
             toolbarHost = new VisualElement { name = "state-graph-toolbar-host" };
             rootVisualElement.Add(toolbarHost);
 
@@ -152,9 +151,16 @@ namespace CoCoFlow.Editor.StateGraph
             body.style.flexGrow = 1f;
             rootVisualElement.Add(body);
 
+            var leftPane = new VisualElement { name = "state-graph-left-pane" };
+            body.Add(leftPane);
+
+            headerHost = new VisualElement { name = "state-graph-header-host" };
+            leftPane.Add(headerHost);
+
             tree = new ScrollView { name = "state-graph-tree" };
+            tree.style.flexGrow = 1f;
             tree.style.minWidth = 180f;
-            body.Add(tree);
+            leftPane.Add(tree);
 
             var workspace = new TwoPaneSplitView(1, 350f, TwoPaneSplitViewOrientation.Horizontal);
             workspace.style.flexGrow = 1f;
@@ -188,29 +194,10 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            // 紧凑页头（左栏顶部）：资产字段 + 徽章两行，无标题条。
             var card = CoCoEditorElements.CreateCard(string.Empty);
             card.name = "state-graph-header-card";
 
-            var eyebrow = new Label(L("CoCoFlow · State Graph Editor", "CoCoFlow · StateGraph 编辑器"))
-            {
-                name = "state-graph-header-eyebrow"
-            };
-            texts.Register(eyebrow, "CoCoFlow · State Graph Editor", "CoCoFlow · StateGraph 编辑器");
-            card.Add(eyebrow);
-
-            var subtitle = new Label(L(
-                "Author layered state graphs; every write goes through the authoring command boundary.",
-                "编辑分层状态图；所有写入均经过授权命令边界。"))
-            {
-                name = "state-graph-header-subtitle"
-            };
-            texts.Register(
-                subtitle,
-                "Author layered state graphs; every write goes through the authoring command boundary.",
-                "编辑分层状态图；所有写入均经过授权命令边界。");
-            card.Add(subtitle);
-
-            var meta = new VisualElement { name = "state-graph-header-meta" };
             var assetField = new ObjectField
             {
                 objectType = typeof(CoCoStateGraphAsset),
@@ -224,9 +211,8 @@ namespace CoCoFlow.Editor.StateGraph
                 asset = evt.newValue as CoCoStateGraphAsset;
                 Rebuild();
             });
-            meta.Add(assetField);
-            meta.Add(BuildHeaderBadges());
-            card.Add(meta);
+            card.Add(assetField);
+            card.Add(BuildHeaderBadges());
             headerHost.Add(card);
         }
 
@@ -311,13 +297,13 @@ namespace CoCoFlow.Editor.StateGraph
             string title = L("No State Graph selected", "未选择 StateGraph");
             string message = L(
                 "Select a CoCoStateGraphAsset to begin editing its Layers, States, and Transitions.",
-                "选择一个 CoCoStateGraphAsset 开始编辑它的 Layer、State 与 Transition。");
+                "选择一个 CoCoStateGraphAsset，开始编辑它的 Layer、State 与 Transition。");
             string firstStep = L(
                 "Pick or drop an asset in the field below.",
-                "在下方字段中选择或拖入资产。");
+                "在下方字段选择或拖入资产。");
             string alternative = L(
                 "Or create a new graph from a preset.",
-                "或从预设新建一个图。");
+                "或从预设新建。");
             var empty = CoCoEditorElements.CreateEmptyState(title, message, firstStep, alternative);
             empty.name = "state-graph-empty";
 
@@ -368,18 +354,18 @@ namespace CoCoFlow.Editor.StateGraph
 
             var addLayer = new ToolbarButton(() => controller.AddLayer())
             {
-                text = L("+ Layer", "+ 层")
+                text = L("+ Layer", "+ 新建 Layer")
             };
-            texts.Register(addLayer, "+ Layer", "+ 层");
+            texts.Register(addLayer, "+ Layer", "+ 新建 Layer");
             addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
             toolbar.Add(addLayer);
 
             var up = new ToolbarButton(() => controller.DrillUp())
             {
-                text = L("Up", "上一级"),
+                text = L("Up", "返回上级"),
                 tooltip = L("Move to the parent State canvas", "返回父 State 画布")
             };
-            texts.Register(up, "Up", "上一级");
+            texts.Register(up, "Up", "返回上级");
             toolbar.Add(up);
 
             toolbar.Add(BuildBreadcrumb());
@@ -684,9 +670,9 @@ namespace CoCoFlow.Editor.StateGraph
                 });
                 var open = new Button(() => controller.NavigateToState(stateId))
                 {
-                    text = L("Select / Open Parent Canvas", "选择 / 打开父画布")
+                    text = L("Select / Open Parent Canvas", "选中 / 打开父画布")
                 };
-                texts.Register(open, "Select / Open Parent Canvas", "选择 / 打开父画布");
+                texts.Register(open, "Select / Open Parent Canvas", "选中 / 打开父画布");
                 open.AddToClassList("sg-navigation");
                 foldout.Add(open);
                 AddTreeChildren(foldout, layer, state.StateId, depth + 1);
@@ -742,7 +728,7 @@ namespace CoCoFlow.Editor.StateGraph
                 TryExecuteCanvasAuthoringAction(() => TryAddStateAtCanvasPosition(contextPosition));
             });
             menu.AddItem(
-                new GUIContent(L("Paste Subtree Here", "在此粘贴子树")),
+                new GUIContent(L("Paste Subtree Here", "粘贴子树到此处")),
                 false,
                 () => TryExecuteCanvasAuthoringAction(() => controller.PasteState(
                     controller.Session.DrillRootStateId,

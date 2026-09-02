@@ -4,38 +4,23 @@
 
 /* ── 窗口骨架 ─────────────────────────────────────── */
 
+#state-graph-left-pane {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
 #state-graph-header-card {
-    margin-bottom: 8px;
-}
-
-#state-graph-header-meta {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    margin-top: 4px;
-}
-
-#state-graph-header-eyebrow {
-    font-size: 11px;
-    -unity-font-style: bold;
-    opacity: 0.72;
-    margin-bottom: 2px;
-}
-
-#state-graph-header-title {
-    font-size: 18px;
-    -unity-font-style: bold;
-    margin-bottom: 2px;
-}
-
-#state-graph-header-subtitle {
-    opacity: 0.7;
-    white-space: normal;
+    margin-bottom: 6px;
 }
 
 #state-graph-header-asset-field {
-    min-width: 260px;
-    flex-grow: 1;
+    margin-bottom: 4px;
+}
+
+#state-graph-header-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
 }
 
 #state-graph-toolbar-host {
@@ -235,23 +220,22 @@
     white-space: normal;
 }
 
+/* 维护者反馈：三行——Name / State 编号 / Logic 名+编号 */
+.state-card__id {
+    font-size: 10px;
+    color: rgb(160, 168, 178);
+    white-space: normal;
+}
+
 .state-card__descriptor {
-    font-size: 9px;
-    color: rgb(178, 184, 192);
+    font-size: 8px;
+    color: rgb(142, 150, 160);
     white-space: normal;
 }
 
 .state-card__drill {
     height: 20px;
     margin-top: 3px;
-}
-
-#transition-source-connector {
-    border-top-left-radius: 7px;
-    border-top-right-radius: 7px;
-    border-bottom-left-radius: 7px;
-    border-bottom-right-radius: 7px;
-    background-color: rgb(112, 174, 219);
 }
 
 /* ── 空状态 ───────────────────────────────────────── */
