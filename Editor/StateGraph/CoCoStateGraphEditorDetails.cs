@@ -70,7 +70,7 @@ namespace CoCoFlow.Editor.StateGraph
             idLabel.AddToClassList("sg-id-label");
             card.Add(idLabel);
 
-            var layerName = new TextField(L("Name")) { value = layer.DisplayName };
+            var layerName = new TextField(L("Name", "名称")) { value = layer.DisplayName };
             card.Add(layerName);
 
             var rename = new Button(() => controller.RenameLayer(layerName.value))
@@ -117,7 +117,7 @@ namespace CoCoFlow.Editor.StateGraph
                 addStateDescriptorId,
                 persistAsAddDefault: true,
                 "add-state-descriptor");
-            var stateName = new TextField(L("Name")) { value = L("State", "State") };
+            var stateName = new TextField(L("Name", "名称")) { value = L("State", "State") };
             card.Add(stateName);
 
             // Create-new-logic lane: graph-driven authoring. Entering a new
@@ -193,7 +193,7 @@ namespace CoCoFlow.Editor.StateGraph
             idLabel.AddToClassList("sg-id-label");
             card.Add(idLabel);
 
-            var stateName = new TextField(L("Name")) { value = state.DisplayName };
+            var stateName = new TextField(L("Name", "名称")) { value = state.DisplayName };
             card.Add(stateName);
             var rename = new Button(() => controller.RenameSelectedState(stateName.value))
             {

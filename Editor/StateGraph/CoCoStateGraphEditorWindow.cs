@@ -321,7 +321,7 @@ namespace CoCoFlow.Editor.StateGraph
             var empty = CoCoEditorElements.CreateEmptyState(title, message, firstStep, alternative);
             empty.name = "state-graph-empty";
 
-            var field = new ObjectField(L("State Graph Asset"))
+            var field = new ObjectField(L("State Graph Asset", "StateGraph 资产"))
             {
                 objectType = typeof(CoCoStateGraphAsset),
                 allowSceneObjects = false
@@ -497,7 +497,6 @@ namespace CoCoFlow.Editor.StateGraph
             rootButton.AddToClassList("sg-breadcrumb__segment");
             breadcrumb.Add(rootButton);
 
-            CoCoSerializedId128 currentScope = controller.Session.DrillRootStateId;
             for (int index = 0; index < segments.Count; index++)
             {
                 (CoCoSerializedId128 scopeId, string label, bool cycle) = segments[index];
@@ -539,7 +538,9 @@ namespace CoCoFlow.Editor.StateGraph
             int guard = 256;
             while (guard-- > 0 &&
                    controller.Session.DrillRootStateId.IsValid &&
-                   controller.Session.DrillRootStateId != targetScopeId)
+                   new CoCoSerializedId128(
+                       controller.Session.DrillRootStateId.High,
+                       controller.Session.DrillRootStateId.Low) != targetScopeId)
             {
                 controller.DrillUp();
             }
@@ -1102,11 +1103,11 @@ namespace CoCoFlow.Editor.StateGraph
 
             internal void ApplyCurrentLanguage()
             {
-                string chinese = CoCoEditorLocalization.CurrentLanguage ==
+                bool isChinese = CoCoEditorLocalization.CurrentLanguage ==
                                  CoCoEditorLanguage.SimplifiedChinese;
                 foreach ((VisualElement element, string english, string zh) in entries)
                 {
-                    string text = chinese ? zh : english;
+                    string text = isChinese ? zh : english;
                     switch (element)
                     {
                         case Button button:

@@ -66,7 +66,7 @@ namespace CoCoFlow.Editor.StateGraph
             status = new HelpBox(string.Empty, HelpBoxMessageType.None);
             status.style.display = DisplayStyle.None;
             rootVisualElement.Add(status);
-            var create = CoCoEditorElements.CreatePrimaryButton(CreatePreset, "Create Asset…");
+            var create = CoCoEditorElements.CreatePrimaryButton("Create Asset…", CreatePreset);
             create.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
             rootVisualElement.Add(create);
             ReloadCatalog();
