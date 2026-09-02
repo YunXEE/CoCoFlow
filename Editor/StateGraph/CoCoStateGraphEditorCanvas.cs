@@ -27,14 +27,14 @@ namespace CoCoFlow.Editor.StateGraph
         private const float LoopRadius = 30f;
         private const float GridStep = 32f;
         private const float GridStepZoomedOut = 64f;
-        private const float GridDotSize = 2.4f;
+        private const float GridDotSize = 2.8f;
         private const int GridDotBudget = 8000;
         private const float WheelZoomInFactor = 1.06f;
         private const float WheelZoomOutFactor = 1f / 1.06f;
 
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
-        private static Color GridDotColor => new Color(0.45f, 0.48f, 0.52f, 0.4f);
+        private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.5f);
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement content;
@@ -224,9 +224,9 @@ namespace CoCoFlow.Editor.StateGraph
 
             float zoom = Mathf.Max(CurrentView.Zoom, 0.01f);
             Rect contentWorld = content.worldBound;
-            Rect graphViewport = new Rect(
-                (worldViewport.min - contentWorld.min) / zoom,
-                (worldViewport.max - contentWorld.min) / zoom);
+            Vector2 graphMin = (worldViewport.min - contentWorld.min) / zoom;
+            Vector2 graphMax = (worldViewport.max - contentWorld.min) / zoom;
+            Rect graphViewport = Rect.MinMaxRect(graphMin.x, graphMin.y, graphMax.x, graphMax.y);
             graphViewport.xMin = Mathf.Max(graphViewport.xMin, 0f);
             graphViewport.yMin = Mathf.Max(graphViewport.yMin, 0f);
             graphViewport.xMax = Mathf.Min(graphViewport.xMax, CanvasSize);

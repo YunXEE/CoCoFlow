@@ -768,21 +768,30 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller.SelectState(id);
+            bool hasIncidentTransition = HasIncidentTransition(layer, state.StateId);
             var menu = new GenericMenu();
-            if (CoCoStateGraphAuthoringOperations.CanEdit(out _))
+            if (CoCoStateGraphAuthoringOperations.CanEdit(out _) && !hasIncidentTransition)
             {
                 menu.AddItem(
-                    new GUIContent(L("Add Child State", "添加子 State（下钻后可编内部）")),
+                    new GUIContent(L("Add Child State (makes it a sub-state machine)",
+                        "添加子 State（成为子状态机）")),
                     false,
                     () => TryExecuteCanvasAuthoringAction(() => controller.AddState(
                         id,
                         ResolveStateDescriptor(addStateDescriptorId),
-                        L("Child State", "子 State"),
+                        "Child State",
                         new Vector2(80f, 80f))));
+            }
+            else if (CoCoStateGraphAuthoringOperations.CanEdit(out _))
+            {
+                // 契约：有 Transition 的叶子不能成为 Composite——禁用并给出原因，而非允许后报错。
+                menu.AddDisabledItem(new GUIContent(L(
+                    "Add Child State (remove incident Transitions first)",
+                    "添加子 State（需先移除相关 Transition）")));
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent(L("Add Child State", "添加子 State（下钻后可编内部）")));
+                menu.AddDisabledItem(new GUIContent(L("Add Child State", "添加子 State")));
             }
 
             if (HasChildren(layer, state.StateId))
@@ -1130,6 +1139,22 @@ namespace CoCoFlow.Editor.StateGraph
             foreach (CoCoStateGraphStateRecord candidate in layer.States)
             {
                 if (candidate != null && candidate.ParentStateId == stateId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasIncidentTransition(
+            CoCoStateGraphLayerRecord layer,
+            CoCoSerializedId128 stateId)
+        {
+            foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+            {
+                if (transition != null &&
+                    (transition.SourceStateId == stateId || transition.TargetStateId == stateId))
                 {
                     return true;
                 }
