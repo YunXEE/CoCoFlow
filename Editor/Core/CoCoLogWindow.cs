@@ -192,6 +192,17 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
+        /// <summary>BUG-047：等级词双语（固定文案，D10）。</summary>
+        private static string LevelLabel(CoCoLogLevel level)
+        {
+            switch (level)
+            {
+                case CoCoLogLevel.Warning: return CoCoEditorLocalization.Text("Warning", "警告");
+                case CoCoLogLevel.Error: return CoCoEditorLocalization.Text("Error", "错误");
+                default: return CoCoEditorLocalization.Text("Log", "日志");
+            }
+        }
+
         private void OnEnable()
         {
             _data.PreloadKnownModules();
@@ -217,6 +228,10 @@ namespace CoCoFlow.Editor.Core
         private void CreateGUI()
         {
             _generation++; // 旧 pending 回调 guard：重建后 _generation 不符即丢弃
+
+            // BUG-048：重建入口暂停旧调度，防竞态窗口内 pending 被旧回调吞掉
+            _scheduledRefresh?.Pause();
+            _scheduledRefresh = null;
 
             CoCoEditorElements.ApplyTheme(rootVisualElement);
 
@@ -389,7 +404,8 @@ namespace CoCoFlow.Editor.Core
             var badgeText = badge.Q<Label>("ccflow-badge-text");
             if (badgeText != null)
             {
-                badgeText.text = logEvent.Level.ToString();
+                // BUG-047：等级词属固定文案，走双语层（D10/invariant #10）
+                badgeText.text = LevelLabel(logEvent.Level);
             }
 
             row.Q<Label>("time-label").text = logEvent.Timestamp.ToString("HH:mm:ss");
@@ -419,7 +435,13 @@ namespace CoCoFlow.Editor.Core
                 _scheduledRefresh = null;
                 if (capturedGeneration != _generation)
                 {
-                    return; // 陈旧回调：root 已重建，丢弃
+                    // BUG-048：旧代回调丢弃前，若仍有 pending 工作 → 以当代重新调度，不吞掉
+                    if (_pendingRefresh && _logList != null)
+                    {
+                        MarkDirty();
+                    }
+
+                    return;
                 }
 
                 RefreshNow();
@@ -479,6 +501,9 @@ namespace CoCoFlow.Editor.Core
         {
             RebuildLocalizedTexts();
             RebuildEmptyState(); // BUG-043：空状态四段文案随语言重建
+
+            // BUG-047：重绑列表，使在屏日志行的等级 badge 文本随语言切换
+            _logList?.RefreshItems();
         }
 
         private void RebuildLocalizedTexts()
