@@ -176,7 +176,7 @@ namespace CoCoFlow.Editor.StateGraph
             root.Add(card);
         }
 
-        /// <summary>新增（维护者 D5 裁决）：三 manifest 需求摘要，只读。</summary>
+        /// <summary>新增（维护者 D5 裁决）：三 manifest 需求摘要，只读，结构化短 ID 呈现。</summary>
         private void DrawManifestCard(CoCoStateGraphAsset asset)
         {
             manifestCard = CoCoEditorElements.CreateCard(
@@ -193,35 +193,10 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            var intentCount = analysisResult.Graph.IntentRequirements.Requirements.Count;
-            var operationCount = analysisResult.Graph.OperationProvides.Provides.Count;
-            var contextCount = analysisResult.Graph.ContextStateRequirements.Blocks.Count;
-            var badges = new VisualElement();
-            badges.style.flexDirection = FlexDirection.Row;
-            badges.Add(CoCoEditorElements.CreateBadge(
-                L($"Intent {intentCount}", $"Intent {intentCount}"), CoCoEditorBadgeKind.Info));
-            badges.Add(CoCoEditorElements.CreateBadge(
-                L($"Operation {operationCount}", $"Operation {operationCount}"),
-                CoCoEditorBadgeKind.Info));
-            badges.Add(CoCoEditorElements.CreateBadge(
-                L($"Context {contextCount}", $"Context {contextCount}"), CoCoEditorBadgeKind.Info));
-            manifestCard.Add(badges);
-
-            foreach (CoCoIntentRequirement requirement in analysisResult.Graph.IntentRequirements.Requirements)
-            {
-                manifestCard.Add(new Label($"Intent  {requirement.ValueType.Name}  {requirement.IntentId}"));
-            }
-
-            foreach (CoCoGraphOperationProvision provision in analysisResult.Graph.OperationProvides.Provides)
-            {
-                manifestCard.Add(new Label($"Operation  {provision.SectionType.Name}  {provision.SectionId}"));
-            }
-
-            foreach (CoCoContextStateBlockRequirement block in analysisResult.Graph.ContextStateRequirements.Blocks)
-            {
-                manifestCard.Add(new Label($"Context block  {block.BlockId}"));
-            }
-
+            CoCoStateGraphRequirementPresenter.FillCard(
+                manifestCard,
+                new[] { CoCoStateGraphEditorController.BuildCompiledSection(analysisResult) },
+                compiledAvailable: true);
             root.Add(manifestCard);
         }
 

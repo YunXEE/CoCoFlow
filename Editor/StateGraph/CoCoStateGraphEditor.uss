@@ -243,3 +243,19 @@
 #state-graph-empty {
     padding: 24px;
 }
+
+/* ── 需求/Host 建议行（结构化短 ID 呈现） ────────── */
+
+.sg-requirement-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-requirement-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    margin-left: 4px;
+}

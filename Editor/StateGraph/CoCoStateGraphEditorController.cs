@@ -18,7 +18,7 @@ namespace CoCoFlow.Editor.StateGraph
         All = Toolbar | Tree | Details | Canvas | Feedback
     }
 
-    internal sealed class CoCoStateGraphEditorController : IDisposable
+    internal sealed partial class CoCoStateGraphEditorController : IDisposable
     {
         private static CoCoStateGraphSubtreeClipboard clipboard;
 
@@ -1022,6 +1022,181 @@ namespace CoCoFlow.Editor.StateGraph
             for (int index = 0; index < ids.Count; index++)
             {
                 lines.Add($"{label}  {ids[index]}");
+            }
+        }
+    }
+
+    /// <summary>需求条目的语义类别（P03 视图结构化呈现用）。</summary>
+    internal enum CoCoRequirementEntryKind
+    {
+        Intent,
+        Operation,
+        ContextBlock
+    }
+
+    /// <summary>单条 Host 需求：类别 + 可选类型名 + 完整稳定 ID（视图负责缩短与本地化）。</summary>
+    internal readonly struct CoCoRequirementEntry
+    {
+        internal CoCoRequirementEntry(
+            CoCoRequirementEntryKind kind,
+            string typeName,
+            string fullId)
+        {
+            Kind = kind;
+            TypeName = typeName;
+            FullId = fullId;
+        }
+
+        internal CoCoRequirementEntryKind Kind { get; }
+        internal string TypeName { get; }
+        internal string FullId { get; }
+    }
+
+    /// <summary>需求分组：选中 State / 选中条件 / 编译结果。</summary>
+    internal enum CoCoRequirementScopeKind
+    {
+        SelectedState,
+        SelectedCondition,
+        Compiled
+    }
+
+    internal sealed class CoCoRequirementSection
+    {
+        internal CoCoRequirementSection(
+            CoCoRequirementScopeKind scopeKind,
+            string scopeLabel,
+            string scopeFullId,
+            IReadOnlyList<CoCoRequirementEntry> entries)
+        {
+            ScopeKind = scopeKind;
+            ScopeLabel = scopeLabel;
+            ScopeFullId = scopeFullId;
+            Entries = entries;
+        }
+
+        internal CoCoRequirementScopeKind ScopeKind { get; }
+        internal string ScopeLabel { get; }
+        internal string ScopeFullId { get; }
+        internal IReadOnlyList<CoCoRequirementEntry> Entries { get; }
+    }
+
+    internal sealed partial class CoCoStateGraphEditorController
+    {
+        /// <summary>
+        /// 结构化需求查询（P03 视图消费；与 BuildRequirementOverlay 同源数据，只读）。
+        /// 选中 State 的 descriptor 需求、选中 Transition 各条件的需求、编译产出的
+        /// 三 manifest Host 需求。
+        /// </summary>
+        internal IReadOnlyList<CoCoRequirementSection> BuildRequirementSections()
+        {
+            var sections = new List<CoCoRequirementSection>();
+
+            CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
+            if (state != null &&
+                CoCoStateDescriptorId.TryCreate(
+                    state.StateDescriptorId.High,
+                    state.StateDescriptorId.Low,
+                    out CoCoStateDescriptorId stateDescriptorId) &&
+                catalog != null &&
+                catalog.TryGetStateDescriptor(stateDescriptorId, out CoCoStateDescriptor stateDescriptor))
+            {
+                sections.Add(new CoCoRequirementSection(
+                    CoCoRequirementScopeKind.SelectedState,
+                    stateDescriptor.LogicType.Name,
+                    stateDescriptor.DescriptorId.ToString(),
+                    DescriptorEntries(stateDescriptor)));
+            }
+
+            CoCoStateGraphTransitionRecord transition =
+                FindTransition(SelectedLayer, Session.SelectedTransitionId);
+            if (transition != null && catalog != null)
+            {
+                for (int index = 0; index < transition.Conditions.Count; index++)
+                {
+                    CoCoStateGraphConditionRecord condition = transition.Conditions[index];
+                    if (condition != null &&
+                        CoCoConditionDescriptorId.TryCreate(
+                            condition.ConditionDescriptorId.High,
+                            condition.ConditionDescriptorId.Low,
+                            out CoCoConditionDescriptorId conditionDescriptorId) &&
+                        catalog.TryGetConditionDescriptor(
+                            conditionDescriptorId,
+                            out CoCoConditionDescriptor conditionDescriptor))
+                    {
+                        var entries = new List<CoCoRequirementEntry>();
+                        AddIdEntries(entries, CoCoRequirementEntryKind.Intent, conditionDescriptor.IntentRequirements);
+                        AddIdEntries(entries, CoCoRequirementEntryKind.ContextBlock, conditionDescriptor.ContextStateRequirements);
+                        sections.Add(new CoCoRequirementSection(
+                            CoCoRequirementScopeKind.SelectedCondition,
+                            $"{conditionDescriptor.ConditionType.Name} #{index + 1}",
+                            conditionDescriptor.DescriptorId.ToString(),
+                            entries));
+                    }
+                }
+            }
+
+            if (analysisResult?.Succeeded == true)
+            {
+                sections.Add(BuildCompiledSection(analysisResult));
+            }
+
+            return sections;
+        }
+
+        /// <summary>编译产出的 Host 需求分组（静态形态供 Inspector 复用）。</summary>
+        internal static CoCoRequirementSection BuildCompiledSection(
+            CoCoStateGraphAssetCompileResult result)
+        {
+            var entries = new List<CoCoRequirementEntry>();
+            foreach (CoCoIntentRequirement requirement in result.Graph.IntentRequirements.Requirements)
+            {
+                entries.Add(new CoCoRequirementEntry(
+                    CoCoRequirementEntryKind.Intent,
+                    requirement.ValueType.Name,
+                    requirement.IntentId.ToString()));
+            }
+
+            foreach (CoCoGraphOperationProvision provision in result.Graph.OperationProvides.Provides)
+            {
+                entries.Add(new CoCoRequirementEntry(
+                    CoCoRequirementEntryKind.Operation,
+                    provision.SectionType.Name,
+                    provision.SectionId.ToString()));
+            }
+
+            foreach (CoCoContextStateBlockRequirement block in result.Graph.ContextStateRequirements.Blocks)
+            {
+                entries.Add(new CoCoRequirementEntry(
+                    CoCoRequirementEntryKind.ContextBlock,
+                    null,
+                    block.BlockId.ToString()));
+            }
+
+            return new CoCoRequirementSection(
+                CoCoRequirementScopeKind.Compiled,
+                null,
+                null,
+                entries);
+        }
+
+        private static IReadOnlyList<CoCoRequirementEntry> DescriptorEntries(
+            CoCoStateDescriptor descriptor)
+        {
+            var entries = new List<CoCoRequirementEntry>();
+            AddIdEntries(entries, CoCoRequirementEntryKind.Intent, descriptor.IntentRequirements);
+            AddIdEntries(entries, CoCoRequirementEntryKind.Operation, descriptor.OperationProvides);
+            AddIdEntries(entries, CoCoRequirementEntryKind.ContextBlock, descriptor.ContextStateRequirements);
+            return entries;
+        }
+
+        private static void AddIdEntries<TId>(
+            List<CoCoRequirementEntry> entries,
+            CoCoRequirementEntryKind kind,
+            IReadOnlyList<TId> ids)
+        {
+            for (int index = 0; ids != null && index < ids.Count; index++)
+            {
+                entries.Add(new CoCoRequirementEntry(kind, null, ids[index].ToString()));
             }
         }
     }

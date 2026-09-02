@@ -479,13 +479,10 @@ namespace CoCoFlow.Editor.StateGraph
             var card = CoCoEditorElements.CreateCard(L("Requirements / Host Suggestions", "需求 / Host 建议"));
             card.AddToClassList("sg-card");
             texts.Register(card[0], "Requirements / Host Suggestions", "需求 / Host 建议");
-            foreach (string line in controller.BuildRequirementOverlay())
-            {
-                var label = new Label(line);
-                label.style.whiteSpace = WhiteSpace.Normal;
-                card.Add(label);
-            }
-
+            CoCoStateGraphRequirementPresenter.FillCard(
+                card,
+                controller.BuildRequirementSections(),
+                controller.AnalysisResult?.Succeeded == true);
             details.Add(card);
         }
 
