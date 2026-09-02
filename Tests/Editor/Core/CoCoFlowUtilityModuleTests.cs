@@ -4,7 +4,7 @@ using NUnit.Framework;
 
 namespace CoCoFlow.Editor.Core.Tests
 {
-    public sealed class CoCoFlowSetupAssistantModuleTests
+    public sealed class CoCoFlowUtilityModuleTests
     {
         [Test]
         public void PoolingModuleRequiresUniTaskAndContentWithoutAddressables()
@@ -107,7 +107,7 @@ namespace CoCoFlow.Editor.Core.Tests
             bool uniTaskDotweenAvailable,
             string expectedDefines)
         {
-            string[] actual = CoCoFlowSetupAssistant.SelectAvailableSupportDefines(
+            string[] actual = CoCoFlowUtility.SelectAvailableSupportDefines(
                 uniTaskAvailable,
                 dotweenAvailable,
                 dotweenModulesAvailable,
@@ -131,7 +131,7 @@ namespace CoCoFlow.Editor.Core.Tests
         {
             // int 形态绕开 internal 枚举的 CS0051（IVT 在 enum 参数上不生效）
             Assert.That(
-                (int)CoCoFlowSetupAssistant.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
+                (int)CoCoFlowUtility.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
                 Is.EqualTo(expectedForm));
         }
 
@@ -162,7 +162,7 @@ namespace CoCoFlow.Editor.Core.Tests
 
         private static ModuleView FindModule(string displayName)
         {
-            FieldInfo modulesField = typeof(CoCoFlowSetupAssistant).GetField(
+            FieldInfo modulesField = typeof(CoCoSetupModuleCatalog).GetField(
                 "Modules",
                 BindingFlags.NonPublic | BindingFlags.Static);
             Assert.That(modulesField, Is.Not.Null);
@@ -198,7 +198,7 @@ namespace CoCoFlow.Editor.Core.Tests
                         "Description"));
             }
 
-            Assert.Fail("Setup Assistant module not found: " + displayName);
+            Assert.Fail("CoCoFlow Utility module not found: " + displayName);
             return default;
         }
 

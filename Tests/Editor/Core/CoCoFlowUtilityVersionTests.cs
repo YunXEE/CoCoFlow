@@ -5,13 +5,13 @@ using UnityEditor.PackageManager;
 
 namespace CoCoFlow.Editor.Core.Tests
 {
-    public sealed class CoCoFlowSetupAssistantVersionTests
+    public sealed class CoCoFlowUtilityVersionTests
     {
         [Test]
         public void PackageAndLocalizationVersionsAreFrozen()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(
-                typeof(CoCoFlowSetupAssistant).Assembly);
+                typeof(CoCoFlowUtility).Assembly);
             Assert.IsNotNull(packageInfo);
             Assert.AreEqual("0.4.0", packageInfo.version);
 

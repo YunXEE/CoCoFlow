@@ -72,7 +72,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.0
 }
 ```
 
-通过 **Tools > CoCoFlow > Setup Assistant** 检查可选集成依赖和项目设置。
+通过 **CoCoFlow > Utility Panel**（CoCoFlow Utility 窗口）检查可选集成依赖和项目设置。
 部分集成程序集只有在外部包和对应 support define 存在时才会编译，详见
 [依赖矩阵](Docs/DependencyMatrix.md)。
 

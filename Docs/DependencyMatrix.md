@@ -42,9 +42,9 @@ UniTask and DOTween are not entries in `package.json`.
 | DOTween unitypackage | `COCOFLOW_DOTWEEN_SUPPORT` plus `DOTween.Modules` assembly | UI and optional UI extensions |
 | UniTask.DOTween | `UNITASK_DOTWEEN_SUPPORT` plus UniTask/DOTween gates | UI and optional UI extensions |
 
-The Setup Assistant can inspect these packages/assemblies and reconcile the
-manual support defines. A stale manual define is not a supported way to bypass
-an asmdef version range.
+The CoCoFlow Utility panel can inspect these packages/assemblies and reconcile
+the manual support defines for the active build target. A stale manual define
+is not a supported way to bypass an asmdef version range.
 
 ## Runtime module matrix
 
