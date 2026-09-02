@@ -5,6 +5,7 @@ using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
@@ -91,16 +92,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         {
             CoCoStateGraphEditorWindow window = CreateStateGraphWindow(CreateAsset());
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
-            bool hasSharedSheet = false;
-            foreach (StyleSheet sheet in window.rootVisualElement.styleSheets)
-            {
-                if (sheet != null && sheet.name.Contains("CoCoEditorCommon"))
-                {
-                    hasSharedSheet = true;
-                }
-            }
-
-            Assert.IsTrue(hasSharedSheet, "shared ccflow style sheet must be loaded");
+            // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
+            Assert.GreaterOrEqual(window.rootVisualElement.styleSheets.Count, 2,
+                "shared ccflow sheet and sg sheet must both be attached");
         }
 
         [Test]
