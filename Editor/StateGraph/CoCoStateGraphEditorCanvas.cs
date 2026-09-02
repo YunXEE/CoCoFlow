@@ -184,8 +184,8 @@ namespace CoCoFlow.Editor.StateGraph
             if (states.Count == 0)
             {
                 var hint = new Label(CoCoEditorLocalization.Text(
-                    "Right-click empty canvas to add a State; right-drag from a State to another leaf to add a Transition.",
-                    "右键画布空白处添加 State；右键拖拽 State 卡拉出 Transition。"))
+                    "Right-click: add State / add Composite (sub-state machine) / paste; right-drag from a State to add a Transition.",
+                    "右键菜单：添加 State / 添加 Composite（子状态机）/ 粘贴；右键拖拽 State 卡拉出 Transition。"))
                 {
                     name = "state-graph-canvas-hint"
                 };

@@ -213,6 +213,22 @@ namespace CoCoFlow.Editor.StateGraph
                 Rebuild();
             });
             card.Add(assetField);
+
+            // 维护者反馈：Layer 选择/新建移入左栏页头（工具栏左上解拥）。
+            var layerRow = new VisualElement();
+            layerRow.AddToClassList("sg-card-row");
+            AddLayerPopup(layerRow, compact: true);
+            var addLayer = new Button(() => controller.AddLayer())
+            {
+                text = L("+ New Layer", "+ 新建 Layer"),
+                tooltip = L("Append a new Layer", "追加一个新 Layer")
+            };
+            texts.Register(addLayer, "+ New Layer", "+ 新建 Layer");
+            addLayer.AddToClassList("sg-header-add-layer");
+            addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
+            layerRow.Add(addLayer);
+            card.Add(layerRow);
+
             card.Add(BuildHeaderBadges());
             headerHost.Add(card);
         }
@@ -333,13 +349,6 @@ namespace CoCoFlow.Editor.StateGraph
             var toolbar = new Toolbar();
             toolbarHost.Add(toolbar);
 
-            var layerPopupSlot = new VisualElement
-            {
-                name = "state-graph-layer-popup-slot",
-                style = { flexDirection = FlexDirection.Row }
-            };
-            toolbar.Add(layerPopupSlot);
-
             if (controller == null)
             {
                 var emptyCreatePreset = new ToolbarButton(() => CoCoStateGraphPresetWizard.Open())
@@ -350,16 +359,6 @@ namespace CoCoFlow.Editor.StateGraph
                 toolbar.Add(emptyCreatePreset);
                 return;
             }
-
-            AddLayerPopup(layerPopupSlot);
-
-            var addLayer = new ToolbarButton(() => controller.AddLayer())
-            {
-                text = L("+ Layer", "+ 新建 Layer")
-            };
-            texts.Register(addLayer, "+ Layer", "+ 新建 Layer");
-            addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
-            toolbar.Add(addLayer);
 
             var up = new ToolbarButton(() => controller.DrillUp())
             {
@@ -392,7 +391,7 @@ namespace CoCoFlow.Editor.StateGraph
             toolbar.Add(createPreset);
         }
 
-        private void AddLayerPopup(VisualElement slot)
+        private void AddLayerPopup(VisualElement slot, bool compact = false)
         {
             var layerIds = new List<CoCoLayerId>();
             var layerLabels = new List<string>();
@@ -410,7 +409,9 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 layerIds.Add(layerId);
-                layerLabels.Add($"{layer.DisplayName}  [{ShortId(layerId.ToString())}]");
+                layerLabels.Add(compact
+                    ? layer.DisplayName
+                    : $"{layer.DisplayName}  [{ShortId(layerId.ToString())}]");
             }
 
             if (layerLabels.Count == 0)
@@ -422,7 +423,15 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 tooltip = L("Layer", "Layer")
             };
-            layerPopup.style.width = 190f;
+            if (compact)
+            {
+                layerPopup.style.flexGrow = 1f;
+                layerPopup.style.minWidth = 60f;
+            }
+            else
+            {
+                layerPopup.style.width = 190f;
+            }
             layerPopup.RegisterValueChangedCallback(evt =>
             {
                 int index = layerLabels.IndexOf(evt.newValue);
@@ -734,6 +743,12 @@ namespace CoCoFlow.Editor.StateGraph
                 () => TryExecuteCanvasAuthoringAction(() => controller.PasteState(
                     controller.Session.DrillRootStateId,
                     contextPosition)));
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(
+                new GUIContent(L("Add Composite (sub-state machine)", "添加 Composite（子状态机）")),
+                false,
+                () => TryExecuteCanvasAuthoringAction(() =>
+                    TryAddCompositeAtCanvasPosition(contextPosition)));
             menu.ShowAsContext();
         }
 
@@ -779,6 +794,70 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             menu.ShowAsContext();
+        }
+
+        /// <summary>
+        /// 一步式子状态机（维护者反馈：Animator 式 Create Sub-state Machine）。
+        /// 模型不变：Composite=有子 State 的普通 State。本动作=建容器+建首个子 State
+        /// （两次 AuthoringOperations 命令，Undo 折叠为一组），随后 DrillInto 进入其子画布。
+        /// </summary>
+        internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
+        {
+            if (controller == null || !CoCoStateGraphAuthoringOperations.CanEdit(out string failure))
+            {
+                return false;
+            }
+
+            CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
+            if (descriptor == null)
+            {
+                ShowNotification(new GUIContent(
+                    L("A State descriptor is required (see Add State card).",
+                        "需要可用的 State 描述符（见「添加 State」卡）。")));
+                return false;
+            }
+
+            if (!CoCoStateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out CoCoStateConfig config,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            CoCoLayerId layerId = controller.Session.SelectedLayerId;
+            CoCoStateId parent = controller.Session.DrillRootStateId;
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            if (!CoCoStateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    parent,
+                    descriptor.DescriptorId,
+                    config,
+                    "Composite",
+                    position,
+                    out CoCoStateId containerId,
+                    out failure) ||
+                !CoCoStateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    containerId,
+                    descriptor.DescriptorId,
+                    config,
+                    "State",
+                    new Vector2(80f, 80f),
+                    out _,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            controller.DrillInto(containerId); // 全量失效刷新 + 进入子画布
+            return true;
         }
 
         internal bool TryAddStateAtCanvasPosition(Vector2 position)
