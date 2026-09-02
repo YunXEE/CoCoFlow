@@ -6,6 +6,7 @@ using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Editor.StateGraphHost
@@ -691,6 +692,56 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
             Assert.That(breakHint.HasValue, Is.True);
             Assert.That(breakHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+        }
+
+        [Test]
+        public void InspectorChainPreviewRendersDestroyedDownstreamWithoutThrowing()
+        {
+            CoCoStateGraphHost host = CreateHost("DestroyedRender");
+            GameObject rootObject = CreateChild(host.transform, "Root", false);
+            GameObject tailObject = CreateChild(host.transform, "Tail", false);
+            var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
+            var tail = tailObject.AddComponent<EditorRestoreNodeComponent>();
+            var serializedHost = new SerializedObject(host);
+            serializedHost.FindProperty("contextRestoreBinding")
+                .objectReferenceValue = root;
+            serializedHost.ApplyModifiedPropertiesWithoutUndo();
+            var serializedRoot = new SerializedObject(root);
+            serializedRoot.FindProperty("downstreamRestoreBinding")
+                .objectReferenceValue = tail;
+            serializedRoot.ApplyModifiedPropertiesWithoutUndo();
+
+            // 失销下游：托管包装仍在但 Unity 伪装 null——旧实现在此渲染时抛异常。
+            Object.DestroyImmediate(tail);
+
+            UnityEditor.Editor editor = UnityEditor.Editor.CreateEditor(host);
+            try
+            {
+                VisualElement inspectorRoot = null;
+                Assert.DoesNotThrow(() =>
+                {
+                    inspectorRoot =
+                        ((CoCoStateGraphHostEditor)editor).CreateInspectorElement();
+                });
+                Assert.That(inspectorRoot, Is.Not.Null);
+
+                // 链预览渲染：两行（root + 失销占位），第二行加粗，不断链 Error 诊断存在。
+                System.Collections.Generic.List<Label> chainRows =
+                    inspectorRoot.Query<Label>(name: "ccflow-chain-text")
+                        .ToList();
+                Assert.That(chainRows.Count, Is.EqualTo(2));
+                Assert.That(
+                    chainRows[1].style.unityFontStyleAndWeight.value,
+                    Is.EqualTo(FontStyle.Bold));
+                System.Collections.Generic.List<Label> diagnostics =
+                    inspectorRoot.Query<Label>(
+                        name: "ccflow-diagnostic-message").ToList();
+                Assert.That(diagnostics, Is.Not.Empty);
+            }
+            finally
+            {
+                Object.DestroyImmediate(editor);
+            }
         }
 
         [Test]
