@@ -429,9 +429,7 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             return assemblyName.StartsWith("CoCoFlow.Tests.", StringComparison.Ordinal) ||
                    assemblyName.StartsWith("CoCoFlow.Samples.", StringComparison.Ordinal) ||
-                   assemblyName.StartsWith("CoCoFlow.Fixtures.", StringComparison.Ordinal) ||
-                   assemblyName.StartsWith("CoCoFlow.Runtime.Gameplay", StringComparison.Ordinal) ||
-                   assemblyName.StartsWith("CoCoFlow.Editor.Gameplay", StringComparison.Ordinal);
+                   assemblyName.StartsWith("CoCoFlow.Fixtures.", StringComparison.Ordinal);
         }
 
         internal static AsmdefInfo Parse(string json, string relativePath)

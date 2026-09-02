@@ -5,11 +5,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
     public static class PersistenceContextAdapterRegistry
     {
-        private static readonly List<IPersistenceContextAdapter> Adapters = new List<IPersistenceContextAdapter>
-        {
-            new PersistenceCharacterContextAdapter(),
-            new PersistenceItemContextAdapter()
-        };
+        private static readonly List<IPersistenceContextAdapter> Adapters = new List<IPersistenceContextAdapter>();
 
         #region Public API
 

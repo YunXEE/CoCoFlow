@@ -37,7 +37,7 @@ boundary. During each Operator execution it:
 2. writes Float/Integer/Boolean parameters and Set/Reset trigger commands;
 3. commits any staged SMB feedback to the typed Event Outbox;
 4. samples the Animator's latest engine state into the owned Context snapshot
-   slot.
+   slot (each parameter lane typed by its binding kind).
 
 The snapshot is an engine fact observed after Unity's Animator update, so one
 Tick of feedback latency is intentional; it is not a prediction of the
@@ -62,10 +62,16 @@ reverse or retroactive events.
 ## Temporal and durable projection
 
 `AnimSnapshot.Sample` records current layer state hashes, normalized times,
-weights, and configured parameter lanes. Restore projection validates the
-current Animator layout and state hashes, writes the saved parameter lanes,
-uses `Animator.Play` for each stored layer, restores weights, and performs a
-zero-time `Animator.Update(0)` so the pose is visible without advancing time.
+weights, and the configured parameter lanes typed by their binding kind:
+Float lanes keep the float value, Integer lanes carry the parameter's exact
+32-bit payload as raw bits (never a numeric cast), and Boolean lanes store
+`0f`/`1f`. An invalid binding kind fails sampling loudly with an argument
+exception. Restore projection validates the current Animator layout, state
+hashes and every projected lane's kind before any write, then restores each
+lane with `SetFloat`/`SetInteger`/`SetBool` (Integer decoding the raw 32-bit
+payload), uses `Animator.Play` for each stored layer, restores weights, and
+performs a zero-time `Animator.Update(0)` so the pose is visible without
+advancing time.
 
 Layout mismatch fails with `WorldCorrectionRequired`; partial silent restore is
 not accepted. This snapshot does not reproduce every internal Animator detail,
