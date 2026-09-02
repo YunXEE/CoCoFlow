@@ -313,16 +313,21 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
-        public IEnumerator DoubleClickCompositeCardDrillsIntoChildScope()
+        public IEnumerator SelectingTransitionHighlightsTargetEntryChainOnCards()
         {
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
-            CoCoStateId parent = AddState(asset, layerId, "Parent", new Vector2(80f, 80f));
+            CoCoStateId rootLeaf = AddState(asset, layerId, "RootLeaf", new Vector2(40f, 60f));
+            CoCoStateId composite = AddState(asset, layerId, "Parent", new Vector2(300f, 60f));
             Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddState(
-                asset, layerId, parent,
+                asset, layerId, composite,
                 CoCoStateGraphTestFactory.StateDescriptorId,
                 new TestStateAuthoringConfig(), "Child",
-                new Vector2(320f, 80f), out CoCoStateId _, out string failure), failure);
+                new Vector2(80f, 80f), out CoCoStateId child, out string failure), failure);
+            // 跨作用域 leaf↔leaf Transition（契约允许；D9 全展开后应可见且可高亮链条）。
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, rootLeaf, child, 0, CoCoTransitionWindow.Always, null,
+                out CoCoTransitionId transitionId, out failure), failure);
 
             var controller = new CoCoStateGraphEditorController(asset);
             controllers.Add(controller);
@@ -331,18 +336,25 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Host(canvas);
             yield return null;
 
-            VisualElement card = canvas.Q<VisualElement>("state-card");
-            Assert.NotNull(card);
-            Assert.IsFalse(controller.Session.DrillRootStateId.IsValid);
-            SendPointerDown(card, 3, card.worldBound.center, default, clickCount: 2);
-            Assert.IsTrue(controller.Session.DrillRootStateId.IsValid,
-                "double-click must drill into the composite scope");
-            Assert.AreEqual(
-                parent.High,
-                controller.Session.DrillRootStateId.High);
-            Assert.AreEqual(
-                parent.Low,
-                controller.Session.DrillRootStateId.Low);
+            controller.SelectTransition(transitionId);
+            yield return null;
+
+            VisualElement leafCard = CardWithTitle(canvas, "RootLeaf");
+            VisualElement compositeCard = CardWithTitle(canvas, "Parent");
+            VisualElement childCard = CardWithTitle(canvas, "Child");
+            Assert.NotNull(leafCard);
+            Assert.NotNull(compositeCard);
+            Assert.NotNull(childCard);
+
+            // 链条高亮：源/目标叶子 + 目标祖先（进入链条）变黄；无关卡不变。
+            Assert.IsTrue(leafCard.ClassListContains("state-card--chain"), "source leaf must be lit");
+            Assert.IsTrue(compositeCard.ClassListContains("state-card--chain"), "target ancestor must be lit");
+            Assert.IsTrue(childCard.ClassListContains("state-card--chain"), "target leaf must be lit");
+
+            // 选中态解除后高亮消失。
+            controller.SelectState(rootLeaf);
+            yield return null;
+            Assert.IsFalse(CardWithTitle(canvas, "Parent").ClassListContains("state-card--chain"));
         }
 
         // ── 助手 ───────────────────────────────────────────
@@ -447,6 +459,23 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 if (result == null && button.text == text)
                 {
                     result = button;
+                }
+            });
+            return result;
+        }
+
+        private static VisualElement CardWithTitle(VisualElement canvas, string title)
+        {
+            VisualElement result = null;
+            canvas.Query<VisualElement>("state-card").ForEach(card =>
+            {
+                if (result == null)
+                {
+                    Label first = card.Q<Label>(className: "state-card__title");
+                    if (first != null && first.text == title)
+                    {
+                        result = card;
+                    }
                 }
             });
             return result;
