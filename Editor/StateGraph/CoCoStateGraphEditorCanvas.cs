@@ -25,18 +25,20 @@ namespace CoCoFlow.Editor.StateGraph
         private const float TriangleWidth = 7f;
         private const float LoopHeight = 44f;
         private const float LoopRadius = 30f;
-        private const float GridStep = 32f;
-        private const float GridStepZoomedOut = 64f;
-        private const float GridDotSize = 2.8f;
-        private const int GridDotBudget = 8000;
-        private const float WheelZoomInFactor = 1.06f;
-        private const float WheelZoomOutFactor = 1f / 1.06f;
+        private const float ScreenGridBaseStep = 24f;
+        private const float ScreenGridMinStep = 16f;
+        private const float ScreenGridMaxStep = 96f;
+        private const float ScreenGridDotSize = 2.6f;
+        // 维护者裁决：滚轮缩放灵敏度降至原 1/4（原每档 ±6% → 现 ±1.5%）。
+        private const float WheelZoomInFactor = 1.015f;
+        private const float WheelZoomOutFactor = 1f / 1.015f;
 
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
         private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.5f);
 
         private readonly CoCoStateGraphEditorController controller;
+        private readonly VisualElement gridLayer;
         private readonly VisualElement content;
         private readonly VisualElement edgeLayer;
         private readonly Dictionary<CoCoSerializedId128, Rect> stateRects =
@@ -66,6 +68,19 @@ namespace CoCoFlow.Editor.StateGraph
             style.flexGrow = 1f;
             style.position = Position.Relative;
             style.overflow = Overflow.Hidden;
+
+            // 视口锚定点阵层：屏幕空间无限网格（覆盖永远是整个视口；平移取模滚动、
+            // 缩放调步距）。不放在 content 内——generateVisualContent 产物会被缓存并
+            // 随变换整体搬运，平移/缩放后新露出的区域将永远无点（维护者反馈根因）。
+            gridLayer = new VisualElement { name = "state-graph-canvas-grid", pickingMode = PickingMode.Ignore };
+            gridLayer.style.position = Position.Absolute;
+            gridLayer.style.left = 0f;
+            gridLayer.style.top = 0f;
+            gridLayer.style.right = 0f;
+            gridLayer.style.bottom = 0f;
+            gridLayer.generateVisualContent += DrawScreenGrid;
+            Add(gridLayer);
+            RegisterCallback<GeometryChangedEvent>(_ => gridLayer.MarkDirtyRepaint());
 
             content = new VisualElement { name = "state-graph-canvas-content" };
             content.style.position = Position.Absolute;
@@ -144,6 +159,7 @@ namespace CoCoFlow.Editor.StateGraph
             CancelTransitionDrag(releasePointer: true);
             CancelPan(releasePointer: true);
             edgeLayer.generateVisualContent -= DrawEdges;
+            gridLayer.generateVisualContent -= DrawScreenGrid;
         }
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
@@ -211,48 +227,33 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         /// <summary>
-        /// 点阵网格（维护者反馈 3：格子纸点点背景；纹理背景在 UITK 的平铺语义不可控，
-        /// 弃用后改为重绘回调内确定性绘制：只见可见区、带 LOD 与点数预算）。
+        /// 屏幕空间点阵网格（视口锚定）：步距随缩放缩放（限幅），平移按步距取模滚动。
+        /// 覆盖恒等于当前视口；仅在平移/缩放/尺寸变化时重绘（SetView/GeometryChanged）。
         /// </summary>
-        private void DrawDotGrid(Painter2D painter)
+        private void DrawScreenGrid(MeshGenerationContext context)
         {
-            Rect worldViewport = this.worldBound;
-            if (worldViewport.width <= 0f || worldViewport.height <= 0f)
+            Rect rect = gridLayer.contentRect;
+            if (rect.width <= 0f || rect.height <= 0f)
             {
                 return;
             }
 
-            float zoom = Mathf.Max(CurrentView.Zoom, 0.01f);
-            Rect contentWorld = content.worldBound;
-            Vector2 graphMin = (worldViewport.min - contentWorld.min) / zoom;
-            Vector2 graphMax = (worldViewport.max - contentWorld.min) / zoom;
-            Rect graphViewport = Rect.MinMaxRect(graphMin.x, graphMin.y, graphMax.x, graphMax.y);
-            graphViewport.xMin = Mathf.Max(graphViewport.xMin, 0f);
-            graphViewport.yMin = Mathf.Max(graphViewport.yMin, 0f);
-            graphViewport.xMax = Mathf.Min(graphViewport.xMax, CanvasSize);
-            graphViewport.yMax = Mathf.Min(graphViewport.yMax, CanvasSize);
-            if (graphViewport.width <= 0f || graphViewport.height <= 0f)
-            {
-                return;
-            }
+            CoCoStateGraphCanvasView view = CurrentView;
+            float step = Mathf.Clamp(
+                ScreenGridBaseStep * Mathf.Max(view.Zoom, 0.01f),
+                ScreenGridMinStep,
+                ScreenGridMaxStep);
+            float offsetX = ((view.Pan.x % step) + step) % step;
+            float offsetY = ((view.Pan.y % step) + step) % step;
 
-            float step = zoom < 0.5f ? GridStepZoomedOut : GridStep;
-            int x0 = Mathf.CeilToInt(graphViewport.xMin / step);
-            int x1 = Mathf.FloorToInt(graphViewport.xMax / step);
-            int y0 = Mathf.CeilToInt(graphViewport.yMin / step);
-            int y1 = Mathf.FloorToInt(graphViewport.yMax / step);
-            if ((x1 - x0 + 1) * (y1 - y0 + 1) > GridDotBudget)
-            {
-                return;
-            }
-
+            Painter2D painter = context.painter2D;
             painter.fillColor = GridDotColor;
-            float half = GridDotSize * 0.5f;
-            for (int y = y0; y <= y1; y++)
+            float half = ScreenGridDotSize * 0.5f;
+            for (float y = offsetY - step; y < rect.height + step; y += step)
             {
-                for (int x = x0; x <= x1; x++)
+                for (float x = offsetX - step; x < rect.width + step; x += step)
                 {
-                    Vector2 center = new Vector2(x * step, y * step);
+                    Vector2 center = new Vector2(x, y);
                     painter.BeginPath();
                     painter.MoveTo(center + new Vector2(-half, -half));
                     painter.LineTo(center + new Vector2(half, -half));
@@ -281,7 +282,6 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Painter2D painter = context.painter2D;
             edgeHits.Clear();
-            DrawDotGrid(painter);
 
             // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
             var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
@@ -815,6 +815,7 @@ namespace CoCoFlow.Editor.StateGraph
                 controller.Session.DrillRootStateId,
                 view);
             ApplyView();
+            gridLayer.MarkDirtyRepaint();
             if (save)
             {
                 controller.Session.Save();
