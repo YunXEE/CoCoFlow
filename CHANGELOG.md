@@ -46,6 +46,39 @@ Editor tooling, and sample tests, 5193 lines of C#). Git history remains the
   on an actor with a running StateGraph host.
 - The remaining 35 sample-specific tests were removed with the sample.
 
+### Changed
+
+- StateGraph Editor rebuilt on the unified UI Toolkit visual language
+  (`ccflow-` from `Editor/Common`): the main window, canvas cards, preset
+  wizard, and the asset Inspector now share one theme, with bilingual
+  (English / Simplified Chinese) static chrome driven by the Editor language
+  preference. Asset names, descriptor names, and diagnostic payloads are
+  never translated. Editor styles load by package path instead of a hard-coded
+  GUID.
+- Canvas edges follow the Animator presentation: center-anchored edges clipped
+  at card borders, parallel offsets for multiple transitions between the same
+  State pair, direction arrowheads, self-loops above the card, click-an-edge
+  selects that Transition, and double-clicking a composite State card drills
+  into its scope. The breadcrumb is now clickable per scope segment. All
+  pointer semantics (pan/zoom/drag/capture) and the authoring command/Undo
+  boundary are unchanged.
+- The StateGraph Asset Inspector moved from IMGUI to UI Toolkit on the same
+  visual language. It keeps the reachable surface (identity/count summary,
+  Event Adapter Declarations as the sole non-topology editing lane, Open
+  Editor, Add Layer, Analyze with Locate, Play Mode read-only) and adds a
+  read-only Host-requirements card derived from the three compilation
+  manifests. Unreachable dead layer-operation code was removed rather than
+  revived.
+- `CoCoFlow.Editor.StateGraph` now references `CoCoFlow.Editor.Common`.
+
+### Added
+
+- `Tests/Editor/StateGraph/CoCoStateGraphEditorVisualLanguageTests.cs`: theme
+  attachment, severity-to-badge mapping, empty states, bilingual chrome,
+  Animator edge interactions (hit/miss selection, parallel bidirectional
+  offsets, self-loop, double-click drill), Inspector UI Toolkit equivalents,
+  and the three upgraded element-name anchors.
+
 ## [0.4.0] - 2026-08-29
 
 Closes the expanded RC2 line as a usable 0.4.0 release. Runtime code, Editor
