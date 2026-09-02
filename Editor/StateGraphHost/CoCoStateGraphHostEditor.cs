@@ -647,12 +647,17 @@ namespace CoCoFlow.Editor.StateGraphHost
                 arrow.AddToClassList("ccflow-host-chain-row__arrow");
                 row.Add(arrow);
                 var text = new Label(
-                    node.Component.GetType().Name + " @ " + node.Component.name)
+                    node.IsDestroyed
+                        ? CoCoEditorLocalization.Text(
+                            "destroyed object",
+                            "已失销对象")
+                        : node.Component.GetType().Name + " @ " +
+                            node.Component.name)
                 {
                     name = "ccflow-chain-text"
                 };
                 text.AddToClassList("ccflow-host-chain-row__text");
-                if (!node.ImplementsContract || node.IsRepeat)
+                if (!node.ImplementsContract || node.IsRepeat || node.IsDestroyed)
                 {
                     text.style.unityFontStyleAndWeight = FontStyle.Bold;
                 }

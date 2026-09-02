@@ -664,6 +664,36 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         [Test]
+        public void RestoreChainPreviewReportsDestroyedDownstreamWithoutThrowing()
+        {
+            CoCoStateGraphHost host = CreateHost("DestroyedChain");
+            GameObject rootObject = CreateChild(host.transform, "Root", false);
+            GameObject tailObject = CreateChild(host.transform, "Tail", false);
+            var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
+            var tail = tailObject.AddComponent<EditorRestoreNodeComponent>();
+            var serialized = new SerializedObject(root);
+            serialized.FindProperty("downstreamRestoreBinding")
+                .objectReferenceValue = tail;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+
+            // 失销下游：托管包装仍在（ReferenceEquals 非空）但 Unity 伪装 null。
+            Object.DestroyImmediate(tail);
+
+            var nodes =
+                new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+            Assert.DoesNotThrow(() =>
+                CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(
+                    root, host, nodes));
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[1].IsDestroyed, Is.True);
+
+            CoCoBindingHint? breakHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+            Assert.That(breakHint.HasValue, Is.True);
+            Assert.That(breakHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+        }
+
+        [Test]
         public void RestoreChainCandidatesSortByHierarchyParentBeforeChild()
         {
             CoCoStateGraphHost host = CreateHost("Wire");
