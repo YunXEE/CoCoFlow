@@ -291,8 +291,9 @@ namespace CoCoFlow.Editor.StateGraph
             }
             else
             {
-                start = source.center + direction * (source.width * 0.5f);
-                end = target.center - direction * (target.width * 0.5f);
+                Vector2 fallbackDirection = (target.center - source.center).normalized;
+                start = source.center + fallbackDirection * (source.width * 0.5f);
+                end = target.center - fallbackDirection * (target.width * 0.5f);
             }
 
             painter.BeginPath();
