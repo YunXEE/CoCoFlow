@@ -564,7 +564,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(
                 CoCoStateGraphHostBindingRules.BuildActorContextHint(
                     host, outsideActor).Value.Kind,
-                Is.EqualTo(CoBindingHintKindWarning));
+                Is.EqualTo(CoCoBindingHintKind.Warning));
         }
 
         [Test]

@@ -669,309 +669,312 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
         }
 
-                                                                                                                                /// <summary>
-                                                                                                                                /// 自动连接（B2 原子性）：TryBuildRestoreWirePlan 零写入解析全部目标
-                                                                                                                                /// → 一次性 Record 全部受影响对象 → 统一写入 → 折叠单一 Undo 组；
-                                                                                                                                /// 校验失败零写入。记录经 CoCoLog（D7）。
-                                                                                                                                /// </summary>
-                                                                                                                                private void AutoWireRestoreChain()
-                                                                                                                                {
-                                                                                                                                                                                                var host = (CoCoStateGraphHost)target;
-                                                                                                                                                                                                var chain = new List<MonoBehaviour>();
-                                                                                                                                                                                                CoCoStateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
-                                                                                                                                                                                                if (!CoCoStateGraphHostBindingRules.TryBuildRestoreWirePlan(
-                                                                                                                                                                                                                                                                                                                                host,
-                                                                                                                                                                                                                                                                                                                                chain,
-                                                                                                                                                                                                                                                                                                                                out CoCoStateGraphHostBindingRules.CoCoRestoreWirePlan plan,
-                                                                                                                                                                                                                                                                                                                                out CoCoBindingHint failure))
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                CoCoLog.Warning("[Host Inspector] " + failure.English);
-                                                                                                                                                                                                                                                                return;
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                serializedObject.Update();
-                                                                                                                                                                                                SerializedProperty rootProperty =
-                                                                                                                                                                                                                                                                serializedObject.FindProperty("contextRestoreBinding");
-
-                                                                                                                                                                                                int undoGroup = Undo.GetCurrentGroup();
-                                                                                                                                                                                                Undo.SetCurrentGroupName(CoCoEditorLocalization.Text(
-                                                                                                                                                                                                                                                                "Auto-wire Restore Chain",
-                                                                                                                                                                                                                                                                "自动连接 Restore 链"));
-                                                                                                                                                                                                try
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                // 1) 先全量 Record（host + 全部待写节点），失败点在写入前。
-                                                                                                                                                                                                                                                                Undo.RecordObject(host, "Auto-wire Restore Chain");
-                                                                                                                                                                                                                                                                var memberWrites = new List<(SerializedObject Serialized, MonoBehaviour Target)>();
-                                                                                                                                                                                                                                                                for (int index = 0; index < plan.Upstreams.Count; index++)
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                memberWrites.Add((
-                                                                                                                                                                                                                                                                                                                                                                                                new SerializedObject(plan.Upstreams[index]),
-                                                                                                                                                                                                                                                                                                                                                                                                plan.Upstreams[index]));
-                                                                                                                                                                                                                                                                                                                                Undo.RecordObject(
-                                                                                                                                                                                                                                                                                                                                                                                                plan.Upstreams[index],
-                                                                                                                                                                                                                                                                                                                                                                                                "Auto-wire Restore Chain");
-                                                                                                                                                                                                                                                                }
-
-                                                                                                                                                                                                                                                                if (plan.TailToClear != null &&
-                                                                                                                                                                                                                                                                                                                                !Contains(plan.Upstreams, plan.TailToClear))
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                memberWrites.Add((
-                                                                                                                                                                                                                                                                                                                                                                                                new SerializedObject(plan.TailToClear),
-                                                                                                                                                                                                                                                                                                                                                                                                plan.TailToClear));
-                                                                                                                                                                                                                                                                                                                                Undo.RecordObject(plan.TailToClear, "Auto-wire Restore Chain");
-                                                                                                                                                                                                                                                                }
-
-                                                                                                                                                                                                                                                                // 2) 统一写入：root → 全部链接 → 尾节点清空。
-                                                                                                                                                                                                                                                                rootProperty.objectReferenceValue = plan.Root;
-                                                                                                                                                                                                                                                                serializedObject.ApplyModifiedProperties();
-
-                                                                                                                                                                                                                                                                for (int index = 0; index < plan.Upstreams.Count; index++)
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                WriteDownstream(
-                                                                                                                                                                                                                                                                                                                                                                                                memberWrites[index].Serialized,
-                                                                                                                                                                                                                                                                                                                                                                                                plan.Downstreams[index]);
-                                                                                                                                                                                                                                                                }
-
-                                                                                                                                                                                                                                                                if (plan.TailToClear != null)
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                WriteDownstream(
-                                                                                                                                                                                                                                                                                                                                                                                                FindMemberWrite(memberWrites, plan.TailToClear),
-                                                                                                                                                                                                                                                                                                                                                                                                null);
-                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                }
-                                                                                                                                                                                                finally
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                Undo.CollapseUndoOperations(undoGroup);
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                var names = new System.Text.StringBuilder();
-                                                                                                                                                                                                for (int index = 0; index < chain.Count; index++)
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                if (index > 0)
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                names.Append(" -> ");
-                                                                                                                                                                                                                                                                }
-
-                                                                                                                                                                                                                                                                names.Append(chain[index].GetType().Name);
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                CoCoLog.Log("[Host Inspector] Restore chain wired: " + names);
-                                                                                                                                                                                                RebuildDynamicSections();
-                                                                                                                                }
-
-                                                                                                                                private static bool Contains(IReadOnlyList<MonoBehaviour> list, MonoBehaviour value)
-                                                                                                                                {
-                                                                                                                                                                                                for (int index = 0; index < list.Count; index++)
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                if (ReferenceEquals(list[index], value))
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                return true;
-                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                return false;
-                                                                                                                                }
-
-                                                                                                                                private static SerializedObject FindMemberWrite(
-                                                                                                                                                                                                List<(SerializedObject Serialized, MonoBehaviour Target)> memberWrites,
-                                                                                                                                                                                                MonoBehaviour target)
-                                                                                                                                {
-                                                                                                                                                                                                for (int index = 0; index < memberWrites.Count; index++)
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                if (ReferenceEquals(memberWrites[index].Target, target))
-                                                                                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                                                                                return memberWrites[index].Serialized;
-                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                return null;
-                                                                                                                                }
-
-                                                                                                                                private static void WriteDownstream(
-                                                                                                                                                                                                SerializedObject upstream,
-                                                                                                                                                                                                MonoBehaviour value)
-                                                                                                                                {
-                                                                                                                                                                                                if (upstream == null)
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                return;
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                SerializedProperty downstream = upstream.FindProperty(
-                                                                                                                                                                                                                                                                CoCoStateGraphHostBindingRules.DownstreamPropertyName);
-                                                                                                                                                                                                if (downstream == null)
-                                                                                                                                                                                                {
-                                                                                                                                                                                                                                                                return;
-                                                                                                                                                                                                }
-
-                                                                                                                                                                                                downstream.objectReferenceValue = value;
-                                                                                                                                                                                                upstream.ApplyModifiedProperties();
-                                                                                                                                }
-
-        // ===== Capacities =====
-
-        private VisualElement BuildCapacitiesCard()
+    /// <summary>
+    /// 自动连接（B2 原子性）：TryBuildRestoreWirePlan 零写入解析全部目标
+    /// → 一次性 Record 全部受影响对象 → 统一写入 → 折叠单一 Undo 组；
+    /// 校验失败零写入。记录经 CoCoLog（D7）。
+    /// </summary>
+    private void AutoWireRestoreChain()
+    {
+        var host = (CoCoStateGraphHost)target;
+        var chain = new List<MonoBehaviour>();
+        CoCoStateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
+        if (!CoCoStateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                host,
+                chain,
+                out CoCoStateGraphHostBindingRules.CoCoRestoreWirePlan plan,
+                out CoCoBindingHint failure))
         {
-            VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Capacities", "容量"));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("temporalHistoryCapacity"),
-                CoCoEditorLocalization.Text("Temporal History", "时间历史容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("contextFrameCapacity"),
-                CoCoEditorLocalization.Text("Context Frames", "上下文帧容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("eventOutboxCapacity"),
-                CoCoEditorLocalization.Text("Event Outbox", "事件发件容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("traceCapacity"),
-                CoCoEditorLocalization.Text("Trace", "Trace 容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("eventLaneCapacity"),
-                CoCoEditorLocalization.Text("Event Lanes", "事件通道容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("eventSourceCapacity"),
-                CoCoEditorLocalization.Text("Event Sources", "事件源容量")));
-            card.Add(new PropertyField(
-                serializedObject.FindProperty("eventDedupCapacity"),
-                CoCoEditorLocalization.Text("Event Dedup", "事件去重容量")));
-
-            var note = new Label(CoCoEditorLocalization.Text(
-                "Trace capacity defaults to 0 and applies when the runtime starts; " +
-                    "it cannot change while the runtime is live",
-                "Trace 容量默认 0，在运行时启动时生效；运行期间不可变更"))
-            {
-                name = "ccflow-capacity-note"
-            };
-            note.AddToClassList("ccflow-muted");
-            note.style.whiteSpace = WhiteSpace.Normal;
-            card.Add(note);
-            return card;
+            CoCoLog.Warning("[Host Inspector] " + failure.English);
+            return;
         }
 
-        // ===== Runtime 状态（只读） =====
+        serializedObject.Update();
+        SerializedProperty rootProperty =
+            serializedObject.FindProperty("contextRestoreBinding");
 
-        private void BuildRuntimeSection()
+        int undoGroup = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName(CoCoEditorLocalization.Text(
+            "Auto-wire Restore Chain",
+            "自动连接 Restore 链"));
+        try
         {
-            VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Runtime Status", "运行时状态"));
-            _runtimeContent = new VisualElement { name = "ccflow-host-runtime" };
-            card.Add(_runtimeContent);
-
-            var open = new Button(OpenDebugger)
+            // 1) 先全量 Record（host + 全部待写节点），失败点在写入前。
+            Undo.RecordObject(host, "Auto-wire Restore Chain");
+            var memberWrites =
+                new List<(SerializedObject Serialized, MonoBehaviour Target)>();
+            for (int index = 0; index < plan.Upstreams.Count; index++)
             {
-                text = CoCoEditorLocalization.Text("Open Debugger", "打开调试器")
-            };
-            open.style.marginTop = 4f;
-            card.Add(open);
-            _root.Add(card);
+                memberWrites.Add((
+                    new SerializedObject(plan.Upstreams[index]),
+                    plan.Upstreams[index]));
+                Undo.RecordObject(
+                    plan.Upstreams[index],
+                    "Auto-wire Restore Chain");
+            }
+
+            if (plan.TailToClear != null &&
+                !Contains(plan.Upstreams, plan.TailToClear))
+            {
+                memberWrites.Add((
+                    new SerializedObject(plan.TailToClear),
+                    plan.TailToClear));
+                Undo.RecordObject(plan.TailToClear, "Auto-wire Restore Chain");
+            }
+
+            // 2) 统一写入：root → 全部链接 → 尾节点清空。
+            rootProperty.objectReferenceValue = plan.Root;
+            serializedObject.ApplyModifiedProperties();
+
+            for (int index = 0; index < plan.Upstreams.Count; index++)
+            {
+                WriteDownstream(
+                    memberWrites[index].Serialized,
+                    plan.Downstreams[index]);
+            }
+
+            if (plan.TailToClear != null)
+            {
+                WriteDownstream(
+                    FindMemberWrite(memberWrites, plan.TailToClear),
+                    null);
+            }
+        }
+        finally
+        {
+            Undo.CollapseUndoOperations(undoGroup);
         }
 
-        private void UpdateDynamic()
+        var names = new System.Text.StringBuilder();
+        for (int index = 0; index < chain.Count; index++)
         {
-            var host = (CoCoStateGraphHost)target;
-            bool live = host != null && host.HasLiveRuntime;
-            if (_configRoot != null)
+            if (index > 0)
             {
-                _configRoot.SetEnabled(!live);
+                names.Append(" -> ");
             }
 
-            UpdateRuntimeCard(host);
+            names.Append(chain[index].GetType().Name);
         }
 
-        private void UpdateRuntimeCard(CoCoStateGraphHost host)
+        CoCoLog.Log("[Host Inspector] Restore chain wired: " + names);
+        RebuildDynamicSections();
+    }
+
+    private static bool Contains(
+        IReadOnlyList<MonoBehaviour> list,
+        MonoBehaviour value)
+    {
+        for (int index = 0; index < list.Count; index++)
         {
-            if (_runtimeContent == null)
+            if (ReferenceEquals(list[index], value))
             {
-                return;
-            }
-
-            _runtimeContent.Clear();
-
-            var editHint = new Label(CoCoEditorLocalization.Text(
-                "runtime status appears in Play Mode with a live Host",
-                "运行时状态在 Play 模式且 Host 运行时显示"));
-            editHint.AddToClassList("ccflow-muted");
-            editHint.style.whiteSpace = WhiteSpace.Normal;
-
-            if (host == null)
-            {
-                _runtimeContent.Add(editHint);
-                return;
-            }
-
-            _runtimeContent.Add(CreateKeyValueRow(
-                CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
-                host.Lifecycle.ToString(),
-                out VisualElement badgeRow));
-            CoCoEditorElements.SetBadgeKind(
-                badgeRow,
-                LifecycleToBadgeKind(host.Lifecycle, host.Fault.IsFaulted));
-
-            if (host.Fault.IsFaulted)
-            {
-                _runtimeContent.Add(CreateKeyValueRow(
-                    "Fault",
-                    host.Fault.Diagnostic.Domain + "/" +
-                        host.Fault.Diagnostic.Code + ": " +
-                        host.Fault.Diagnostic.Message,
-                    out _));
-            }
-
-            if (host.RequiresWorldCorrection)
-            {
-                _runtimeContent.Add(CreateKeyValueRow(
-                    CoCoEditorLocalization.Text("World Correction", "世界修正"),
-                    CoCoEditorLocalization.Text("required", "需要"),
-                    out _));
-            }
-
-            if (host.GraphInstanceId.IsValid)
-            {
-                _runtimeContent.Add(CreateKeyValueRow(
-                    CoCoEditorLocalization.Text("Graph Instance", "图实例"),
-                    host.GraphInstanceId.ToString(),
-                    out _));
-            }
-
-            if (host.LastDiagnostic.IsError)
-            {
-                _runtimeContent.Add(CreateKeyValueRow(
-                    CoCoEditorLocalization.Text("Last Diagnostic", "最后诊断"),
-                    host.LastDiagnostic.Domain + "/" + host.LastDiagnostic.Code +
-                        ": " + host.LastDiagnostic.Message,
-                    out _));
-            }
-
-            if (!Application.isPlaying)
-            {
-                _runtimeContent.Add(editHint);
+                return true;
             }
         }
 
-        private static CoCoEditorBadgeKind LifecycleToBadgeKind(
-            CoCoRuntimeLifecycleState lifecycle,
-            bool faulted)
-        {
-            if (faulted)
-            {
-                return CoCoEditorBadgeKind.Error;
-            }
+        return false;
+    }
 
-            switch (lifecycle)
+    private static SerializedObject FindMemberWrite(
+        List<(SerializedObject Serialized, MonoBehaviour Target)> memberWrites,
+        MonoBehaviour target)
+    {
+        for (int index = 0; index < memberWrites.Count; index++)
+        {
+            if (ReferenceEquals(memberWrites[index].Target, target))
             {
-                case CoCoRuntimeLifecycleState.Running:
-                    return CoCoEditorBadgeKind.Success;
-                case CoCoRuntimeLifecycleState.Suspended:
-                    return CoCoEditorBadgeKind.Warning;
-                default:
-                    return CoCoEditorBadgeKind.Neutral;
+                return memberWrites[index].Serialized;
             }
         }
 
-        private void OpenDebugger()
+        return null;
+    }
+
+    private static void WriteDownstream(
+        SerializedObject upstream,
+        MonoBehaviour value)
+    {
+        if (upstream == null)
         {
-            CoCoStateGraphDebuggerWindow.Open((CoCoStateGraphHost)target);
+            return;
         }
+
+        SerializedProperty downstream = upstream.FindProperty(
+            CoCoStateGraphHostBindingRules.DownstreamPropertyName);
+        if (downstream == null)
+        {
+            return;
+        }
+
+        downstream.objectReferenceValue = value;
+        upstream.ApplyModifiedProperties();
+    }
+
+    // ===== Capacities =====
+
+    private VisualElement BuildCapacitiesCard()
+    {
+        VisualElement card = CoCoEditorElements.CreateCard(
+            CoCoEditorLocalization.Text("Capacities", "容量"));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("temporalHistoryCapacity"),
+            CoCoEditorLocalization.Text("Temporal History", "时间历史容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("contextFrameCapacity"),
+            CoCoEditorLocalization.Text("Context Frames", "上下文帧容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("eventOutboxCapacity"),
+            CoCoEditorLocalization.Text("Event Outbox", "事件发件容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("traceCapacity"),
+            CoCoEditorLocalization.Text("Trace", "Trace 容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("eventLaneCapacity"),
+            CoCoEditorLocalization.Text("Event Lanes", "事件通道容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("eventSourceCapacity"),
+            CoCoEditorLocalization.Text("Event Sources", "事件源容量")));
+        card.Add(new PropertyField(
+            serializedObject.FindProperty("eventDedupCapacity"),
+            CoCoEditorLocalization.Text("Event Dedup", "事件去重容量")));
+
+        var note = new Label(CoCoEditorLocalization.Text(
+            "Trace capacity defaults to 0 and applies when the runtime starts; " +
+            "it cannot change while the runtime is live",
+            "Trace 容量默认 0，在运行时启动时生效；运行期间不可变更"))
+        {
+            name = "ccflow-capacity-note"
+        };
+        note.AddToClassList("ccflow-muted");
+        note.style.whiteSpace = WhiteSpace.Normal;
+        card.Add(note);
+        return card;
+}
+
+    // ===== Runtime 状态（只读） =====
+
+    private void BuildRuntimeSection()
+    {
+        VisualElement card = CoCoEditorElements.CreateCard(
+            CoCoEditorLocalization.Text("Runtime Status", "运行时状态"));
+        _runtimeContent = new VisualElement { name = "ccflow-host-runtime" };
+        card.Add(_runtimeContent);
+
+        var open = new Button(OpenDebugger)
+        {
+            text = CoCoEditorLocalization.Text("Open Debugger", "打开调试器")
+        };
+    open.style.marginTop = 4f;
+    card.Add(open);
+    _root.Add(card);
+}
+
+    private void UpdateDynamic()
+    {
+        var host = (CoCoStateGraphHost)target;
+        bool live = host != null && host.HasLiveRuntime;
+        if (_configRoot != null)
+        {
+            _configRoot.SetEnabled(!live);
+        }
+
+    UpdateRuntimeCard(host);
+}
+
+    private void UpdateRuntimeCard(CoCoStateGraphHost host)
+    {
+        if (_runtimeContent == null)
+        {
+            return;
+        }
+
+    _runtimeContent.Clear();
+
+    var editHint = new Label(CoCoEditorLocalization.Text(
+    "runtime status appears in Play Mode with a live Host",
+    "运行时状态在 Play 模式且 Host 运行时显示"));
+    editHint.AddToClassList("ccflow-muted");
+    editHint.style.whiteSpace = WhiteSpace.Normal;
+
+    if (host == null)
+    {
+        _runtimeContent.Add(editHint);
+        return;
+    }
+
+    _runtimeContent.Add(CreateKeyValueRow(
+    CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
+    host.Lifecycle.ToString(),
+    out VisualElement badgeRow));
+    CoCoEditorElements.SetBadgeKind(
+    badgeRow,
+    LifecycleToBadgeKind(host.Lifecycle, host.Fault.IsFaulted));
+
+    if (host.Fault.IsFaulted)
+    {
+        _runtimeContent.Add(CreateKeyValueRow(
+        "Fault",
+        host.Fault.Diagnostic.Domain + "/" +
+        host.Fault.Diagnostic.Code + ": " +
+        host.Fault.Diagnostic.Message,
+        out _));
+    }
+
+    if (host.RequiresWorldCorrection)
+    {
+        _runtimeContent.Add(CreateKeyValueRow(
+        CoCoEditorLocalization.Text("World Correction", "世界修正"),
+        CoCoEditorLocalization.Text("required", "需要"),
+        out _));
+    }
+
+    if (host.GraphInstanceId.IsValid)
+    {
+        _runtimeContent.Add(CreateKeyValueRow(
+        CoCoEditorLocalization.Text("Graph Instance", "图实例"),
+        host.GraphInstanceId.ToString(),
+        out _));
+    }
+
+    if (host.LastDiagnostic.IsError)
+    {
+        _runtimeContent.Add(CreateKeyValueRow(
+        CoCoEditorLocalization.Text("Last Diagnostic", "最后诊断"),
+        host.LastDiagnostic.Domain + "/" + host.LastDiagnostic.Code +
+        ": " + host.LastDiagnostic.Message,
+        out _));
+    }
+
+    if (!Application.isPlaying)
+    {
+        _runtimeContent.Add(editHint);
+    }
+}
+
+    private static CoCoEditorBadgeKind LifecycleToBadgeKind(
+    CoCoRuntimeLifecycleState lifecycle,
+    bool faulted)
+    {
+        if (faulted)
+        {
+            return CoCoEditorBadgeKind.Error;
+        }
+
+    switch (lifecycle)
+    {
+        case CoCoRuntimeLifecycleState.Running:
+        return CoCoEditorBadgeKind.Success;
+        case CoCoRuntimeLifecycleState.Suspended:
+        return CoCoEditorBadgeKind.Warning;
+        default:
+        return CoCoEditorBadgeKind.Neutral;
+    }
+}
+
+    private void OpenDebugger()
+    {
+        CoCoStateGraphDebuggerWindow.Open((CoCoStateGraphHost)target);
+    }
 
         // ===== Diagnostics（authoring hints 汇集） =====
 

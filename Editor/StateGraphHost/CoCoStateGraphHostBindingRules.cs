@@ -341,13 +341,15 @@ namespace CoCoFlow.Editor.StateGraphHost
                 bool isRoot,
                 bool implementsContract,
                 bool isRepeat,
-                bool isInsideBoundary)
+                bool isInsideBoundary,
+                bool isDestroyed)
             {
                 Component = component;
                 IsRoot = isRoot;
                 ImplementsContract = implementsContract;
                 IsRepeat = isRepeat;
                 IsInsideBoundary = isInsideBoundary;
+                IsDestroyed = isDestroyed;
             }
 
             internal MonoBehaviour Component { get; }
@@ -355,12 +357,14 @@ namespace CoCoFlow.Editor.StateGraphHost
             internal bool ImplementsContract { get; }
             internal bool IsRepeat { get; }
             internal bool IsInsideBoundary { get; }
+            internal bool IsDestroyed { get; }
         }
 
         /// <summary>
         /// 从根走查下游链（深度上限 32，环防护）；在首个断点
-        /// （未实现契约 / 重复节点 / 越界节点）处停止并标记该节点。
-        /// Runtime 对链上每个节点强制同 Host 边界（TemporalContracts）。
+        /// （失销 / 未实现契约 / 重复节点 / 越界节点）处停止并标记该节点。
+        /// 失销判定与 Runtime 一致：ReferenceEquals 遍历 + Unity 伪装 null
+        /// 检查（TemporalContracts 对失销节点显式拒绝，不静默截断）。
         /// </summary>
         internal static void BuildRestoreChainPreview(
             MonoBehaviour root,
@@ -368,7 +372,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             List<CoCoRestoreChainNode> nodes)
         {
             nodes.Clear();
-            if (root == null)
+            if (ReferenceEquals(root, null))
             {
                 return;
             }
@@ -376,19 +380,24 @@ namespace CoCoFlow.Editor.StateGraphHost
             var seen = new HashSet<MonoBehaviour>();
             MonoBehaviour current = root;
             int guard = 0;
-            while (current != null && guard++ < MaximumRestoreChainDepth)
+            while (!ReferenceEquals(current, null) && guard++ < MaximumRestoreChainDepth)
             {
-                bool implementsContract = current is ICoCoContextRestoreBinding;
-                bool isRepeat = !seen.Add(current);
+                bool isDestroyed = current == null; // Unity 伪装 null：真实引用存在但已失销
+                bool implementsContract =
+                    !isDestroyed && current is ICoCoContextRestoreBinding;
+                bool isRepeat = !isDestroyed && !seen.Add(current);
                 bool isInsideBoundary =
+                    !isDestroyed &&
                     CoCoStateGraphHostBoundary.Contains(host, current);
                 nodes.Add(new CoCoRestoreChainNode(
                     current,
-                    current == root,
+                    ReferenceEquals(current, root),
                     implementsContract,
                     isRepeat,
-                    isInsideBoundary));
-                if (!implementsContract || isRepeat || !isInsideBoundary)
+                    isInsideBoundary,
+                    isDestroyed));
+                if (isDestroyed || !implementsContract || isRepeat ||
+                    !isInsideBoundary)
                 {
                     return;
                 }
@@ -413,6 +422,16 @@ namespace CoCoFlow.Editor.StateGraphHost
                 if (node.ImplementsContract && !node.IsRepeat && node.IsInsideBoundary)
                 {
                     continue;
+                }
+
+                if (node.IsDestroyed)
+                {
+                    return new CoCoBindingHint(
+                        CoCoBindingHintKind.Error,
+                        node.Component,
+                        "a destroyed object breaks the chain — the runtime " +
+                            "rejects destroyed restore bindings",
+                        "链中存在已失销对象——运行时拒绝失销的恢复绑定");
                 }
 
                 if (!node.ImplementsContract)

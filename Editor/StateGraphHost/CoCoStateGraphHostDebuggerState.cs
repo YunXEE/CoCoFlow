@@ -21,17 +21,15 @@ namespace CoCoFlow.Editor.StateGraphHost
         TransitionId = 2
     }
 
-    /// <summary>快照投影行：分区 + 键 + 值。</summary>
+    /// <summary>快照投影行：键 + 值（分区由 <see cref="CoCoDebuggerSnapshotSection"/> 承载）。</summary>
     internal readonly struct CoCoDebuggerSnapshotRow
     {
-        internal CoCoDebuggerSnapshotRow(string section, string key, string value)
+        internal CoCoDebuggerSnapshotRow(string key, string value)
         {
-            Section = section;
             Key = key;
             Value = value;
         }
 
-        internal string Section { get; }
         internal string Key { get; }
         internal string Value { get; }
     }
@@ -312,7 +310,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
                     snapshot.Lifecycle.ToString()),
                 new CoCoDebuggerSnapshotRow(
-                    "Fault",
+                    CoCoEditorLocalization.Text("Fault", "故障"),
                     snapshot.Fault.IsFaulted
                         ? snapshot.Fault.Diagnostic.Message
                         : CoCoEditorLocalization.Text("none", "无")),
@@ -345,7 +343,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                         CoCoEditorLocalization.Text("Claims", "占用数"),
                         snapshot.ClaimCount.ToString()),
                     new CoCoDebuggerSnapshotRow(
-                        "Header",
+                        CoCoEditorLocalization.Text("Header", "帧头"),
                         contextHeader.IsValid
                             ? contextHeader.Identity.GraphInstanceId +
                               "; Kind " + contextHeader.Identity.Kind +
@@ -382,11 +380,15 @@ namespace CoCoFlow.Editor.StateGraphHost
                     }
 
                     states.Append("  ").Append(state.StateId)
-                        .Append("; Activation ").Append(state.ActivationId)
-                        .Append("; Local ").Append(
-                            state.LocalSeconds.ToString("0.######"))
-                        .Append("; Progress ").Append(
-                            state.ActionProgress.ToString("0.######"));
+                        .Append("; ").Append(CoCoEditorLocalization.Text(
+                            "Activation", "激活")).Append(' ')
+                            .Append(state.ActivationId)
+                        .Append("; ").Append(CoCoEditorLocalization.Text(
+                            "Local", "本地")).Append(' ')
+                            .Append(state.LocalSeconds.ToString("0.######"))
+                        .Append("; ").Append(CoCoEditorLocalization.Text(
+                            "Progress", "进度")).Append(' ')
+                            .Append(state.ActionProgress.ToString("0.######"));
                 }
 
                 rows.Add(new CoCoDebuggerLayerRow(
@@ -413,11 +415,13 @@ namespace CoCoFlow.Editor.StateGraphHost
                 CoCoOperatorClaimState claim = snapshot.GetClaim(claimIndex);
                 rows.Add(
                     claim.ClaimId +
-                    "; Section " + claim.SectionId +
+                    "; " + CoCoEditorLocalization.Text("Section", "区段") +
+                    " " + claim.SectionId +
                     "; " + (claim.IsHeld
                         ? CoCoEditorLocalization.Text("held", "持有")
                         : CoCoEditorLocalization.Text("free", "空闲")) +
-                    "; Owner " + claim.OwnerOperatorId);
+                    "; " + CoCoEditorLocalization.Text("Owner", "持有者") +
+                    " " + claim.OwnerOperatorId);
             }
 
             return rows;

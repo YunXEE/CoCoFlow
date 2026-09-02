@@ -74,7 +74,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                 GetWindow<CoCoStateGraphDebuggerWindow>();
             window.titleContent = new GUIContent("StateGraph Debugger");
             window.minSize = new Vector2(420f, 320f);
-            window.SelectHost(null, followSelection: true);
+            // 打开前先探查当前 Selection（原行为），再进入跟随模式。
+            window.TryFollowSelection();
+            window.SelectHost(window._host, followSelection: true);
             window.Show();
         }
 
@@ -275,11 +277,16 @@ namespace CoCoFlow.Editor.StateGraphHost
                 CoCoEditorLocalization.Text("Committed State", "已提交状态"));
             var strip = new VisualElement();
             strip.AddToClassList("ccflow-host-metrics");
-            _metricTick = AddMetric(strip, "Tick");
-            _metricSeconds = AddMetric(strip, "Seconds");
-            _metricSequence = AddMetric(strip, "Sequence");
-            _metricLayers = AddMetric(strip, "Layers");
-            _metricClaims = AddMetric(strip, "Claims");
+            _metricTick = AddMetric(
+                strip, CoCoEditorLocalization.Text("Tick", "Tick"));
+            _metricSeconds = AddMetric(
+                strip, CoCoEditorLocalization.Text("Seconds", "秒"));
+            _metricSequence = AddMetric(
+                strip, CoCoEditorLocalization.Text("Sequence", "序号"));
+            _metricLayers = AddMetric(
+                strip, CoCoEditorLocalization.Text("Layers", "层"));
+            _metricClaims = AddMetric(
+                strip, CoCoEditorLocalization.Text("Claims", "占用"));
             card.Add(strip);
             return card;
         }
@@ -660,7 +667,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private void SetTraceFilterMode(CoCoStateGraphHostTraceFilterMode mode)
         {
             _state.SetTraceFilter(mode, _state.TraceFilterText);
-            SyncFilterControlsFromState();
+            SyncControlsFromState();
             MarkDirty();
         }
 
@@ -728,7 +735,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return;
             }
 
-            SyncFilterControlsFromState();
+            SyncControlsFromState();
             UpdateHeader();
             UpdateControls();
             UpdateMetrics();
