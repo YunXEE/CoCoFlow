@@ -1137,15 +1137,19 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (analysisResult?.Succeeded == true)
             {
-                sections.Add(BuildCompiledSection(analysisResult));
+                sections.Add(BuildCompiledSection(analysisResult, catalog));
             }
 
             return sections;
         }
 
-        /// <summary>编译产出的 Host 需求分组（静态形态供 Inspector 复用）。</summary>
+        /// <summary>
+        /// 编译产出的 Host 需求分组（静态形态供 Inspector 复用）。
+        /// 维护者反馈：显示名全部优先类名/结构体名（目录可解析时），短 ID 仅作后缀。
+        /// </summary>
         internal static CoCoRequirementSection BuildCompiledSection(
-            CoCoStateGraphAssetCompileResult result)
+            CoCoStateGraphAssetCompileResult result,
+            CoCoGraphDescriptorCatalog catalog = null)
         {
             var entries = new List<CoCoRequirementEntry>();
             foreach (CoCoIntentRequirement requirement in result.Graph.IntentRequirements.Requirements)
@@ -1168,7 +1172,7 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 entries.Add(new CoCoRequirementEntry(
                     CoCoRequirementEntryKind.ContextBlock,
-                    null,
+                    ResolveContextBlockName(catalog, block.BlockId),
                     block.BlockId.ToString()));
             }
 
@@ -1179,7 +1183,35 @@ namespace CoCoFlow.Editor.StateGraph
                 entries);
         }
 
-        private static IReadOnlyList<CoCoRequirementEntry> DescriptorEntries(
+        /// <summary>Context 块显示名：块内各 State 槽的值类型名（可解析时）。</summary>
+        private static string ResolveContextBlockName(
+            CoCoGraphDescriptorCatalog catalog,
+            CoCoStateBlockId blockId)
+        {
+            if (catalog == null)
+            {
+                return null;
+            }
+
+            ICoCoGraphStateSlotRegistration[] slots = catalog.GetSlots(blockId);
+            if (slots == null || slots.Length == 0)
+            {
+                return null;
+            }
+
+            var names = new List<string>(slots.Length);
+            foreach (ICoCoGraphStateSlotRegistration slot in slots)
+            {
+                if (slot?.ValueType != null)
+                {
+                    names.Add(slot.ValueType.Name);
+                }
+            }
+
+            return names.Count > 0 ? string.Join(", ", names) : null;
+        }
+
+        private IReadOnlyList<CoCoRequirementEntry> DescriptorEntries(
             CoCoStateDescriptor descriptor)
         {
             var entries = new List<CoCoRequirementEntry>();
@@ -1189,14 +1221,46 @@ namespace CoCoFlow.Editor.StateGraph
             return entries;
         }
 
-        private static void AddIdEntries<TId>(
+        private void AddIdEntries<TId>(
             List<CoCoRequirementEntry> entries,
             CoCoRequirementEntryKind kind,
             IReadOnlyList<TId> ids)
         {
             for (int index = 0; ids != null && index < ids.Count; index++)
             {
-                entries.Add(new CoCoRequirementEntry(kind, null, ids[index].ToString()));
+                entries.Add(new CoCoRequirementEntry(
+                    kind,
+                    ResolveIdDisplayName(kind, ids[index]),
+                    ids[index].ToString()));
+            }
+        }
+
+        /// <summary>目录反解显示名：Intent→值类型名；Operation→Section 类型名；Context 块→槽类型名。</summary>
+        private string ResolveIdDisplayName<TId>(CoCoRequirementEntryKind kind, TId id)
+        {
+            if (catalog == null)
+            {
+                return null;
+            }
+
+            switch (kind)
+            {
+                case CoCoRequirementEntryKind.Intent:
+                    return id is CoCoIntentId intentId &&
+                           catalog.TryGetIntent(intentId, out ICoCoGraphIntentRegistration intent)
+                        ? intent.ValueType?.Name
+                        : null;
+                case CoCoRequirementEntryKind.Operation:
+                    return id is CoCoOperationSectionId operationId &&
+                           catalog.TryGetOperation(operationId, out ICoCoGraphOperationRegistration operation)
+                        ? operation.SectionType?.Name
+                        : null;
+                case CoCoRequirementEntryKind.ContextBlock:
+                    return id is CoCoStateBlockId blockId
+                        ? ResolveContextBlockName(catalog, blockId)
+                        : null;
+                default:
+                    return null;
             }
         }
     }

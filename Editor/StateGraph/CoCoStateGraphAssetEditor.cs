@@ -45,6 +45,7 @@ namespace CoCoFlow.Editor.StateGraph
     internal sealed class CoCoStateGraphAssetEditor : UnityEditor.Editor
     {
         private CoCoStateGraphAssetCompileResult analysisResult;
+        private CoCoGraphDescriptorCatalog analysisCatalog;
         private string analysisFailure = string.Empty;
         private string locatedPropertyPath = string.Empty;
         private VisualElement root;
@@ -195,7 +196,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             CoCoStateGraphRequirementPresenter.FillCard(
                 manifestCard,
-                new[] { CoCoStateGraphEditorController.BuildCompiledSection(analysisResult) },
+                new[] { CoCoStateGraphEditorController.BuildCompiledSection(analysisResult, analysisCatalog) },
                 compiledAvailable: true);
             root.Add(manifestCard);
         }
@@ -287,6 +288,7 @@ namespace CoCoFlow.Editor.StateGraph
         private void Analyze(CoCoStateGraphAsset asset)
         {
             analysisResult = null;
+            analysisCatalog = null;
             analysisFailure = string.Empty;
             locatedPropertyPath = string.Empty;
             Func<CoCoGraphDescriptorCatalog> provider = CoCoStateGraphEditorCatalogProvider.Provider;
@@ -326,6 +328,7 @@ namespace CoCoFlow.Editor.StateGraph
                     return;
                 }
 
+                analysisCatalog = catalog;
                 analysisResult = new CoCoStateGraphAssetCompiler().Compile(asset, catalog);
             }
             catch (Exception exception)
