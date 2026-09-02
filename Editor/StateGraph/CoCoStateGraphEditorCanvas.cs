@@ -25,53 +25,16 @@ namespace CoCoFlow.Editor.StateGraph
         private const float TriangleWidth = 7f;
         private const float LoopHeight = 44f;
         private const float LoopRadius = 30f;
-        private const float GridTileSize = 32f;
+        private const float GridStep = 32f;
+        private const float GridStepZoomedOut = 64f;
+        private const float GridDotSize = 2.4f;
+        private const int GridDotBudget = 8000;
+        private const float WheelZoomInFactor = 1.06f;
+        private const float WheelZoomOutFactor = 1f / 1.06f;
 
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
-
-        private static Texture2D dotGridTexture;
-
-        /// <summary>点阵网格纹理（维护者反馈 3：格子纸点点背景；平铺在 content 上随平移缩放）。</summary>
-        private static Texture2D DotGridTexture
-        {
-            get
-            {
-                if (dotGridTexture != null)
-                {
-                    return dotGridTexture;
-                }
-
-                const int size = (int)GridTileSize;
-                var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
-                {
-                    hideFlags = HideFlags.DontSave,
-                    wrapMode = TextureWrapMode.Repeat,
-                    filterMode = FilterMode.Point
-                };
-                var pixels = new Color32[size * size];
-                for (int index = 0; index < pixels.Length; index++)
-                {
-                    pixels[index] = new Color32(0, 0, 0, 0);
-                }
-
-                // 瓦片中心一个 2×2 淡点。
-                byte dot = 46;
-                for (int dy = 0; dy < 2; dy++)
-                {
-                    for (int dx = 0; dx < 2; dx++)
-                    {
-                        pixels[(size / 2 - 1 + dy) * size + (size / 2 - 1 + dx)] =
-                            new Color32(dot, dot, dot, 255);
-                    }
-                }
-
-                texture.SetPixels32(pixels);
-                texture.Apply(false, false);
-                dotGridTexture = texture;
-                return dotGridTexture;
-            }
-        }
+        private static Color GridDotColor => new Color(0.45f, 0.48f, 0.52f, 0.4f);
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement content;
@@ -81,6 +44,9 @@ namespace CoCoFlow.Editor.StateGraph
         private readonly Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord> visibleStates =
             new Dictionary<CoCoSerializedId128, CoCoStateGraphStateRecord>();
         private readonly List<EdgeHit> edgeHits = new List<EdgeHit>();
+
+        private Slider zoomSlider;
+        private Label zoomLabel;
 
         private bool panning;
         private int panPointerId;
@@ -119,9 +85,6 @@ namespace CoCoFlow.Editor.StateGraph
             edgeLayer.generateVisualContent += DrawEdges;
             content.Add(edgeLayer);
 
-            // 点阵背景平铺在 content 上：随平移缩放同步运动（Animator 网格观感）。
-            content.style.backgroundImage = new StyleBackground(DotGridTexture);
-
             RegisterCallback<PointerDownEvent>(OnPointerDown);
             RegisterCallback<PointerMoveEvent>(OnPointerMove);
             RegisterCallback<PointerUpEvent>(OnPointerUp);
@@ -129,7 +92,42 @@ namespace CoCoFlow.Editor.StateGraph
             RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
             RegisterCallback<WheelEvent>(OnWheel);
             controller.Changed += OnControllerChanged;
+            BuildZoomControls();
             Refresh();
+        }
+
+        /// <summary>维护者反馈：显式缩放滑条（Animator 同款右下角），防滚轮过灵敏。</summary>
+        private void BuildZoomControls()
+        {
+            var host = new VisualElement { name = "state-graph-canvas-zoom" };
+            host.AddToClassList("sg-canvas-zoom");
+
+            zoomLabel = new Label("100%");
+            zoomLabel.AddToClassList("sg-canvas-zoom__label");
+            host.Add(zoomLabel);
+
+            var slider = new Slider(0.25f, 2f)
+            {
+                value = 1f,
+                showInputField = false,
+                tooltip = CoCoEditorLocalization.Text("Canvas zoom", "画布缩放")
+            };
+            slider.AddToClassList("sg-canvas-zoom__slider");
+            slider.RegisterValueChangedCallback(evt =>
+                SetView(new CoCoStateGraphCanvasView(CurrentView.Pan, evt.newValue), save: true));
+            zoomSlider = slider;
+            host.Add(slider);
+            Add(host);
+        }
+
+        private void SyncZoomControls()
+        {
+            float zoom = CurrentView.Zoom;
+            zoomSlider?.SetValueWithoutNotify(zoom);
+            if (zoomLabel != null)
+            {
+                zoomLabel.text = Mathf.RoundToInt(zoom * 100f) + "%";
+            }
         }
 
         internal event Action<Vector2> ContextRequested;
@@ -212,6 +210,60 @@ namespace CoCoFlow.Editor.StateGraph
             controller.SetPosition(stateId, position);
         }
 
+        /// <summary>
+        /// 点阵网格（维护者反馈 3：格子纸点点背景；纹理背景在 UITK 的平铺语义不可控，
+        /// 弃用后改为重绘回调内确定性绘制：只见可见区、带 LOD 与点数预算）。
+        /// </summary>
+        private void DrawDotGrid(Painter2D painter)
+        {
+            Rect worldViewport = this.worldBound;
+            if (worldViewport.width <= 0f || worldViewport.height <= 0f)
+            {
+                return;
+            }
+
+            float zoom = Mathf.Max(CurrentView.Zoom, 0.01f);
+            Rect contentWorld = content.worldBound;
+            Rect graphViewport = new Rect(
+                (worldViewport.min - contentWorld.min) / zoom,
+                (worldViewport.max - contentWorld.min) / zoom);
+            graphViewport.xMin = Mathf.Max(graphViewport.xMin, 0f);
+            graphViewport.yMin = Mathf.Max(graphViewport.yMin, 0f);
+            graphViewport.xMax = Mathf.Min(graphViewport.xMax, CanvasSize);
+            graphViewport.yMax = Mathf.Min(graphViewport.yMax, CanvasSize);
+            if (graphViewport.width <= 0f || graphViewport.height <= 0f)
+            {
+                return;
+            }
+
+            float step = zoom < 0.5f ? GridStepZoomedOut : GridStep;
+            int x0 = Mathf.CeilToInt(graphViewport.xMin / step);
+            int x1 = Mathf.FloorToInt(graphViewport.xMax / step);
+            int y0 = Mathf.CeilToInt(graphViewport.yMin / step);
+            int y1 = Mathf.FloorToInt(graphViewport.yMax / step);
+            if ((x1 - x0 + 1) * (y1 - y0 + 1) > GridDotBudget)
+            {
+                return;
+            }
+
+            painter.fillColor = GridDotColor;
+            float half = GridDotSize * 0.5f;
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    Vector2 center = new Vector2(x * step, y * step);
+                    painter.BeginPath();
+                    painter.MoveTo(center + new Vector2(-half, -half));
+                    painter.LineTo(center + new Vector2(half, -half));
+                    painter.LineTo(center + new Vector2(half, half));
+                    painter.LineTo(center + new Vector2(-half, half));
+                    painter.ClosePath();
+                    painter.Fill();
+                }
+            }
+        }
+
         // ── D8：边几何（Animator 对齐） ────────────────────
 
         /// <summary>一次点击命中的边几何缓存（图空间）。</summary>
@@ -229,6 +281,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Painter2D painter = context.painter2D;
             edgeHits.Clear();
+            DrawDotGrid(painter);
 
             // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
             var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
@@ -741,7 +794,10 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnWheel(WheelEvent evt)
         {
-            float zoom = Mathf.Clamp(CurrentView.Zoom * (evt.delta.y > 0f ? 0.9f : 1.1f), 0.25f, 2f);
+            float zoom = Mathf.Clamp(
+                CurrentView.Zoom * (evt.delta.y > 0f ? WheelZoomOutFactor : WheelZoomInFactor),
+                0.25f,
+                2f);
             SetView(new CoCoStateGraphCanvasView(CurrentView.Pan, zoom), save: true);
             evt.StopPropagation();
         }
@@ -770,6 +826,7 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateGraphCanvasView view = CurrentView;
             content.transform.position = new Vector3(view.Pan.x, view.Pan.y, 0f);
             content.transform.scale = new Vector3(view.Zoom, view.Zoom, 1f);
+            SyncZoomControls();
         }
 
         private Vector2 ToGraphPosition(Vector2 localPosition)

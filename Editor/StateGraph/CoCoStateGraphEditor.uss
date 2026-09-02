@@ -259,3 +259,42 @@
     white-space: normal;
     margin-left: 4px;
 }
+
+/* ── 画布缩放控件（Animator 同款右下角） ─────────── */
+
+#state-graph-canvas-zoom {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(128, 128, 128, 0.3);
+    border-right-color: rgba(128, 128, 128, 0.3);
+    border-top-color: rgba(128, 128, 128, 0.3);
+    border-bottom-color: rgba(128, 128, 128, 0.3);
+    background-color: rgba(27, 30, 33, 0.85);
+}
+
+.sg-canvas-zoom__label {
+    min-width: 38px;
+    -unity-text-align: middle-right;
+    opacity: 0.75;
+    margin-right: 6px;
+}
+
+.sg-canvas-zoom__slider {
+    min-width: 110px;
+    max-width: 110px;
+}
