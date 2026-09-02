@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
+> Runtime contract baseline: `0.4.0` · Updated 2026-09-02 (0.4.1 editor tooling)
 >
 > StateGraph Runtime and StateGraphHost are included in the Core Engine maturity
 > statement. Editor inspection is described here only as current tooling.
@@ -417,9 +417,10 @@ Snapshot and Trace are deliberately separate:
 - Trace answers what identity-only events happened recently and retains a
   bounded ordered history when its configured capacity is greater than zero.
 
-The Editor presents the current Host value as `Live Lifecycle` and the copied
-snapshot value as `Snapshot Lifecycle`. A failed refresh preserves the previous
-snapshot. Trace display may select exactly one of `All`, `State ID`, or
+The Editor presents the current Host lifecycle as a live badge in the debugger
+header and the copied snapshot value inside the snapshot card. A failed refresh
+preserves the previous snapshot and marks it as a retained last committed
+snapshot (stale). Trace display may select exactly one of `All`, `State ID`, or
 `Transition ID`; the identity modes trim surrounding whitespace and accept only
 a non-zero 32-digit hexadecimal identity. Blank or invalid input produces zero
 visible entries rather than silently falling back to `All`. Filtering scans the
@@ -446,6 +447,58 @@ The suspended debug step is not an authority-neutral debugger preview. Because
 it is one normal positive-delta Tick, it may advance Context/Clock, append
 Temporal and Trace entries, execute Operators, and publish a successfully
 committed EventOutbox before returning to Suspended.
+
+## Host Inspector and Runtime Debugger tooling (0.4.1)
+
+The 0.4.1 release rebuilds both editor surfaces with the unified `ccflow`
+UI Toolkit visual language. Runtime semantics, serialization, and the frozen
+contracts above are unchanged.
+
+### Host Inspector
+
+The inspector for `CoCoStateGraphHost` is organized into six zones:
+
+- **Overview** — StateGraph asset, driver, auto-start, time scale.
+- **Bindings** — the three ordered reference arrays (Intent Sources, Event
+  Adapters, Operators) plus the single Actor Context reference. Intent Sources
+  and Operators offer scene candidate menus and per-row assembly hints; Actor
+  Context offers boundary-scoped candidates. Event Adapters are presented as
+  an ordered list only: slots must match the compiled adapter manifest
+  slot-for-slot, which the runtime validates at startup.
+- **Restore** — Context Restore root, chain preview, and one-click Auto-wire.
+  Auto-wire validates the candidate chain first, then writes the root and all
+  downstream links as a single Undo gesture; a failed validation writes
+  nothing.
+- **Capacities** — the seven capacity fields, with the Trace capacity
+  lifecycle note.
+- **Runtime Status** — read-only live lifecycle/fault/correction/instance
+  state during Play, plus an Open Debugger action.
+- **Diagnostics** — collected assembly hints with Locate actions.
+
+Assembly hints are authoring-time only: they mirror the statically decidable
+subset of the runtime startup discipline (missing asset, wrong interface,
+boundary violations, duplicate references, broken restore chains). Passing all
+hints does not imply a successful start; the full startup authority (unique
+manifest-bound generics, descriptors, graph coverage, Actor slot matching)
+remains with the runtime.
+
+While the inspected Host has a live runtime (Running or Suspended), the four
+configuration zones are write-disabled: running configuration is read-only,
+matching the frozen Host contract. Status, diagnostics, locating, and opening
+the debugger remain available.
+
+### Runtime Debugger
+
+The debugger window is available from the `CoCoFlow/StateGraph Debugger` menu
+(the previous `Window/CoCoFlow/StateGraph Debugger` entry was removed). It
+keeps the committed-snapshot and Trace semantics documented above and adds an
+explicit snapshot freshness state: a snapshot card shows either fresh data or
+the retained last committed snapshot when the latest refresh was rejected.
+
+Debugger records flow through CoCoLog: failed lifecycle operations (suspend,
+resume, one-tick step) are reported as CoCoLog errors, and inspector auto-wire
+records use CoCoLog warnings/logs accordingly. No second log or trace system
+is introduced.
 
 ## Actor event boundary
 

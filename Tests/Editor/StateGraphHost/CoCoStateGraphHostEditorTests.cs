@@ -64,6 +64,67 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
     }
 
+    internal sealed class EditorHostOperatorComponent :
+        MonoBehaviour,
+        ICoCoOperator
+    {
+        public CoCoOperatorDescriptor Descriptor => null;
+
+        public bool TryExecute(
+            in CoCoOperatorExecutionContext context,
+            out CoCoOperatorOutcome outcome)
+        {
+            outcome = CoCoOperatorOutcome.NoOp;
+            return true;
+        }
+    }
+
+    internal sealed class EditorHostActorContextComponent :
+        MonoBehaviour,
+        ICoCoActorContextBinding
+    {
+        public CoCoActorContextBindingDescriptor Descriptor => null;
+
+        public bool TryCapture(
+            in CoCoActorContextCaptureContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            return false;
+        }
+    }
+
+    internal sealed class EditorRestoreNodeComponent :
+        MonoBehaviour,
+        ICoCoContextRestoreBinding
+    {
+        public bool TryApply(
+            in CoCoContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+    }
+
+    internal sealed class EditorRestoreDecoratorComponent :
+        MonoBehaviour,
+        ICoCoContextRestoreBinding,
+        ICoCoTemporalDecoratorBinding
+    {
+        [SerializeField] private MonoBehaviour downstreamRestoreBinding;
+
+        public MonoBehaviour DownstreamRestoreBinding => downstreamRestoreBinding;
+
+        public bool TryApply(
+            in CoCoContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+    }
+
     public sealed class CoCoStateGraphHostEditorTests
     {
         private readonly List<GameObject> _objects = new List<GameObject>();
@@ -82,6 +143,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             _objects.Clear();
         }
 
+        // ===== 候选发现（BindingCandidates，语义保持） =====
+
         [Test]
         public void CandidateDiscoveryUsesNearestHostAndDoesNotMutateSerialization()
         {
@@ -89,20 +152,27 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             var validObject = CreateChild(host.transform, "Valid", false);
             var source = validObject.AddComponent<EditorHostIntentSourceComponent>();
             var adapter = validObject.AddComponent<EditorHostEventAdapterComponent>();
-            var wrongAdapter = validObject.AddComponent<OtherEditorHostEventAdapterComponent>();
+            var wrongAdapter =
+                validObject.AddComponent<OtherEditorHostEventAdapterComponent>();
 
             var nestedObject = CreateChild(host.transform, "Nested", false);
             nestedObject.AddComponent<CoCoStateGraphHost>();
-            var nestedSource = nestedObject.AddComponent<EditorHostIntentSourceComponent>();
-            var nestedAdapter = nestedObject.AddComponent<EditorHostEventAdapterComponent>();
+            var nestedSource =
+                nestedObject.AddComponent<EditorHostIntentSourceComponent>();
+            var nestedAdapter =
+                nestedObject.AddComponent<EditorHostEventAdapterComponent>();
 
             var outsideObject = CreateObject("Outside");
-            var outsideSource = outsideObject.AddComponent<EditorHostIntentSourceComponent>();
-            var outsideAdapter = outsideObject.AddComponent<EditorHostEventAdapterComponent>();
+            var outsideSource =
+                outsideObject.AddComponent<EditorHostIntentSourceComponent>();
+            var outsideAdapter =
+                outsideObject.AddComponent<EditorHostEventAdapterComponent>();
 
             var serializedHost = new SerializedObject(host);
-            int sourceSize = serializedHost.FindProperty("intentSources").arraySize;
-            int adapterSize = serializedHost.FindProperty("eventAdapters").arraySize;
+            int sourceSize =
+                serializedHost.FindProperty("intentSources").arraySize;
+            int adapterSize =
+                serializedHost.FindProperty("eventAdapters").arraySize;
             var results = new List<MonoBehaviour>();
             CoCoStateGraphHostBindingCandidates.FindIntentSources(
                 host,
@@ -124,8 +194,12 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(results, Has.No.Member(outsideAdapter));
 
             serializedHost.Update();
-            Assert.That(serializedHost.FindProperty("intentSources").arraySize, Is.EqualTo(sourceSize));
-            Assert.That(serializedHost.FindProperty("eventAdapters").arraySize, Is.EqualTo(adapterSize));
+            Assert.That(
+                serializedHost.FindProperty("intentSources").arraySize,
+                Is.EqualTo(sourceSize));
+            Assert.That(
+                serializedHost.FindProperty("eventAdapters").arraySize,
+                Is.EqualTo(adapterSize));
         }
 
         [Test]
@@ -139,11 +213,13 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             var adapter = secondObject.AddComponent<EditorHostEventAdapterComponent>();
 
             var serializedHost = new SerializedObject(host);
-            SerializedProperty sources = serializedHost.FindProperty("intentSources");
+            SerializedProperty sources =
+                serializedHost.FindProperty("intentSources");
             sources.arraySize = 2;
             sources.GetArrayElementAtIndex(0).objectReferenceValue = second;
             sources.GetArrayElementAtIndex(1).objectReferenceValue = first;
-            SerializedProperty adapters = serializedHost.FindProperty("eventAdapters");
+            SerializedProperty adapters =
+                serializedHost.FindProperty("eventAdapters");
             adapters.arraySize = 1;
             adapters.GetArrayElementAtIndex(0).objectReferenceValue = adapter;
             serializedHost.ApplyModifiedPropertiesWithoutUndo();
@@ -151,13 +227,21 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             serializedHost = new SerializedObject(host);
             sources = serializedHost.FindProperty("intentSources");
             adapters = serializedHost.FindProperty("eventAdapters");
-            Assert.That(sources.GetArrayElementAtIndex(0).objectReferenceValue, Is.SameAs(second));
-            Assert.That(sources.GetArrayElementAtIndex(1).objectReferenceValue, Is.SameAs(first));
-            Assert.That(adapters.GetArrayElementAtIndex(0).objectReferenceValue, Is.SameAs(adapter));
+            Assert.That(
+                sources.GetArrayElementAtIndex(0).objectReferenceValue,
+                Is.SameAs(second));
+            Assert.That(
+                sources.GetArrayElementAtIndex(1).objectReferenceValue,
+                Is.SameAs(first));
+            Assert.That(
+                adapters.GetArrayElementAtIndex(0).objectReferenceValue,
+                Is.SameAs(adapter));
         }
 
+        // ===== Debugger 数据层（D11：直接命中，无私有反射） =====
+
         [Test]
-        public void RejectedDebuggerRefreshPreservesLastCommittedSnapshot()
+        public void RejectedRefreshPreservesLastSnapshotAndMarksRetainedStale()
         {
             const ulong contentFingerprint = 0xD39UL;
             const double committedSeconds = 1.25d;
@@ -165,34 +249,49 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             CoCoStateGraphHostDebugSnapshot committed = CreateDebugSnapshot(
                 contentFingerprint,
                 committedSeconds);
-            var view = new CoCoStateGraphHostDebuggerView();
+            var state = new CoCoStateGraphHostDebuggerState();
             const BindingFlags instancePrivate =
                 BindingFlags.Instance | BindingFlags.NonPublic;
-            FieldInfo snapshotField = typeof(CoCoStateGraphHostDebuggerView).GetField(
-                "_snapshot",
-                instancePrivate);
-            FieldInfo diagnosticField = typeof(CoCoStateGraphHostDebuggerView).GetField(
-                "_diagnostic",
-                instancePrivate);
-            MethodInfo refresh = typeof(CoCoStateGraphHostDebuggerView).GetMethod(
-                "Refresh",
-                instancePrivate);
-            Require(snapshotField != null);
-            Require(diagnosticField != null);
-            Require(refresh != null);
-            snapshotField.SetValue(view, committed);
+            FieldInfo snapshotField =
+                typeof(CoCoStateGraphHostDebuggerState).GetField(
+                    "_snapshot",
+                    instancePrivate);
+            Assert.That(snapshotField, Is.Not.Null);
+            state.ObserveIdentity(host);
+            snapshotField.SetValue(state, committed);
+            Assert.That(
+                state.Freshness,
+                Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
 
-            refresh.Invoke(view, new object[] { host });
+            bool accepted = state.TryRefresh(host);
 
-            var retained = (CoCoStateGraphHostDebugSnapshot)snapshotField.GetValue(view);
-            var diagnostic = (CoCoDiagnostic)diagnosticField.GetValue(view);
+            Assert.That(accepted, Is.False);
+            var retained = (CoCoStateGraphHostDebugSnapshot)snapshotField
+                .GetValue(state);
             Assert.That(retained, Is.SameAs(committed));
             Assert.That(retained.ContentFingerprint, Is.EqualTo(contentFingerprint));
             Assert.That(retained.Seconds, Is.EqualTo(committedSeconds));
-            Assert.That(diagnostic.IsError, Is.True);
             Assert.That(
-                diagnostic.Code,
+                state.Freshness,
+                Is.EqualTo(CoCoDebuggerSnapshotFreshness.RetainedStale));
+            Assert.That(state.LastRefreshDiagnostic.IsError, Is.True);
+            Assert.That(
+                state.LastRefreshDiagnostic.Code,
                 Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
+        }
+
+        [Test]
+        public void FirstRejectedRefreshWithoutSnapshotStaysNone()
+        {
+            CoCoStateGraphHost host = CreateHost("Freshless Debugger");
+            var state = new CoCoStateGraphHostDebuggerState();
+            state.ObserveIdentity(host);
+
+            Assert.That(state.TryRefresh(host), Is.False);
+            Assert.That(
+                state.Freshness,
+                Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
+            Assert.That(state.Snapshot, Is.Null);
         }
 
         [Test]
@@ -209,7 +308,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Is.True);
 
             Assert.That(
-                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
                     CoCoStateGraphHostTraceFilterMode.All,
                     "ignored",
                     out CoCoStateFlowTraceFilter all,
@@ -221,7 +320,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(allValidation, Is.Empty);
 
             Assert.That(
-                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
                     CoCoStateGraphHostTraceFilterMode.StateId,
                     $"  {stateId.ToString().ToUpperInvariant()}  ",
                     out CoCoStateFlowTraceFilter state,
@@ -232,7 +331,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(stateValidation, Is.Empty);
 
             Assert.That(
-                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
                     CoCoStateGraphHostTraceFilterMode.TransitionId,
                     $"  {transitionId}  ",
                     out CoCoStateFlowTraceFilter transition,
@@ -243,7 +342,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(transitionValidation, Is.Empty);
 
             Assert.That(
-                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
                     CoCoStateGraphHostTraceFilterMode.StateId,
                     "   ",
                     out _,
@@ -251,7 +350,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Is.False);
             Assert.That(blankValidation, Is.Not.Empty);
             Assert.That(
-                CoCoStateGraphHostDebuggerView.TryBuildTraceFilter(
+                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
                     CoCoStateGraphHostTraceFilterMode.TransitionId,
                     "not-an-id",
                     out _,
@@ -265,38 +364,326 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         {
             CoCoStateGraphHost first = CreateHost("First Debugger Host");
             CoCoStateGraphHost second = CreateHost("Second Debugger Host");
-            var view = new CoCoStateGraphHostDebuggerView();
+            var state = new CoCoStateGraphHostDebuggerState();
+
+            state.ObserveIdentity(first);
+            state.SetTraceFilter(
+                CoCoStateGraphHostTraceFilterMode.TransitionId,
+                "00000000000000000000000000000001");
+
+            state.ObserveIdentity(first);
+            Assert.That(
+                state.TraceFilterMode,
+                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.TransitionId));
+            Assert.That(state.TraceFilterText, Is.Not.Empty);
+
+            state.ObserveIdentity(second);
+            Assert.That(
+                state.TraceFilterMode,
+                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.All));
+            Assert.That(state.TraceFilterText, Is.EqualTo(string.Empty));
+            Assert.That(
+                state.Freshness,
+                Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
+        }
+
+        [Test]
+        public void SnapshotRowsProjectSectionsAndLayerDetails()
+        {
+            CoCoStateGraphHostDebugSnapshot snapshot = CreateDebugSnapshot(
+                0xABUL,
+                2.5d);
+            var state = new CoCoStateGraphHostDebuggerState();
             const BindingFlags instancePrivate =
                 BindingFlags.Instance | BindingFlags.NonPublic;
-            MethodInfo observeIdentity = typeof(CoCoStateGraphHostDebuggerView).GetMethod(
-                "ObserveIdentity",
-                instancePrivate);
-            FieldInfo modeField = typeof(CoCoStateGraphHostDebuggerView).GetField(
-                "_traceFilterMode",
-                instancePrivate);
-            FieldInfo textField = typeof(CoCoStateGraphHostDebuggerView).GetField(
-                "_traceFilterText",
-                instancePrivate);
-            Require(observeIdentity != null);
-            Require(modeField != null);
-            Require(textField != null);
+            typeof(CoCoStateGraphHostDebuggerState).GetField(
+                    "_snapshot",
+                    instancePrivate)
+                .SetValue(state, snapshot);
 
-            observeIdentity.Invoke(view, new object[] { first });
-            modeField.SetValue(view, CoCoStateGraphHostTraceFilterMode.TransitionId);
-            textField.SetValue(view, "00000000000000000000000000000001");
+            List<CoCoDebuggerSnapshotRow> rows = state.BuildSnapshotRows();
 
-            observeIdentity.Invoke(view, new object[] { first });
-            Assert.That(
-                modeField.GetValue(view),
-                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.TransitionId));
-            Assert.That(textField.GetValue(view), Is.Not.Empty);
-
-            observeIdentity.Invoke(view, new object[] { second });
-            Assert.That(
-                modeField.GetValue(view),
-                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.All));
-            Assert.That(textField.GetValue(view), Is.EqualTo(string.Empty));
+            Assert.That(rows, Is.Not.Empty);
+            Assert.That(rows[0].Section, Is.Not.Empty);
+            Assert.That(rows[0].Key, Is.Not.Empty);
+            Assert.That(rows[0].Value, Is.Not.Empty);
         }
+
+        [Test]
+        public void TraceRowsGroupEntriesByKind()
+        {
+            CoCoStateFlowTraceEntry[] entries =
+            {
+                CreateTraceEntry(CoCoStateFlowTraceKind.ActivePath),
+                CreateTraceEntry(CoCoStateFlowTraceKind.OperatorOutcome),
+                CreateTraceEntry(CoCoStateFlowTraceKind.EventPublished),
+            };
+            var state = new CoCoStateGraphHostDebuggerState();
+            SeedTraceEntries(state, entries, entries.Length);
+
+            List<CoCoDebuggerTraceRow> rows = state.BuildTraceRows();
+
+            Assert.That(rows, Is.Not.Empty);
+            int headers = 0;
+            for (int index = 0; index < rows.Count; index++)
+            {
+                if (rows[index].IsGroupHeader)
+                {
+                    headers++;
+                    Assert.That(rows[index].Text, Is.Not.Empty);
+                }
+                else
+                {
+                    Assert.That(rows[index].Text, Does.Contain("Tick"));
+                }
+            }
+
+            Assert.That(headers, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void TraceRowsEmptyWhenNothingVisible()
+        {
+            var state = new CoCoStateGraphHostDebuggerState();
+            Assert.That(state.BuildTraceRows(), Is.Empty);
+        }
+
+        // ===== BindingRules（D3 authoring hints） =====
+
+        [Test]
+        public void IntentSourceHintsCoverNullWrongInterfaceAndBoundary()
+        {
+            CoCoStateGraphHost host = CreateHost("Hints");
+            GameObject inside = CreateChild(host.transform, "Inside", false);
+            GameObject outside = CreateObject("Outside");
+            var insideSource =
+                inside.AddComponent<EditorHostIntentSourceComponent>();
+            var outsideSource =
+                outside.AddComponent<EditorHostIntentSourceComponent>();
+            var plain = inside.AddComponent<EditorHostOperatorComponent>();
+
+            CoCoBindingHint? insideHint =
+                CoCoStateGraphHostBindingRules.BuildIntentSourceHint(
+                    host, insideSource);
+            Assert.That(insideHint.HasValue, Is.False);
+
+            CoCoBindingHint? nullHint =
+                CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, null);
+            Assert.That(nullHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Info));
+
+            CoCoBindingHint? wrongHint =
+                CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, plain);
+            Assert.That(wrongHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+            Assert.That(wrongHint.Value.Target, Is.SameAs(plain));
+
+            CoCoBindingHint? boundaryHint =
+                CoCoStateGraphHostBindingRules.BuildIntentSourceHint(
+                    host, outsideSource);
+            Assert.That(boundaryHint.Value.Kind, Is.EqualTo(
+                CoCoBindingHintKind.Warning));
+            Assert.That(boundaryHint.Value.Target, Is.SameAs(outsideSource));
+        }
+
+        [Test]
+        public void OperatorHintsCoverWrongInterfaceAndBoundary()
+        {
+            CoCoStateGraphHost host = CreateHost("Operator Hints");
+            GameObject inside = CreateChild(host.transform, "Inside", false);
+            GameObject outside = CreateObject("Outside");
+            var operatorComponent = inside.AddComponent<EditorHostOperatorComponent>();
+            var outsideOperator =
+                outside.AddComponent<EditorHostOperatorComponent>();
+            var notOperator = inside.AddComponent<EditorHostIntentSourceComponent>();
+
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildOperatorHint(
+                    host, operatorComponent).HasValue,
+                Is.False);
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildOperatorHint(
+                    host, notOperator).Value.Kind,
+                Is.EqualTo(CoCoBindingHintKind.Error));
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildOperatorHint(
+                    host, outsideOperator).Value.Kind,
+                Is.EqualTo(CoCoBindingHintKind.Warning));
+        }
+
+        [Test]
+        public void ActorContextHintsCoverWrongInterfaceAndBoundary()
+        {
+            CoCoStateGraphHost host = CreateHost("Actor Hints");
+            GameObject inside = CreateChild(host.transform, "Inside", false);
+            GameObject outside = CreateObject("Outside");
+            var actor = inside.AddComponent<EditorHostActorContextComponent>();
+            var outsideActor =
+                outside.AddComponent<EditorHostActorContextComponent>();
+            var notActor = inside.AddComponent<EditorHostOperatorComponent>();
+
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildActorContextHint(
+                    host, actor).HasValue,
+                Is.False);
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildActorContextHint(
+                    host, null).HasValue,
+                Is.False);
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildActorContextHint(
+                    host, notActor).Value.Kind,
+                Is.EqualTo(CoCoBindingHintKind.Error));
+            Assert.That(
+                CoCoStateGraphHostBindingRules.BuildActorContextHint(
+                    host, outsideActor).Value.Kind,
+                Is.EqualTo(CoCoBindingHintKind.Warning));
+        }
+
+        [Test]
+        public void DuplicateReferencesReportSecondAndLaterOccurrences()
+        {
+            CoCoStateGraphHost host = CreateHost("Duplicates");
+            GameObject child = CreateChild(host.transform, "Child", false);
+            var source = child.AddComponent<EditorHostIntentSourceComponent>();
+
+            var references = new List<MonoBehaviour> { source, null, source };
+            List<MonoBehaviour> duplicates =
+                CoCoStateGraphHostBindingRules.FindDuplicateReferences(references);
+
+            Assert.That(duplicates, Is.EqualTo(new[] { source }));
+        }
+
+        // ===== Restore 链（D5：预览 + 候选 + 校验） =====
+
+        [Test]
+        public void RestoreChainPreviewStopsAtNonBindingNodeAndMarksBreak()
+        {
+            GameObject rootObject = CreateObject("Chain");
+            var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
+            var plain = CreateChild(rootObject.transform, "Plain", false)
+                .AddComponent<EditorHostOperatorComponent>();
+            var serializedRoot = new SerializedObject(root);
+            serializedRoot.FindProperty("downstreamRestoreBinding")
+                .objectReferenceValue = plain;
+            serializedRoot.ApplyModifiedPropertiesWithoutUndo();
+
+            var nodes =
+                new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(root, nodes);
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[0].IsRoot, Is.True);
+            Assert.That(nodes[0].ImplementsContract, Is.True);
+            Assert.That(nodes[1].ImplementsContract, Is.False);
+
+            CoCoBindingHint? breakHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+            Assert.That(breakHint.HasValue, Is.True);
+            Assert.That(breakHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+            Assert.That(breakHint.Value.Target, Is.SameAs(plain));
+        }
+
+        [Test]
+        public void RestoreChainPreviewGuardsAgainstCycles()
+        {
+            GameObject rootObject = CreateObject("Cycle");
+            var root = rootObject.AddComponent<EditorRestoreDecoratorComponent>();
+            var serializedRoot = new SerializedObject(root);
+            serializedRoot.FindProperty("downstreamRestoreBinding")
+                .objectReferenceValue = root;
+            serializedRoot.ApplyModifiedPropertiesWithoutUndo();
+
+            var nodes =
+                new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(root, nodes);
+
+            Assert.That(nodes.Count, Is.EqualTo(2));
+            Assert.That(nodes[1].IsRepeat, Is.True);
+            CoCoBindingHint? breakHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+            Assert.That(breakHint.Value.Kind, Is.EqualTo(CoCoBindingHintKind.Error));
+        }
+
+        [Test]
+        public void RestoreChainCandidatesCollectInsideBoundaryAndSortByHierarchy()
+        {
+            CoCoStateGraphHost host = CreateHost("Wire");
+            var rootChild = CreateChild(host.transform, "B_Root", false);
+            var deepChild = CreateChild(rootChild.transform, "A_Deep", false);
+            var root = rootChild.AddComponent<EditorRestoreNodeComponent>();
+            var deep = deepChild.AddComponent<EditorRestoreNodeComponent>();
+            var outsideObject = CreateObject("OutsideRestore");
+            outsideObject.AddComponent<EditorRestoreNodeComponent>();
+
+            var chain = new List<MonoBehaviour>();
+            CoCoStateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
+
+            Assert.That(chain, Is.EqualTo(new[] { deep, root }));
+            Assert.That(
+                CoCoStateGraphHostBindingRules.TryValidateRestoreChain(
+                    chain, out CoCoBindingHint failure),
+                Is.True);
+            Assert.That(failure.Kind, Is.EqualTo(CoCoBindingHintKind.Info));
+        }
+
+        [Test]
+        public void RestoreChainValidationFailsOnEmptyCandidates()
+        {
+            CoCoStateGraphHost host = CreateHost("EmptyWire");
+            var chain = new List<MonoBehaviour>();
+
+            Assert.That(
+                CoCoStateGraphHostBindingRules.TryValidateRestoreChain(
+                    chain, out CoCoBindingHint failure),
+                Is.False);
+            Assert.That(failure.Kind, Is.EqualTo(CoCoBindingHintKind.Warning));
+        }
+
+        // ===== 场景候选（现状保持：全场景；Actor Context 边界内） =====
+
+        [Test]
+        public void SceneCandidateScansIncludeOutsideBoundaryAndExcludeAssigned()
+        {
+            CoCoStateGraphHost host = CreateHost("SceneScan");
+            GameObject inside = CreateChild(host.transform, "Inside", false);
+            GameObject outside = CreateObject("Outside");
+            var insideSource =
+                inside.AddComponent<EditorHostIntentSourceComponent>();
+            var outsideSource =
+                outside.AddComponent<EditorHostIntentSourceComponent>();
+            var outsideOperator =
+                outside.AddComponent<EditorHostOperatorComponent>();
+
+            var results = new List<MonoBehaviour>();
+            CoCoStateGraphHostBindingRules.CollectSceneIntentSources(
+                new[] { insideSource },
+                results);
+            Assert.That(results, Has.No.Member(insideSource));
+            Assert.That(results, Has.Member(outsideSource));
+
+            CoCoStateGraphHostBindingRules.CollectSceneOperators(null, results);
+            Assert.That(results, Has.Member(outsideOperator));
+        }
+
+        [Test]
+        public void ActorContextCandidatesStayInsideBoundary()
+        {
+            CoCoStateGraphHost host = CreateHost("ActorScan");
+            GameObject inside = CreateChild(host.transform, "Inside", false);
+            GameObject outside = CreateObject("Outside");
+            var insideActor =
+                inside.AddComponent<EditorHostActorContextComponent>();
+            outside.AddComponent<EditorHostActorContextComponent>();
+
+            var results = new List<MonoBehaviour>();
+            CoCoStateGraphHostBindingRules.CollectActorContextCandidates(
+                host,
+                null,
+                results);
+
+            Assert.That(results, Is.EqualTo(new[] { insideActor }));
+        }
+
+        // ===== 辅助 =====
 
         private CoCoStateGraphHost CreateHost(string name)
         {
@@ -326,16 +713,19 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             const BindingFlags instancePrivate =
                 BindingFlags.Instance | BindingFlags.NonPublic;
             ConstructorInfo snapshotConstructor =
-                typeof(CoCoStateGraphHostDebugSnapshot).GetConstructors(instancePrivate)[0];
+                typeof(CoCoStateGraphHostDebugSnapshot).GetConstructors(
+                    instancePrivate)[0];
             Type graphType = snapshotConstructor.GetParameters()[0].ParameterType;
-            ConstructorInfo graphConstructor = graphType.GetConstructors(instancePrivate)[0];
+            ConstructorInfo graphConstructor =
+                graphType.GetConstructors(instancePrivate)[0];
             object[] graphArguments = CreateDefaultArguments(graphConstructor);
             graphArguments[0] = 1U;
             graphArguments[1] = contentFingerprint;
             graphArguments[3] = 0xCA7A10UL;
             graphArguments[10] = seconds;
             object graph = graphConstructor.Invoke(graphArguments);
-            object[] snapshotArguments = CreateDefaultArguments(snapshotConstructor);
+            object[] snapshotArguments =
+                CreateDefaultArguments(snapshotConstructor);
             snapshotArguments[0] = graph;
             return (CoCoStateGraphHostDebugSnapshot)snapshotConstructor.Invoke(
                 snapshotArguments);
@@ -349,7 +739,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             {
                 Type parameterType = parameters[index].ParameterType;
                 arguments[index] = parameterType.IsArray
-                    ? Array.CreateInstance(parameterType.GetElementType(), 0)
+                    ? Array.CreateInstance(
+                        parameterType.GetElementType(),
+                        0)
                     : parameterType.IsValueType
                         ? Activator.CreateInstance(parameterType)
                         : null;
@@ -358,9 +750,39 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             return arguments;
         }
 
-        private static void Require(bool condition)
+        /// <summary>
+        /// 经 internal 构造器构造指定 Kind 的 Trace 条目（分组与格式化不依赖
+        /// IsValid；Runtime internal 契约，与快照构造同一反射口径）。
+        /// </summary>
+        private static CoCoStateFlowTraceEntry CreateTraceEntry(
+            CoCoStateFlowTraceKind kind)
         {
-            Assert.That(condition, Is.True);
+            const BindingFlags instanceNonPublic =
+                BindingFlags.Instance | BindingFlags.NonPublic;
+            ConstructorInfo constructor =
+                typeof(CoCoStateFlowTraceEntry).GetConstructors(instanceNonPublic)[0];
+            object[] arguments = CreateDefaultArguments(constructor);
+            arguments[0] = kind;
+            var entry = (CoCoStateFlowTraceEntry)constructor.Invoke(arguments);
+            Assert.That(entry.Kind, Is.EqualTo(kind));
+            return entry;
+        }
+
+        private static void SeedTraceEntries(
+            CoCoStateGraphHostDebuggerState state,
+            CoCoStateFlowTraceEntry[] entries,
+            int visibleCount)
+        {
+            const BindingFlags instancePrivate =
+                BindingFlags.Instance | BindingFlags.NonPublic;
+            typeof(CoCoStateGraphHostDebuggerState).GetField(
+                    "_traceEntries",
+                    instancePrivate)
+                .SetValue(state, entries);
+            typeof(CoCoStateGraphHostDebuggerState).GetField(
+                    "_visibleTraceCount",
+                    instancePrivate)
+                .SetValue(state, visibleCount);
         }
     }
 }

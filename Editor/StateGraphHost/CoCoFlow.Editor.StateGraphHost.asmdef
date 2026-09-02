@@ -6,7 +6,9 @@
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.Core.StateGraphAuthoring",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Editor.Common"
     ],
     "includePlatforms": [
         "Editor"

@@ -1,446 +1,383 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
     /// <summary>
-    /// Host inspector enhancement for the two weakly-typed hook arrays.
-    /// The runtime disciplines these at startup; this editor surfaces the
-    /// same discipline while assembling:
-    ///   - intent sources: reflection over every closed
-    ///     ICoCoIntentFrameSource&lt;T&gt; implementation in the scene —
-    ///     any intent type, any object, listed per COMPONENT (one object
-    ///     may carry several sources);
-    ///   - operators: ICoCoOperator implementations, plus a Host-boundary
-    ///     warning (the runtime rejects components outside the Host's
-    ///     transform subtree at startup);
-    ///   - an "Add from scene" menu lists every matching component —
-    ///     the input reader commonly lives on a global rig, not on the
-    ///     actor, so nothing has to be dragged at all.
+    /// StateGraphHost Inspector（UI Toolkit 重做，D1/D2）。
+    /// 六区信息架构：Overview / Bindings / Restore / Capacities / Runtime / Diagnostics。
+    /// 契约：全部写操作经 SerializedProperty（Undo/Prefab Override 正确）；
+    /// live Runtime（HasLiveRuntime，含 Running/Suspended）期间四配置区写禁用
+    /// （Pre7 收口，B1）；单目标检视（不加 CanEditMultipleObjects，N1）；
+    /// 验证为 authoring hints（N6），启动权威 Runtime-deferred。
+    /// 生命周期：CreateInspectorElement 零订阅；订阅只在 OnEnable/OnDisable 对称。
     /// </summary>
     [CustomEditor(typeof(CoCoStateGraphHost))]
     internal sealed class CoCoStateGraphHostEditor : UnityEditor.Editor
     {
-        private SerializedProperty intentSources;
-        private SerializedProperty operators;
+        private const string ModuleUssPath =
+            "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/CoCoStateGraphHostEditor.uss";
+
+        private const string DownstreamPropertyName = "downstreamRestoreBinding";
+
+        private static bool _moduleUssMissingReported;
+
+        private VisualElement _root;
+        private VisualElement _configRoot;
+        private VisualElement _bindingsContent;
+        private VisualElement _restorePreviewContent;
+        private VisualElement _restoreHintContent;
+        private VisualElement _runtimeContent;
+        private VisualElement _diagnosticsContent;
+        private bool _rebuilding;
 
         private void OnEnable()
         {
-            intentSources = serializedObject.FindProperty("intentSources");
-            operators = serializedObject.FindProperty("operators");
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
         }
 
-        public override void OnInspectorGUI()
+        private void OnDisable()
         {
-            serializedObject.Update();
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
+        }
 
-            DrawHookList(
-                intentSources,
-                "Intent Sources",
-                IsValidIntentSource,
-                DescribeIntentSource,
-                SceneIntentSources,
-                null);
-            DrawHookList(
-                operators,
-                "Operators",
-                IsValidOperator,
-                component => component.GetType().Name,
-                SceneOperators,
-                DescribeOperatorBoundary);
+        public override VisualElement CreateInspectorElement()
+        {
+            _root = new VisualElement { name = "ccflow-host-inspector" };
+            CoCoEditorElements.ApplyTheme(_root);
+            ApplyModuleTheme(_root);
 
-            DrawRestoreBindingSection();
-
-            DrawPropertiesExcluding(
+            // 外部变化（含 Undo/Prefab 应用）→ 重建动态区；自身重建不触发。
+            _root.TrackSerializedObjectValue(
                 serializedObject,
-                "intentSources",
-                "operators",
-                "contextRestoreBinding",
-                "m_Script");
-
-            serializedObject.ApplyModifiedProperties();
-        }
-
-        // ----- intent sources: any closed ICoCoIntentFrameSource<T> -----
-
-        private static bool IsValidIntentSource(MonoBehaviour component)
-        {
-            return FindIntentSourceInterfaces(component.GetType()).Count > 0;
-        }
-
-        private static string DescribeIntentSource(MonoBehaviour component)
-        {
-            List<Type> intentTypes = FindIntentSourceInterfaces(component.GetType());
-            if (intentTypes.Count == 0)
-            {
-                return component.GetType().Name + " implements no " +
-                    "ICoCoIntentFrameSource<T> interface";
-            }
-
-            var label = new StringBuilder(component.GetType().Name);
-            label.Append(" (");
-            for (int index = 0; index < intentTypes.Count; index++)
-            {
-                if (index > 0)
+                _ =>
                 {
-                    label.Append(", ");
-                }
-
-                label.Append(intentTypes[index].Name);
-            }
-
-            label.Append(')');
-            return label.ToString();
-        }
-
-        private static List<Type> FindIntentSourceInterfaces(Type type)
-        {
-            var intentTypes = new List<Type>();
-            Type[] interfaces = type.GetInterfaces();
-            for (int index = 0; index < interfaces.Length; index++)
-            {
-                Type iface = interfaces[index];
-                if (iface.IsGenericType &&
-                    iface.GetGenericTypeDefinition() ==
-                        typeof(ICoCoIntentFrameSource<>))
-                {
-                    intentTypes.Add(iface.GetGenericArguments()[0]);
-                }
-            }
-
-            return intentTypes;
-        }
-
-        // ----- operators -----
-
-        private static bool IsValidOperator(MonoBehaviour component)
-        {
-            return component is ICoCoOperator;
-        }
-
-        private string DescribeOperatorBoundary(MonoBehaviour component)
-        {
-            var host = (CoCoStateGraphHost)target;
-            if (CoCoStateGraphHostBoundary.Contains(host, component))
-            {
-                return null;
-            }
-
-            return component.name +
-                " is outside the Host boundary — move it onto the Host " +
-                "object or one of its children, the runtime rejects it at " +
-                "startup.";
-        }
-
-        // ----- scene scans (per component, not per object) -----
-
-        private static IEnumerable<MonoBehaviour> SceneIntentSources()
-        {
-            return FindSceneComponents(IsValidIntentSource);
-        }
-
-        private static IEnumerable<MonoBehaviour> SceneOperators()
-        {
-            return FindSceneComponents(IsValidOperator);
-        }
-
-        private static IEnumerable<MonoBehaviour> FindSceneComponents(
-            Func<MonoBehaviour, bool> filter)
-        {
-            var found = new List<MonoBehaviour>();
-            foreach (MonoBehaviour component in
-                     FindObjectsByType<MonoBehaviour>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
-            {
-                if (component != null && filter(component))
-                {
-                    found.Add(component);
-                }
-            }
-
-            return found;
-        }
-
-        // ----- restore binding chain -----
-
-        private void DrawRestoreBindingSection()
-        {
-            EditorGUILayout.LabelField("Context Restore Binding", EditorStyles.boldLabel);
-
-            var host = (CoCoStateGraphHost)target;
-            SerializedProperty rootProperty =
-                serializedObject.FindProperty("contextRestoreBinding");
-            MonoBehaviour root = rootProperty.objectReferenceValue as MonoBehaviour;
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUI.BeginChangeCheck();
-                UnityEngine.Object picked = EditorGUILayout.ObjectField(
-                    root,
-                    typeof(MonoBehaviour),
-                    true);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    rootProperty.objectReferenceValue = picked;
-                }
-
-                if (GUILayout.Button("Auto-wire chain", EditorStyles.miniButton))
-                {
-                    AutoWireRestoreChain(rootProperty);
-                }
-            }
-
-            if (root != null && !(root is ICoCoContextRestoreBinding))
-            {
-                EditorGUILayout.HelpBox(
-                    root.name + " does not implement ICoCoContextRestoreBinding — " +
-                    "restore projection will be silently skipped.",
-                    MessageType.Error);
-            }
-            else if (root != null && !CoCoStateGraphHostBoundary.Contains(host, root))
-            {
-                EditorGUILayout.HelpBox(
-                    root.name + " is outside the Host boundary — the Temporal " +
-                    "controller drops it silently at startup. Move it into the " +
-                    "Host subtree or pick another component.",
-                    MessageType.Warning);
-            }
-            else if (root != null)
-            {
-                DrawRestoreChainPreview(root);
-            }
-            else
-            {
-                EditorGUILayout.LabelField(
-                    "no root wired — save/load and temporal restore will not " +
-                    "project the world back onto the ledger",
-                    EditorStyles.miniLabel);
-            }
-
-            EditorGUILayout.Space(4f);
-        }
-
-        private static void DrawRestoreChainPreview(MonoBehaviour root)
-        {
-            var seen = new HashSet<UnityEngine.Object>();
-            MonoBehaviour current = root;
-            int guard = 0;
-            while (current != null && guard++ < 32)
-            {
-                bool valid = current is ICoCoContextRestoreBinding;
-                EditorGUILayout.LabelField(
-                    (current == root ? "root → " : "      → ") +
-                    current.GetType().Name + " @ " + current.name,
-                    valid ? EditorStyles.miniLabel : EditorStyles.boldLabel);
-                if (!valid || !seen.Add(current))
-                {
-                    if (!valid)
+                    if (_rebuilding)
                     {
-                        EditorGUILayout.HelpBox(
-                            current.name + " breaks the chain — it implements no " +
-                            "ICoCoContextRestoreBinding.",
-                            MessageType.Error);
+                        return;
                     }
 
-                    return;
-                }
+                    serializedObject.Update();
+                    RebuildDynamicSections();
+                });
 
-                current = (current as ICoCoTemporalDecoratorBinding)
-                    ?.DownstreamRestoreBinding;
-            }
+            // live 写保护门 + Runtime 区刷新（B1）。
+            _root.schedule.Execute(UpdateDynamic).Every(500);
+
+            RebuildAll();
+            return _root;
         }
 
-        /// <summary>
-        /// Scans the Host boundary for every ICoCoContextRestoreBinding
-        /// implementation, wires the first as the Host root and chains the
-        /// rest through DownstreamRestoreBinding — one click instead of
-        /// two drag-and-drops across weakly-typed fields.
-        /// </summary>
-        private void AutoWireRestoreChain(SerializedProperty rootProperty)
-        {
-            var host = (CoCoStateGraphHost)target;
-            var chain = new List<MonoBehaviour>();
-            foreach (MonoBehaviour component in
-                     FindObjectsByType<MonoBehaviour>(
-                         FindObjectsInactive.Include,
-                         FindObjectsSortMode.None))
-            {
-                if (component != null &&
-                    component is ICoCoContextRestoreBinding &&
-                    CoCoStateGraphHostBoundary.Contains(host, component))
-                {
-                    chain.Add(component);
-                }
-            }
+        // ===== 主题 =====
 
-            if (chain.Count == 0)
+        private static void ApplyModuleTheme(VisualElement root)
+        {
+            var styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(ModuleUssPath);
+            if (styleSheet == null)
             {
-                Debug.LogWarning(
-                    "[CoCoFlow] No ICoCoContextRestoreBinding components found " +
-                    "inside the Host boundary — nothing to wire.");
+                if (!_moduleUssMissingReported)
+                {
+                    _moduleUssMissingReported = true;
+                    Debug.LogError(
+                        "[CoCoStateGraphHostEditor] module style sheet missing at " +
+                        ModuleUssPath + "; inspector falls back to shared theme only.");
+                }
+
                 return;
             }
 
-            SortByHierarchy(chain);
-
-            rootProperty.objectReferenceValue = chain[0];
-            for (int index = 0; index + 1 < chain.Count; index++)
+            if (!root.styleSheets.Contains(styleSheet))
             {
-                SerializedObject upstream = new SerializedObject(chain[index]);
-                SerializedProperty downstream = upstream.FindProperty(
-                    "downstreamRestoreBinding");
-                if (downstream != null)
-                {
-                    downstream.objectReferenceValue = chain[index + 1];
-                    upstream.ApplyModifiedPropertiesWithoutUndo();
-                }
+                root.styleSheets.Add(styleSheet);
             }
-
-            // Drop any stale downstream on the tail.
-            SerializedObject tail = new SerializedObject(chain[chain.Count - 1]);
-            SerializedProperty tailDownstream = tail.FindProperty(
-                "downstreamRestoreBinding");
-            if (tailDownstream != null)
-            {
-                tailDownstream.objectReferenceValue = null;
-                tail.ApplyModifiedPropertiesWithoutUndo();
-            }
-
-            Debug.Log("[CoCoFlow] Restore chain wired: " +
-                string.Join(" -> ", chain.ConvertAll(c => c.GetType().Name)));
         }
 
-        private static void SortByHierarchy(List<MonoBehaviour> components)
-        {
-            components.Sort((left, right) =>
-            {
-                string leftPath = BuildHierarchyPath(left.transform);
-                string rightPath = BuildHierarchyPath(right.transform);
-                int order = string.CompareOrdinal(leftPath, rightPath);
-                if (order != 0)
-                {
-                    return order;
-                }
+        // ===== 重建入口 =====
 
-                return string.CompareOrdinal(
-                    left.GetType().Name,
-                    right.GetType().Name);
-            });
+        private void RebuildAll()
+        {
+            try
+            {
+                _rebuilding = true;
+                serializedObject.Update();
+                _root.Clear();
+                BuildConfigSections();
+                BuildRuntimeSection();
+                BuildDiagnosticsSection();
+                _root.Bind(serializedObject);
+                RebuildDynamicSections();
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
         }
 
-        private static string BuildHierarchyPath(Transform transform)
+        private void RebuildDynamicSections()
         {
-            var path = new StringBuilder(transform.name);
-            Transform parent = transform.parent;
-            while (parent != null)
+            RebuildBindings();
+            RebuildRestorePreview();
+            RebuildDiagnostics();
+            UpdateDynamic();
+        }
+
+        private void BuildConfigSections()
+        {
+            _configRoot = new VisualElement { name = "ccflow-host-config" };
+            _configRoot.Add(BuildOverviewCard());
+            _configRoot.Add(BuildBindingsCard());
+            _configRoot.Add(BuildRestoreCard());
+            _configRoot.Add(BuildCapacitiesCard());
+            _root.Add(_configRoot);
+        }
+
+        // ===== Overview =====
+
+        private VisualElement BuildOverviewCard()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Overview", "总览"));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("stateGraphAsset")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("driver")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("autoStart")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("timeScale")));
+            return card;
+        }
+
+        // ===== Bindings（三数组 + Actor Context 单引用，B3） =====
+
+        private VisualElement BuildBindingsCard()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Bindings", "绑定"));
+            _bindingsContent = new VisualElement { name = "ccflow-host-bindings" };
+            card.Add(_bindingsContent);
+            return card;
+        }
+
+        private void RebuildBindings()
+        {
+            if (_bindingsContent == null)
             {
-                path.Insert(0, parent.name + "/");
-                parent = parent.parent;
+                return;
             }
 
-            return path.ToString();
+            _rebuilding = true;
+            try
+            {
+                _bindingsContent.Clear();
+                serializedObject.Update();
+
+                BuildBindingList(
+                    _bindingsContent,
+                    "intentSources",
+                    CoCoEditorLocalization.Text("Intent Sources", "Intent 来源"),
+                    BindingListKind.IntentSources);
+                BuildEventAdaptersSection();
+                BuildBindingList(
+                    _bindingsContent,
+                    "operators",
+                    CoCoEditorLocalization.Text("Operators", "Operator"),
+                    BindingListKind.Operators);
+                BuildActorContextSection();
+                _bindingsContent.Bind(serializedObject);
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
         }
 
-        // ----- list drawing -----
-
-        private void DrawHookList(
-            SerializedProperty array,
-            string label,
-            Func<MonoBehaviour, bool> validity,
-            Func<MonoBehaviour, string> describe,
-            Func<IEnumerable<MonoBehaviour>> sceneScan,
-            Func<MonoBehaviour, string> warning)
+        private enum BindingListKind
         {
-            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            IntentSources = 0,
+            Operators = 1
+        }
+
+        private void BuildBindingList(
+            VisualElement container,
+            string propertyPath,
+            string title,
+            BindingListKind kind)
+        {
+            container.Add(CreateSubsectionTitle(title));
+            SerializedProperty array = serializedObject.FindProperty(propertyPath);
+
+            var assigned = new List<MonoBehaviour>();
+            for (int index = 0; index < array.arraySize; index++)
+            {
+                assigned.Add(
+                    array.GetArrayElementAtIndex(index).objectReferenceValue as
+                        MonoBehaviour);
+            }
+
+            List<MonoBehaviour> duplicates =
+                CoCoStateGraphHostBindingRules.FindDuplicateReferences(assigned);
+            var host = (CoCoStateGraphHost)target;
 
             for (int index = 0; index < array.arraySize; index++)
             {
-                SerializedProperty element = array.GetArrayElementAtIndex(index);
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    MonoBehaviour value = element.objectReferenceValue as MonoBehaviour;
-                    EditorGUI.BeginChangeCheck();
-                    UnityEngine.Object picked = EditorGUILayout.ObjectField(
-                        value,
-                        typeof(MonoBehaviour),
-                        true);
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        element.objectReferenceValue = picked;
-                    }
-
-                    if (GUILayout.Button("×", GUILayout.Width(22f)))
-                    {
-                        array.DeleteArrayElementAtIndex(index);
-                        return;
-                    }
-                }
-
-                MonoBehaviour current = element.objectReferenceValue as MonoBehaviour;
-                if (current == null)
-                {
-                    continue;
-                }
-
-                if (!validity(current))
-                {
-                    EditorGUILayout.HelpBox(
-                        describe(current) + " — it will be rejected at startup.",
-                        MessageType.Error);
-                }
-                else
-                {
-                    EditorGUILayout.LabelField(describe(current), EditorStyles.miniLabel);
-                    if (warning != null)
-                    {
-                        string message = warning(current);
-                        if (message != null)
-                        {
-                            EditorGUILayout.HelpBox(message, MessageType.Warning);
-                        }
-                    }
-                }
+                container.Add(BuildBindingRow(
+                    array,
+                    index,
+                    host,
+                    kind,
+                    duplicates));
             }
 
-            using (new EditorGUILayout.HorizontalScope())
+            var footer = new VisualElement();
+            footer.style.flexDirection = FlexDirection.Row;
+            footer.style.marginTop = 4f;
+            var addFromScene = new Button(() =>
+                ShowSceneMenu(array, kind))
             {
-                if (GUILayout.Button("Add from scene…", EditorStyles.miniButton))
-                {
-                    ShowSceneMenu(array, sceneScan, describe);
-                }
-
-                EditorGUILayout.LabelField(
+                text = CoCoEditorLocalization.Text("Add from scene…", "从场景添加…")
+            };
+            var footerHint = new Label(
+                CoCoEditorLocalization.Text(
                     "drop components above or pick from the scene",
-                    EditorStyles.miniLabel);
-            }
-
-            EditorGUILayout.Space(4f);
+                    "拖入组件或从场景选择"))
+            {
+                name = "ccflow-binding-hint"
+            };
+            footer.Add(addFromScene);
+            footer.Add(footerHint);
+            footerHint.AddToClassList("ccflow-muted");
+            footerHint.style.marginLeft = 8f;
+            footerHint.style.unityTextAlign = TextAnchor.MiddleLeft;
+            container.Add(footer);
         }
 
-        private static void ShowSceneMenu(
+        private VisualElement BuildBindingRow(
             SerializedProperty array,
-            Func<IEnumerable<MonoBehaviour>> sceneScan,
-            Func<MonoBehaviour, string> describe)
+            int index,
+            CoCoStateGraphHost host,
+            BindingListKind kind,
+            List<MonoBehaviour> duplicates)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("ccflow-host-binding-row");
+
+            var head = new VisualElement();
+            head.AddToClassList("ccflow-host-binding-row__head");
+
+            var field = new ObjectField { allowSceneObjects = true };
+            field.AddToClassList("ccflow-host-binding-row__field");
+            field.BindProperty(array.GetArrayElementAtIndex(index));
+            head.Add(field);
+
+            var remove = new Button(() => RemoveArrayElement(array, index))
+            {
+                text = "×",
+                tooltip = CoCoEditorLocalization.Text("Remove", "移除")
+            };
+            remove.AddToClassList("ccflow-host-binding-row__remove");
+            head.Add(remove);
+            row.Add(head);
+
+            MonoBehaviour component =
+                array.GetArrayElementAtIndex(index).objectReferenceValue as MonoBehaviour;
+            CoCoBindingHint? hint = kind == BindingListKind.IntentSources
+                ? CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, component)
+                : CoCoStateGraphHostBindingRules.BuildOperatorHint(host, component);
+
+            string english;
+            string chinese;
+            if (kind == BindingListKind.IntentSources)
+            {
+                CoCoStateGraphHostBindingRules.DescribeIntentSource(
+                    component, out english, out chinese);
+            }
+            else
+            {
+                CoCoStateGraphHostBindingRules.DescribeOperator(
+                    component, out english, out chinese);
+            }
+
+            var description = new Label(
+                CoCoEditorLocalization.Text(english, chinese))
+            {
+                name = "ccflow-binding-desc"
+            };
+            description.AddToClassList("ccflow-host-binding-row__desc");
+            row.Add(description);
+
+            if (hint.HasValue)
+            {
+                row.Add(BuildHintRow(hint.Value));
+            }
+
+            if (component != null && duplicates.Contains(component))
+            {
+                row.Add(BuildHintRow(new CoCoBindingHint(
+                    CoCoBindingHintKind.Warning,
+                    component,
+                    component.name + " is referenced more than once — the runtime " +
+                        "requires unique binding components",
+                    component.name + " 被引用多次——运行时要求绑定组件唯一")));
+            }
+
+            return row;
+        }
+
+        private void RemoveArrayElement(SerializedProperty array, int index)
+        {
+            _rebuilding = true;
+            try
+            {
+                serializedObject.Update();
+                array.DeleteArrayElementAtIndex(index);
+                serializedObject.ApplyModifiedProperties();
+            }
+            finally
+            {
+                _rebuilding = false;
+            }
+
+            RebuildDynamicSections();
+        }
+
+        private void ShowSceneMenu(SerializedProperty array, BindingListKind kind)
         {
             var menu = new GenericMenu();
             var present = new HashSet<UnityEngine.Object>();
+            serializedObject.Update();
             for (int index = 0; index < array.arraySize; index++)
             {
-                UnityEngine.Object existing = array.GetArrayElementAtIndex(index)
-                    .objectReferenceValue;
+                UnityEngine.Object existing =
+                    array.GetArrayElementAtIndex(index).objectReferenceValue;
                 if (existing != null)
                 {
                     present.Add(existing);
                 }
             }
 
+            var results = new List<MonoBehaviour>();
+            if (kind == BindingListKind.IntentSources)
+            {
+                CoCoStateGraphHostBindingRules.CollectSceneIntentSources(null, results);
+            }
+            else
+            {
+                CoCoStateGraphHostBindingRules.CollectSceneOperators(null, results);
+            }
+
             bool any = false;
-            foreach (MonoBehaviour component in sceneScan())
+            foreach (MonoBehaviour component in results)
             {
                 if (component == null || present.Contains(component))
                 {
@@ -449,26 +386,738 @@ namespace CoCoFlow.Editor.StateGraphHost
 
                 any = true;
                 MonoBehaviour captured = component;
+                string english;
+                string chinese;
+                if (kind == BindingListKind.IntentSources)
+                {
+                    CoCoStateGraphHostBindingRules.DescribeIntentSource(
+                        captured, out english, out chinese);
+                }
+                else
+                {
+                    CoCoStateGraphHostBindingRules.DescribeOperator(
+                        captured, out english, out chinese);
+                }
+
                 menu.AddItem(
-                    new GUIContent(describe(captured) + " @ " + captured.name),
+                    new GUIContent(
+                        CoCoEditorLocalization.Text(english, chinese) +
+                        " @ " + captured.name),
                     false,
                     () =>
                     {
-                        int next = array.arraySize;
-                        array.InsertArrayElementAtIndex(next);
-                        array.GetArrayElementAtIndex(next).objectReferenceValue =
-                            captured;
-                        array.serializedObject.ApplyModifiedProperties();
+                        _rebuilding = true;
+                        try
+                        {
+                            serializedObject.Update();
+                            int next = array.arraySize;
+                            array.InsertArrayElementAtIndex(next);
+                            array.GetArrayElementAtIndex(next).objectReferenceValue =
+                                captured;
+                            serializedObject.ApplyModifiedProperties();
+                        }
+                        finally
+                        {
+                            _rebuilding = false;
+                        }
+
+                        RebuildDynamicSections();
                     });
             }
 
             if (!any)
             {
-                menu.AddDisabledItem(
-                    new GUIContent("no matching components in this scene"));
+                menu.AddDisabledItem(new GUIContent(
+                    CoCoEditorLocalization.Text(
+                        "no matching components in this scene",
+                        "场景中没有匹配组件")));
             }
 
             menu.ShowAsContext();
+        }
+
+        // ----- Event Adapters：有序列表 + 提示，不做槽位验证（B4/D4） -----
+
+        private void BuildEventAdaptersSection()
+        {
+            _bindingsContent.Add(CreateSubsectionTitle(
+                CoCoEditorLocalization.Text("Event Adapters", "Event 适配器")));
+            _bindingsContent.Add(new PropertyField(
+                serializedObject.FindProperty("eventAdapters")));
+            var note = new Label(CoCoEditorLocalization.Text(
+                "ordered slot-for-slot against the compiled adapter manifest — " +
+                    "the runtime validates each slot at startup",
+                "按编译适配器清单逐槽有序对应——运行时在启动时逐槽校验"))
+            {
+                name = "ccflow-adapters-note"
+            };
+            note.AddToClassList("ccflow-muted");
+            note.style.whiteSpace = WhiteSpace.Normal;
+            note.style.marginBottom = 6f;
+            _bindingsContent.Add(note);
+        }
+
+        // ----- Actor Context：单引用 + 候选 + 浅验证（B3/D3） -----
+
+        private void BuildActorContextSection()
+        {
+            _bindingsContent.Add(CreateSubsectionTitle(
+                CoCoEditorLocalization.Text("Actor Context", "Actor 上下文")));
+
+            SerializedProperty property =
+                serializedObject.FindProperty("actorContextBinding");
+            MonoBehaviour assigned = property.objectReferenceValue as MonoBehaviour;
+            var host = (CoCoStateGraphHost)target;
+            if (assigned != null)
+            {
+                CoCoBindingHint? hint =
+                    CoCoStateGraphHostBindingRules.BuildActorContextHint(host, assigned);
+                if (hint.HasValue)
+                {
+                    _bindingsContent.Add(BuildHintRow(hint.Value));
+                }
+            }
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            var field = new PropertyField(property)
+            {
+                style = { flexGrow = 1f }
+            };
+            row.Add(field);
+            var pick = new Button(() => ShowActorContextMenu(property))
+            {
+                text = CoCoEditorLocalization.Text("Pick…", "选择…"),
+                tooltip = CoCoEditorLocalization.Text(
+                    "pick an Actor Context binding inside the Host boundary",
+                    "选择 Host 边界内的 Actor Context 绑定")
+            };
+            row.Add(pick);
+            _bindingsContent.Add(row);
+        }
+
+        private void ShowActorContextMenu(SerializedProperty property)
+        {
+            serializedObject.Update();
+            MonoBehaviour assigned =
+                property.objectReferenceValue as MonoBehaviour;
+            var host = (CoCoStateGraphHost)target;
+            var results = new List<MonoBehaviour>();
+            CoCoStateGraphHostBindingRules.CollectActorContextCandidates(
+                host,
+                assigned,
+                results);
+
+            var menu = new GenericMenu();
+            if (assigned != null)
+            {
+                menu.AddItem(
+                    new GUIContent(CoCoEditorLocalization.Text("(none)", "（无）")),
+                    false,
+                    () =>
+                    {
+                        _rebuilding = true;
+                        try
+                        {
+                            serializedObject.Update();
+                            property.objectReferenceValue = null;
+                            serializedObject.ApplyModifiedProperties();
+                        }
+                        finally
+                        {
+                            _rebuilding = false;
+                        }
+
+                        RebuildDynamicSections();
+                    });
+                menu.AddSeparator(string.Empty);
+            }
+
+            bool any = false;
+            foreach (MonoBehaviour component in results)
+            {
+                any = true;
+                MonoBehaviour captured = component;
+                menu.AddItem(
+                    new GUIContent(captured.GetType().Name + " @ " + captured.name),
+                    false,
+                    () =>
+                    {
+                        _rebuilding = true;
+                        try
+                        {
+                            serializedObject.Update();
+                            property.objectReferenceValue = captured;
+                            serializedObject.ApplyModifiedProperties();
+                        }
+                        finally
+                        {
+                            _rebuilding = false;
+                        }
+
+                        RebuildDynamicSections();
+                    });
+            }
+
+            if (!any)
+            {
+                menu.AddDisabledItem(new GUIContent(
+                    CoCoEditorLocalization.Text(
+                        "no Actor Context bindings inside the Host boundary",
+                        "Host 边界内没有 Actor Context 绑定")));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        // ===== Restore（D5：行为保持 + 原子 Undo，B2） =====
+
+        private VisualElement BuildRestoreCard()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Restore", "恢复"));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("contextRestoreBinding")));
+
+            var wire = CoCoEditorElements.CreatePrimaryButton(
+                CoCoEditorLocalization.Text("Auto-wire chain", "自动连接链"),
+                AutoWireRestoreChain);
+            wire.style.marginTop = 4f;
+            card.Add(wire);
+
+            _restoreHintContent = new VisualElement { name = "ccflow-restore-hints" };
+            card.Add(_restoreHintContent);
+            _restorePreviewContent = new VisualElement { name = "ccflow-restore-chain" };
+            card.Add(_restorePreviewContent);
+            return card;
+        }
+
+        private void RebuildRestorePreview()
+        {
+            if (_restorePreviewContent == null || _restoreHintContent == null)
+            {
+                return;
+            }
+
+            _restoreHintContent.Clear();
+            _restorePreviewContent.Clear();
+
+            var host = (CoCoStateGraphHost)target;
+            MonoBehaviour root = serializedObject.FindProperty("contextRestoreBinding")
+                .objectReferenceValue as MonoBehaviour;
+
+            CoCoBindingHint? rootHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreRootHint(host, root);
+            if (rootHint.HasValue)
+            {
+                _restoreHintContent.Add(BuildHintRow(rootHint.Value));
+            }
+
+            if (root == null)
+            {
+                var empty = new Label(CoCoEditorLocalization.Text(
+                    "no root wired — save/load and temporal restore will not " +
+                        "project the world back onto the ledger",
+                    "未连接根——存/读档与时间恢复不会把世界投影回账本"));
+                empty.AddToClassList("ccflow-muted");
+                empty.style.whiteSpace = WhiteSpace.Normal;
+                _restorePreviewContent.Add(empty);
+                return;
+            }
+
+            var nodes = new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+            CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(root, nodes);
+            for (int index = 0; index < nodes.Count; index++)
+            {
+                CoCoStateGraphHostBindingRules.CoCoRestoreChainNode node = nodes[index];
+                var row = new VisualElement();
+                row.AddToClassList("ccflow-host-chain-row");
+                var arrow = new Label(node.IsRoot ? "root →" : "      →")
+                {
+                    name = "ccflow-chain-arrow"
+                };
+                arrow.AddToClassList("ccflow-host-chain-row__arrow");
+                row.Add(arrow);
+                var text = new Label(
+                    node.Component.GetType().Name + " @ " + node.Component.name)
+                {
+                    name = "ccflow-chain-text"
+                };
+                text.AddToClassList("ccflow-host-chain-row__text");
+                if (!node.ImplementsContract || node.IsRepeat)
+                {
+                    text.style.unityFontStyleAndWeight = FontStyle.Bold;
+                }
+
+                row.Add(text);
+                _restorePreviewContent.Add(row);
+            }
+
+            CoCoBindingHint? breakHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+            if (breakHint.HasValue)
+            {
+                _restoreHintContent.Add(BuildHintRow(breakHint.Value));
+            }
+        }
+
+        /// <summary>
+        /// 自动连接（B2 原子性）：预校验 → 全量 RecordObject → 单一 Undo 组内
+        /// 统一写入；校验失败零写入。记录经 CoCoLog（D7）。
+        /// </summary>
+        private void AutoWireRestoreChain()
+        {
+            var host = (CoCoStateGraphHost)target;
+            var chain = new List<MonoBehaviour>();
+            CoCoStateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
+            if (!CoCoStateGraphHostBindingRules.TryValidateRestoreChain(
+                    chain,
+                    out CoCoBindingHint failure))
+            {
+                CoCoLog.Warning("[Host Inspector] " + failure.English);
+                return;
+            }
+
+            serializedObject.Update();
+            SerializedProperty rootProperty =
+                serializedObject.FindProperty("contextRestoreBinding");
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(CoCoEditorLocalization.Text(
+                "Auto-wire Restore Chain",
+                "自动连接 Restore 链"));
+            try
+            {
+                Undo.RecordObject(host, "Auto-wire Restore Chain");
+                rootProperty.objectReferenceValue = chain[0];
+                serializedObject.ApplyModifiedProperties();
+
+                for (int index = 0; index + 1 < chain.Count; index++)
+                {
+                    WriteDownstream(chain[index], chain[index + 1]);
+                }
+
+                WriteDownstream(chain[chain.Count - 1], null);
+            }
+            finally
+            {
+                Undo.CollapseUndoOperations(undoGroup);
+            }
+
+            var names = new System.Text.StringBuilder();
+            for (int index = 0; index < chain.Count; index++)
+            {
+                if (index > 0)
+                {
+                    names.Append(" -> ");
+                }
+
+                names.Append(chain[index].GetType().Name);
+            }
+
+            CoCoLog.Log("[Host Inspector] Restore chain wired: " + names);
+            RebuildDynamicSections();
+        }
+
+        private static void WriteDownstream(MonoBehaviour upstream, MonoBehaviour value)
+        {
+            var serialized = new SerializedObject(upstream);
+            SerializedProperty downstream = serialized.FindProperty(
+                DownstreamPropertyName);
+            if (downstream == null)
+            {
+                return;
+            }
+
+            Undo.RecordObject(upstream, "Auto-wire Restore Chain");
+            downstream.objectReferenceValue = value;
+            serialized.ApplyModifiedProperties();
+        }
+
+        // ===== Capacities =====
+
+        private VisualElement BuildCapacitiesCard()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Capacities", "容量"));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("temporalHistoryCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("contextFrameCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("eventOutboxCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("traceCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("eventLaneCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("eventSourceCapacity")));
+            card.Add(new PropertyField(
+                serializedObject.FindProperty("eventDedupCapacity")));
+
+            var note = new Label(CoCoEditorLocalization.Text(
+                "Trace capacity defaults to 0 and applies when the runtime starts; " +
+                    "it cannot change while the runtime is live",
+                "Trace 容量默认 0，在运行时启动时生效；运行期间不可变更"))
+            {
+                name = "ccflow-capacity-note"
+            };
+            note.AddToClassList("ccflow-muted");
+            note.style.whiteSpace = WhiteSpace.Normal;
+            card.Add(note);
+            return card;
+        }
+
+        // ===== Runtime 状态（只读） =====
+
+        private void BuildRuntimeSection()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Runtime Status", "运行时状态"));
+            _runtimeContent = new VisualElement { name = "ccflow-host-runtime" };
+            card.Add(_runtimeContent);
+
+            var open = new Button(OpenDebugger)
+            {
+                text = CoCoEditorLocalization.Text("Open Debugger", "打开调试器")
+            };
+            open.style.marginTop = 4f;
+            card.Add(open);
+            _root.Add(card);
+        }
+
+        private void UpdateDynamic()
+        {
+            var host = (CoCoStateGraphHost)target;
+            bool live = host != null && host.HasLiveRuntime;
+            if (_configRoot != null)
+            {
+                _configRoot.SetEnabled(!live);
+            }
+
+            UpdateRuntimeCard(host);
+        }
+
+        private void UpdateRuntimeCard(CoCoStateGraphHost host)
+        {
+            if (_runtimeContent == null)
+            {
+                return;
+            }
+
+            _runtimeContent.Clear();
+
+            var editHint = new Label(CoCoEditorLocalization.Text(
+                "runtime status appears in Play Mode with a live Host",
+                "运行时状态在 Play 模式且 Host 运行时显示"));
+            editHint.AddToClassList("ccflow-muted");
+            editHint.style.whiteSpace = WhiteSpace.Normal;
+
+            if (host == null)
+            {
+                _runtimeContent.Add(editHint);
+                return;
+            }
+
+            _runtimeContent.Add(CreateKeyValueRow(
+                CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
+                host.Lifecycle.ToString(),
+                out VisualElement badgeRow));
+            CoCoEditorElements.SetBadgeKind(
+                badgeRow,
+                LifecycleToBadgeKind(host.Lifecycle, host.Fault.IsFaulted));
+
+            if (host.Fault.IsFaulted)
+            {
+                _runtimeContent.Add(CreateKeyValueRow(
+                    "Fault",
+                    host.Fault.Diagnostic.Domain + "/" +
+                        host.Fault.Diagnostic.Code + ": " +
+                        host.Fault.Diagnostic.Message,
+                    out _));
+            }
+
+            if (host.RequiresWorldCorrection)
+            {
+                _runtimeContent.Add(CreateKeyValueRow(
+                    CoCoEditorLocalization.Text("World Correction", "世界修正"),
+                    CoCoEditorLocalization.Text("required", "需要"),
+                    out _));
+            }
+
+            if (host.GraphInstanceId.IsValid)
+            {
+                _runtimeContent.Add(CreateKeyValueRow(
+                    CoCoEditorLocalization.Text("Graph Instance", "图实例"),
+                    host.GraphInstanceId.ToString(),
+                    out _));
+            }
+
+            if (host.LastDiagnostic.IsError)
+            {
+                _runtimeContent.Add(CreateKeyValueRow(
+                    CoCoEditorLocalization.Text("Last Diagnostic", "最后诊断"),
+                    host.LastDiagnostic.Domain + "/" + host.LastDiagnostic.Code +
+                        ": " + host.LastDiagnostic.Message,
+                    out _));
+            }
+
+            if (!Application.isPlaying)
+            {
+                _runtimeContent.Add(editHint);
+            }
+        }
+
+        private static CoCoEditorBadgeKind LifecycleToBadgeKind(
+            CoCoRuntimeLifecycleState lifecycle,
+            bool faulted)
+        {
+            if (faulted)
+            {
+                return CoCoEditorBadgeKind.Error;
+            }
+
+            switch (lifecycle)
+            {
+                case CoCoRuntimeLifecycleState.Running:
+                    return CoCoEditorBadgeKind.Success;
+                case CoCoRuntimeLifecycleState.Suspended:
+                    return CoCoEditorBadgeKind.Warning;
+                default:
+                    return CoCoEditorBadgeKind.Neutral;
+            }
+        }
+
+        private void OpenDebugger()
+        {
+            CoCoStateGraphDebuggerWindow.Open((CoCoStateGraphHost)target);
+        }
+
+        // ===== Diagnostics（authoring hints 汇集） =====
+
+        private void BuildDiagnosticsSection()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text("Diagnostics", "诊断"));
+            _diagnosticsContent = new VisualElement { name = "ccflow-host-diagnostics" };
+            card.Add(_diagnosticsContent);
+            _root.Add(card);
+        }
+
+        private void RebuildDiagnostics()
+        {
+            if (_diagnosticsContent == null)
+            {
+                return;
+            }
+
+            _diagnosticsContent.Clear();
+            var host = (CoCoStateGraphHost)target;
+            if (host == null)
+            {
+                return;
+            }
+
+            List<CoCoBindingHint> hints = CollectDiagnostics(host);
+            if (hints.Count == 0)
+            {
+                var ok = new Label(CoCoEditorLocalization.Text(
+                    "no assembly hints — remaining startup authority belongs to " +
+                        "the runtime",
+                    "无装配期提示——其余启动权威归运行时"));
+                ok.AddToClassList("ccflow-muted");
+                ok.style.whiteSpace = WhiteSpace.Normal;
+                _diagnosticsContent.Add(ok);
+                return;
+            }
+
+            for (int index = 0; index < hints.Count; index++)
+            {
+                _diagnosticsContent.Add(BuildHintRow(hints[index]));
+            }
+        }
+
+        private List<CoCoBindingHint> CollectDiagnostics(CoCoStateGraphHost host)
+        {
+            var hints = new List<CoCoBindingHint>();
+
+            if (host.StateGraphAsset == null)
+            {
+                hints.Add(new CoCoBindingHint(
+                    CoCoBindingHintKind.Error,
+                    null,
+                    "no StateGraph asset assigned — the Host cannot start",
+                    "未指定 StateGraph 资产——Host 无法启动"));
+            }
+
+            AppendArrayHints(
+                hints, host, "intentSources",
+                CoCoStateGraphHostBindingRules.BuildIntentSourceHint);
+            AppendArrayHints(
+                hints, host, "operators",
+                CoCoStateGraphHostBindingRules.BuildOperatorHint);
+
+            MonoBehaviour actor = serializedObject.FindProperty("actorContextBinding")
+                .objectReferenceValue as MonoBehaviour;
+            CoCoBindingHint? actorHint =
+                CoCoStateGraphHostBindingRules.BuildActorContextHint(host, actor);
+            if (actorHint.HasValue)
+            {
+                hints.Add(actorHint.Value);
+            }
+
+            MonoBehaviour restoreRoot =
+                serializedObject.FindProperty("contextRestoreBinding")
+                    .objectReferenceValue as MonoBehaviour;
+            CoCoBindingHint? restoreHint =
+                CoCoStateGraphHostBindingRules.BuildRestoreRootHint(host, restoreRoot);
+            if (restoreHint.HasValue)
+            {
+                hints.Add(restoreHint.Value);
+            }
+
+            if (restoreRoot != null)
+            {
+                var nodes =
+                    new List<CoCoStateGraphHostBindingRules.CoCoRestoreChainNode>();
+                CoCoStateGraphHostBindingRules.BuildRestoreChainPreview(restoreRoot, nodes);
+                CoCoBindingHint? breakHint =
+                    CoCoStateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                if (breakHint.HasValue)
+                {
+                    hints.Add(breakHint.Value);
+                }
+            }
+
+            return hints;
+        }
+
+        private void AppendArrayHints(
+            List<CoCoBindingHint> hints,
+            CoCoStateGraphHost host,
+            string propertyPath,
+            Func<CoCoStateGraphHost, MonoBehaviour, CoCoBindingHint?> buildHint)
+        {
+            SerializedProperty array = serializedObject.FindProperty(propertyPath);
+            var assigned = new List<MonoBehaviour>();
+            for (int index = 0; index < array.arraySize; index++)
+            {
+                assigned.Add(
+                    array.GetArrayElementAtIndex(index).objectReferenceValue as
+                        MonoBehaviour);
+            }
+
+            List<MonoBehaviour> duplicates =
+                CoCoStateGraphHostBindingRules.FindDuplicateReferences(assigned);
+            for (int index = 0; index < assigned.Count; index++)
+            {
+                CoCoBindingHint? hint = buildHint(host, assigned[index]);
+                if (hint.HasValue)
+                {
+                    hints.Add(hint.Value);
+                }
+
+                MonoBehaviour component = assigned[index];
+                if (component != null && duplicates.Contains(component))
+                {
+                    hints.Add(new CoCoBindingHint(
+                        CoCoBindingHintKind.Warning,
+                        component,
+                        component.name + " is referenced more than once in " +
+                            propertyPath + " — the runtime requires unique binding " +
+                            "components",
+                        component.name + " 在 " + propertyPath +
+                            " 中被引用多次——运行时要求绑定组件唯一"));
+                }
+            }
+        }
+
+        // ===== 小构件 =====
+
+        private static Label CreateSubsectionTitle(string title)
+        {
+            var label = new Label(title);
+            label.AddToClassList("ccflow-host-subsection");
+            return label;
+        }
+
+        private static VisualElement BuildHintRow(CoCoBindingHint hint)
+        {
+            return CoCoEditorElements.CreateDiagnosticRow(
+                hint.LocalizedText,
+                HintToBadgeKind(hint.Kind),
+                hint.Target == null
+                    ? null
+                    : () => EditorGUIUtility.PingObject(hint.Target));
+        }
+
+        private static CoCoEditorBadgeKind HintToBadgeKind(CoCoBindingHintKind kind)
+        {
+            switch (kind)
+            {
+                case CoCoBindingHintKind.Error:
+                    return CoCoEditorBadgeKind.Error;
+                case CoCoBindingHintKind.Warning:
+                    return CoCoEditorBadgeKind.Warning;
+                default:
+                    return CoCoEditorBadgeKind.Info;
+            }
+        }
+
+        private VisualElement CreateKeyValueRow(
+            string key,
+            string value,
+            out VisualElement badgeRow)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("ccflow-host-kv-row");
+            var keyLabel = new Label(key);
+            keyLabel.AddToClassList("ccflow-host-kv-row__key");
+            row.Add(keyLabel);
+
+            badgeRow = CoCoEditorElements.CreateBadge(
+                value, CoCoEditorBadgeKind.Neutral);
+            badgeRow.Q<Label>("ccflow-badge-text").style.unityTextAlign =
+                TextAnchor.MiddleLeft;
+            badgeRow.style.alignSelf = Align.FlexStart;
+            badgeRow.style.flexShrink = 1f;
+            badgeRow.style.whiteSpace = WhiteSpace.Normal;
+            row.Add(badgeRow);
+            return row;
+        }
+
+        // ===== 生命周期回调 =====
+
+        private void OnPlayModeStateChanged(PlayModeStateChange change)
+        {
+            if (_root == null)
+            {
+                return;
+            }
+
+            serializedObject.Update();
+            RebuildAll();
+        }
+
+        private void OnUndoRedoPerformed()
+        {
+            if (_root == null)
+            {
+                return;
+            }
+
+            serializedObject.Update();
+            RebuildDynamicSections();
+        }
+
+        private void OnLanguageChanged()
+        {
+            if (_root == null)
+            {
+                return;
+            }
+
+            RebuildAll();
         }
     }
 }
