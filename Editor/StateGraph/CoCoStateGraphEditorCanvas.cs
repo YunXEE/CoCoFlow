@@ -298,7 +298,7 @@ namespace CoCoFlow.Editor.StateGraph
             chainStates.Clear();
             chainGenealogyChildren.Clear();
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
-            CoCoStateId selected = controller.Session.SelectedTransitionId;
+            CoCoTransitionId selected = controller.Session.SelectedTransitionId;
             if (layer == null || !selected.IsValid)
             {
                 return;
