@@ -58,6 +58,7 @@ namespace CoCoFlow.Editor.Core
         private bool _isBusy;
 
         // 渲染引用（CreateGUI 持有；重建安全，零持久订阅）
+        private VisualElement _contentHost;
         private VisualElement _dependenciesRows;
         private VisualElement _definesRows;
         private VisualElement _modulesRows;
@@ -98,6 +99,13 @@ namespace CoCoFlow.Editor.Core
 
             if (_status == null)
                 RefreshStatusData();
+
+            // 全局滚动容器：内容超出窗口高度时滚动（等价旧 IMGUI BeginScrollView）。
+            var scroll = new ScrollView(ScrollViewMode.Vertical) { name = "ccflow-utility-scroll" };
+            scroll.style.flexGrow = 1f;
+            scroll.style.marginTop = 8f;
+            rootVisualElement.Add(scroll);
+            _contentHost = scroll;
 
             BuildHeaderSection();
             BuildDependenciesSection();
@@ -147,7 +155,7 @@ namespace CoCoFlow.Editor.Core
 
             header.Add(titleColumn);
             header.Add(BuildLanguageSwitch());
-            rootVisualElement.Add(header);
+            _contentHost.Add(header);
         }
 
         /// <summary>语言切换（D10；两段按钮，当前语言高亮禁用表示选中）。</summary>
@@ -156,6 +164,7 @@ namespace CoCoFlow.Editor.Core
             var container = new VisualElement { name = "language-switch" };
             container.style.flexDirection = FlexDirection.Row;
             container.style.marginLeft = 8f;
+            container.style.flexShrink = 0f;
 
             var current = CoCoEditorLocalization.CurrentLanguage;
 
@@ -188,7 +197,7 @@ namespace CoCoFlow.Editor.Core
                 "Dependencies", "依赖"));
             _dependenciesRows = new VisualElement { name = "dependencies-rows" };
             card.Add(_dependenciesRows);
-            rootVisualElement.Add(card);
+            _contentHost.Add(card);
         }
 
         private void BuildDefinesSection()
@@ -197,7 +206,7 @@ namespace CoCoFlow.Editor.Core
                 "Support Defines", "Support Define（宏）"));
             _definesRows = new VisualElement { name = "defines-rows" };
             card.Add(_definesRows);
-            rootVisualElement.Add(card);
+            _contentHost.Add(card);
         }
 
         private void BuildModulesSection()
@@ -209,7 +218,7 @@ namespace CoCoFlow.Editor.Core
             card.Add(_modulesSummary);
             _modulesRows = new VisualElement { name = "modules-rows" };
             card.Add(_modulesRows);
-            rootVisualElement.Add(card);
+            _contentHost.Add(card);
         }
 
         private void BuildActionsSection()
@@ -268,7 +277,7 @@ namespace CoCoFlow.Editor.Core
             _busyRow.style.marginTop = 4f;
             card.Add(_busyRow);
 
-            rootVisualElement.Add(card);
+            _contentHost.Add(card);
         }
 
         private void BuildLogSection()
@@ -289,7 +298,7 @@ namespace CoCoFlow.Editor.Core
                     "Refresh Status rescans without writing anything.",
                     "Refresh Status 只重新扫描，不写入任何内容。"));
             card.Add(_logEmpty);
-            rootVisualElement.Add(card);
+            _contentHost.Add(card);
         }
 
         // ==========================================
@@ -330,27 +339,40 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-        /// <summary>状态行：名称 + 徽章 + 消息（ccflow-list-row + 诊断行形态）。</summary>
+        /// <summary>
+        /// 状态行（两行式）：首行 = 名称 + 徽章；次行 = 完整消息换行。
+        /// 长消息不再与名称/徽章挤同一横行；行间以细分隔线区隔。
+        /// </summary>
         private static VisualElement BuildStatusRow(
             string name,
             CoCoSetupModuleCatalog.BilingualText message,
             DependencyRowState state)
         {
             var row = new VisualElement();
-            row.AddToClassList("ccflow-diagnostic-row");
+            row.style.marginTop = 5f;
+            row.style.marginBottom = 7f;
+            row.style.paddingBottom = 6f;
+            row.style.borderBottomWidth = 1f;
+            row.style.borderBottomColor = new Color(0.5f, 0.5f, 0.5f, 0.25f);
+
+            var headLine = new VisualElement();
+            headLine.style.flexDirection = FlexDirection.Row;
+            headLine.style.alignItems = Align.Center;
 
             var nameLabel = new Label(name);
             nameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             nameLabel.style.marginRight = 8f;
-            row.Add(nameLabel);
+            headLine.Add(nameLabel);
 
-            row.Add(CoCoEditorElements.CreateBadge(
+            headLine.Add(CoCoEditorElements.CreateBadge(
                 KindLabel(StateToBadgeKind(state)),
                 StateToBadgeKind(state)));
 
+            row.Add(headLine);
+
             var messageLabel = new Label(ProjectText(message));
-            messageLabel.AddToClassList("ccflow-diagnostic-row__message");
             messageLabel.style.whiteSpace = WhiteSpace.Normal;
+            messageLabel.style.marginTop = 3f;
             row.Add(messageLabel);
             return row;
         }
