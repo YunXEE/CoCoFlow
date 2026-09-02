@@ -60,6 +60,7 @@ namespace CoCoFlow.Editor.Core
         // 渲染引用（CreateGUI 持有；重建安全，零持久订阅）
         private VisualElement _contentHost;
         private VisualElement _dependenciesRows;
+        private Label _definesSummary;
         private VisualElement _definesRows;
         private VisualElement _modulesRows;
         private Label _modulesSummary;
@@ -108,8 +109,8 @@ namespace CoCoFlow.Editor.Core
             _contentHost = scroll;
 
             BuildHeaderSection();
-            BuildDependenciesSection();
             BuildDefinesSection();
+            BuildDependenciesSection();
             BuildModulesSection();
             BuildActionsSection();
             BuildLogSection();
@@ -203,7 +204,11 @@ namespace CoCoFlow.Editor.Core
         private void BuildDefinesSection()
         {
             var card = CoCoEditorElements.CreateCard(CoCoEditorLocalization.Text(
-                "Support Defines", "Support Define（宏）"));
+                "Support Defines (Macros)", "Support Define（宏）"));
+            _definesSummary = new Label { name = "defines-summary" };
+            _definesSummary.AddToClassList("ccflow-muted");
+            _definesSummary.style.marginBottom = 4f;
+            card.Add(_definesSummary);
             _definesRows = new VisualElement { name = "defines-rows" };
             card.Add(_definesRows);
             _contentHost.Add(card);
@@ -364,9 +369,7 @@ namespace CoCoFlow.Editor.Core
             nameLabel.style.marginRight = 8f;
             headLine.Add(nameLabel);
 
-            headLine.Add(CoCoEditorElements.CreateBadge(
-                KindLabel(StateToBadgeKind(state)),
-                StateToBadgeKind(state)));
+            headLine.Add(CreateCenteredBadge(StateToBadgeKind(state)));
 
             row.Add(headLine);
 
@@ -375,6 +378,28 @@ namespace CoCoFlow.Editor.Core
             messageLabel.style.marginTop = 3f;
             row.Add(messageLabel);
             return row;
+        }
+
+        /// <summary>
+        /// 徽章（实例级居中修正：文本 MiddleCenter、容器定高、行内垂直居中；
+        /// 不修改冻结的 Editor/Common USS——中文标签与文字基线对齐问题的最小修复）。
+        /// </summary>
+        private static VisualElement CreateCenteredBadge(CoCoEditorBadgeKind kind, string text = null)
+        {
+            var badge = CoCoEditorElements.CreateBadge(
+                text ?? KindLabel(kind),
+                kind);
+            badge.style.alignSelf = Align.Center;
+            badge.style.height = 20f;
+            badge.style.flexShrink = 0f;
+            var badgeText = badge.Q<Label>("ccflow-badge-text");
+            if (badgeText != null)
+            {
+                badgeText.style.unityTextAlign = TextAnchor.MiddleCenter;
+                badgeText.style.height = 20f;
+                badgeText.style.overflow = UnityEngine.UIElements.Overflow.Hidden;
+            }
+            return badge;
         }
 
         private static string KindLabel(CoCoEditorBadgeKind kind)
@@ -454,6 +479,7 @@ namespace CoCoFlow.Editor.Core
 
             if (!_status.ActiveTargetReadable)
             {
+                _definesSummary.text = string.Empty;
                 _definesRows.Add(BuildStatusRow(
                     CoCoEditorLocalization.Text("Build Target", "构建目标"),
                     new CoCoSetupModuleCatalog.BilingualText(
@@ -464,39 +490,179 @@ namespace CoCoFlow.Editor.Core
             }
 
             var target = _status.ActiveTargetName;
-            _definesRows.Add(BuildDefineRow(CoCoFlowUtility.UniTaskDefine, target));
-            _definesRows.Add(BuildDefineRow(CoCoFlowUtility.DotweenDefine, target));
-            _definesRows.Add(BuildDefineRow(CoCoFlowUtility.UniTaskDotweenDefine, target));
+            var on = 0;
+            var auto = 0;
+            var off = 0;
+
+            foreach (var define in new[]
+                     {
+                         CoCoFlowUtility.UniTaskDefine,
+                         CoCoFlowUtility.DotweenDefine,
+                         CoCoFlowUtility.UniTaskDotweenDefine
+                     })
+            {
+                var semantic = ClassifyDefineRow(define, out var message);
+                SemanticToBadge(semantic, out var kind, out var badgeText);
+                if (semantic == DefineRowSemantic.On) on++;
+                else if (semantic == DefineRowSemantic.Automatic) auto++;
+                else off++;
+                _definesRows.Add(BuildDefineRow(define, target, kind, badgeText, message));
+            }
+
+            _definesSummary.text = CoCoEditorLocalization.Text(
+                $"3 macros · {on} on · {(auto > 0 ? auto + " automatic · " : "")}{off} off" +
+                $" (target: {target})",
+                $"共 3 个宏 · 已开启 {on} · " +
+                (auto > 0 ? $"自动管理 {auto} · " : "") +
+                $"未开启 {off}（目标：{target}）");
         }
 
-        private VisualElement BuildDefineRow(string define, string target)
+        private enum DefineRowSemantic
         {
-            // D-02 保持（#20-b）：UPM 形态遗留手工 define 披露为 Warning。
-            if (define == UniTaskDefine && _status.UniTaskDefineAutomatic &&
-                _status.LegacyUniTaskManualDefinePresent)
+            On,
+            Automatic,
+            Off,
+            LegacyCleanup,
+            Blocked
+        }
+
+        private DefineRowSemantic ClassifyDefineRow(string define, out CoCoSetupModuleCatalog.BilingualText message)
+        {
+            message = null;
+
+            // UniTask 宏：UPM 形态 = versionDefines 自动管理（D-02）。
+            if (define == UniTaskDefine)
             {
-                return BuildStatusRow(
-                    define,
-                    new CoCoSetupModuleCatalog.BilingualText(
-                        "Legacy manual define detected on " + target +
-                        "; versionDefines is the single authority. Apply will remove it.",
-                        "在 " + target + " 检测到遗留手工宏；versionDefines 为唯一权威。Apply 将清理。"),
-                    DependencyRowState.Warning);
+                if (_status.UniTaskVersionBlocked)
+                {
+                    message = new CoCoSetupModuleCatalog.BilingualText(
+                        "UniTask UPM version is outside " + UniTaskSupportedRange +
+                        "; linked assemblies stay disabled. Fix the dependency version first.",
+                        "UniTask UPM 版本超出 " + UniTaskSupportedRange +
+                        "；关联程序集保持禁用。请先修正依赖版本。");
+                    return DefineRowSemantic.Blocked;
+                }
+
+                if (_status.UniTaskDefineAutomatic)
+                {
+                    if (_status.LegacyUniTaskManualDefinePresent)
+                    {
+                        message = new CoCoSetupModuleCatalog.BilingualText(
+                            "Legacy manual macro detected; versionDefines is the single authority. " +
+                            "Apply will remove it (current target only).",
+                            "检测到遗留手工宏；versionDefines 为唯一权威。Apply 将清理（仅当前目标）。");
+                        return DefineRowSemantic.LegacyCleanup;
+                    }
+
+                    message = new CoCoSetupModuleCatalog.BilingualText(
+                        "Managed automatically by asmdef versionDefines " + UniTaskSupportedRange +
+                        " according to the resolved UniTask version.",
+                        "由 asmdef versionDefines " + UniTaskSupportedRange +
+                        " 按解析到的 UniTask 版本自动控制。");
+                    return CoCoEditorBadgeKind.Info;
+                }
             }
 
             var present = _status.DefinePresentOnActiveTarget(define);
-            return BuildStatusRow(
-                define,
-                present
+            if (present)
+            {
+                message = new CoCoSetupModuleCatalog.BilingualText(
+                    "Enabled on the active build target.",
+                    "已在 active 构建目标上开启。");
+                return DefineRowSemantic.On;
+            }
+
+            // 未开启：给出对应原因与出路。
+            if (define == UniTaskDefine)
+            {
+                message = _status.UniTaskInstalled
                     ? new CoCoSetupModuleCatalog.BilingualText(
-                        "Present on " + target + ".",
-                        "在 " + target + " 上已设置。")
+                        "Not enabled. UniTask (unitypackage) is detected; Apply adds the manual macro.",
+                        "未开启。检测到 UniTask（unitypackage）；Apply 将添加手动宏。")
                     : new CoCoSetupModuleCatalog.BilingualText(
-                        "Missing on " + target + ".",
-                        "在 " + target + " 上缺失。"),
-                present
-                    ? DependencyRowState.InfoSuccess
-                    : DependencyRowState.Warning);
+                        "Not enabled. UniTask is missing; Apply installs the recommended dependency first.",
+                        "未开启。UniTask 缺失；Apply 将先安装推荐依赖。");
+            }
+            else if (define == DotweenDefine)
+            {
+                message = new CoCoSetupModuleCatalog.BilingualText(
+                    "Not enabled. Install DOTween (with DOTween.Modules), then Apply.",
+                    "未开启。请先安装 DOTween（含 DOTween.Modules），再执行 Apply。");
+            }
+            else
+            {
+                message = new CoCoSetupModuleCatalog.BilingualText(
+                    "Not enabled. Requires UniTask + DOTween (with Modules) + UniTask.DOTween, then Apply.",
+                    "未开启。需要 UniTask + DOTween（含 Modules）+ UniTask.DOTween 齐备后执行 Apply。");
+            }
+
+            return DefineRowSemantic.Off;
+        }
+
+        /// <summary>define 行：宏名 + 明确语义徽章（已开启/自动管理/未开启/遗留需清理/受阻）+ 原因说明。</summary>
+        private VisualElement BuildDefineRow(
+            string define,
+            string target,
+            CoCoEditorBadgeKind kind,
+            string badgeText,
+            CoCoSetupModuleCatalog.BilingualText message)
+        {
+            var row = new VisualElement();
+            row.style.marginTop = 5f;
+            row.style.marginBottom = 7f;
+            row.style.paddingBottom = 6f;
+            row.style.borderBottomWidth = 1f;
+            row.style.borderBottomColor = new Color(0.5f, 0.5f, 0.5f, 0.25f);
+
+            var headLine = new VisualElement();
+            headLine.style.flexDirection = FlexDirection.Row;
+            headLine.style.alignItems = Align.Center;
+
+            var nameLabel = new Label(define);
+            nameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            nameLabel.style.marginRight = 8f;
+            nameLabel.style.alignSelf = Align.Center;
+            headLine.Add(nameLabel);
+
+            headLine.Add(CreateCenteredBadge(kind, badgeText));
+            row.Add(headLine);
+
+            var messageLabel = new Label(ProjectText(message));
+            messageLabel.style.whiteSpace = WhiteSpace.Normal;
+            messageLabel.style.marginTop = 3f;
+            row.Add(messageLabel);
+            return row;
+        }
+
+        /// <summary>define 语义 → 徽章 kind + 明确语义词（回答"开没开"）。</summary>
+        private static void SemanticToBadge(
+            DefineRowSemantic semantic,
+            out CoCoEditorBadgeKind kind,
+            out string badgeText)
+        {
+            switch (semantic)
+            {
+                case DefineRowSemantic.On:
+                    kind = CoCoEditorBadgeKind.Success;
+                    badgeText = CoCoEditorLocalization.Text("On", "已开启");
+                    return;
+                case DefineRowSemantic.Automatic:
+                    kind = CoCoEditorBadgeKind.Info;
+                    badgeText = CoCoEditorLocalization.Text("Auto", "自动管理");
+                    return;
+                case DefineRowSemantic.LegacyCleanup:
+                    kind = CoCoEditorBadgeKind.Warning;
+                    badgeText = CoCoEditorLocalization.Text("Legacy", "遗留清理");
+                    return;
+                case DefineRowSemantic.Blocked:
+                    kind = CoCoEditorBadgeKind.Error;
+                    badgeText = CoCoEditorLocalization.Text("Blocked", "受阻");
+                    return;
+                default:
+                    kind = CoCoEditorBadgeKind.Warning;
+                    badgeText = CoCoEditorLocalization.Text("Off", "未开启");
+                    return;
+            }
         }
 
         private void RefreshModulesRows()
