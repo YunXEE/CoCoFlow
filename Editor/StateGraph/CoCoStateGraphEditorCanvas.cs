@@ -852,6 +852,7 @@ namespace CoCoFlow.Editor.StateGraph
             Painter2D painter = context.painter2D;
             edgeHits.Clear();
             DrawGenealogy(painter);
+            DrawFlowRings(painter);
 
             // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
             var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
