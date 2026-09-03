@@ -321,7 +321,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
-        public IEnumerator SelectingTransitionHighlightsTargetEntryChainOnCards()
+        public IEnumerator SelectingStateLightsAncestryChainAndTransitionLightsOnlyItself()
         {
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
@@ -332,7 +332,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoStateGraphTestFactory.StateDescriptorId,
                 new TestStateAuthoringConfig(), "Child",
                 new Vector2(80f, 80f), out CoCoStateId child, out string failure), failure);
-            // 跨作用域 leaf↔leaf Transition（契约允许；D9 全展开后应可见且可高亮链条）。
             Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
                 asset, layerId, rootLeaf, child, 0, CoCoTransitionWindow.Always, null,
                 out CoCoTransitionId transitionId, out failure), failure);
@@ -344,33 +343,34 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Host(canvas);
             yield return null;
 
+            // 血统链：选中子 State → 自己+全部祖先外描边；谱系段 Child←Parent 点亮。
+            controller.SelectState(child);
+            yield return null;
+            VisualElement childCard = CardWithTitle(canvas, "Child");
+            VisualElement compositeCard = CardWithTitle(canvas, "Parent");
+            VisualElement rootLeafCard = CardWithTitle(canvas, "RootLeaf");
+            Assert.NotNull(childCard);
+            Assert.NotNull(compositeCard);
+            Assert.NotNull(rootLeafCard);
+            Assert.IsTrue(childCard.ClassListContains("state-card--ancestry"), "self must be lit");
+            Assert.IsTrue(compositeCard.ClassListContains("state-card--ancestry"), "ancestor must be lit");
+            Assert.IsFalse(rootLeafCard.ClassListContains("state-card--ancestry"), "unrelated must stay unlit");
+            Assert.IsTrue(canvas.ChainGenealogyChildren.Contains(
+                new CoCoSerializedId128(child.High, child.Low)),
+                "the child<-composite genealogy segment must be lit");
+            Assert.IsFalse(canvas.ChainGenealogyChildren.Contains(
+                new CoCoSerializedId128(composite.High, composite.Low)),
+                "root composite has no genealogy segment");
+
+            // Transition 选中只亮线本身：两端卡片不得点亮。
             controller.SelectTransition(transitionId);
             yield return null;
-
-            VisualElement leafCard = CardWithTitle(canvas, "RootLeaf");
-            VisualElement compositeCard = CardWithTitle(canvas, "Parent");
-            VisualElement childCard = CardWithTitle(canvas, "Child");
-            Assert.NotNull(leafCard);
-            Assert.NotNull(compositeCard);
-            Assert.NotNull(childCard);
-
-            // 链条高亮：源/目标叶子 + 目标祖先（进入链条）变黄；无关卡不变。
-            Assert.IsTrue(leafCard.ClassListContains("state-card--chain"), "source leaf must be lit");
-            Assert.IsTrue(compositeCard.ClassListContains("state-card--chain"), "target ancestor must be lit");
-            Assert.IsTrue(childCard.ClassListContains("state-card--chain"), "target leaf must be lit");
-
-            // 谱系线段染色集：目标→其父的两段谱系线进入高亮集（绘制消费同一集合）。
-            Assert.IsTrue(
-                canvas.ChainGenealogyChildren.Contains(new CoCoSerializedId128(child.High, child.Low)),
-                "the child<-composite genealogy segment must be lit");
-            // 根 Composite 无父 → 无谱系段；不在集合是正确行为。
-            Assert.IsFalse(canvas.ChainGenealogyChildren.Contains(
-                new CoCoSerializedId128(composite.High, composite.Low)));
-
-            // 选中态解除后高亮消失。
-            controller.SelectState(rootLeaf);
-            yield return null;
-            Assert.IsFalse(CardWithTitle(canvas, "Parent").ClassListContains("state-card--chain"));
+            Assert.IsFalse(CardWithTitle(canvas, "RootLeaf").ClassListContains("state-card--ancestry"),
+                "transition selection must not light the source card");
+            Assert.IsFalse(CardWithTitle(canvas, "Child").ClassListContains("state-card--ancestry"),
+                "transition selection must not light the target card");
+            Assert.AreEqual(0, canvas.ChainGenealogyChildren.Count,
+                "transition selection must not light genealogy segments");
         }
 
         // ── 助手 ───────────────────────────────────────────

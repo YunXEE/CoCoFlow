@@ -123,36 +123,6 @@
     white-space: normal;
 }
 
-.sg-breadcrumb {
-    flex-direction: row;
-    align-items: center;
-    flex-shrink: 1;
-    overflow: hidden;
-}
-
-.sg-breadcrumb__segment {
-    padding-left: 6px;
-    padding-right: 6px;
-    margin-left: 0px;
-    margin-right: 2px;
-}
-
-.sg-breadcrumb__separator {
-    opacity: 0.45;
-    margin-right: 2px;
-}
-
-.sg-breadcrumb__current {
-    -unity-font-style: bold;
-    padding-left: 6px;
-    padding-right: 6px;
-    border-top-left-radius: 9px;
-    border-top-right-radius: 9px;
-    border-bottom-left-radius: 9px;
-    border-bottom-right-radius: 9px;
-    background-color: rgba(45, 112, 180, 0.3);
-}
-
 .sg-header-badges {
     flex-direction: row;
     flex-wrap: wrap;
@@ -178,11 +148,38 @@
     picking-mode: ignore;
 }
 
+/* 双层描边体系（维护者裁决）：外描边=动态状态（外环与卡体 2px 偏移，可扩展）；
+ * 内描边=节点状态（Default/初始等）。 */
+
 .state-card {
-    padding-left: 9px;
-    padding-right: 9px;
-    padding-top: 7px;
-    padding-bottom: 7px;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-right-color: rgba(0, 0, 0, 0);
+    border-top-color: rgba(0, 0, 0, 0);
+    border-bottom-color: rgba(0, 0, 0, 0);
+    padding-left: 2px;
+    padding-right: 2px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+/* 外描边类型 1：血统链选中（自己+全部祖先；最高优先级） */
+.state-card--ancestry {
+    border-left-color: rgb(255, 184, 51);
+    border-right-color: rgb(255, 184, 51);
+    border-top-color: rgb(255, 184, 51);
+    border-bottom-color: rgb(255, 184, 51);
+}
+
+.state-card__body {
+    flex-grow: 1;
+    padding-left: 7px;
+    padding-right: 7px;
+    padding-top: 5px;
+    padding-bottom: 5px;
     border-top-left-radius: 5px;
     border-top-right-radius: 5px;
     border-bottom-left-radius: 5px;
@@ -198,19 +195,19 @@
     border-bottom-color: rgb(84, 97, 110);
 }
 
-.state-card--selected {
-    background-color: rgba(51, 92, 128, 0.97);
-    border-left-color: rgb(96, 156, 214);
-    border-right-color: rgb(96, 156, 214);
-    border-top-color: rgb(96, 156, 214);
-    border-bottom-color: rgb(96, 156, 214);
-}
-
-.state-card--initial {
+/* 内描边：节点状态（初始/Default 分级——Layer 亮绿 / 子机淡绿） */
+.state-card__body--initial-layer {
     border-left-color: rgb(89, 219, 122);
     border-right-color: rgb(89, 219, 122);
     border-top-color: rgb(89, 219, 122);
     border-bottom-color: rgb(89, 219, 122);
+}
+
+.state-card__body--initial-composite {
+    border-left-color: rgba(89, 219, 122, 0.45);
+    border-right-color: rgba(89, 219, 122, 0.45);
+    border-top-color: rgba(89, 219, 122, 0.45);
+    border-bottom-color: rgba(89, 219, 122, 0.45);
 }
 
 .state-card__title {
@@ -233,7 +230,7 @@
     white-space: normal;
 }
 
-.state-card__drill {
+.state-card__tidy {
     height: 20px;
     margin-top: 3px;
 }
@@ -305,13 +302,6 @@
 
 /* ── D9：链条高亮与初始徽标 ─────────────────────── */
 
-.state-card--chain {
-    border-left-color: rgb(255, 184, 51);
-    border-right-color: rgb(255, 184, 51);
-    border-top-color: rgb(255, 184, 51);
-    border-bottom-color: rgb(255, 184, 51);
-}
-
 .state-card__initial-badge {
     font-size: 8px;
     -unity-font-style: bold;
@@ -321,20 +311,6 @@
 }
 
 /* 初始徽标分级（维护者裁决）：Layer=亮绿，子机=淡绿 */
-.state-card--initial-layer {
-    border-left-color: rgb(89, 219, 122);
-    border-right-color: rgb(89, 219, 122);
-    border-top-color: rgb(89, 219, 122);
-    border-bottom-color: rgb(89, 219, 122);
-}
-
-.state-card--initial-composite {
-    border-left-color: rgba(89, 219, 122, 0.45);
-    border-right-color: rgba(89, 219, 122, 0.45);
-    border-top-color: rgba(89, 219, 122, 0.45);
-    border-bottom-color: rgba(89, 219, 122, 0.45);
-}
-
 .state-card__initial-badge--layer {
     color: rgb(126, 232, 154);
     -unity-font-style: bold;
@@ -351,8 +327,4 @@
     font-size: 8px;
     color: rgb(160, 168, 178);
     -unity-text-align: middle-right;
-}
-
-.state-card--chain {
-    background-color: rgba(255, 184, 51, 0.08);
 }

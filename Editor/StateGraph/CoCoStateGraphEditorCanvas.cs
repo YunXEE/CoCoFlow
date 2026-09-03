@@ -227,7 +227,7 @@ namespace CoCoFlow.Editor.StateGraph
                     controller,
                     state,
                     position,
-                    chainStates.Contains(state.StateId),
+                    inAncestryChain: chainStates.Contains(state.StateId),
                     OnCardMoved,
                     BeginTransitionDrag,
                     stateId => CardContextRequested?.Invoke(stateId),
@@ -417,43 +417,23 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         /// <summary>
-        /// 链条高亮集（维护者裁决 D9）：选中的 Transition + 源/目标叶子 +
-        /// 目标侧进入链条（目标的全部祖先）+ 沿途谱系线段。
+        /// 血统链高亮集（维护者裁决）：选中 State → 自己 + 全部祖先卡外描边高亮，
+        /// 及「父的父-父-自己」沿途谱系线段点亮（继承关系：子机继承父机全部 Logic）。
+        /// Transition 选中只亮 Transition 线本身，不点亮任何卡片。
         /// </summary>
         private void BuildChainHighlight()
         {
             chainStates.Clear();
             chainGenealogyChildren.Clear();
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
-            CoCoTransitionId selected = controller.Session.SelectedTransitionId;
+            CoCoStateId selected = controller.Session.SelectedStateId;
             if (layer == null || !selected.IsValid)
             {
                 return;
             }
 
-            CoCoStateGraphTransitionRecord transition = null;
-            foreach (CoCoStateGraphTransitionRecord candidate in layer.Transitions)
-            {
-                if (candidate != null &&
-                    candidate.TransitionId.High == selected.High &&
-                    candidate.TransitionId.Low == selected.Low)
-                {
-                    transition = candidate;
-                    break;
-                }
-            }
-
-            if (transition == null)
-            {
-                return;
-            }
-
-            chainStates.Add(transition.SourceStateId);
-            chainStates.Add(transition.TargetStateId);
-
-            // 目标进入链条：目标叶子的祖先链（运行时激活的 RootPath）。
             var visited = new HashSet<CoCoSerializedId128>();
-            CoCoSerializedId128 current = transition.TargetStateId;
+            CoCoSerializedId128 current = new CoCoSerializedId128(selected.High, selected.Low);
             while (current.IsValid && visited.Add(current))
             {
                 chainStates.Add(current);
@@ -463,7 +443,7 @@ namespace CoCoFlow.Editor.StateGraph
                     break;
                 }
 
-                chainGenealogyChildren.Add(current);
+                chainGenealogyChildren.Add(current); // 谱系段：current ← 其父
                 current = record.ParentStateId;
             }
         }
@@ -544,8 +524,8 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         /// <summary>
-        /// D9 谱系线：父子结构以流程图式折线表示（父底中心 → 垂直 → 水平 → 垂直 → 子顶中心），
-        /// 默认白；选中 Transition 的进入链条段变黄。谱系线不参与命中（结构线，非流转线）。
+        /// 谱系线（维护者命名）：父子结构以流程图式折线表示（父底中心 → 垂直 → 水平 → 垂直 →
+        /// 子顶中心），默认白；选中 State 的血统链段（父的父-父-自己）变黄。不参与命中。
         /// </summary>
         private void DrawGenealogy(Painter2D painter)
         {
@@ -1314,8 +1294,9 @@ namespace CoCoFlow.Editor.StateGraph
             value.IsValid && id.High == value.High && id.Low == value.Low;
 
         /// <summary>
-        /// 画布 State 卡（D8：双击 Composite=下钻，等价 Animator 双击子状态机）。
-        /// 拖动语义与既有交互测试逐条锚定，未改动。
+        /// 画布 State 卡（D9 谱系图）：双层描边——外描边=动态状态（首个类型：血统链
+        /// 选中高亮，与卡体 2px 偏移，可扩展更多外描边类型）；内描边=节点状态
+        /// （Initial/Default 分级）。拖动语义与既有交互测试逐条锚定，未改动。
         /// </summary>
         private sealed class CoCoStateGraphStateCard : VisualElement
         {
@@ -1336,7 +1317,7 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoStateGraphEditorController controller,
                 CoCoStateGraphStateRecord state,
                 Vector2 position,
-                bool inChain,
+                bool inAncestryChain,
                 Action<CoCoSerializedId128, Vector2, bool> moved,
                 Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag,
                 Action<CoCoSerializedId128> cardContextRequested,
@@ -1356,19 +1337,22 @@ namespace CoCoFlow.Editor.StateGraph
                 style.width = CardWidth;
                 style.height = CardHeight;
                 AddToClassList("state-card");
-                if (IsSelected())
+
+                // 外描边类型 1：血统链选中（自己+全部祖先；最高优先级）。
+                if (inAncestryChain)
                 {
-                    AddToClassList("state-card--selected");
+                    AddToClassList("state-card--ancestry");
                 }
 
+                // 卡体：内描边承载节点状态（Initial/Default 分级）。
+                var body = new VisualElement { name = "state-card-body" };
+                body.AddToClassList("state-card__body");
                 if (IsInitial())
                 {
-                    // 维护者裁决：Layer 初始=亮绿 + 「Layer名 Default」；
-                    // 子机初始=淡绿 + 「父状态名 Default」。
                     bool isLayerInitial = !state.ParentStateId.IsValid;
-                    AddToClassList(isLayerInitial
-                        ? "state-card--initial-layer"
-                        : "state-card--initial-composite");
+                    body.AddToClassList(isLayerInitial
+                        ? "state-card__body--initial-layer"
+                        : "state-card__body--initial-composite");
                     string scopeName = isLayerInitial
                         ? controller.SelectedLayer?.DisplayName ?? "Layer"
                         : ParentDisplayName();
@@ -1377,53 +1361,21 @@ namespace CoCoFlow.Editor.StateGraph
                     initialBadge.AddToClassList(isLayerInitial
                         ? "state-card__initial-badge--layer"
                         : "state-card__initial-badge--composite");
-                    Add(initialBadge);
+                    body.Add(initialBadge);
                 }
 
-                if (inChain)
-                {
-                    AddToClassList("state-card--chain");
-                }
-
-                if (HasChildren())
-                {
-                    int leafCount = CountDescendantLeaves();
-                    var leafBadge = new Label($"Leaf: {leafCount}");
-                    leafBadge.AddToClassList("state-card__leaf-count");
-                    leafBadge.tooltip = CoCoEditorLocalization.Text(
-                        "Leaf states in this subtree",
-                        "该子树内的叶状态数量");
-                    Add(leafBadge);
-
-                    var tidy = new Button(() => tidyRequested(state.StateId))
-                    {
-                        text = CoCoEditorLocalization.Text("Tidy Subtree", "整理子级"),
-                        tooltip = CoCoEditorLocalization.Text(
-                            "Arrange all descendants as an evenly spaced genealogy tree",
-                            "把全部后代按等距谱系树重新排布")
-                    };
-                    tidy.AddToClassList("state-card__drill");
-                    Add(tidy);
-                }
-
-                tooltip = CoCoEditorLocalization.Text(
-                    HasChildren()
-                        ? "Composite (sub-state machine): drag to move the subtree"
-                        : "Right-drag to another leaf State to add an Always Transition",
-                    HasChildren()
-                        ? "Composite（子状态机）：拖动可移动整棵子树"
-                        : "右键拖拽到另一个叶子 State 添加 Always Transition");
+                Add(body);
 
                 var title = new Label(state.DisplayName);
                 title.AddToClassList("state-card__title");
-                Add(title);
+                body.Add(title);
 
-                // 维护者反馈：三行——Name / State 编号（短，次小号淡色）/ Logic 名+编号（最小号）。
-                // 注意：编号必须取 CoCoStateId（32 位十六进制）；CoCoSerializedId128.ToString()
+                // 三行信息：Name / State 编号（短，次小号淡色）/ Logic 名+编号（最小号）。
+                // 编号必须取 CoCoStateId（32 位十六进制）；CoCoSerializedId128.ToString()
                 // 是类型名（首 8 字符会是 "CoCoFlow"）。
                 var idLine = new Label(ShortId(ToStateId().ToString()));
                 idLine.AddToClassList("state-card__id");
-                Add(idLine);
+                body.Add(idLine);
 
                 string logicName = "Unassigned";
                 string logicShort = string.Empty;
@@ -1440,9 +1392,8 @@ namespace CoCoFlow.Editor.StateGraph
 
                 var logicLine = new Label(logicShort.Length > 0 ? $"{logicName}  [{logicShort}]" : logicName);
                 logicLine.AddToClassList("state-card__descriptor");
-                Add(logicLine);
+                body.Add(logicLine);
 
-                // 徽标与操作按钮在文字下方（维护者反馈：位置在上方不对）。
                 if (HasChildren())
                 {
                     int leafCount = CountDescendantLeaves();
@@ -1451,7 +1402,7 @@ namespace CoCoFlow.Editor.StateGraph
                     leafBadge.tooltip = CoCoEditorLocalization.Text(
                         "Leaf states in this subtree",
                         "该子树内的叶状态数量");
-                    Add(leafBadge);
+                    body.Add(leafBadge);
 
                     var tidy = new Button(() => tidyRequested(state.StateId))
                     {
@@ -1460,9 +1411,17 @@ namespace CoCoFlow.Editor.StateGraph
                             "Arrange all descendants as an evenly spaced genealogy tree",
                             "把全部后代按等距谱系树重新排布")
                     };
-                    tidy.AddToClassList("state-card__drill");
-                    Add(tidy);
+                    tidy.AddToClassList("state-card__tidy");
+                    body.Add(tidy);
                 }
+
+                tooltip = CoCoEditorLocalization.Text(
+                    HasChildren()
+                        ? "Composite (sub-state machine): drag to move the subtree"
+                        : "Right-drag to another leaf State to add an Always Transition",
+                    HasChildren()
+                        ? "Composite（子状态机）：拖动可移动整棵子树"
+                        : "右键拖拽到另一个叶子 State 添加 Always Transition");
 
                 RegisterCallback<PointerDownEvent>(OnPointerDown);
                 RegisterCallback<PointerMoveEvent>(OnPointerMove);
@@ -1617,12 +1576,6 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     this.ReleasePointer(pointerId);
                 }
-            }
-
-            private bool IsSelected()
-            {
-                CoCoStateId selected = controller.Session.SelectedStateId;
-                return selected.IsValid && state.StateId.High == selected.High && state.StateId.Low == selected.Low;
             }
 
             private string ParentDisplayName()
