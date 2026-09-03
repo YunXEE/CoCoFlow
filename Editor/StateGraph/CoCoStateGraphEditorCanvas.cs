@@ -37,9 +37,13 @@ namespace CoCoFlow.Editor.StateGraph
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
         private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
-        // D9：谱系线（父子结构）默认白；链条点亮时变黄（与 Transition 选中色一致）。
+        // D9：谱系线（父子结构）默认白；血统链点亮时变黄（与 Transition 选中色一致）。
         private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.55f);
         private static Color ChainColor => SelectedEdgeColor;
+        // 流转状态外环（维护者裁决）：橙=可达但死端；红=拓扑不可达（或 Default 无出边）。
+        // 50% 不透明度虚线，不喧宾夺主；血统高亮（实线外描边）绘制在其上可覆盖。
+        private static Color DeadEndRingColor => new Color(1f, 0.55f, 0f, 0.5f);
+        private static Color UnreachableRingColor => new Color(0.9f, 0.24f, 0.24f, 0.5f);
 
         private readonly CoCoStateGraphEditorController controller;
         private readonly VisualElement gridLayer;
@@ -56,6 +60,8 @@ namespace CoCoFlow.Editor.StateGraph
             new HashSet<CoCoSerializedId128>();
         private readonly HashSet<CoCoSerializedId128> chainGenealogyChildren =
             new HashSet<CoCoSerializedId128>();
+        private readonly Dictionary<CoCoSerializedId128, LeafFlowState> leafFlowStates =
+            new Dictionary<CoCoSerializedId128, LeafFlowState>();
 
         private Slider zoomSlider;
         private Label zoomLabel;
@@ -163,6 +169,23 @@ namespace CoCoFlow.Editor.StateGraph
         /// <summary>当前边命中几何数（重绘后更新；测试/诊断用）。</summary>
         internal int EdgeHitCount => edgeHits.Count;
 
+        /// <summary>叶子流转状态（维护者裁决：可达性外环）。</summary>
+        internal enum LeafFlowState
+        {
+            /// <summary>有进有出 / LayerDefault 有出——合法，无外环。</summary>
+            None,
+
+            /// <summary>可达但无出边（死端，如 Dead 状态）——橙色虚线外环。</summary>
+            DeadEnd,
+
+            /// <summary>从 LayerDefault 拓扑不可达（或 Default 自身无出边）——红色虚线外环。</summary>
+            Unreachable
+        }
+
+        /// <summary>叶子流转状态表（测试断言用）。</summary>
+        internal IReadOnlyDictionary<CoCoSerializedId128, LeafFlowState> LeafFlowStates =>
+            leafFlowStates;
+
         /// <summary>链条高亮中的谱系段子 State 集合（测试断言用）。</summary>
         internal System.Collections.Generic.IReadOnlyCollection<CoCoSerializedId128>
             ChainGenealogyChildren => chainGenealogyChildren;
@@ -194,7 +217,9 @@ namespace CoCoFlow.Editor.StateGraph
             visibleStates.Clear();
             stateCards.Clear();
             edgeHits.Clear();
+            leafFlowStates.Clear();
             BuildChainHighlight();
+            BuildLeafFlowStates();
 
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
             if (layer == null)
@@ -448,6 +473,135 @@ namespace CoCoFlow.Editor.StateGraph
             }
         }
 
+        /// <summary>
+        /// 叶子流转状态（维护者裁决）：从 LayerDefault 叶（沿 Initial 链下钻解析）出发，
+        /// 沿 Transition BFS 得可达集 R。判定：Default 自身=有出→None / 无出→Unreachable；
+        /// 其余叶子 ∈R 有出→None、∈R 无出→DeadEnd（橙）、∉R→Unreachable（红）。
+        /// </summary>
+        private void BuildLeafFlowStates()
+        {
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            if (layer == null)
+            {
+                return;
+            }
+
+            foreach (CoCoStateGraphStateRecord state in layer.States)
+            {
+                if (state != null && !HasChildren(layer, state.StateId))
+                {
+                    leafFlowStates[state.StateId] = LeafFlowState.Unreachable; // 先全部置红，再逐个点亮
+                }
+            }
+
+            CoCoSerializedId128? defaultLeaf = ResolveDefaultLeaf(layer);
+            if (defaultLeaf == null)
+            {
+                return; // 无有效 Initial 链：无默认入口，全部叶子保持不可达。
+            }
+
+            // BFS 可达集（Transition 只连叶子）。
+            var reachable = new HashSet<CoCoSerializedId128> { defaultLeaf.Value };
+            var queue = new List<CoCoSerializedId128> { defaultLeaf.Value };
+            while (queue.Count > 0)
+            {
+                CoCoSerializedId128 current = queue[0];
+                queue.RemoveAt(0);
+                foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+                {
+                    if (transition == null || transition.SourceStateId != current)
+                    {
+                        continue;
+                    }
+
+                    if (leafFlowStates.ContainsKey(transition.TargetStateId) &&
+                        reachable.Add(transition.TargetStateId))
+                    {
+                        queue.Add(transition.TargetStateId);
+                    }
+                }
+            }
+
+            bool HasOutgoing(CoCoSerializedId128 id)
+            {
+                foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+                {
+                    if (transition != null && transition.SourceStateId == id)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            foreach (KeyValuePair<CoCoSerializedId128, LeafFlowState> entry in leafFlowStates)
+            {
+                bool isDefaultLeaf = entry.Key == defaultLeaf.Value;
+                bool reachableFromDefault = reachable.Contains(entry.Key);
+                bool hasOut = HasOutgoing(entry.Key);
+
+                LeafFlowState flowState;
+                if (isDefaultLeaf)
+                {
+                    flowState = hasOut ? LeafFlowState.None : LeafFlowState.Unreachable;
+                }
+                else if (reachableFromDefault)
+                {
+                    flowState = hasOut ? LeafFlowState.None : LeafFlowState.DeadEnd;
+                }
+                else
+                {
+                    flowState = LeafFlowState.Unreachable;
+                }
+
+                leafFlowStates[entry.Key] = flowState;
+            }
+        }
+
+        /// <summary>LayerDefault 叶：Layer Initial 沿 InitialChildStateId 链下钻到叶。</summary>
+        private static CoCoSerializedId128? ResolveDefaultLeaf(CoCoStateGraphLayerRecord layer)
+        {
+            CoCoSerializedId128 current = layer.InitialStateId;
+            var visited = new HashSet<CoCoSerializedId128>();
+            while (current.IsValid && visited.Add(current))
+            {
+                CoCoStateGraphStateRecord record = null;
+                foreach (CoCoStateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.StateId == current)
+                    {
+                        record = candidate;
+                        break;
+                    }
+                }
+
+                if (record == null)
+                {
+                    return null;
+                }
+
+                bool hasChildren = false;
+                foreach (CoCoStateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.ParentStateId == current)
+                    {
+                        hasChildren = true;
+                        break;
+                    }
+                }
+
+                if (!hasChildren)
+                {
+                    return current;
+                }
+
+                current = record.InitialChildStateId;
+            }
+
+            return null;
+        }
+
         private void OnCardMoved(CoCoSerializedId128 serializedId, Vector2 position, bool commit)
         {
             MoveStateSubtree(serializedId, position, commit);
@@ -520,6 +674,81 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 controller.SetPosition(movedId, absolutePosition - parentAbsolute);
+            }
+        }
+
+        /// <summary>
+        /// 流转状态虚线外环（维护者裁决）：橙=可达死端，红=拓扑不可达。
+        /// 与 USS 外描边同位（卡外缘）、50% 不透明度；位于卡片层之下，
+        /// 血统高亮实线外描边绘制于其上可覆盖。
+        /// </summary>
+        private void DrawFlowRings(Painter2D painter)
+        {
+            const float dashLength = 7f;
+            const float gapLength = 5f;
+            const float ringWidth = 1.5f;
+            foreach (KeyValuePair<CoCoSerializedId128, LeafFlowState> entry in leafFlowStates)
+            {
+                if (entry.Value == LeafFlowState.None ||
+                    !stateRects.TryGetValue(entry.Key, out Rect rect))
+                {
+                    continue;
+                }
+
+                painter.strokeColor = entry.Value == LeafFlowState.DeadEnd
+                    ? DeadEndRingColor
+                    : UnreachableRingColor;
+                painter.lineWidth = ringWidth;
+                DrawDashedRect(painter, rect, dashLength, gapLength);
+            }
+        }
+
+        private static void DrawDashedRect(
+            Painter2D painter,
+            Rect rect,
+            float dashLength,
+            float gapLength)
+        {
+            Vector2 a = rect.min;
+            Vector2 b = rect.max;
+            DrawDashedLine(painter, new Vector2(a.x, a.y), new Vector2(b.x, a.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(b.x, a.y), new Vector2(b.x, b.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(b.x, b.y), new Vector2(a.x, b.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(a.x, b.y), new Vector2(a.x, a.y), dashLength, gapLength);
+        }
+
+        private static void DrawDashedLine(
+            Painter2D painter,
+            Vector2 start,
+            Vector2 end,
+            float dashLength,
+            float gapLength)
+        {
+            Vector2 delta = end - start;
+            float length = delta.magnitude;
+            if (length <= 0f)
+            {
+                return;
+            }
+
+            Vector2 direction = delta / length;
+            float position = 0f;
+            bool dash = true;
+            while (position < length)
+            {
+                float step = Mathf.Min(dash ? dashLength : gapLength, length - position);
+                if (dash)
+                {
+                    Vector2 from = start + direction * position;
+                    Vector2 to = start + direction * (position + step);
+                    painter.BeginPath();
+                    painter.MoveTo(from);
+                    painter.LineTo(to);
+                    painter.Stroke();
+                }
+
+                position += step;
+                dash = !dash;
             }
         }
 
