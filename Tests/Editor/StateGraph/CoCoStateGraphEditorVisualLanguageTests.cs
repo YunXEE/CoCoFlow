@@ -452,9 +452,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             yield return null;
             Assert.IsTrue(controller.Session.SelectedStateId.IsValid);
 
-            // 空白处（远离任何卡/线）左键 → 清除选中。
-            Vector2 empty = canvas.worldBound.position + new Vector2(700f, 480f);
-            SendPointerDown(canvas, 21, empty, empty - canvas.worldBound.position);
+            // 空白处（画布中心，远离卡/线/右下缩放控件）左键 → 清除选中。
+            Vector2 empty = canvas.worldBound.center;
+            SendPointerDown(canvas, 21, empty, empty - bounds.position);
             yield return null;
             Assert.IsFalse(controller.Session.SelectedStateId.IsValid,
                 "empty-canvas click must clear selection");
