@@ -1077,7 +1077,7 @@ namespace CoCoFlow.Editor.StateGraph
         /// <summary>线段 a→b 进入矩形 clip 的参数 t（b 在矩形内）。</summary>
         private static bool ClipSegmentToRectEnter(Vector2 a, Vector2 b, Rect clip, out float tEnter)
         {
-            if (!ClipSegmentToRect(a, b, clip, out tEnter, out _))
+            if (!ClipSegmentToRect(a, b, clip, out float enter, out _))
             {
                 tEnter = 1f;
                 return false;
@@ -1410,10 +1410,8 @@ namespace CoCoFlow.Editor.StateGraph
         private void ApplyView()
         {
             CoCoStateGraphCanvasView view = CurrentView;
-            content.transform = new Transform(
-                new Vector3(view.Pan.x, view.Pan.y, 0f),
-                Quaternion.identity,
-                new Vector3(view.Zoom, view.Zoom, 1f));
+            content.style.translate = new Translate(view.Pan.x, view.Pan.y, 0f);
+            content.style.scale = new Scale(new Vector3(view.Zoom, view.Zoom, 1f));
             SyncZoomControls();
         }
 
