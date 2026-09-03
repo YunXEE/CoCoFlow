@@ -535,11 +535,12 @@ namespace CoCoFlow.Editor.StateGraph
                 return false;
             }
 
-            foreach (KeyValuePair<CoCoSerializedId128, LeafFlowState> entry in leafFlowStates)
+            var snapshots = new List<CoCoSerializedId128>(leafFlowStates.Keys);
+            foreach (CoCoSerializedId128 leafId in snapshots)
             {
-                bool isDefaultLeaf = entry.Key == defaultLeaf.Value;
-                bool reachableFromDefault = reachable.Contains(entry.Key);
-                bool hasOut = HasOutgoing(entry.Key);
+                bool isDefaultLeaf = leafId == defaultLeaf.Value;
+                bool reachableFromDefault = reachable.Contains(leafId);
+                bool hasOut = HasOutgoing(leafId);
 
                 LeafFlowState flowState;
                 if (isDefaultLeaf)
@@ -555,7 +556,7 @@ namespace CoCoFlow.Editor.StateGraph
                     flowState = LeafFlowState.Unreachable;
                 }
 
-                leafFlowStates[entry.Key] = flowState;
+                leafFlowStates[leafId] = flowState;
             }
         }
 
