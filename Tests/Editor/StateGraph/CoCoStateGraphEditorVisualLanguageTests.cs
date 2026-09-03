@@ -434,6 +434,32 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "layer default without outgoing edges is invalid (red)");
         }
 
+        [UnityTest]
+        public IEnumerator ClickingEmptyCanvasClearsSelection()
+        {
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId idle = AddState(asset, layerId, "Idle", new Vector2(40f, 60f));
+
+            var controller = new CoCoStateGraphEditorController(asset);
+            controllers.Add(controller);
+            var canvas = new CoCoStateGraphEditorCanvas(controller);
+            canvases.Add(canvas);
+            Host(canvas);
+            yield return null;
+
+            controller.SelectState(idle);
+            yield return null;
+            Assert.IsTrue(controller.Session.SelectedStateId.IsValid);
+
+            // 空白处（远离任何卡/线）左键 → 清除选中。
+            Vector2 empty = canvas.worldBound.position + new Vector2(700f, 480f);
+            SendPointerDown(canvas, 21, empty, empty - canvas.worldBound.position);
+            yield return null;
+            Assert.IsFalse(controller.Session.SelectedStateId.IsValid,
+                "empty-canvas click must clear selection");
+        }
+
         // ── 助手 ───────────────────────────────────────────
 
         private CoCoStateGraphAsset CreateAsset()

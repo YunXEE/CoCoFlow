@@ -1245,6 +1245,15 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     controller.SelectTransition(hitTransitionId);
                     evt.StopPropagation();
+                    return;
+                }
+
+                // 维护者裁决：点击画布空白处（未命中任何边）清除高亮/选中。
+                if (controller.Session.SelectedStateId.IsValid ||
+                    controller.Session.SelectedTransitionId.IsValid)
+                {
+                    controller.SelectState(default); // 同步清除 State/Transition 选中并全量刷新
+                    evt.StopPropagation();
                 }
 
                 return;
