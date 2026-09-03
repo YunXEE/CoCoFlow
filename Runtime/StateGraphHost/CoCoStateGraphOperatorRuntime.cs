@@ -60,57 +60,6 @@ namespace CoCoFlow.Runtime.Core
         internal int Count => _operators.Length;
         internal bool WorldMayBeDirty => _worldMayBeDirty;
 
-        internal bool TryCaptureCommittedClaims(
-            out CoCoOperatorClaimState[] claims,
-            out CoCoDiagnostic diagnostic)
-        {
-            claims = null;
-            diagnostic = CoCoDiagnostic.None;
-            if (_isDisposed || _activeToken != 0UL || _preparedRestoreToken != 0UL ||
-                !TryValidateCommittedClaims(out diagnostic))
-            {
-                if (!diagnostic.IsError)
-                {
-                    diagnostic = LifecycleError(
-                        "Committed Claim debugging requires one idle Operator boundary.");
-                }
-
-                return false;
-            }
-
-            claims = new CoCoOperatorClaimState[_claimResources.Length];
-            for (int index = 0; index < claims.Length; index++)
-            {
-                ClaimResource resource = _claimResources[index];
-                int ownerIndex = _committedClaimOwners[index];
-                if (ownerIndex < 0)
-                {
-                    claims[index] = CoCoOperatorClaimState.Unheld(
-                        resource.ClaimId,
-                        resource.Section.SectionId);
-                    continue;
-                }
-
-                if (ownerIndex >= _operators.Length ||
-                    !CoCoOperatorClaimState.TryCreateHeld(
-                        resource.ClaimId,
-                        resource.Section.SectionId,
-                        _operators[ownerIndex].Descriptor.OperatorId,
-                        _committedClaimActivations[index],
-                        out claims[index]))
-                {
-                    claims = null;
-                    diagnostic = Error(
-                        CoCoDiagnosticCode.OperatorClaimConflict,
-                        "Committed Claim debugging found inconsistent canonical ownership.");
-                    return false;
-                }
-            }
-
-            diagnostic = CoCoDiagnostic.None;
-            return true;
-        }
-
         internal bool TryCreateOutboxLanes(
             int ledgerCapacity,
             out ICoCoEventOutboxLane[] lanes,

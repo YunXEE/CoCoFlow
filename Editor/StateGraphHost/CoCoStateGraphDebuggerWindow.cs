@@ -1,71 +1,280 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
     /// <summary>
-    /// StateGraph Runtime Debugger（UI Toolkit 重做，D6）。
-    /// 语义保持集：committed snapshot 只读投影（刷新失败保留上次并标
-    /// RetainedStale）、身份切换重置过滤器、Suspend/Resume/One-Tick（有限正
-    /// delta 才可用）、128 条可见上限；调试记录经 CoCoLog（D7）。
-    /// 菜单：CoCoFlow/StateGraph Debugger（D8 维护者裁决）。
-    /// 生命周期：CreateGUI 零订阅；订阅只在 OnEnable/OnDisable 对称；generation
-    /// guard + 帧级合并刷新；控件经 SyncControlsFromState 与数据层单向同步。
+    /// Serializable identity for a scene Host. The live component instance is
+    /// intentionally not retained across Play Mode scene reloads.
+    /// </summary>
+    [Serializable]
+    internal sealed class CoCoStateGraphDebuggerTargetLocator
+    {
+        [SerializeField] private string scenePath;
+        [SerializeField] private string sceneName;
+        [SerializeField] private int[] siblingIndices;
+        [SerializeField] private string[] hierarchyNames;
+        [SerializeField] private int hostComponentIndex;
+
+        internal bool IsValid =>
+            siblingIndices != null &&
+            hierarchyNames != null &&
+            siblingIndices.Length > 0 &&
+            siblingIndices.Length == hierarchyNames.Length;
+
+        internal static bool TryCapture(
+            CoCoStateGraphHost host,
+            out CoCoStateGraphDebuggerTargetLocator locator)
+        {
+            locator = null;
+            if (host == null || host.transform == null)
+            {
+                return false;
+            }
+
+            Scene scene = host.gameObject.scene;
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                return false;
+            }
+
+            var transforms = new List<Transform>();
+            for (Transform current = host.transform;
+                 current != null;
+                 current = current.parent)
+            {
+                transforms.Add(current);
+            }
+
+            transforms.Reverse();
+            var indices = new int[transforms.Count];
+            var names = new string[transforms.Count];
+            for (int index = 0; index < transforms.Count; index++)
+            {
+                indices[index] = transforms[index].GetSiblingIndex();
+                names[index] = transforms[index].name;
+            }
+
+            CoCoStateGraphHost[] hosts =
+                host.gameObject.GetComponents<CoCoStateGraphHost>();
+            int componentIndex = Array.IndexOf(hosts, host);
+            if (componentIndex < 0)
+            {
+                return false;
+            }
+
+            locator = new CoCoStateGraphDebuggerTargetLocator
+            {
+                scenePath = scene.path,
+                sceneName = scene.name,
+                siblingIndices = indices,
+                hierarchyNames = names,
+                hostComponentIndex = componentIndex
+            };
+            return true;
+        }
+
+        internal bool TryResolve(out CoCoStateGraphHost host)
+        {
+            host = null;
+            if (!IsValid || !TryResolveScene(out Scene scene))
+            {
+                return false;
+            }
+
+            Transform current = ResolveRoot(scene);
+            if (current == null)
+            {
+                return false;
+            }
+
+            for (int depth = 1; depth < siblingIndices.Length; depth++)
+            {
+                current = ResolveChild(
+                    current,
+                    siblingIndices[depth],
+                    hierarchyNames[depth]);
+                if (current == null)
+                {
+                    return false;
+                }
+            }
+
+            CoCoStateGraphHost[] hosts =
+                current.GetComponents<CoCoStateGraphHost>();
+            if (hostComponentIndex < 0 || hostComponentIndex >= hosts.Length)
+            {
+                return false;
+            }
+
+            host = hosts[hostComponentIndex];
+            return host != null;
+        }
+
+        private bool TryResolveScene(out Scene scene)
+        {
+            scene = default;
+            if (!string.IsNullOrEmpty(scenePath))
+            {
+                for (int index = 0;
+                     index < SceneManager.sceneCount;
+                     index++)
+                {
+                    Scene candidate = SceneManager.GetSceneAt(index);
+                    if (candidate.isLoaded && candidate.path == scenePath)
+                    {
+                        scene = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            Scene nameMatch = default;
+            int nameMatchCount = 0;
+            for (int index = 0; index < SceneManager.sceneCount; index++)
+            {
+                Scene candidate = SceneManager.GetSceneAt(index);
+                if (!candidate.isLoaded || candidate.name != sceneName)
+                {
+                    continue;
+                }
+
+                nameMatch = candidate;
+                nameMatchCount++;
+            }
+
+            if (nameMatchCount != 1)
+            {
+                return false;
+            }
+
+            scene = nameMatch;
+            return true;
+        }
+
+        private Transform ResolveRoot(Scene scene)
+        {
+            GameObject[] roots = scene.GetRootGameObjects();
+            int expectedIndex = siblingIndices[0];
+            string expectedName = hierarchyNames[0];
+            if (expectedIndex >= 0 &&
+                expectedIndex < roots.Length &&
+                roots[expectedIndex].name == expectedName)
+            {
+                return roots[expectedIndex].transform;
+            }
+
+            Transform match = null;
+            for (int index = 0; index < roots.Length; index++)
+            {
+                if (roots[index].name != expectedName)
+                {
+                    continue;
+                }
+
+                if (match != null)
+                {
+                    return null;
+                }
+
+                match = roots[index].transform;
+            }
+
+            return match;
+        }
+
+        private static Transform ResolveChild(
+            Transform parent,
+            int expectedIndex,
+            string expectedName)
+        {
+            if (expectedIndex >= 0 &&
+                expectedIndex < parent.childCount)
+            {
+                Transform expected = parent.GetChild(expectedIndex);
+                if (expected.name == expectedName)
+                {
+                    return expected;
+                }
+            }
+
+            Transform match = null;
+            for (int index = 0; index < parent.childCount; index++)
+            {
+                Transform child = parent.GetChild(index);
+                if (child.name != expectedName)
+                {
+                    continue;
+                }
+
+                if (match != null)
+                {
+                    return null;
+                }
+
+                match = child;
+            }
+
+            return match;
+        }
+    }
+
+    /// <summary>
+    /// Read-only inspector for one concrete StateGraphHost instance. The
+    /// window renders only the current committed frame, its Temporal ring, and
+    /// an existing persisted frame.
     /// </summary>
     internal sealed class CoCoStateGraphDebuggerWindow : EditorWindow
     {
         private const string ModuleUssPath =
             "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/CoCoStateGraphHostEditor.uss";
+        private const long PollIntervalMilliseconds = 250;
+        private const double PersistencePollSeconds = 1.5d;
+
+        private static readonly Color SceneMarkerOuterColor =
+            new Color(0.035f, 0.11f, 0.18f, 0.98f);
+        private static readonly Color SceneMarkerColor =
+            new Color(0.18f, 0.68f, 1f, 1f);
+        private static readonly Color SceneMarkerCenterColor =
+            new Color(0.92f, 0.98f, 1f, 1f);
 
         private readonly CoCoStateGraphHostDebuggerState _state =
             new CoCoStateGraphHostDebuggerState();
 
-        private CoCoStateGraphHost _host;
-        private bool _followSelection = true;
-        private double _deltaTime = 1d / 60d;
-        private int _generation;
+        [NonSerialized] private CoCoStateGraphHost _host;
+        [SerializeField] private CoCoStateGraphDebuggerTargetLocator targetLocator;
+        [SerializeField] private bool followSelection = true;
+        [SerializeField] private bool showSceneMarker = true;
+        [NonSerialized] private bool _rebindScheduled;
+        private double _nextPersistencePoll;
+        private IVisualElementScheduledItem _poll;
 
-        // 渲染状态（CreateGUI 持有；零事件订阅）
         private ObjectField _hostField;
         private ToolbarToggle _followToggle;
-        private VisualElement _headerBadge;
-        private Label _headerIdentity;
-        private Button _refreshButton;
-        private Button _suspendButton;
-        private Button _resumeButton;
-        private DoubleField _deltaField;
-        private Button _stepButton;
-        private VisualElement _controlsCard;
-        private VisualElement _metricsCard;
-        private Label _metricTick;
-        private Label _metricSeconds;
-        private Label _metricSequence;
-        private Label _metricLayers;
-        private Label _metricClaims;
-        private VisualElement _snapshotCard;
-        private VisualElement _snapshotFreshnessRow;
-        private Label _snapshotFreshnessBadge;
-        private VisualElement _snapshotSections;
-        private ListView _layerList;
-        private ListView _claimList;
-        private VisualElement _traceCard;
-        private ToolbarToggle[] _filterToggles;
-        private TextField _filterIdField;
-        private Label _traceCountLabel;
-        private ListView _traceList;
+        private ToolbarToggle _sceneMarkerToggle;
+        private VisualElement _hostBadge;
+        private Label _hostIdentity;
         private VisualElement _emptyState;
-        private VisualElement _diagnosticRow;
-
-        // 帧级合并刷新
-        private bool _pendingRefresh;
-        private IVisualElementScheduledItem _scheduledRefresh;
-        private IVisualElementScheduledItem _periodicPoll;
+        private VisualElement _currentCard;
+        private VisualElement _currentBadge;
+        private VisualElement _currentRows;
+        private VisualElement _activeStates;
+        private VisualElement _ringCard;
+        private Label _ringStatus;
+        private CoCoTemporalRingElement _ring;
+        private Label _selectedFrameTitle;
+        private VisualElement _selectedFrameRows;
+        private VisualElement _persistedCard;
+        private VisualElement _persistedRows;
+        private VisualElement _diagnostics;
 
         [MenuItem("CoCoFlow/StateGraph Debugger")]
         internal static void OpenFromMenu()
@@ -73,10 +282,9 @@ namespace CoCoFlow.Editor.StateGraphHost
             CoCoStateGraphDebuggerWindow window =
                 GetWindow<CoCoStateGraphDebuggerWindow>();
             window.titleContent = new GUIContent("StateGraph Debugger");
-            window.minSize = new Vector2(420f, 320f);
-            // 打开前先探查当前 Selection（原行为），再进入跟随模式。
+            window.minSize = new Vector2(420f, 420f);
+            window.followSelection = true;
             window.TryFollowSelection();
-            window.SelectHost(window._host, followSelection: true);
             window.Show();
         }
 
@@ -85,72 +293,105 @@ namespace CoCoFlow.Editor.StateGraphHost
             CoCoStateGraphDebuggerWindow window =
                 GetWindow<CoCoStateGraphDebuggerWindow>();
             window.titleContent = new GUIContent("StateGraph Debugger");
-            window.minSize = new Vector2(420f, 320f);
-            window.SelectHost(host, followSelection: false);
+            window.minSize = new Vector2(420f, 420f);
+            window.followSelection = false;
+            window.SelectHost(host);
             window.Show();
             window.Focus();
         }
 
-        private readonly System.Collections.Generic.Dictionary<string, bool>
-            _foldoutStates = new System.Collections.Generic.Dictionary<string, bool>();
-
         private void OnEnable()
         {
             CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
+            Selection.selectionChanged += OnEditorSelectionChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            SceneView.duringSceneGui += DrawSceneMarker;
+            ScheduleTargetRebind();
         }
 
         private void OnDisable()
         {
             CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
-            _scheduledRefresh?.Pause();
-            _scheduledRefresh = null;
-            _periodicPoll?.Pause();
-            _periodicPoll = null;
-            _pendingRefresh = false;
+            Selection.selectionChanged -= OnEditorSelectionChanged;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            SceneView.duringSceneGui -= DrawSceneMarker;
+            EditorApplication.delayCall -= RebindAfterModeChange;
+            _rebindScheduled = false;
+            _poll?.Pause();
+            _poll = null;
+            SceneView.RepaintAll();
         }
 
         private void CreateGUI()
         {
-            _generation++;
-            _scheduledRefresh?.Pause();
-            _scheduledRefresh = null;
+            _poll?.Pause();
+            _poll = null;
 
             VisualElement root = rootVisualElement;
+            root.Clear();
             CoCoEditorElements.ApplyTheme(root);
             ApplyModuleTheme(root);
+            BuildToolbar(root);
 
-            BuildToolbar();
-
-            // 内容区（ScrollView：窄窗口下所有卡可达，P2-04）。
             var scroll = new ScrollView { name = "ccflow-debugger-scroll" };
-            scroll.Add(BuildHeaderCard());
-            _controlsCard = BuildControlsCard();
-            scroll.Add(_controlsCard);
-            _metricsCard = BuildMetricsCard();
-            scroll.Add(_metricsCard);
-            _snapshotCard = BuildSnapshotCard();
-            scroll.Add(_snapshotCard);
-            _traceCard = BuildTraceCard();
-            scroll.Add(_traceCard);
-            _diagnosticRow = new VisualElement { name = "ccflow-debugger-diagnostic" };
-            scroll.Add(_diagnosticRow);
+            scroll.Add(BuildHostHeader());
+            _emptyState = new VisualElement
+            {
+                name = "ccflow-debugger-empty"
+            };
+            scroll.Add(_emptyState);
+            _currentCard = BuildCurrentCard();
+            scroll.Add(_currentCard);
+            _ringCard = BuildRingCard();
+            scroll.Add(_ringCard);
+            _persistedCard = BuildPersistedCard();
+            scroll.Add(_persistedCard);
+            _diagnostics = new VisualElement
+            {
+                name = "ccflow-debugger-diagnostics"
+            };
+            scroll.Add(_diagnostics);
             root.Add(scroll);
 
-            BuildEmptyState();
-
-            SyncHostField();
-            SyncControlsFromState();
-            RefreshNow();
-
-            // Play 期周期轮询（拉取 + 重投影）；重建前旧项必须暂停，防累积。
-            _periodicPoll?.Pause();
-            _periodicPoll = root.schedule.Execute(() =>
+            if (!(followSelection && TryFollowSelection()))
             {
-                if (Application.isPlaying && _host != null)
-                {
-                    MarkDirty();
-                }
-            }).Every(300);
+                TryRebindTarget();
+            }
+
+            SyncToolbar();
+            RefreshNow(includePersistence: true);
+            _poll = root.schedule.Execute(Poll).Every(PollIntervalMilliseconds);
+        }
+
+        private void OnLanguageChanged()
+        {
+            CreateGUI();
+        }
+
+        private void OnEditorSelectionChanged()
+        {
+            if (!followSelection)
+            {
+                return;
+            }
+
+            TryFollowSelection();
+        }
+
+        private void OnPlayModeStateChanged(PlayModeStateChange stateChange)
+        {
+            if (stateChange == PlayModeStateChange.ExitingEditMode ||
+                stateChange == PlayModeStateChange.ExitingPlayMode)
+            {
+                InvalidateLiveHost();
+                return;
+            }
+
+            if (stateChange == PlayModeStateChange.EnteredEditMode ||
+                stateChange == PlayModeStateChange.EnteredPlayMode)
+            {
+                ScheduleTargetRebind();
+            }
         }
 
         private static void ApplyModuleTheme(VisualElement root)
@@ -162,9 +403,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
         }
 
-        // ===== 结构构建 =====
-
-        private void BuildToolbar()
+        private void BuildToolbar(VisualElement root)
         {
             var toolbar = new Toolbar();
             toolbar.AddToClassList("ccflow-toolbar");
@@ -172,896 +411,962 @@ namespace CoCoFlow.Editor.StateGraphHost
             _hostField = new ObjectField
             {
                 allowSceneObjects = true,
-                objectType = typeof(CoCoStateGraphHost),
+                objectType = typeof(UnityEngine.Object),
+                tooltip = CoCoEditorLocalization.Text(
+                    "Assign a Host GameObject or CoCoStateGraphHost component.",
+                    "拖入 Host GameObject 或 CoCoStateGraphHost 组件。"),
                 name = "host-field"
             };
-            _hostField.RegisterValueChangedCallback(evt =>
-                SelectHost(evt.newValue as CoCoStateGraphHost, _followSelection));
             _hostField.style.flexGrow = 1f;
+            _hostField.RegisterValueChangedCallback(OnHostFieldChanged);
             toolbar.Add(_hostField);
 
             _followToggle = new ToolbarToggle
             {
-                text = CoCoEditorLocalization.Text("Follow Selection", "跟随选择"),
+                text = CoCoEditorLocalization.Text(
+                    "Follow Selection",
+                    "跟随选择"),
                 name = "follow-toggle"
             };
-            _followToggle.SetValueWithoutNotify(_followSelection);
             _followToggle.RegisterValueChangedCallback(evt =>
             {
-                _followSelection = evt.newValue;
-                if (_followSelection)
+                followSelection = evt.newValue;
+                if (followSelection)
                 {
                     TryFollowSelection();
-                    SelectHost(_host, followSelection: true);
                 }
             });
             toolbar.Add(_followToggle);
-            rootVisualElement.Add(toolbar);
-        }
 
-        private VisualElement BuildHeaderCard()
-        {
-            VisualElement card = CoCoEditorElements.CreateCard(string.Empty);
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.flexWrap = Wrap.Wrap;
-
-            _headerBadge = CoCoEditorElements.CreateBadge(
-                CoCoEditorLocalization.Text("No Host", "无宿主"),
-                CoCoEditorBadgeKind.Neutral);
-            _headerBadge.style.marginRight = 8f;
-            row.Add(_headerBadge);
-
-            _headerIdentity = new Label(string.Empty);
-            _headerIdentity.AddToClassList("ccflow-muted");
-            _headerIdentity.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(_headerIdentity);
-            card.Add(row);
-            return card;
-        }
-
-        private VisualElement BuildControlsCard()
-        {
-            VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Controls", "控制"));
-
-            _refreshButton = CoCoEditorElements.CreatePrimaryButton(
-                CoCoEditorLocalization.Text(
-                    "Refresh Committed Snapshot", "刷新提交快照"),
-                () => { PullAndRefresh(); });
-            _refreshButton.style.marginRight = 6f;
-
-            _suspendButton = new Button(() => SuspendRuntime())
-            {
-                text = CoCoEditorLocalization.Text("Suspend Runtime", "挂起运行时")
-            };
-            _suspendButton.style.marginRight = 6f;
-
-            _resumeButton = new Button(() => ResumeRuntime())
-            {
-                text = CoCoEditorLocalization.Text("Resume Runtime", "恢复运行时")
-            };
-            _resumeButton.style.marginRight = 6f;
-
-            _deltaField = new DoubleField(
-                CoCoEditorLocalization.Text("Delta Time", "步进时间"))
-            {
-                value = _deltaTime,
-                name = "delta-field"
-            };
-            _deltaField.RegisterValueChangedCallback(evt =>
-            {
-                _deltaTime = evt.newValue;
-                UpdateControls(); // 即时反映 step 可用性（P2-01）
-            });
-            _deltaField.style.width = 150f;
-
-            _stepButton = new Button(() => StepOneTick())
+            _sceneMarkerToggle = new ToolbarToggle
             {
                 text = CoCoEditorLocalization.Text(
-                    "Run One Normal Tick", "单步一个普通 Tick")
+                    "Scene Marker",
+                    "场景标记"),
+                tooltip = CoCoEditorLocalization.Text(
+                    "Show the analyzed Host marker in the Scene view.",
+                    "在 Scene 窗口显示当前分析 Host 的标记。"),
+                name = "scene-marker-toggle"
             };
+            _sceneMarkerToggle.RegisterValueChangedCallback(evt =>
+            {
+                showSceneMarker = evt.newValue;
+                SceneView.RepaintAll();
+            });
+            toolbar.Add(_sceneMarkerToggle);
+
+            var refresh = new ToolbarButton(() =>
+                RefreshNow(includePersistence: true))
+            {
+                text = CoCoEditorLocalization.Text("Refresh", "刷新"),
+                name = "refresh-button"
+            };
+            toolbar.Add(refresh);
+            root.Add(toolbar);
+        }
+
+        private VisualElement BuildHostHeader()
+        {
+            VisualElement card = CoCoEditorElements.CreateCard(
+                CoCoEditorLocalization.Text(
+                    "Host Temporal Debugger",
+                    "Host 时间调试器"));
+            var subtitle = new Label(CoCoEditorLocalization.Text(
+                "Read-only view of one scene Host: current frame, Temporal ring, and persisted frame.",
+                "只读观察一个场景 Host：当前帧、时间环与持久化帧。"));
+            subtitle.AddToClassList("ccflow-muted");
+            subtitle.style.whiteSpace = WhiteSpace.Normal;
+            card.Add(subtitle);
 
             var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.flexWrap = Wrap.Wrap;
-            row.Add(_refreshButton);
-            row.Add(_suspendButton);
-            row.Add(_resumeButton);
-            row.Add(_stepButton);
-            row.Add(_deltaField);
+            row.AddToClassList("ccflow-debugger-host-row");
+            _hostBadge = CoCoEditorElements.CreateBadge(
+                CoCoEditorLocalization.Text("No Host", "无 Host"),
+                CoCoEditorBadgeKind.Neutral);
+            row.Add(_hostBadge);
+            _hostIdentity = new Label { name = "host-identity" };
+            _hostIdentity.AddToClassList("ccflow-debugger-host-identity");
+            row.Add(_hostIdentity);
             card.Add(row);
             return card;
         }
 
-        private VisualElement BuildMetricsCard()
+        private VisualElement BuildCurrentCard()
         {
             VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Committed State", "已提交状态"));
-            var strip = new VisualElement();
-            strip.AddToClassList("ccflow-host-metrics");
-            _metricTick = AddMetric(
-                strip, CoCoEditorLocalization.Text("Tick", "Tick"));
-            _metricSeconds = AddMetric(
-                strip, CoCoEditorLocalization.Text("Seconds", "秒"));
-            _metricSequence = AddMetric(
-                strip, CoCoEditorLocalization.Text("Sequence", "序号"));
-            _metricLayers = AddMetric(
-                strip, CoCoEditorLocalization.Text("Layers", "层"));
-            _metricClaims = AddMetric(
-                strip, CoCoEditorLocalization.Text("Claims", "占用"));
-            card.Add(strip);
+                CoCoEditorLocalization.Text(
+                    "1 · Current committed frame",
+                    "1 · 当前提交帧"));
+
+            _currentBadge = CoCoEditorElements.CreateBadge(
+                CoCoEditorLocalization.Text("Fresh", "最新"),
+                CoCoEditorBadgeKind.Success);
+            card.Add(_currentBadge);
+
+            _currentRows = new VisualElement
+            {
+                name = "current-frame-rows"
+            };
+            card.Add(_currentRows);
+
+            Label statesTitle = CoCoEditorElements.CreateHeading(
+                CoCoEditorLocalization.Text(
+                    "Active States",
+                    "当前 Active State"));
+            statesTitle.style.marginTop = 10f;
+            card.Add(statesTitle);
+            _activeStates = new VisualElement
+            {
+                name = "active-state-rows"
+            };
+            card.Add(_activeStates);
             return card;
         }
 
-        private static Label AddMetric(VisualElement strip, string label)
-        {
-            var metric = new VisualElement();
-            metric.AddToClassList("ccflow-host-metric");
-            var value = new Label("—")
-            {
-                name = "ccflow-metric-value",
-                style = { whiteSpace = WhiteSpace.Normal }
-            };
-            value.AddToClassList("ccflow-host-metric__value");
-            var name = new Label(label)
-            {
-                style = { whiteSpace = WhiteSpace.Normal }
-            };
-            name.AddToClassList("ccflow-host-metric__label");
-            metric.Add(value);
-            metric.Add(name);
-            strip.Add(metric);
-            return value;
-        }
-
-        private VisualElement BuildSnapshotCard()
+        private VisualElement BuildRingCard()
         {
             VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Snapshot", "快照"));
+                CoCoEditorLocalization.Text(
+                    "2 · Temporal ring",
+                    "2 · 时间环"));
+            _ringStatus = new Label();
+            _ringStatus.AddToClassList("ccflow-muted");
+            _ringStatus.style.whiteSpace = WhiteSpace.Normal;
+            card.Add(_ringStatus);
 
-            _snapshotFreshnessRow = new VisualElement();
-            _snapshotFreshnessRow.style.flexDirection = FlexDirection.Row;
-            _snapshotFreshnessRow.style.marginBottom = 4f;
-            _snapshotFreshnessBadge = new Label(string.Empty);
-            _snapshotFreshnessBadge.AddToClassList("ccflow-muted");
-            _snapshotFreshnessRow.Add(_snapshotFreshnessBadge);
-            card.Add(_snapshotFreshnessRow);
+            _ring = new CoCoTemporalRingElement
+            {
+                name = "temporal-ring"
+            };
+            _ring.DepthSelected += depth =>
+            {
+                _state.SelectDepth(depth);
+                RenderRingSelection();
+            };
+            card.Add(_ring);
 
-            // 分区折叠组（P2-04：Section 可见 + 信息层级）。
-            _snapshotSections = new VisualElement { name = "ccflow-snapshot-sections" };
-            card.Add(_snapshotSections);
-
-            var layersFoldout = new Foldout
+            _selectedFrameTitle = CoCoEditorElements.CreateHeading(string.Empty);
+            card.Add(_selectedFrameTitle);
+            _selectedFrameRows = new VisualElement
             {
-                text = CoCoEditorLocalization.Text("Layers", "层"),
-                value = true
+                name = "selected-frame-rows"
             };
-            layersFoldout.AddToClassList("ccflow-foldout");
-            _layerList = new ListView
-            {
-                name = "layer-list",
-                selectionType = SelectionType.None,
-                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
-                makeItem = MakeLayerRow,
-                bindItem = BindLayerRow
-            };
-            _layerList.style.maxHeight = 200f;
-            layersFoldout.Add(_layerList);
-            card.Add(layersFoldout);
-
-            var claimsFoldout = new Foldout
-            {
-                text = CoCoEditorLocalization.Text("Claims", "占用"),
-                value = true
-            };
-            claimsFoldout.AddToClassList("ccflow-foldout");
-            _claimList = new ListView
-            {
-                name = "claim-list",
-                selectionType = SelectionType.None,
-                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
-                makeItem = MakeClaimRow,
-                bindItem = BindClaimRow
-            };
-            _claimList.style.maxHeight = 140f;
-            claimsFoldout.Add(_claimList);
-            card.Add(claimsFoldout);
+            card.Add(_selectedFrameRows);
             return card;
         }
 
-        private static VisualElement MakeSnapshotRow()
-        {
-            var row = new VisualElement();
-            row.AddToClassList("ccflow-host-kv-row");
-            var key = new Label { name = "ccflow-kv-key" };
-            key.AddToClassList("ccflow-host-kv-row__key");
-            var value = new Label { name = "ccflow-kv-value" };
-            value.AddToClassList("ccflow-host-kv-row__value");
-            value.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(key);
-            row.Add(value);
-            return row;
-        }
-
-        private static VisualElement MakeLayerRow()
-        {
-            var row = new VisualElement();
-            var label = new Label { name = "ccflow-layer-text" };
-            label.AddToClassList("ccflow-host-trace-row");
-            label.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(label);
-            return row;
-        }
-
-        private void BindLayerRow(VisualElement row, int index)
-        {
-            var label = row.Q<Label>("ccflow-layer-text");
-            if (index < 0 || index >= _layerRowsCache.Count)
-            {
-                label.text = string.Empty;
-                return;
-            }
-
-            CoCoDebuggerLayerRow data = _layerRowsCache[index];
-            label.text = data.LayerId +
-                " | " + CoCoEditorLocalization.Text("Winner", "胜出") + " " +
-                data.Winner +
-                (string.IsNullOrEmpty(data.ActiveStates) ? string.Empty : "\n" +
-                    data.ActiveStates);
-        }
-
-        private static VisualElement MakeClaimRow()
-        {
-            var row = new VisualElement();
-            var label = new Label { name = "ccflow-claim-text" };
-            label.AddToClassList("ccflow-host-trace-row");
-            label.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(label);
-            return row;
-        }
-
-        private void BindClaimRow(VisualElement row, int index)
-        {
-            var label = row.Q<Label>("ccflow-claim-text");
-            label.text = index >= 0 && index < _claimRowsCache.Count
-                ? _claimRowsCache[index]
-                : string.Empty;
-        }
-
-        private VisualElement BuildTraceCard()
+        private VisualElement BuildPersistedCard()
         {
             VisualElement card = CoCoEditorElements.CreateCard(
-                CoCoEditorLocalization.Text("Trace", "Trace 历史"));
-
-            var filterRow = new VisualElement();
-            filterRow.style.flexDirection = FlexDirection.Row;
-            filterRow.style.flexWrap = Wrap.Wrap;
-            filterRow.style.marginBottom = 4f;
-
-            _filterToggles = new ToolbarToggle[3];
-            for (int index = 0; index < _filterToggles.Length; index++)
+                CoCoEditorLocalization.Text(
+                    "3 · Persisted frame",
+                    "3 · 持久化帧"));
+            var note = new Label(CoCoEditorLocalization.Text(
+                "Newest compatible frame already written to a standard save slot.",
+                "标准存档槽中最近一次成功写盘且兼容的帧。"));
+            note.AddToClassList("ccflow-muted");
+            note.style.whiteSpace = WhiteSpace.Normal;
+            card.Add(note);
+            _persistedRows = new VisualElement
             {
-                int captured = index;
-                var toggle = new ToolbarToggle
-                {
-                    text = TraceFilterLabel(
-                        (CoCoStateGraphHostTraceFilterMode)index),
-                    name = "trace-filter-" + index
-                };
-                toggle.RegisterValueChangedCallback(evt =>
-                {
-                    if (evt.newValue)
-                    {
-                        SetTraceFilterMode(
-                            (CoCoStateGraphHostTraceFilterMode)captured);
-                    }
-                    else if (_state.TraceFilterMode ==
-                             (CoCoStateGraphHostTraceFilterMode)captured)
-                    {
-                        toggle.SetValueWithoutNotify(true);
-                    }
-                });
-                _filterToggles[index] = toggle;
-                filterRow.Add(toggle);
-            }
-
-            _filterIdField = new TextField("ID")
-            {
-                name = "trace-filter-id",
-                value = _state.TraceFilterText
+                name = "persisted-frame-rows"
             };
-            _filterIdField.RegisterValueChangedCallback(evt =>
-            {
-                _state.SetTraceFilter(_state.TraceFilterMode, evt.newValue);
-                MarkDirty();
-            });
-            _filterIdField.style.width = 280f;
-            filterRow.Add(_filterIdField);
-            card.Add(filterRow);
-
-            _traceCountLabel = new Label(string.Empty);
-            _traceCountLabel.AddToClassList("ccflow-muted");
-            _traceCountLabel.style.whiteSpace = WhiteSpace.Normal;
-            _traceCountLabel.style.marginBottom = 4f;
-            card.Add(_traceCountLabel);
-
-            _traceList = new ListView
-            {
-                name = "trace-list",
-                selectionType = SelectionType.None,
-                virtualizationMethod = CollectionVirtualizationMethod.DynamicHeight,
-                makeItem = MakeTraceRow,
-                bindItem = BindTraceRow
-            };
-            _traceList.style.maxHeight = 260f;
-            card.Add(_traceList);
+            card.Add(_persistedRows);
             return card;
         }
 
-        private static VisualElement MakeTraceRow()
+        private void Poll()
         {
-            var row = new VisualElement();
-            var label = new Label { name = "ccflow-trace-text" };
-            label.AddToClassList("ccflow-host-trace-row");
-            label.style.whiteSpace = WhiteSpace.Normal;
-            row.Add(label);
-            return row;
-        }
-
-        private void BindTraceRow(VisualElement row, int index)
-        {
-            var label = row.Q<Label>("ccflow-trace-text");
-            if (index < 0 || index >= _traceRowsCache.Count)
+            if (_host == null)
             {
-                label.text = string.Empty;
+                TryRebindTarget();
                 return;
             }
 
-            CoCoDebuggerTraceRow data = _traceRowsCache[index];
-            label.text = data.Text;
-            label.EnableInClassList(
-                "ccflow-host-trace-group",
-                data.IsGroupHeader);
+            bool includePersistence =
+                EditorApplication.timeSinceStartup >= _nextPersistencePoll;
+            RefreshNow(includePersistence);
         }
 
-        private void BuildEmptyState()
-        {
-            _emptyState = new VisualElement { name = "ccflow-debugger-empty" };
-            _emptyState.AddToClassList("ccflow-empty");
-            rootVisualElement.Add(_emptyState);
-        }
-
-        private void RebuildEmptyState(string title, string message, string firstStep)
-        {
-            _emptyState.Clear();
-            var titleLabel = new Label(title);
-            titleLabel.AddToClassList("ccflow-empty__title");
-            var messageLabel = new Label(message);
-            messageLabel.AddToClassList("ccflow-empty__message");
-            var firstStepLabel = new Label(firstStep);
-            firstStepLabel.AddToClassList("ccflow-empty__first-step");
-            _emptyState.Add(titleLabel);
-            _emptyState.Add(messageLabel);
-            _emptyState.Add(firstStepLabel);
-        }
-
-        // ===== 宿主选择（唯一路径：Open / ObjectField / Follow / Selection） =====
-
-        private void SelectHost(CoCoStateGraphHost host, bool followSelection)
-        {
-            _host = host;
-            _followSelection = followSelection;
-            SyncHostField();
-            _state.ObserveIdentity(_host);
-            PullAndRefresh();
-        }
-
-        private void SyncHostField()
-        {
-            _hostField?.SetValueWithoutNotify(_host);
-            _followToggle?.SetValueWithoutNotify(_followSelection);
-        }
-
-        private void TryFollowSelection()
-        {
-            GameObject selected = Selection.activeGameObject;
-            _host = selected == null
-                ? null
-                : selected.GetComponentInParent<CoCoStateGraphHost>(true);
-        }
-
-        private void OnSelectionChange()
-        {
-            if (!_followSelection)
-            {
-                return;
-            }
-
-            TryFollowSelection();
-            SelectHost(_host, followSelection: true);
-            Repaint();
-        }
-
-        // 注：Play 期刷新由 300ms 周期轮询单路驱动（避免 OnInspectorUpdate
-        // 双路触发快照拷贝与 UI 重建，见交付审计线程处置）。
-
-        private void PullAndRefresh()
+        private void RefreshNow(bool includePersistence)
         {
             _state.ObserveIdentity(_host);
-            _state.TryRefresh(_host);
-            _state.PullTrace(_host);
-            RefreshNow();
-        }
-
-        // ===== 生命周期操作（语义保持；失败经 CoCoLog，D7） =====
-
-        private void SuspendRuntime()
-        {
-            if (_host == null)
+            if (_host != null && Application.isPlaying)
             {
-                return;
-            }
-
-            if (!_host.TrySuspend(out CoCoDiagnostic diagnostic))
-            {
-                CoCoLog.Error("[StateGraph Debugger] Suspend failed: " +
-                    diagnostic.Message);
-            }
-
-            PullAndRefresh();
-        }
-
-        private void ResumeRuntime()
-        {
-            if (_host == null)
-            {
-                return;
-            }
-
-            if (!_host.TryResume(out CoCoDiagnostic diagnostic))
-            {
-                CoCoLog.Error("[StateGraph Debugger] Resume failed: " +
-                    diagnostic.Message);
-            }
-
-            PullAndRefresh();
-        }
-
-        private void StepOneTick()
-        {
-            if (_host == null)
-            {
-                return;
-            }
-
-            if (!_host.TryDebugStepWhileSuspended(
-                    _deltaTime, out CoCoDiagnostic diagnostic))
-            {
-                CoCoLog.Error("[StateGraph Debugger] One-tick step failed: " +
-                    diagnostic.Message);
-            }
-
-            PullAndRefresh();
-        }
-
-        // ===== 过滤器（模型 → 控件单向同步） =====
-
-        private static string TraceFilterLabel(
-            CoCoStateGraphHostTraceFilterMode mode)
-        {
-            switch (mode)
-            {
-                case CoCoStateGraphHostTraceFilterMode.StateId:
-                    return CoCoEditorLocalization.Text("State ID", "State ID");
-                case CoCoStateGraphHostTraceFilterMode.TransitionId:
-                    return CoCoEditorLocalization.Text(
-                        "Transition ID", "Transition ID");
-                default:
-                    return CoCoEditorLocalization.Text("All", "全部");
-            }
-        }
-
-        private void SetTraceFilterMode(CoCoStateGraphHostTraceFilterMode mode)
-        {
-            _state.SetTraceFilter(mode, _state.TraceFilterText);
-            SyncControlsFromState();
-            MarkDirty();
-        }
-
-        /// <summary>控件 ← 数据层单向同步（身份重置/delta 变化后调用，P2-01）。</summary>
-        private void SyncControlsFromState()
-        {
-            if (_filterToggles == null)
-            {
-                return;
-            }
-
-            for (int index = 0; index < _filterToggles.Length; index++)
-            {
-                _filterToggles[index].SetValueWithoutNotify(
-                    (int)_state.TraceFilterMode == index);
-            }
-
-            _filterIdField.SetValueWithoutNotify(_state.TraceFilterText);
-            _filterIdField.style.display =
-                _state.TraceFilterMode == CoCoStateGraphHostTraceFilterMode.All
-                    ? DisplayStyle.None
-                    : DisplayStyle.Flex;
-        }
-
-        // ===== 刷新（帧级合并 + generation guard） =====
-
-        private void MarkDirty()
-        {
-            _pendingRefresh = true;
-            if (_traceList == null || _scheduledRefresh != null)
-            {
-                return;
-            }
-
-            int capturedGeneration = _generation;
-            _scheduledRefresh = rootVisualElement.schedule.Execute(() =>
-            {
-                _scheduledRefresh = null;
-                if (capturedGeneration != _generation)
+                _state.TryRefresh(_host);
+                if (includePersistence && _state.Snapshot != null)
                 {
-                    if (_pendingRefresh && _traceList != null)
-                    {
-                        MarkDirty();
-                    }
-
-                    return;
-                }
-
-                if (_pendingRefresh)
-                {
-                    PullAndRefresh();
-                }
-            });
-        }
-
-        private readonly List<CoCoDebuggerLayerRow> _layerRowsCache = new();
-        private readonly List<string> _claimRowsCache = new();
-        private readonly List<CoCoDebuggerTraceRow> _traceRowsCache = new();
-
-        private void RefreshNow()
-        {
-            _pendingRefresh = false;
-            if (_traceList == null)
-            {
-                return;
-            }
-
-            SyncControlsFromState();
-            UpdateHeader();
-            UpdateControls();
-            UpdateMetrics();
-            UpdateSnapshotCard();
-            UpdateTraceList();
-            UpdateDiagnosticRow();
-            UpdateEmptyState();
-        }
-
-        private void UpdateHeader()
-        {
-            if (_headerBadge != null)
-            {
-                var badgeText = _headerBadge.Q<Label>("ccflow-badge-text");
-                if (badgeText != null)
-                {
-                    badgeText.text = _host == null
-                        ? CoCoEditorLocalization.Text("No Host", "无宿主")
-                        : _host.Lifecycle.ToString();
-                }
-
-                CoCoEditorElements.SetBadgeKind(
-                    _headerBadge,
-                    _host == null
-                        ? CoCoEditorBadgeKind.Neutral
-                        : LifecycleToBadgeKind(
-                            _host.Lifecycle,
-                            _host.Fault.IsFaulted));
-            }
-
-            if (_headerIdentity != null)
-            {
-                bool live = _host != null && _host.HasLiveRuntime;
-                _headerIdentity.text = live && _host.GraphInstanceId.IsValid
-                    ? _host.name + " · instance " + _host.GraphInstanceId
-                    : _host == null ? string.Empty : _host.name;
-            }
-        }
-
-        private void UpdateControls()
-        {
-            if (_controlsCard == null)
-            {
-                return;
-            }
-
-            if (_host == null || !_host.HasLiveRuntime)
-            {
-                _controlsCard.SetEnabled(false);
-                return;
-            }
-
-            _controlsCard.SetEnabled(true);
-            CoCoRuntimeLifecycleState lifecycle = _host.Lifecycle;
-            _suspendButton.SetEnabled(
-                lifecycle == CoCoRuntimeLifecycleState.Running &&
-                !_host.Fault.IsFaulted);
-            bool suspended = lifecycle == CoCoRuntimeLifecycleState.Suspended;
-            _resumeButton.SetEnabled(suspended);
-            _stepButton.SetEnabled(
-                suspended &&
-                _deltaTime > 0d &&
-                !double.IsNaN(_deltaTime) &&
-                !double.IsInfinity(_deltaTime));
-            _refreshButton.SetEnabled(true);
-        }
-
-        private void UpdateMetrics()
-        {
-            if (_metricTick == null)
-            {
-                return;
-            }
-
-            CoCoStateGraphHostDebugSnapshot snapshot = _state.Snapshot;
-            if (snapshot == null)
-            {
-                _metricTick.text =
-                    _metricSeconds.text =
-                    _metricSequence.text =
-                    _metricLayers.text =
-                    _metricClaims.text = "—";
-                return;
-            }
-
-            _metricTick.text = snapshot.Tick.ToString();
-            _metricSeconds.text = snapshot.Seconds.ToString("0.###");
-            _metricSequence.text = snapshot.ExecutionSequence.ToString();
-            _metricLayers.text = snapshot.LayerCount.ToString();
-            _metricClaims.text = snapshot.ClaimCount.ToString();
-        }
-
-        private void UpdateSnapshotCard()
-        {
-            if (_snapshotSections == null)
-            {
-                return;
-            }
-
-            _snapshotSections.Clear();
-            List<CoCoDebuggerSnapshotSection> sections =
-                _state.BuildSnapshotSections();
-            for (int index = 0; index < sections.Count; index++)
-            {
-                CoCoDebuggerSnapshotSection section = sections[index];
-                var foldout = new Foldout
-                {
-                    text = section.Title,
-                    value = !_foldoutStates.TryGetValue(
-                        section.Title,
-                        out bool collapsed) || !collapsed
-                };
-                foldout.AddToClassList("ccflow-foldout");
-                string capturedTitle = section.Title;
-                foldout.RegisterValueChangedCallback(evt =>
-                    _foldoutStates[capturedTitle] = !evt.newValue);
-                IReadOnlyList<CoCoDebuggerSnapshotRow> rows = section.Rows;
-                for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
-                {
-                    VisualElement row = MakeSnapshotRow();
-                    row.Q<Label>("ccflow-kv-key").text = rows[rowIndex].Key;
-                    row.Q<Label>("ccflow-kv-value").text = rows[rowIndex].Value;
-                    foldout.Add(row);
-                }
-
-                _snapshotSections.Add(foldout);
-            }
-
-            _layerRowsCache.Clear();
-            _layerRowsCache.AddRange(_state.BuildLayerRows());
-            _layerList.itemsSource = _layerRowsCache;
-            _layerList.RefreshItems();
-
-            _claimRowsCache.Clear();
-            _claimRowsCache.AddRange(_state.BuildClaimRows());
-            _claimList.itemsSource = _claimRowsCache;
-            _claimList.RefreshItems();
-
-            if (_snapshotFreshnessBadge != null)
-            {
-                switch (_state.Freshness)
-                {
-                    case CoCoDebuggerSnapshotFreshness.RetainedStale:
-                        _snapshotFreshnessRow.style.display = DisplayStyle.Flex;
-                        _snapshotFreshnessBadge.text =
-                            CoCoEditorLocalization.Text(
-                                "retained last committed snapshot (latest refresh was rejected)",
-                                "保留的上次提交快照（最近一次刷新被拒绝）");
-                        _snapshotFreshnessBadge.style.color =
-                            new Color(0.82f, 0.57f, 0.14f);
-                        break;
-                    default:
-                        _snapshotFreshnessRow.style.display = DisplayStyle.None;
-                        break;
+                    _state.TryRefreshPersistence(_host);
+                    _nextPersistencePoll =
+                        EditorApplication.timeSinceStartup +
+                        PersistencePollSeconds;
                 }
             }
+
+            if (_emptyState != null)
+            {
+                Render();
+            }
+
+            SceneView.RepaintAll();
         }
 
-        private void UpdateTraceList()
-        {
-            if (_traceList == null)
-            {
-                return;
-            }
-
-            _state.GetTraceCounts(
-                _host,
-                out int count,
-                out int capacity,
-                out ulong totalWritten,
-                out int visible);
-            _traceCountLabel.text = CoCoEditorLocalization.Text(
-                $"Count {count}; Capacity {capacity}; Total Written {totalWritten}; " +
-                    $"Visible {visible}",
-                $"计数 {count}；容量 {capacity}；累计写入 {totalWritten}；" +
-                    $"可见 {visible}");
-
-            if (_host != null && _host.Trace == null)
-            {
-                _traceRowsCache.Clear();
-                _traceRowsCache.Add(new CoCoDebuggerTraceRow(
-                    true,
-                    CoCoEditorLocalization.Text(
-                        "Trace Capacity is 0 — stop the Host, set a positive " +
-                            "capacity, and restart to record history",
-                        "Trace 容量为 0——停止 Host，设置正容量并重启以记录历史")));
-                _traceList.itemsSource = _traceRowsCache;
-                _traceList.RefreshItems();
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(_state.TraceFilterValidationMessage))
-            {
-                _traceRowsCache.Clear();
-                _traceRowsCache.Add(new CoCoDebuggerTraceRow(
-                    true,
-                    _state.TraceFilterValidationMessage));
-                _traceList.itemsSource = _traceRowsCache;
-                _traceList.RefreshItems();
-                return;
-            }
-
-            _traceRowsCache.Clear();
-            _traceRowsCache.AddRange(_state.BuildTraceRows());
-            _traceList.itemsSource = _traceRowsCache;
-            _traceList.RefreshItems();
-        }
-
-        private void UpdateDiagnosticRow()
-        {
-            if (_diagnosticRow == null)
-            {
-                return;
-            }
-
-            _diagnosticRow.Clear();
-            if (!_state.LastRefreshDiagnostic.IsError)
-            {
-                return;
-            }
-
-            _diagnosticRow.Add(CoCoEditorElements.CreateDiagnosticRow(
-                _state.LastRefreshDiagnostic.Domain + "/" +
-                    _state.LastRefreshDiagnostic.Code + ": " +
-                    _state.LastRefreshDiagnostic.Message,
-                CoCoEditorBadgeKind.Error));
-        }
-
-        /// <summary>空状态区分原因（未运行 / 无宿主 / 宿主未启动，P2-04）。</summary>
-        private void UpdateEmptyState()
+        private void Render()
         {
             if (_emptyState == null)
             {
                 return;
             }
 
-            bool playing = Application.isPlaying;
-            bool hasHost = _host != null;
-            bool live = hasHost && _host.HasLiveRuntime;
-            bool show = !playing || !hasHost || !live;
-            _emptyState.style.display =
-                show ? DisplayStyle.Flex : DisplayStyle.None;
-            _snapshotCard.style.display =
-                show ? DisplayStyle.None : DisplayStyle.Flex;
-            _metricsCard.style.display =
-                show ? DisplayStyle.None : DisplayStyle.Flex;
-            _traceCard.style.display =
-                show ? DisplayStyle.None : DisplayStyle.Flex;
-            _controlsCard.style.display =
-                show ? DisplayStyle.None : DisplayStyle.Flex;
-            if (!show)
+            SyncToolbar();
+            RenderHostHeader();
+            _diagnostics?.Clear();
+
+            if (_host == null)
             {
+                ShowEmptyState(
+                    CoCoEditorLocalization.Text(
+                        "Select a scene Host",
+                        "选择场景 Host"),
+                    CoCoEditorLocalization.Text(
+                        "The debugger observes a concrete CoCoStateGraphHost instance, not a StateGraph asset.",
+                        "Debugger 观察的是具体 CoCoStateGraphHost 实例，不是 StateGraph 资产。"),
+                    CoCoEditorLocalization.Text(
+                        "Select a Host in the Hierarchy or assign it above.",
+                        "在 Hierarchy 选择 Host，或在上方指定。"));
+                SetDataCardsVisible(false);
                 return;
             }
 
-            if (!playing)
+            if (_state.Snapshot == null)
             {
-                RebuildEmptyState(
+                ShowEmptyState(
                     CoCoEditorLocalization.Text(
-                        "Runtime debugging becomes available in Play Mode",
-                        "运行时调试在 Play 模式可用"),
+                        "Host is not at a readable committed boundary",
+                        "Host 尚无可读取的提交边界"),
                     CoCoEditorLocalization.Text(
-                        "The committed snapshot and Trace reflect a live Host.",
-                        "提交快照与 Trace 反映运行中的 Host。"),
+                        "Current frame and Temporal history exist only while this Host has a live idle runtime.",
+                        "当前帧和时间历史仅在该 Host 具有空闲的 live runtime 时存在。"),
                     CoCoEditorLocalization.Text(
-                        "Enter Play Mode with a Host in the scene.",
-                        "场景中放置 Host 并进入 Play 模式。"));
+                        "Enter Play Mode and start this Host.",
+                        "进入 Play Mode 并启动该 Host。"));
+                SetDataCardsVisible(false);
                 return;
             }
 
-            if (!hasHost)
-            {
-                RebuildEmptyState(
-                    CoCoEditorLocalization.Text(
-                        "No Host selected", "未选择宿主"),
-                    CoCoEditorLocalization.Text(
-                        "Pick a CoCoStateGraphHost to observe its committed state.",
-                        "选择一个 CoCoStateGraphHost 以观察其已提交状态。"),
-                    CoCoEditorLocalization.Text(
-                        "Keep Follow Selection on to inspect the Host under selection.",
-                        "保持「跟随选择」开启即可检视当前选中的 Host。"));
-                return;
-            }
+            _emptyState.style.display = DisplayStyle.None;
+            _currentCard.style.display = DisplayStyle.Flex;
+            _ringCard.style.display = DisplayStyle.Flex;
+            _persistedCard.style.display = _state.HasPersistedFrame
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
 
-            RebuildEmptyState(
-                CoCoEditorLocalization.Text(
-                    "Host runtime is not live", "宿主运行时未启动"),
-                CoCoEditorLocalization.Text(
-                    "The Host has no live runtime yet (not started, stopped, or faulted).",
-                    "该 Host 尚无活跃运行时（未启动、已停止或已故障）。"),
-                CoCoEditorLocalization.Text(
-                    "Check Auto Start / driver settings or start the Host, then refresh.",
-                    "检查自动启动/驱动设置或启动 Host 后刷新。"));
+            RenderCurrentFrame();
+            RenderRing();
+            RenderPersistedFrame();
+            RenderDiagnostics();
         }
 
-        private static CoCoEditorBadgeKind LifecycleToBadgeKind(
-            CoCoRuntimeLifecycleState lifecycle,
-            bool faulted)
+        private void RenderHostHeader()
         {
-            if (faulted)
+            if (_host == null)
             {
-                return CoCoEditorBadgeKind.Error;
+                SetBadge(
+                    _hostBadge,
+                    CoCoEditorLocalization.Text("No Host", "无 Host"),
+                    CoCoEditorBadgeKind.Neutral);
+                _hostIdentity.text = string.Empty;
+                return;
             }
 
-            switch (lifecycle)
+            CoCoRuntimeLifecycleState lifecycle = _host.Lifecycle;
+            CoCoEditorBadgeKind kind =
+                lifecycle == CoCoRuntimeLifecycleState.Running ||
+                lifecycle == CoCoRuntimeLifecycleState.Suspended
+                    ? CoCoEditorBadgeKind.Success
+                    : CoCoEditorBadgeKind.Neutral;
+            SetBadge(_hostBadge, lifecycle.ToString(), kind);
+            _hostIdentity.text = GetHierarchyPath(_host.transform);
+        }
+
+        private void RenderCurrentFrame()
+        {
+            bool stale =
+                _state.Freshness == CoCoDebuggerSnapshotFreshness.RetainedStale;
+            SetBadge(
+                _currentBadge,
+                stale
+                    ? CoCoEditorLocalization.Text(
+                        "Retained stale",
+                        "保留的旧快照")
+                    : CoCoEditorLocalization.Text("Fresh", "最新"),
+                stale
+                    ? CoCoEditorBadgeKind.Warning
+                    : CoCoEditorBadgeKind.Success);
+
+            PopulateKeyValueRows(
+                _currentRows,
+                _state.BuildCurrentFrameRows());
+            _activeStates.Clear();
+            List<CoCoDebuggerActiveStateRow> states =
+                _state.BuildActiveStateRows();
+            if (states.Count == 0)
             {
-                case CoCoRuntimeLifecycleState.Running:
-                    return CoCoEditorBadgeKind.Success;
-                case CoCoRuntimeLifecycleState.Suspended:
-                    return CoCoEditorBadgeKind.Warning;
-                default:
-                    return CoCoEditorBadgeKind.Neutral;
+                var empty = new Label(CoCoEditorLocalization.Text(
+                    "No Active State is present in the committed frame.",
+                    "当前提交帧中没有 Active State。"));
+                empty.AddToClassList("ccflow-muted");
+                _activeStates.Add(empty);
+                return;
+            }
+
+            for (int index = 0; index < states.Count; index++)
+            {
+                CoCoDebuggerActiveStateRow state = states[index];
+                var row = new VisualElement();
+                row.AddToClassList("ccflow-debugger-state-row");
+
+                var title = new Label($"{state.Layer}  /  {state.State}");
+                title.AddToClassList("ccflow-debugger-state-row__title");
+                row.Add(title);
+
+                var details = new Label(string.Format(
+                    CultureInfo.InvariantCulture,
+                    CoCoEditorLocalization.Text(
+                        "ID {0}  ·  Local {1:0.###} s  ·  Progress {2:0.###}  ·  Winner {3}",
+                        "ID {0}  ·  局部时间 {1:0.###} s  ·  进度 {2:0.###}  ·  胜出 Transition {3}"),
+                    state.StateId,
+                    state.LocalSeconds,
+                    state.ActionProgress,
+                    state.WinningTransition));
+                details.AddToClassList("ccflow-debugger-state-row__details");
+                details.style.whiteSpace = WhiteSpace.Normal;
+                row.Add(details);
+                _activeStates.Add(row);
             }
         }
 
-        private void OnLanguageChanged()
+        private void RenderRing()
         {
-            if (rootVisualElement == null)
+            CoCoStateGraphHostTemporalDebugSnapshot snapshot = _state.Snapshot;
+            _ringStatus.text = snapshot.Capacity == 0
+                ? CoCoEditorLocalization.Text(
+                    "Temporal history is disabled for this Host.",
+                    "该 Host 未启用 Temporal history。")
+                : CoCoEditorLocalization.Text(
+                    "Depth 0 is current; older Context frames continue " +
+                    "clockwise. Select a node for metadata.",
+                    "深度 0 是当前帧；更早的 Context 帧按顺时针排列。" +
+                    "选择节点可查看元数据。");
+            _ring.SetData(
+                snapshot,
+                _state.SelectedDepth,
+                _state.FindPersistedDepth());
+            RenderRingSelection();
+        }
+
+        private void RenderRingSelection()
+        {
+            if (_selectedFrameTitle == null || _selectedFrameRows == null)
             {
                 return;
             }
 
-            _scheduledRefresh?.Pause();
-            _scheduledRefresh = null;
-            _periodicPoll?.Pause();
-            _periodicPoll = null;
-            rootVisualElement.Clear();
-            CreateGUI();
+            _ring?.SetSelection(
+                _state.SelectedDepth,
+                _state.FindPersistedDepth());
+            _selectedFrameTitle.text = _state.Snapshot == null ||
+                                       _state.Snapshot.Count == 0
+                ? CoCoEditorLocalization.Text(
+                    "No retained Context frame",
+                    "没有保留的 Context 帧")
+                : string.Format(
+                    CultureInfo.InvariantCulture,
+                    CoCoEditorLocalization.Text(
+                        "Context at depth {0}",
+                        "深度 {0} 的 Context"),
+                    _state.SelectedDepth);
+            PopulateKeyValueRows(
+                _selectedFrameRows,
+                _state.BuildSelectedFrameRows());
+        }
+
+        private void RenderPersistedFrame()
+        {
+            if (!_state.HasPersistedFrame)
+            {
+                _persistedRows.Clear();
+                return;
+            }
+
+            PopulateKeyValueRows(
+                _persistedRows,
+                _state.BuildPersistedFrameRows());
+        }
+
+        private void RenderDiagnostics()
+        {
+            if (_state.LastRefreshDiagnostic.IsError)
+            {
+                _diagnostics.Add(CoCoEditorElements.CreateDiagnosticRow(
+                    _state.LastRefreshDiagnostic.Message,
+                    CoCoEditorBadgeKind.Warning));
+            }
+
+            if (!string.IsNullOrEmpty(_state.PersistenceFailure))
+            {
+                _diagnostics.Add(CoCoEditorElements.CreateDiagnosticRow(
+                    _state.PersistenceFailure,
+                    CoCoEditorBadgeKind.Warning));
+            }
+
+            CoCoStateGraphHostTemporalDebugSnapshot snapshot = _state.Snapshot;
+            if (snapshot != null && snapshot.Fault.IsFaulted)
+            {
+                _diagnostics.Add(CoCoEditorElements.CreateDiagnosticRow(
+                    snapshot.Fault.Diagnostic.Message,
+                    CoCoEditorBadgeKind.Error));
+            }
+        }
+
+        private void ShowEmptyState(
+            string title,
+            string message,
+            string firstStep)
+        {
+            _emptyState.Clear();
+            VisualElement content = CoCoEditorElements.CreateEmptyState(
+                title,
+                message,
+                firstStep);
+            _emptyState.Add(content);
+            _emptyState.style.display = DisplayStyle.Flex;
+        }
+
+        private void SetDataCardsVisible(bool visible)
+        {
+            DisplayStyle display = visible
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+            _currentCard.style.display = display;
+            _ringCard.style.display = display;
+            _persistedCard.style.display = DisplayStyle.None;
+        }
+
+        private void OnHostFieldChanged(ChangeEvent<UnityEngine.Object> evt)
+        {
+            if (evt.newValue == null)
+            {
+                ClearTarget();
+                return;
+            }
+
+            CoCoStateGraphHost host = ResolveHost(evt.newValue);
+            if (host == null)
+            {
+                SyncToolbar();
+                return;
+            }
+
+            SelectHost(host);
+        }
+
+        private void SelectHost(
+            CoCoStateGraphHost host,
+            bool rememberTarget = true)
+        {
+            if (host == null)
+            {
+                if (rememberTarget)
+                {
+                    ClearTarget();
+                }
+                else
+                {
+                    InvalidateLiveHost();
+                }
+
+                return;
+            }
+
+            if (rememberTarget &&
+                CoCoStateGraphDebuggerTargetLocator.TryCapture(
+                    host,
+                    out CoCoStateGraphDebuggerTargetLocator locator))
+            {
+                targetLocator = locator;
+            }
+
+            if (_host == host)
+            {
+                SyncToolbar();
+                RefreshNow(includePersistence: true);
+                return;
+            }
+
+            _host = host;
+            _nextPersistencePoll = 0d;
+            _state.ObserveIdentity(_host);
+            SyncToolbar();
+            SceneView.RepaintAll();
+            RefreshNow(includePersistence: true);
+        }
+
+        private bool TryFollowSelection()
+        {
+            CoCoStateGraphHost host = ResolveFollowTarget(
+                Selection.activeObject,
+                _host);
+            if (host == null)
+            {
+                return false;
+            }
+
+            SelectHost(host);
+            return true;
+        }
+
+        private void TryRebindTarget()
+        {
+            if (targetLocator == null ||
+                !targetLocator.TryResolve(out CoCoStateGraphHost host))
+            {
+                return;
+            }
+
+            SelectHost(host, rememberTarget: false);
+        }
+
+        private void ScheduleTargetRebind()
+        {
+            if (_rebindScheduled)
+            {
+                return;
+            }
+
+            _rebindScheduled = true;
+            EditorApplication.delayCall += RebindAfterModeChange;
+        }
+
+        private void RebindAfterModeChange()
+        {
+            EditorApplication.delayCall -= RebindAfterModeChange;
+            _rebindScheduled = false;
+            if (this == null)
+            {
+                return;
+            }
+
+            if (!(followSelection && TryFollowSelection()))
+            {
+                TryRebindTarget();
+            }
+        }
+
+        private void ClearTarget()
+        {
+            targetLocator = null;
+            InvalidateLiveHost();
+        }
+
+        private void InvalidateLiveHost()
+        {
+            _host = null;
+            _nextPersistencePoll = 0d;
+            _state.ObserveIdentity(null);
+            SyncToolbar();
+            if (_emptyState != null)
+            {
+                Render();
+            }
+
+            SceneView.RepaintAll();
+        }
+
+        private void SyncToolbar()
+        {
+            _hostField?.SetValueWithoutNotify(
+                _host == null ? null : _host.gameObject);
+            _followToggle?.SetValueWithoutNotify(followSelection);
+            _sceneMarkerToggle?.SetValueWithoutNotify(showSceneMarker);
+        }
+
+        internal static CoCoStateGraphHost ResolveFollowTarget(
+            UnityEngine.Object selectedObject,
+            CoCoStateGraphHost currentHost)
+        {
+            return ResolveHost(selectedObject) ?? currentHost;
+        }
+
+        internal static CoCoStateGraphHost ResolveHost(
+            UnityEngine.Object selectedObject)
+        {
+            if (selectedObject == null)
+            {
+                return null;
+            }
+
+            if (selectedObject is CoCoStateGraphHost host)
+            {
+                return host;
+            }
+
+            if (selectedObject is GameObject gameObject)
+            {
+                return gameObject.GetComponentInParent<CoCoStateGraphHost>(true);
+            }
+
+            if (selectedObject is Component component)
+            {
+                return component.GetComponentInParent<CoCoStateGraphHost>(true);
+            }
+
+            return null;
+        }
+
+        private static void PopulateKeyValueRows(
+            VisualElement container,
+            IReadOnlyList<CoCoDebuggerKeyValueRow> rows)
+        {
+            container.Clear();
+            for (int index = 0; index < rows.Count; index++)
+            {
+                CoCoDebuggerKeyValueRow value = rows[index];
+                var row = new VisualElement();
+                row.AddToClassList("ccflow-host-kv-row");
+                var key = new Label(value.Key);
+                key.AddToClassList("ccflow-host-kv-row__key");
+                row.Add(key);
+                var label = new Label(value.Value);
+                label.AddToClassList("ccflow-host-kv-row__value");
+                label.style.whiteSpace = WhiteSpace.Normal;
+                row.Add(label);
+                container.Add(row);
+            }
+        }
+
+        private static void SetBadge(
+            VisualElement badge,
+            string text,
+            CoCoEditorBadgeKind kind)
+        {
+            if (badge == null)
+            {
+                return;
+            }
+
+            CoCoEditorElements.SetBadgeKind(badge, kind);
+            Label label = badge.Q<Label>("ccflow-badge-text");
+            if (label != null)
+            {
+                label.text = text;
+            }
+        }
+
+        private static string GetHierarchyPath(Transform target)
+        {
+            if (target == null)
+            {
+                return string.Empty;
+            }
+
+            string path = target.name;
+            for (Transform parent = target.parent;
+                 parent != null;
+                 parent = parent.parent)
+            {
+                path = parent.name + "/" + path;
+            }
+
+            return path;
+        }
+
+        internal static bool TryGetMarkerWorldPosition(
+            CoCoStateGraphHost host,
+            out Vector3 position)
+        {
+            if (host == null || host.transform == null)
+            {
+                position = default;
+                return false;
+            }
+
+            position = host.transform.position;
+            return true;
+        }
+
+        private void DrawSceneMarker(SceneView sceneView)
+        {
+            if (!showSceneMarker ||
+                !TryGetMarkerWorldPosition(_host, out Vector3 worldPosition) ||
+                sceneView == null ||
+                sceneView.camera == null ||
+                sceneView.camera.WorldToViewportPoint(worldPosition).z <= 0f ||
+                Event.current.type != EventType.Repaint)
+            {
+                return;
+            }
+
+            float handleSize = HandleUtility.GetHandleSize(worldPosition);
+            float radius = handleSize * 0.09f;
+            Vector3 markerPosition =
+                worldPosition + Vector3.up * handleSize * 0.42f;
+            Vector3 stemEnd = markerPosition - Vector3.up * radius * 1.15f;
+            Vector3 cameraNormal = sceneView.camera.transform.forward;
+            Color previousColor = Handles.color;
+            UnityEngine.Rendering.CompareFunction previousZTest = Handles.zTest;
+            try
+            {
+                // The marker is diagnostic UI, so it stays visible even when
+                // the Host pivot is behind scene geometry.
+                Handles.zTest = UnityEngine.Rendering.CompareFunction.Always;
+                Handles.color = SceneMarkerOuterColor;
+                Handles.DrawAAPolyLine(4f, worldPosition, stemEnd);
+                Handles.DrawSolidDisc(
+                    markerPosition,
+                    cameraNormal,
+                    radius * 1.28f);
+
+                Handles.color = SceneMarkerColor;
+                Handles.DrawSolidDisc(markerPosition, cameraNormal, radius);
+
+                Handles.color = SceneMarkerCenterColor;
+                Handles.DrawSolidDisc(
+                    markerPosition,
+                    cameraNormal,
+                    radius * 0.28f);
+            }
+            finally
+            {
+                Handles.color = previousColor;
+                Handles.zTest = previousZTest;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Actual circular Temporal-ring selector. Slots are laid out clockwise by
+    /// logical history depth; it holds only Editor selection state.
+    /// </summary>
+    internal sealed class CoCoTemporalRingElement : VisualElement
+    {
+        private static readonly Color CurrentColor =
+            new Color(0.18f, 0.53f, 0.86f, 1f);
+        private static readonly Color OccupiedColor =
+            new Color(0.42f, 0.46f, 0.52f, 1f);
+        private static readonly Color EmptyColor =
+            new Color(0.42f, 0.42f, 0.42f, 0.20f);
+        private static readonly Color PersistedColor =
+            new Color(0.94f, 0.65f, 0.18f, 1f);
+        private static readonly Color SelectedColor =
+            new Color(0.93f, 0.96f, 1f, 1f);
+
+        private readonly VisualElement _track;
+        private readonly VisualElement _nodes;
+        private readonly Label _count;
+        private readonly Label _caption;
+        private readonly List<Button> _slotButtons = new List<Button>();
+        private CoCoStateGraphHostTemporalDebugSnapshot _snapshot;
+        private int _selectedDepth;
+        private int _persistedDepth = -1;
+
+        internal CoCoTemporalRingElement()
+        {
+            AddToClassList("ccflow-temporal-ring");
+            _track = new VisualElement();
+            _track.AddToClassList("ccflow-temporal-ring__track");
+            Add(_track);
+
+            _nodes = new VisualElement();
+            _nodes.AddToClassList("ccflow-temporal-ring__nodes");
+            Add(_nodes);
+
+            _count = new Label("0 / 0");
+            _count.AddToClassList("ccflow-temporal-ring__count");
+            Add(_count);
+
+            _caption = new Label(CoCoEditorLocalization.Text(
+                "Temporal Ring",
+                "时间环"));
+            _caption.AddToClassList("ccflow-temporal-ring__caption");
+            Add(_caption);
+
+            RegisterCallback<GeometryChangedEvent>(_ => LayoutRing());
+        }
+
+        internal event Action<int> DepthSelected;
+
+        internal void SetData(
+            CoCoStateGraphHostTemporalDebugSnapshot snapshot,
+            int selectedDepth,
+            int persistedDepth)
+        {
+            _snapshot = snapshot;
+            _selectedDepth = selectedDepth;
+            _persistedDepth = persistedDepth;
+            int capacity = snapshot?.Capacity ?? 0;
+            EnsureSlotCount(capacity);
+            _count.text = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} / {1}",
+                snapshot?.Count ?? 0,
+                capacity);
+            UpdateSlotVisuals();
+            LayoutRing();
+        }
+
+        internal void SetSelection(int selectedDepth, int persistedDepth)
+        {
+            _selectedDepth = selectedDepth;
+            _persistedDepth = persistedDepth;
+            UpdateSlotVisuals();
+        }
+
+        private void EnsureSlotCount(int capacity)
+        {
+            if (_slotButtons.Count == capacity)
+            {
+                return;
+            }
+
+            _nodes.Clear();
+            _slotButtons.Clear();
+            for (int depth = 0; depth < capacity; depth++)
+            {
+                int capturedDepth = depth;
+                var slot = new Button(() =>
+                    DepthSelected?.Invoke(capturedDepth))
+                {
+                    text = string.Empty,
+                    name = $"temporal-slot-{depth}"
+                };
+                slot.AddToClassList("ccflow-temporal-ring__slot");
+                _nodes.Add(slot);
+                _slotButtons.Add(slot);
+            }
+        }
+
+        private void UpdateSlotVisuals()
+        {
+            int count = _snapshot?.Count ?? 0;
+            for (int depth = 0; depth < _slotButtons.Count; depth++)
+            {
+                Button slot = _slotButtons[depth];
+                bool occupied = depth < count;
+                bool current = occupied && depth == 0;
+                bool selected = occupied && depth == _selectedDepth;
+                bool persisted = occupied && depth == _persistedDepth;
+                slot.SetEnabled(occupied);
+                slot.style.backgroundColor = current
+                    ? CurrentColor
+                    : occupied
+                        ? OccupiedColor
+                        : EmptyColor;
+                slot.style.borderTopColor =
+                    slot.style.borderRightColor =
+                    slot.style.borderBottomColor =
+                    slot.style.borderLeftColor =
+                        persisted
+                            ? PersistedColor
+                            : selected
+                                ? SelectedColor
+                                : new Color(0f, 0f, 0f, 0.36f);
+                float borderWidth = persisted || selected ? 3f : 1f;
+                slot.style.borderTopWidth =
+                    slot.style.borderRightWidth =
+                    slot.style.borderBottomWidth =
+                    slot.style.borderLeftWidth = borderWidth;
+                slot.tooltip = occupied
+                    ? BuildTooltip(depth, current, persisted)
+                    : string.Format(
+                        CultureInfo.InvariantCulture,
+                        CoCoEditorLocalization.Text(
+                            "Empty slot {0}",
+                            "空槽 {0}"),
+                        depth);
+            }
+        }
+
+        private string BuildTooltip(int depth, bool current, bool persisted)
+        {
+            CoCoTemporalFrameInfo frame = _snapshot.GetFrame(depth);
+            string role = current
+                ? CoCoEditorLocalization.Text("Current", "当前")
+                : CoCoEditorLocalization.Text("History", "历史");
+            if (persisted)
+            {
+                role += " + " +
+                        CoCoEditorLocalization.Text("Persisted", "已持久化");
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                CoCoEditorLocalization.Text(
+                    "{0} · Depth {1} · Tick {2} · Revision {3}",
+                    "{0} · 深度 {1} · Tick {2} · Revision {3}"),
+                role,
+                depth,
+                frame.TickFrame.Tick.Value,
+                frame.Revision.Value);
+        }
+
+        private void LayoutRing()
+        {
+            float width = contentRect.width;
+            if (float.IsNaN(width) || width <= 0f)
+            {
+                return;
+            }
+
+            float diameter = Mathf.Clamp(width - 48f, 180f, 330f);
+            float left = (width - diameter) * 0.5f;
+            float top = 18f;
+            _track.style.left = left;
+            _track.style.top = top;
+            _track.style.width = diameter;
+            _track.style.height = diameter;
+            _nodes.style.left = left;
+            _nodes.style.top = top;
+            _nodes.style.width = diameter;
+            _nodes.style.height = diameter;
+
+            _count.style.left = left + diameter * 0.25f;
+            _count.style.top = top + diameter * 0.39f;
+            _count.style.width = diameter * 0.5f;
+            _caption.style.left = left + diameter * 0.25f;
+            _caption.style.top = top + diameter * 0.53f;
+            _caption.style.width = diameter * 0.5f;
+
+            int capacity = _slotButtons.Count;
+            if (capacity == 0)
+            {
+                return;
+            }
+
+            float radius = diameter * 0.48f;
+            float circumference = 2f * Mathf.PI * radius;
+            float slotSize = Mathf.Clamp(
+                circumference / capacity * 0.62f,
+                6f,
+                20f);
+            Vector2 center = new Vector2(diameter * 0.5f, diameter * 0.5f);
+            for (int depth = 0; depth < capacity; depth++)
+            {
+                float radians =
+                    (-90f + 360f * depth / capacity) * Mathf.Deg2Rad;
+                float x = center.x + Mathf.Cos(radians) * radius;
+                float y = center.y + Mathf.Sin(radians) * radius;
+                Button slot = _slotButtons[depth];
+                slot.style.left = x - slotSize * 0.5f;
+                slot.style.top = y - slotSize * 0.5f;
+                slot.style.width = slotSize;
+                slot.style.height = slotSize;
+                float corner = slotSize * 0.5f;
+                slot.style.borderTopLeftRadius =
+                    slot.style.borderTopRightRadius =
+                    slot.style.borderBottomLeftRadius =
+                    slot.style.borderBottomRightRadius = corner;
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 /* CoCoFlow StateGraphHost 模块补充样式（ccflow- BEM，D10）。
  * Token 基准与 Editor/Common/CoCoEditorCommon.uss 同源；本文件只承载
- * Host Inspector / Runtime Debugger 专属结构（键值行/指标/链行/Trace 行）。
+ * Host Inspector / Runtime Debugger 专属结构（键值行/时间环/链行）。
  * 深色（Pro）主题唯一支持形态（继承 P02 D15）。 */
 
 /* ── 键值行（快照/状态投影） ─────────────────────── */
@@ -26,47 +26,98 @@
     -unity-font-style: bold;
 }
 
-/* ── 指标条（Debugger 顶部计数） ─────────────────── */
+/* ── Debugger Host / State ───────────────────────── */
 
-.ccflow-host-metrics {
+.ccflow-debugger-host-row {
     flex-direction: row;
-    margin-bottom: 8px;
+    align-items: center;
+    margin-top: 8px;
 }
 
-.ccflow-host-metric {
+.ccflow-debugger-host-identity {
     flex-grow: 1;
     flex-shrink: 1;
+    margin-left: 8px;
+    white-space: normal;
+    opacity: 0.72;
+}
+
+.ccflow-debugger-state-row {
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 6px;
     padding-bottom: 6px;
-    border-left-width: 1px;
-    border-left-color: rgba(128, 128, 128, 0.3);
-    border-right-width: 1px;
-    border-right-color: rgba(128, 128, 128, 0.3);
-    border-top-width: 1px;
-    border-top-color: rgba(128, 128, 128, 0.3);
-    border-bottom-width: 1px;
-    border-bottom-color: rgba(128, 128, 128, 0.3);
-    border-top-left-radius: 4px;
-    border-top-right-radius: 4px;
-    border-bottom-left-radius: 4px;
-    border-bottom-right-radius: 4px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+    border-left-width: 2px;
+    border-left-color: rgb(45, 112, 180);
     background-color: rgba(128, 128, 128, 0.055);
-    margin-right: 6px;
-    align-items: center;
 }
 
-.ccflow-host-metric__value {
-    font-size: 16px;
+.ccflow-debugger-state-row__title {
     -unity-font-style: bold;
     white-space: normal;
 }
 
-.ccflow-host-metric__label {
-    font-size: 10px;
+.ccflow-debugger-state-row__details {
+    margin-top: 2px;
     opacity: 0.65;
     white-space: normal;
+}
+
+/* ── Temporal Ring ───────────────────────────────── */
+
+.ccflow-temporal-ring {
+    position: relative;
+    height: 370px;
+    min-width: 180px;
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+.ccflow-temporal-ring__track {
+    position: absolute;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(128, 128, 128, 0.24);
+    border-right-color: rgba(128, 128, 128, 0.24);
+    border-top-color: rgba(128, 128, 128, 0.24);
+    border-bottom-color: rgba(128, 128, 128, 0.24);
+    border-top-left-radius: 999px;
+    border-top-right-radius: 999px;
+    border-bottom-left-radius: 999px;
+    border-bottom-right-radius: 999px;
+}
+
+.ccflow-temporal-ring__nodes {
+    position: absolute;
+}
+
+.ccflow-temporal-ring__slot {
+    position: absolute;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.ccflow-temporal-ring__count {
+    position: absolute;
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.ccflow-temporal-ring__caption {
+    position: absolute;
+    opacity: 0.65;
+    -unity-text-align: middle-center;
 }
 
 /* ── Restore 链预览行 ────────────────────────────── */
@@ -89,28 +140,6 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-}
-
-/* ── Trace 列表行 ────────────────────────────────── */
-
-.ccflow-host-trace-group {
-    -unity-font-style: bold;
-    margin-top: 6px;
-    margin-bottom: 3px;
-    padding-bottom: 2px;
-    border-bottom-width: 1px;
-    border-bottom-color: rgba(128, 128, 128, 0.16);
-}
-
-.ccflow-host-trace-row {
-    white-space: normal;
-    margin-top: 1px;
-    margin-bottom: 1px;
-    padding-left: 6px;
-    padding-right: 6px;
-    padding-top: 2px;
-    padding-bottom: 2px;
-    opacity: 0.92;
 }
 
 /* ── 绑定列表行 ──────────────────────────────────── */

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using CoCoFlow.Editor.StateGraphHost;
 using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
@@ -247,230 +246,253 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Is.SameAs(adapter));
         }
 
-        // ===== Debugger 数据层（D11：seed seam 直接命中，无私有反射） =====
+        // ===== Debugger（v4：当前帧 + Temporal Ring + 持久化帧） =====
 
         [Test]
-        public void RejectedRefreshPreservesLastSnapshotAndMarksRetainedStale()
+        public void TemporalSnapshotPreservesLogicalDepthOrderAndUsage()
         {
-            const ulong contentFingerprint = 0xD39UL;
-            const double committedSeconds = 1.25d;
+            CoCoTemporalFrameInfo newest = CreateTemporalFrame(1UL, 12UL, 3UL);
+            CoCoTemporalFrameInfo middle = CreateTemporalFrame(1UL, 11UL, 2UL);
+            CoCoTemporalFrameInfo oldest = CreateTemporalFrame(1UL, 10UL, 1UL);
+            CoCoStateGraphHostTemporalDebugSnapshot snapshot =
+                CreateTemporalSnapshot(5, newest, middle, oldest);
+
+            Assert.That(snapshot.Capacity, Is.EqualTo(5));
+            Assert.That(snapshot.Count, Is.EqualTo(3));
+            Assert.That(snapshot.GetFrame(0), Is.EqualTo(newest));
+            Assert.That(snapshot.GetFrame(1), Is.EqualTo(middle));
+            Assert.That(snapshot.GetFrame(2), Is.EqualTo(oldest));
+        }
+
+        [Test]
+        public void RejectedRefreshRetainsLastTemporalSnapshotAsStale()
+        {
             CoCoStateGraphHost host = CreateHost("Debugger");
-            CoCoStateGraphHostDebugSnapshot committed = CreateDebugSnapshot(
-                contentFingerprint,
-                committedSeconds);
+            CoCoStateGraphHostTemporalDebugSnapshot committed =
+                CreateTemporalSnapshot(
+                    4,
+                    CreateTemporalFrame(1UL, 4UL, 4UL));
             var state = new CoCoStateGraphHostDebuggerState();
             state.ObserveIdentity(host);
             state.SeedSnapshotForTests(committed);
-            Assert.That(
-                state.Freshness,
-                Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
 
-            bool accepted = state.TryRefresh(host);
-
-            Assert.That(accepted, Is.False);
+            Assert.That(state.TryRefresh(host), Is.False);
             Assert.That(state.Snapshot, Is.SameAs(committed));
-            Assert.That(state.Snapshot.ContentFingerprint,
-                Is.EqualTo(contentFingerprint));
-            Assert.That(state.Snapshot.Seconds, Is.EqualTo(committedSeconds));
             Assert.That(
                 state.Freshness,
                 Is.EqualTo(CoCoDebuggerSnapshotFreshness.RetainedStale));
             Assert.That(state.LastRefreshDiagnostic.IsError, Is.True);
-            Assert.That(
-                state.LastRefreshDiagnostic.Code,
-                Is.EqualTo(CoCoDiagnosticCode.InvalidLifecycleTransition));
         }
 
         [Test]
-        public void FirstRejectedRefreshWithoutSnapshotStaysNone()
-        {
-            CoCoStateGraphHost host = CreateHost("Freshless Debugger");
-            var state = new CoCoStateGraphHostDebuggerState();
-            state.ObserveIdentity(host);
-
-            Assert.That(state.TryRefresh(host), Is.False);
-            Assert.That(
-                state.Freshness,
-                Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
-            Assert.That(state.Snapshot, Is.Null);
-        }
-
-        [Test]
-        public void TraceFilterBuilderKeepsStateAndTransitionIdentityModesExclusive()
-        {
-            Assert.That(
-                CoCoStateId.TryCreate(0x11UL, 0x12UL, out CoCoStateId stateId),
-                Is.True);
-            Assert.That(
-                CoCoTransitionId.TryCreate(
-                    0x21UL,
-                    0x22UL,
-                    out CoCoTransitionId transitionId),
-                Is.True);
-
-            Assert.That(
-                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
-                    CoCoStateGraphHostTraceFilterMode.All,
-                    "ignored",
-                    out CoCoStateFlowTraceFilter all,
-                    out string allValidation),
-                Is.True);
-            Assert.That(all.Kinds, Is.EqualTo(CoCoStateFlowTraceKind.All));
-            Assert.That(all.StateId.IsValid, Is.False);
-            Assert.That(all.TransitionId.IsValid, Is.False);
-            Assert.That(allValidation, Is.Empty);
-
-            Assert.That(
-                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
-                    CoCoStateGraphHostTraceFilterMode.StateId,
-                    $"  {stateId.ToString().ToUpperInvariant()}  ",
-                    out CoCoStateFlowTraceFilter state,
-                    out string stateValidation),
-                Is.True);
-            Assert.That(state.StateId, Is.EqualTo(stateId));
-            Assert.That(state.TransitionId.IsValid, Is.False);
-            Assert.That(stateValidation, Is.Empty);
-
-            Assert.That(
-                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
-                    CoCoStateGraphHostTraceFilterMode.TransitionId,
-                    $"  {transitionId}  ",
-                    out CoCoStateFlowTraceFilter transition,
-                    out string transitionValidation),
-                Is.True);
-            Assert.That(transition.StateId.IsValid, Is.False);
-            Assert.That(transition.TransitionId, Is.EqualTo(transitionId));
-            Assert.That(transitionValidation, Is.Empty);
-
-            Assert.That(
-                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
-                    CoCoStateGraphHostTraceFilterMode.StateId,
-                    "   ",
-                    out _,
-                    out string blankValidation),
-                Is.False);
-            Assert.That(blankValidation, Is.Not.Empty);
-            Assert.That(
-                CoCoStateGraphHostDebuggerState.TryBuildTraceFilter(
-                    CoCoStateGraphHostTraceFilterMode.TransitionId,
-                    "not-an-id",
-                    out _,
-                    out string invalidValidation),
-                Is.False);
-            Assert.That(invalidValidation, Is.Not.Empty);
-        }
-
-        [Test]
-        public void DebuggerHostIdentityChangeResetsTraceFilter()
+        public void HostIdentityChangeClearsDebuggerSelectionAndSnapshots()
         {
             CoCoStateGraphHost first = CreateHost("First Debugger Host");
             CoCoStateGraphHost second = CreateHost("Second Debugger Host");
             var state = new CoCoStateGraphHostDebuggerState();
-
             state.ObserveIdentity(first);
-            state.SetTraceFilter(
-                CoCoStateGraphHostTraceFilterMode.TransitionId,
-                "00000000000000000000000000000001");
-
-            state.ObserveIdentity(first);
-            Assert.That(
-                state.TraceFilterMode,
-                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.TransitionId));
-            Assert.That(state.TraceFilterText, Is.Not.Empty);
+            state.SeedSnapshotForTests(CreateTemporalSnapshot(
+                3,
+                CreateTemporalFrame(1UL, 3UL, 3UL),
+                CreateTemporalFrame(1UL, 2UL, 2UL)));
+            state.SelectDepth(1);
 
             state.ObserveIdentity(second);
-            Assert.That(
-                state.TraceFilterMode,
-                Is.EqualTo(CoCoStateGraphHostTraceFilterMode.All));
-            Assert.That(state.TraceFilterText, Is.EqualTo(string.Empty));
+
+            Assert.That(state.Snapshot, Is.Null);
+            Assert.That(state.SelectedDepth, Is.EqualTo(0));
+            Assert.That(state.HasPersistedFrame, Is.False);
             Assert.That(
                 state.Freshness,
                 Is.EqualTo(CoCoDebuggerSnapshotFreshness.None));
         }
 
         [Test]
-        public void SnapshotSectionsProjectAllFourSectionsWithLocalizedKeys()
+        public void PersistedFrameMatchesOnlyItsExactRingFrame()
         {
-            CoCoStateGraphHostDebugSnapshot snapshot = CreateDebugSnapshot(
-                0xABUL,
-                2.5d);
+            CoCoTemporalFrameInfo newest = CreateTemporalFrame(1UL, 8UL, 8UL);
+            CoCoTemporalFrameInfo persisted = CreateTemporalFrame(1UL, 7UL, 7UL);
             var state = new CoCoStateGraphHostDebuggerState();
-            state.SeedSnapshotForTests(snapshot);
+            state.SeedSnapshotForTests(CreateTemporalSnapshot(
+                4,
+                newest,
+                persisted));
+            state.SeedPersistedFrameForTests(
+                persisted,
+                2,
+                DateTimeOffset.Parse("2026-09-03T08:00:00Z"));
 
-            List<CoCoDebuggerSnapshotSection> sections =
-                state.BuildSnapshotSections();
+            Assert.That(state.FindPersistedDepth(), Is.EqualTo(1));
 
-            Assert.That(sections.Count, Is.EqualTo(4));
-            for (int index = 0; index < sections.Count; index++)
-            {
-                Assert.That(sections[index].Title, Is.Not.Empty);
-                Assert.That(sections[index].Rows.Count, Is.GreaterThan(0));
-                for (int rowIndex = 0; rowIndex < sections[index].Rows.Count; rowIndex++)
-                {
-                    Assert.That(sections[index].Rows[rowIndex].Key, Is.Not.Empty);
-                    Assert.That(
-                        sections[index].Rows[rowIndex].Value,
-                        Is.Not.Empty);
-                }
-            }
-
-            Assert.That(state.BuildLayerRows(), Is.Empty);
-            Assert.That(state.BuildClaimRows(), Is.Empty);
+            state.SeedPersistedFrameForTests(
+                CreateTemporalFrame(1UL, 7UL, 99UL),
+                2,
+                DateTimeOffset.Parse("2026-09-03T08:00:00Z"));
+            Assert.That(state.FindPersistedDepth(), Is.EqualTo(-1));
         }
 
         [Test]
-        public void TraceRowsGroupEntriesByKind()
+        public void PersistedFrameOutsideRingStillBuildsIndependentDetails()
         {
-            CoCoStateFlowTraceEntry[] entries =
-            {
-                CreateTraceEntry(CoCoStateFlowTraceKind.ActivePath),
-                CreateTraceEntry(CoCoStateFlowTraceKind.OperatorOutcome),
-                CreateTraceEntry(CoCoStateFlowTraceKind.EventPublished),
-            };
             var state = new CoCoStateGraphHostDebuggerState();
-            state.SeedTraceEntriesForTests(entries, entries.Length);
+            state.SeedSnapshotForTests(CreateTemporalSnapshot(
+                2,
+                CreateTemporalFrame(1UL, 2UL, 2UL)));
+            state.SeedPersistedFrameForTests(
+                CreateTemporalFrame(9UL, 1UL, 1UL),
+                1,
+                DateTimeOffset.Parse("2026-09-03T08:00:00Z"));
 
-            List<CoCoDebuggerTraceRow> rows = state.BuildTraceRows();
-
-            Assert.That(rows, Is.Not.Empty);
-            int headers = 0;
-            for (int index = 0; index < rows.Count; index++)
-            {
-                if (rows[index].IsGroupHeader)
-                {
-                    headers++;
-                    Assert.That(rows[index].Text, Is.Not.Empty);
-                }
-                else
-                {
-                    Assert.That(rows[index].Text, Does.Contain("Tick"));
-                }
-            }
-
-            Assert.That(headers, Is.EqualTo(3));
+            Assert.That(state.HasPersistedFrame, Is.True);
+            Assert.That(state.FindPersistedDepth(), Is.EqualTo(-1));
+            Assert.That(state.BuildPersistedFrameRows(), Is.Not.Empty);
         }
 
         [Test]
-        public void TraceRowsEmptyWhenNothingVisible()
+        public void PersistedFrameRowsShowUtcThenLocalWrittenTime()
         {
+            DateTimeOffset writtenUtc =
+                DateTimeOffset.Parse("2026-09-03T08:00:00Z");
             var state = new CoCoStateGraphHostDebuggerState();
-            Assert.That(state.BuildTraceRows(), Is.Empty);
+            state.SeedPersistedFrameForTests(
+                CreateTemporalFrame(1UL, 1UL, 1UL),
+                1,
+                writtenUtc);
+
+            List<CoCoDebuggerKeyValueRow> rows =
+                state.BuildPersistedFrameRows();
+
+            Assert.That(rows[1].Key, Does.Contain("UTC"));
+            Assert.That(
+                rows[1].Value,
+                Is.EqualTo("2026-09-03 08:00:00Z"));
+            Assert.That(
+                rows[2].Key == "Written at (Local)" ||
+                rows[2].Key == "写盘时间（本地）",
+                Is.True);
+            Assert.That(
+                rows[2].Value,
+                Is.EqualTo(writtenUtc.ToLocalTime().ToString(
+                    "yyyy-MM-dd HH:mm:ss zzz",
+                    System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         [Test]
-        public void TraceCountsWithoutHostAreAllZero()
+        public void TemporalRingCreatesOneSelectableNodePerConfiguredSlot()
         {
-            var state = new CoCoStateGraphHostDebuggerState();
-            state.GetTraceCounts(
-                null,
-                out int count,
-                out int capacity,
-                out ulong totalWritten,
-                out int visible);
-            Assert.That(count, Is.EqualTo(0));
-            Assert.That(capacity, Is.EqualTo(0));
-            Assert.That(totalWritten, Is.EqualTo(0UL));
-            Assert.That(visible, Is.EqualTo(0));
+            var ring = new CoCoTemporalRingElement();
+            ring.SetData(
+                CreateTemporalSnapshot(
+                    5,
+                    CreateTemporalFrame(1UL, 2UL, 2UL)),
+                0,
+                -1);
+
+            Assert.That(
+                ring.Query<Button>(
+                        className: "ccflow-temporal-ring__slot")
+                    .ToList()
+                    .Count,
+                Is.EqualTo(5));
+        }
+
+        [Test]
+        public void SceneMarkerReadsHostTransformWithoutDirtyingIt()
+        {
+            CoCoStateGraphHost host = CreateHost("Marker");
+            host.transform.position = new Vector3(3f, 4f, 5f);
+            EditorUtility.ClearDirty(host);
+            EditorUtility.ClearDirty(host.gameObject);
+
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.TryGetMarkerWorldPosition(
+                    host,
+                    out Vector3 position),
+                Is.True);
+            Assert.That(position, Is.EqualTo(new Vector3(3f, 4f, 5f)));
+            Assert.That(EditorUtility.IsDirty(host), Is.False);
+            Assert.That(EditorUtility.IsDirty(host.gameObject), Is.False);
+        }
+
+        [Test]
+        public void DebuggerResolvesHostFromSelectedGameObjectOrChild()
+        {
+            CoCoStateGraphHost host = CreateHost("Selected Host");
+            GameObject child = CreateChild(host.transform, "Selected Child", true);
+            GameObject unrelated = CreateObject("Unrelated");
+
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveHost(host.gameObject),
+                Is.SameAs(host));
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveHost(host),
+                Is.SameAs(host));
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveHost(child),
+                Is.SameAs(host));
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveHost(child.transform),
+                Is.SameAs(host));
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveHost(unrelated),
+                Is.Null);
+        }
+
+        [Test]
+        public void FollowSelectionRetainsHostForTransientUnrelatedSelection()
+        {
+            CoCoStateGraphHost host = CreateHost("Retained Host");
+            GameObject unrelated = CreateObject("Transient Selection");
+
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveFollowTarget(
+                    unrelated,
+                    host),
+                Is.SameAs(host));
+            Assert.That(
+                CoCoStateGraphDebuggerWindow.ResolveFollowTarget(null, host),
+                Is.SameAs(host));
+        }
+
+        [Test]
+        public void TargetLocatorRebindsEquivalentHostAfterInstanceReplacement()
+        {
+            string rootName =
+                "CoCoDebuggerLocator-" + Guid.NewGuid().ToString("N");
+            GameObject originalRoot = CreateObject(rootName);
+            GameObject originalHostObject = CreateChild(
+                originalRoot.transform,
+                "Player",
+                true);
+            CoCoStateGraphHost originalHost =
+                originalHostObject.AddComponent<CoCoStateGraphHost>();
+
+            Assert.That(
+                CoCoStateGraphDebuggerTargetLocator.TryCapture(
+                    originalHost,
+                    out CoCoStateGraphDebuggerTargetLocator locator),
+                Is.True);
+
+            string serializedLocator = JsonUtility.ToJson(locator);
+            CoCoStateGraphDebuggerTargetLocator restoredLocator =
+                JsonUtility.FromJson<CoCoStateGraphDebuggerTargetLocator>(
+                    serializedLocator);
+
+            Object.DestroyImmediate(originalRoot);
+            GameObject replacementRoot = CreateObject(rootName);
+            GameObject replacementHostObject = CreateChild(
+                replacementRoot.transform,
+                "Player",
+                true);
+            CoCoStateGraphHost replacementHost =
+                replacementHostObject.AddComponent<CoCoStateGraphHost>();
+
+            Assert.That(
+                restoredLocator.TryResolve(
+                    out CoCoStateGraphHost resolvedHost),
+                Is.True);
+            Assert.That(resolvedHost, Is.SameAs(replacementHost));
+            Assert.That(resolvedHost, Is.Not.SameAs(originalHost));
         }
 
         // ===== BindingRules（D3 authoring hints） =====
@@ -723,7 +745,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 Assert.DoesNotThrow(() =>
                 {
                     inspectorRoot =
-                        ((CoCoStateGraphHostEditor)editor).CreateInspectorElement();
+                        ((CoCoStateGraphHostEditor)editor).CreateInspectorGUI();
                 });
                 Assert.That(inspectorRoot, Is.Not.Null);
 
@@ -919,66 +941,61 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             return gameObject;
         }
 
-        private static CoCoStateGraphHostDebugSnapshot CreateDebugSnapshot(
-            ulong contentFingerprint,
-            double seconds)
+        private static CoCoStateGraphHostTemporalDebugSnapshot
+            CreateTemporalSnapshot(
+                int capacity,
+                params CoCoTemporalFrameInfo[] frames)
         {
-            const BindingFlags instancePrivate =
-                BindingFlags.Instance | BindingFlags.NonPublic;
-            ConstructorInfo snapshotConstructor =
-                typeof(CoCoStateGraphHostDebugSnapshot).GetConstructors(
-                    instancePrivate)[0];
-            Type graphType = snapshotConstructor.GetParameters()[0].ParameterType;
-            ConstructorInfo graphConstructor =
-                graphType.GetConstructors(instancePrivate)[0];
-            object[] graphArguments = CreateDefaultArguments(graphConstructor);
-            graphArguments[0] = 1U;
-            graphArguments[1] = contentFingerprint;
-            graphArguments[3] = 0xCA7A10UL;
-            graphArguments[10] = seconds;
-            object graph = graphConstructor.Invoke(graphArguments);
-            object[] snapshotArguments =
-                CreateDefaultArguments(snapshotConstructor);
-            snapshotArguments[0] = graph;
-            return (CoCoStateGraphHostDebugSnapshot)snapshotConstructor.Invoke(
-                snapshotArguments);
+            return new CoCoStateGraphHostTemporalDebugSnapshot(
+                null,
+                capacity,
+                frames);
         }
 
-        private static object[] CreateDefaultArguments(ConstructorInfo constructor)
+        private static CoCoTemporalFrameInfo CreateTemporalFrame(
+            ulong graphInstance,
+            ulong tick,
+            ulong revision)
         {
-            ParameterInfo[] parameters = constructor.GetParameters();
-            var arguments = new object[parameters.Length];
-            for (int index = 0; index < parameters.Length; index++)
-            {
-                Type parameterType = parameters[index].ParameterType;
-                arguments[index] = parameterType.IsArray
-                    ? Array.CreateInstance(
-                        parameterType.GetElementType(),
-                        0)
-                    : parameterType.IsValueType
-                        ? Activator.CreateInstance(parameterType)
-                        : null;
-            }
-
-            return arguments;
-        }
-
-        /// <summary>
-        /// 经 internal 构造器构造指定 Kind 的 Trace 条目（Runtime internal
-        /// 契约，与快照构造同一反射口径；分组与格式化不依赖 IsValid）。
-        /// </summary>
-        private static CoCoStateFlowTraceEntry CreateTraceEntry(
-            CoCoStateFlowTraceKind kind)
-        {
-            const BindingFlags instanceNonPublic =
-                BindingFlags.Instance | BindingFlags.NonPublic;
-            ConstructorInfo constructor =
-                typeof(CoCoStateFlowTraceEntry).GetConstructors(instanceNonPublic)[0];
-            object[] arguments = CreateDefaultArguments(constructor);
-            arguments[0] = kind;
-            var entry = (CoCoStateFlowTraceEntry)constructor.Invoke(arguments);
-            Assert.That(entry.Kind, Is.EqualTo(kind));
-            return entry;
+            Assert.That(
+                CoCoGraphInstanceId.TryCreate(
+                    graphInstance,
+                    out CoCoGraphInstanceId graphInstanceId),
+                Is.True);
+            Assert.That(
+                CoCoTimelineId.TryCreate(
+                    0x11UL,
+                    0x12UL,
+                    out CoCoTimelineId timelineId),
+                Is.True);
+            Assert.That(
+                CoCoClockDomainId.TryCreate(
+                    0x13UL,
+                    out CoCoClockDomainId clockDomainId),
+                Is.True);
+            Assert.That(
+                CoCoTimelinePosition.TryCreate(
+                    tick * 0.1d,
+                    out CoCoTimelinePosition position),
+                Is.True);
+            Assert.That(
+                CoCoTickFrame.TryCreate(
+                    0.1d,
+                    timelineId,
+                    position,
+                    new CoCoTimelineTick(tick),
+                    clockDomainId,
+                    new CoCoExecutionSequence(tick),
+                    new CoCoTimelineEpoch(1UL),
+                    out CoCoTickFrame tickFrame,
+                    out CoCoDiagnostic diagnostic),
+                Is.True,
+                diagnostic.Message);
+            return new CoCoTemporalFrameInfo(
+                graphInstanceId,
+                tickFrame,
+                new CoCoContextRevision(revision),
+                CoCoContextFrameOrigin.Commit());
         }
     }
 }

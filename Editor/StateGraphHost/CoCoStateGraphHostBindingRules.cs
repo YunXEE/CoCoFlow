@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
+using UnityEditor;
 using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
@@ -10,7 +11,6 @@ namespace CoCoFlow.Editor.StateGraphHost
     /// <summary>装配期提示级别（N6：authoring hints，非启动权威）。</summary>
     internal enum CoCoBindingHintKind
     {
-        Info = 0,
         Warning = 1,
         Error = 2
     }
@@ -83,11 +83,6 @@ namespace CoCoFlow.Editor.StateGraphHost
         internal static bool IsActorContextBinding(MonoBehaviour component)
         {
             return component != null && component is ICoCoActorContextBinding;
-        }
-
-        internal static bool IsContextRestoreBinding(MonoBehaviour component)
-        {
-            return component != null && component is ICoCoContextRestoreBinding;
         }
 
         // ----- 描述（列表行 desc，双语成对） -----

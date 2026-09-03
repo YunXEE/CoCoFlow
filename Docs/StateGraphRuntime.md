@@ -417,17 +417,11 @@ Snapshot and Trace are deliberately separate:
 - Trace answers what identity-only events happened recently and retains a
   bounded ordered history when its configured capacity is greater than zero.
 
-The Editor presents the current Host lifecycle as a live badge in the debugger
-header and the copied snapshot value inside the snapshot card. A failed refresh
+The Editor presents the current Host lifecycle, the copied committed frame, and
+the Temporal ring metadata in one read-only debugger view. A failed refresh
 preserves the previous snapshot and marks it as a retained last committed
-snapshot (stale). Trace display may select exactly one of `All`, `State ID`, or
-`Transition ID`; the identity modes trim surrounding whitespace and accept only
-a non-zero 32-digit hexadecimal identity. Blank or invalid input produces zero
-visible entries rather than silently falling back to `All`. Filtering scans the
-complete ring and returns the latest matching entries in chronological order.
-Raw `Count`, `Capacity`, and `TotalWritten` remain unchanged, with `Visible`
-reported separately. Observing another Host or Graph instance resets the filter
-to `All`.
+snapshot (stale). The focused 0.4.1 debugger does not expose Trace filtering or
+lifecycle controls; Trace remains a separate Runtime diagnostic surface.
 
 Trace capacity defaults to zero, creates no buffer in that mode, and is fixed
 before Running. The Editor cannot resize it on a live Host. A failed transaction
@@ -491,14 +485,38 @@ the debugger remain available.
 
 The debugger window is available from the `CoCoFlow/StateGraph Debugger` menu
 (the previous `Window/CoCoFlow/StateGraph Debugger` entry was removed). It
-keeps the committed-snapshot and Trace semantics documented above and adds an
-explicit snapshot freshness state: a snapshot card shows either fresh data or
-the retained last committed snapshot when the latest refresh was rejected.
+observes one concrete scene `CoCoStateGraphHost`, not a StateGraph asset, and
+answers three questions only:
 
-Debugger records flow through CoCoLog: failed lifecycle operations (suspend,
-resume, one-tick step) are reported as CoCoLog errors, and inspector auto-wire
-records use CoCoLog warnings/logs accordingly. No second log or trace system
-is introduced.
+- **Current committed frame** — frame identity and time metadata plus each
+  Layer's current Active State, local time, action progress, and winning
+  Transition. State IDs are resolved to authoring names when the Host asset
+  provides them.
+- **Temporal ring** — a circular `Count / Capacity` view. Logical depth zero is
+  the current retained authority; older Context frames proceed clockwise. A
+  selected node shows GraphInstance, TickFrame, Context Revision, and Origin
+  metadata. Retained payload bytes and Context field values are never exposed.
+- **Persisted frame** — shown only when the Host has a matching
+  `PersistenceContext` and a compatible StateGraph record already exists in a
+  standard on-disk save slot. The newest valid `updatedUtc` record is shown and
+  highlighted on the ring when its exact frame identity is still retained.
+
+The analyzed Host is marked at its Transform position in Scene view while the
+window is open. The marker and ring selection are Editor-only and do not dirty
+the scene. The Editor consumes two narrow top-level debug seams:
+
+- the Host seam copies the current committed frame plus only Temporal ring
+  capacity and per-frame identity/time/revision/origin metadata; it exposes no
+  retained payload, Context field value, mutable collection, or operation;
+- the Persistence seam scans existing standard slot documents and returns only
+  the newest compatible record's source-frame metadata and write time. It does
+  not create a save directory or invoke Capture, Apply, or a persistence
+  session.
+
+Both seams and their helpers are `internal`, `UNITY_EDITOR`-only, read-only,
+and non-serialized. They do not Preview, Restore, advance a Tick, modify Host
+diagnostics, or change Runtime lifecycle state. The window contains no Suspend,
+Resume, single-step, Trace, or Context mutation action.
 
 ## Actor event boundary
 

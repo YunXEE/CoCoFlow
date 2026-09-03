@@ -16,7 +16,7 @@ namespace CoCoFlow.Editor.StateGraphHost
     /// live Runtime（HasLiveRuntime，含 Running/Suspended）期间四配置区写禁用
     /// （Pre7 收口，B1）；单目标检视（不加 CanEditMultipleObjects，N1）；
     /// 验证为 authoring hints（N6），启动权威 Runtime-deferred。
-    /// 生命周期：CreateInspectorElement 零订阅；订阅只在 OnEnable/OnDisable 对称。
+    /// 生命周期：CreateInspectorGUI 零订阅；订阅只在 OnEnable/OnDisable 对称。
     /// </summary>
     [CustomEditor(typeof(CoCoStateGraphHost))]
     internal sealed class CoCoStateGraphHostEditor : UnityEditor.Editor
@@ -51,7 +51,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
         }
 
-        public override VisualElement CreateInspectorElement()
+        public override VisualElement CreateInspectorGUI()
         {
             _root = new VisualElement { name = "ccflow-host-inspector" };
             CoCoEditorElements.ApplyTheme(_root);

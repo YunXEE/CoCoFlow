@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Modules.Persistence;
+using UnityEditor;
 using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    /// <summary>提交快照新鲜度（N2）：Fresh=本次刷新成功；RetainedStale=刷新失败保留上次；None=从未成功。</summary>
     internal enum CoCoDebuggerSnapshotFreshness
     {
         None = 0,
@@ -14,17 +16,9 @@ namespace CoCoFlow.Editor.StateGraphHost
         RetainedStale = 2
     }
 
-    internal enum CoCoStateGraphHostTraceFilterMode
+    internal readonly struct CoCoDebuggerKeyValueRow
     {
-        All = 0,
-        StateId = 1,
-        TransitionId = 2
-    }
-
-    /// <summary>快照投影行：键 + 值（分区由 <see cref="CoCoDebuggerSnapshotSection"/> 承载）。</summary>
-    internal readonly struct CoCoDebuggerSnapshotRow
-    {
-        internal CoCoDebuggerSnapshotRow(string key, string value)
+        internal CoCoDebuggerKeyValueRow(string key, string value)
         {
             Key = key;
             Value = value;
@@ -34,116 +28,103 @@ namespace CoCoFlow.Editor.StateGraphHost
         internal string Value { get; }
     }
 
-    /// <summary>快照分区（折叠组）：标题 + 键值行。</summary>
-    internal readonly struct CoCoDebuggerSnapshotSection
+    internal readonly struct CoCoDebuggerActiveStateRow
     {
-        internal CoCoDebuggerSnapshotSection(string title, List<CoCoDebuggerSnapshotRow> rows)
+        internal CoCoDebuggerActiveStateRow(
+            string layer,
+            string state,
+            string stateId,
+            string winningTransition,
+            double localSeconds,
+            double actionProgress)
         {
-            Title = title;
-            Rows = rows;
+            Layer = layer;
+            State = state;
+            StateId = stateId;
+            WinningTransition = winningTransition;
+            LocalSeconds = localSeconds;
+            ActionProgress = actionProgress;
         }
 
-        internal string Title { get; }
-        internal IReadOnlyList<CoCoDebuggerSnapshotRow> Rows { get; }
+        internal string Layer { get; }
+        internal string State { get; }
+        internal string StateId { get; }
+        internal string WinningTransition { get; }
+        internal double LocalSeconds { get; }
+        internal double ActionProgress { get; }
     }
 
-    /// <summary>Layer 投影行：层标识 + 胜出 Transition + 激活 State 摘要。</summary>
-    internal readonly struct CoCoDebuggerLayerRow
+    internal readonly struct CoCoDebuggerPersistedFrame
     {
-        internal CoCoDebuggerLayerRow(string layerId, string winner, string activeStates)
+        internal CoCoDebuggerPersistedFrame(
+            CoCoTemporalFrameInfo frame,
+            int slotIndex,
+            DateTimeOffset updatedUtc)
         {
-            LayerId = layerId;
-            Winner = winner;
-            ActiveStates = activeStates;
+            Frame = frame;
+            SlotIndex = slotIndex;
+            UpdatedUtc = updatedUtc;
         }
 
-        internal string LayerId { get; }
-        internal string Winner { get; }
-        internal string ActiveStates { get; }
-    }
-
-    /// <summary>Trace 投影行：组标题或条目文本。</summary>
-    internal readonly struct CoCoDebuggerTraceRow
-    {
-        internal CoCoDebuggerTraceRow(bool isGroupHeader, string text)
-        {
-            IsGroupHeader = isGroupHeader;
-            Text = text;
-        }
-
-        internal bool IsGroupHeader { get; }
-        internal string Text { get; }
+        internal CoCoTemporalFrameInfo Frame { get; }
+        internal int SlotIndex { get; }
+        internal DateTimeOffset UpdatedUtc { get; }
+        internal bool IsValid => Frame.IsValid && SlotIndex >= 0;
     }
 
     /// <summary>
-    /// Runtime Debugger 数据层（D6/D11）：宿主身份观察、提交快照保留与新鲜度、
-    /// Trace 过滤与分组投影。只读投影，不操作 Host 生命周期；刷新失败保留上次
-    /// 已提交快照并标记 RetainedStale。
+    /// Read-only projection state for one concrete Host. It keeps the last
+    /// successfully copied committed snapshot when a transient refresh is
+    /// rejected, but never invokes a Runtime operation.
     /// </summary>
     internal sealed class CoCoStateGraphHostDebuggerState
     {
-        internal const int MaximumVisibleTraceEntries = 128;
+        private readonly Dictionary<CoCoLayerId, string> _layerNames =
+            new Dictionary<CoCoLayerId, string>();
+        private readonly Dictionary<CoCoStateId, string> _stateNames =
+            new Dictionary<CoCoStateId, string>();
 
-        private static readonly CoCoStateFlowTraceKind TransitionGroupKinds =
-            CoCoStateFlowTraceKind.Transition | CoCoStateFlowTraceKind.ActivePath;
-        private static readonly CoCoStateFlowTraceKind OperationGroupKinds =
-            CoCoStateFlowTraceKind.OperationSection | CoCoStateFlowTraceKind.OperatorOutcome;
-        private static readonly CoCoStateFlowTraceKind ContextCommitGroupKinds =
-            CoCoStateFlowTraceKind.Tick |
-            CoCoStateFlowTraceKind.ContextCommit |
-            CoCoStateFlowTraceKind.Diagnostic |
-            CoCoStateFlowTraceKind.Cancelled;
-        private static readonly CoCoStateFlowTraceKind EventGroupKinds =
-            CoCoStateFlowTraceKind.EventSequence | CoCoStateFlowTraceKind.EventPublished;
-
-        private CoCoStateGraphHostDebugSnapshot _snapshot;
+        private CoCoStateGraphHostTemporalDebugSnapshot _snapshot;
         private CoCoDiagnostic _lastRefreshDiagnostic;
-        private CoCoStateFlowTraceEntry[] _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
-        private CoCoStateGraphHostTraceFilterMode _traceFilterMode;
-        private string _traceFilterText = string.Empty;
-        private EntityId _observedHostId;
+        private CoCoDebuggerPersistedFrame _persistedFrame;
+        private string _persistenceFailure = string.Empty;
+        private EntityId _observedHostEntityId;
         private CoCoGraphInstanceId _observedGraphInstanceId;
         private CoCoDebuggerSnapshotFreshness _freshness;
-        private int _visibleTraceCount;
+        private int _selectedDepth;
+        private CoCoStateGraphAsset _namesAsset;
 
+        internal CoCoStateGraphHostTemporalDebugSnapshot Snapshot => _snapshot;
         internal CoCoDebuggerSnapshotFreshness Freshness => _freshness;
-        internal CoCoStateGraphHostDebugSnapshot Snapshot => _snapshot;
         internal CoCoDiagnostic LastRefreshDiagnostic => _lastRefreshDiagnostic;
-        internal CoCoStateGraphHostTraceFilterMode TraceFilterMode => _traceFilterMode;
-        internal string TraceFilterText => _traceFilterText;
-        internal int VisibleTraceCount => _visibleTraceCount;
+        internal bool HasPersistedFrame => _persistedFrame.IsValid;
+        internal string PersistenceFailure => _persistenceFailure;
+        internal int SelectedDepth => _selectedDepth;
 
-        /// <summary>当前过滤文本是否有效（无效时 UI 显示校验消息并暂停投影）。</summary>
-        internal string TraceFilterValidationMessage { get; private set; } = string.Empty;
-
-        /// <summary>宿主身份观察：宿主或 Graph 实例变化时重置全部观察状态（语义保持）。</summary>
         internal void ObserveIdentity(CoCoStateGraphHost host)
         {
-            EntityId hostId = host == null ? default : GetObjectEntityId(host);
+            EntityId hostEntityId = host == null
+                ? default
+                : GetObjectEntityId(host);
             CoCoGraphInstanceId graphInstanceId =
                 host == null ? default : host.GraphInstanceId;
-            if (_observedHostId == hostId &&
+            if (_observedHostEntityId == hostEntityId &&
                 _observedGraphInstanceId == graphInstanceId)
             {
                 return;
             }
 
-            _observedHostId = hostId;
+            _observedHostEntityId = hostEntityId;
             _observedGraphInstanceId = graphInstanceId;
             _snapshot = null;
             _lastRefreshDiagnostic = CoCoDiagnostic.None;
-            _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
-            _traceFilterMode = CoCoStateGraphHostTraceFilterMode.All;
-            _traceFilterText = string.Empty;
-            TraceFilterValidationMessage = string.Empty;
+            _persistedFrame = default;
+            _persistenceFailure = string.Empty;
             _freshness = CoCoDebuggerSnapshotFreshness.None;
-            _visibleTraceCount = 0;
+            _selectedDepth = 0;
+            ClearNameCache();
         }
 
-        /// <summary>
-        /// 拉取一次提交快照。成功 → Fresh；失败 → 保留上次快照并标 RetainedStale
-        /// （从未成功则保持 None），失败诊断供 UI 展示。
-        /// </summary>
         internal bool TryRefresh(CoCoStateGraphHost host)
         {
             if (host == null)
@@ -151,13 +132,17 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return false;
             }
 
-            if (host.TryCaptureDebugSnapshot(
-                    out CoCoStateGraphHostDebugSnapshot snapshot,
+            if (host.TryCaptureTemporalDebugSnapshot(
+                    out CoCoStateGraphHostTemporalDebugSnapshot snapshot,
                     out CoCoDiagnostic diagnostic))
             {
                 _snapshot = snapshot;
                 _lastRefreshDiagnostic = CoCoDiagnostic.None;
                 _freshness = CoCoDebuggerSnapshotFreshness.Fresh;
+                _selectedDepth = snapshot.Count == 0
+                    ? 0
+                    : Mathf.Clamp(_selectedDepth, 0, snapshot.Count - 1);
+                EnsureNameCache(host.StateGraphAsset);
                 return true;
             }
 
@@ -170,396 +155,400 @@ namespace CoCoFlow.Editor.StateGraphHost
             return false;
         }
 
-        /// <summary>设置过滤模式与文本（仅存储；有效性由 TryBuildTraceFilter 判定）。</summary>
-        internal void SetTraceFilter(
-            CoCoStateGraphHostTraceFilterMode mode,
-            string text)
+        internal bool TryRefreshPersistence(CoCoStateGraphHost host)
         {
-            _traceFilterMode = mode;
-            _traceFilterText = text ?? string.Empty;
+            _persistenceFailure = string.Empty;
+            string failure = string.Empty;
+            if (_snapshot == null ||
+                !CoCoStateGraphPersistenceDebugReader.TryReadLatestPersistedFrame(
+                    host,
+                    out CoCoPersistedFrameDebugInfo info,
+                    out failure))
+            {
+                _persistedFrame = default;
+                _persistenceFailure = failure ?? string.Empty;
+                return false;
+            }
+
+            _persistedFrame = new CoCoDebuggerPersistedFrame(
+                info.SourceFrame,
+                info.SlotIndex,
+                info.UpdatedUtc);
+            return true;
         }
 
-        /// <summary>
-        /// 从 Host Trace 拉取可见条目（容量内最新 128 条，过滤后）。
-        /// Trace 为 null（容量 0）时可见数为 0。
-        /// </summary>
-        internal void PullTrace(CoCoStateGraphHost host)
+        internal void SelectDepth(int depth)
         {
-            _visibleTraceCount = 0;
-            ICoCoStateFlowTrace trace = host == null ? null : host.Trace;
-            if (trace == null)
+            if (_snapshot == null || _snapshot.Count == 0)
             {
-                _traceEntries = Array.Empty<CoCoStateFlowTraceEntry>();
+                _selectedDepth = 0;
                 return;
             }
 
-            if (!TryBuildTraceFilter(
-                    _traceFilterMode,
-                    _traceFilterText,
-                    out CoCoStateFlowTraceFilter filter,
-                    out string validationMessage))
+            _selectedDepth = Mathf.Clamp(depth, 0, _snapshot.Count - 1);
+        }
+
+        internal bool TryGetSelectedFrame(out CoCoTemporalFrameInfo frame)
+        {
+            if (_snapshot == null ||
+                _snapshot.Count == 0 ||
+                _selectedDepth < 0 ||
+                _selectedDepth >= _snapshot.Count)
             {
-                TraceFilterValidationMessage = validationMessage;
-                return;
+                frame = default;
+                return false;
             }
 
-            TraceFilterValidationMessage = string.Empty;
-            int capacity = Math.Min(trace.Count, MaximumVisibleTraceEntries);
-            if (_traceEntries.Length != capacity)
+            frame = _snapshot.GetFrame(_selectedDepth);
+            return frame.IsValid;
+        }
+
+        internal int FindPersistedDepth()
+        {
+            if (_snapshot == null || !_persistedFrame.IsValid)
             {
-                _traceEntries = capacity == 0
-                    ? Array.Empty<CoCoStateFlowTraceEntry>()
-                    : new CoCoStateFlowTraceEntry[capacity];
+                return -1;
             }
 
-            _visibleTraceCount = trace.CopyLatestTo(_traceEntries, filter);
-        }
-
-        /// <summary>Trace 计数投影（count/capacity/totalWritten/visible）。</summary>
-        internal void GetTraceCounts(
-            CoCoStateGraphHost host,
-            out int count,
-            out int capacity,
-            out ulong totalWritten,
-            out int visible)
-        {
-            ICoCoStateFlowTrace trace = host == null ? null : host.Trace;
-            count = trace?.Count ?? 0;
-            capacity = trace?.Capacity ?? 0;
-            totalWritten = trace?.TotalWritten ?? 0UL;
-            visible = _visibleTraceCount;
-        }
-
-        /// <summary>测试 seam（D11：确定性注入，替代私有字段反射）。</summary>
-        internal void SeedSnapshotForTests(CoCoStateGraphHostDebugSnapshot snapshot)
-        {
-            _snapshot = snapshot;
-        }
-
-        /// <summary>测试 seam（D11：确定性注入，替代私有字段反射）。</summary>
-        internal void SeedTraceEntriesForTests(
-            CoCoStateFlowTraceEntry[] entries,
-            int visibleCount)
-        {
-            _traceEntries = entries ?? Array.Empty<CoCoStateFlowTraceEntry>();
-            _visibleTraceCount = visibleCount;
-        }
-
-        /// <summary>
-        /// 快照 → 分区投影（Identity/Timeline/Runtime/Context 四折叠组；
-        /// Layers/Claims 由 <see cref="BuildLayerRows"/>/
-        /// <see cref="BuildClaimRows"/> 单独投影）。
-        /// </summary>
-        internal List<CoCoDebuggerSnapshotSection> BuildSnapshotSections()
-        {
-            var sections = new List<CoCoDebuggerSnapshotSection>();
-            CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
-            if (snapshot == null)
+            for (int depth = 0; depth < _snapshot.Count; depth++)
             {
-                return sections;
+                if (IsSameFrame(
+                        _snapshot.GetFrame(depth),
+                        _persistedFrame.Frame))
+                {
+                    return depth;
+                }
             }
 
-            sections.Add(new CoCoDebuggerSnapshotSection(
-                CoCoEditorLocalization.Text("Identity", "标识"),
-                new List<CoCoDebuggerSnapshotRow>
-                {
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Graph", "图"),
-                        snapshot.GraphId.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Instance", "实例"),
-                        snapshot.GraphInstanceId.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Schema", "Schema"),
-                        snapshot.SchemaVersion.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Content Fingerprint", "内容指纹"),
-                        snapshot.ContentFingerprint.ToString("X16")),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Catalog Fingerprint", "目录指纹"),
-                        snapshot.CatalogFingerprint.ToString("X16")),
-                }));
-
-            sections.Add(new CoCoDebuggerSnapshotSection(
-                CoCoEditorLocalization.Text("Timeline", "时间线"),
-                new List<CoCoDebuggerSnapshotRow>
-                {
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Timeline", "时间线"),
-                        snapshot.TimelineId.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Clock Domain", "时钟域"),
-                        snapshot.ClockDomainId.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Epoch", "纪元"),
-                        snapshot.TimelineEpoch.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Tick", "Tick"),
-                        snapshot.Tick.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Sequence", "序号"),
-                        snapshot.ExecutionSequence.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Seconds", "秒"),
-                        snapshot.Seconds.ToString("0.######")),
-                }));
-
-            var runtimeRows = new List<CoCoDebuggerSnapshotRow>
-            {
-                new CoCoDebuggerSnapshotRow(
-                    CoCoEditorLocalization.Text("Lifecycle", "生命周期"),
-                    snapshot.Lifecycle.ToString()),
-                new CoCoDebuggerSnapshotRow(
-                    CoCoEditorLocalization.Text("Fault", "故障"),
-                    snapshot.Fault.IsFaulted
-                        ? snapshot.Fault.Diagnostic.Message
-                        : CoCoEditorLocalization.Text("none", "无")),
-                new CoCoDebuggerSnapshotRow(
-                    CoCoEditorLocalization.Text("World Correction", "世界修正"),
-                    snapshot.RequiresWorldCorrection
-                        ? CoCoEditorLocalization.Text("required", "需要")
-                        : CoCoEditorLocalization.Text("none", "无")),
-                new CoCoDebuggerSnapshotRow(
-                    CoCoEditorLocalization.Text("Last Diagnostic", "最后诊断"),
-                    snapshot.LastDiagnostic.Domain + "/" + snapshot.LastDiagnostic.Code +
-                        ": " + snapshot.LastDiagnostic.Message),
-            };
-            sections.Add(new CoCoDebuggerSnapshotSection(
-                CoCoEditorLocalization.Text("Runtime", "运行时"),
-                runtimeRows));
-
-            CoCoStateFlowFrameHeader contextHeader = snapshot.ContextHeader;
-            sections.Add(new CoCoDebuggerSnapshotSection(
-                CoCoEditorLocalization.Text("Context", "上下文"),
-                new List<CoCoDebuggerSnapshotRow>
-                {
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Revision", "版本"),
-                        snapshot.ContextRevision.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Origin", "来源"),
-                        snapshot.ContextOrigin.Kind.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Claims", "占用数"),
-                        snapshot.ClaimCount.ToString()),
-                    new CoCoDebuggerSnapshotRow(
-                        CoCoEditorLocalization.Text("Header", "帧头"),
-                        contextHeader.IsValid
-                            ? contextHeader.Identity.GraphInstanceId +
-                              "; Kind " + contextHeader.Identity.Kind +
-                              "; Tick " + contextHeader.Identity.Tick +
-                              "; Sequence " + contextHeader.Identity.ExecutionSequence +
-                              "; Layout " + contextHeader.LayoutId
-                            : "<" + CoCoEditorLocalization.Text("none", "无") + ">"),
-                }));
-
-            return sections;
+            return -1;
         }
 
-        /// <summary>Layers 投影行（每层一行：胜出 Transition + 激活 State 摘要）。</summary>
-        internal List<CoCoDebuggerLayerRow> BuildLayerRows()
+        internal List<CoCoDebuggerKeyValueRow> BuildCurrentFrameRows()
         {
-            var rows = new List<CoCoDebuggerLayerRow>();
-            CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
-            if (snapshot == null)
+            var rows = new List<CoCoDebuggerKeyValueRow>();
+            if (_snapshot == null)
             {
                 return rows;
             }
 
-            for (int layerIndex = 0; layerIndex < snapshot.LayerCount; layerIndex++)
+            AppendFrameRows(
+                rows,
+                _snapshot.ContextHeader.Identity.GraphInstanceId,
+                _snapshot.ContextHeader.TickFrame,
+                _snapshot.ContextRevision,
+                _snapshot.ContextOrigin);
+            return rows;
+        }
+
+        internal List<CoCoDebuggerKeyValueRow> BuildSelectedFrameRows()
+        {
+            var rows = new List<CoCoDebuggerKeyValueRow>();
+            if (!TryGetSelectedFrame(out CoCoTemporalFrameInfo frame))
             {
-                CoCoStateGraphHostDebugLayer layer = snapshot.GetLayer(layerIndex);
-                var states = new System.Text.StringBuilder();
-                for (int stateIndex = 0; stateIndex < layer.ActiveStateCount; stateIndex++)
+                return rows;
+            }
+
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("History depth", "历史深度"),
+                _selectedDepth.ToString(CultureInfo.InvariantCulture)));
+            AppendFrameRows(
+                rows,
+                frame.GraphInstanceId,
+                frame.TickFrame,
+                frame.Revision,
+                frame.Origin);
+            return rows;
+        }
+
+        internal List<CoCoDebuggerKeyValueRow> BuildPersistedFrameRows()
+        {
+            var rows = new List<CoCoDebuggerKeyValueRow>();
+            if (!_persistedFrame.IsValid)
+            {
+                return rows;
+            }
+
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Save slot", "存档槽位"),
+                _persistedFrame.SlotIndex.ToString(CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Written at (UTC)", "写盘时间（UTC）"),
+                _persistedFrame.UpdatedUtc
+                    .ToUniversalTime()
+                    .ToString("u", CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text(
+                    "Written at (Local)",
+                    "写盘时间（本地）"),
+                _persistedFrame.UpdatedUtc
+                    .ToLocalTime()
+                    .ToString(
+                        "yyyy-MM-dd HH:mm:ss zzz",
+                        CultureInfo.InvariantCulture)));
+            AppendFrameRows(
+                rows,
+                _persistedFrame.Frame.GraphInstanceId,
+                _persistedFrame.Frame.TickFrame,
+                _persistedFrame.Frame.Revision,
+                _persistedFrame.Frame.Origin);
+            return rows;
+        }
+
+        internal List<CoCoDebuggerActiveStateRow> BuildActiveStateRows()
+        {
+            var rows = new List<CoCoDebuggerActiveStateRow>();
+            if (_snapshot == null)
+            {
+                return rows;
+            }
+
+            for (int layerIndex = 0;
+                 layerIndex < _snapshot.LayerCount;
+                 layerIndex++)
+            {
+                CoCoStateGraphHostDebugLayer layer =
+                    _snapshot.GetLayer(layerIndex);
+                string layerName = ResolveLayerName(layer.LayerId);
+                string winningTransition = layer.WinningTransitionId.IsValid
+                    ? layer.WinningTransitionId.ToString()
+                    : "—";
+                for (int stateIndex = 0;
+                     stateIndex < layer.ActiveStateCount;
+                     stateIndex++)
                 {
                     CoCoStateGraphHostDebugActiveState state =
                         layer.GetActiveState(stateIndex);
-                    if (stateIndex > 0)
-                    {
-                        states.Append("\n");
-                    }
+                    rows.Add(new CoCoDebuggerActiveStateRow(
+                        layerName,
+                        ResolveStateName(state.StateId),
+                        state.StateId.ToString(),
+                        winningTransition,
+                        state.LocalSeconds,
+                        state.ActionProgress));
+                }
+            }
 
-                    states.Append("  ").Append(state.StateId)
-                        .Append("; ").Append(CoCoEditorLocalization.Text(
-                            "Activation", "激活")).Append(' ')
-                            .Append(state.ActivationId)
-                        .Append("; ").Append(CoCoEditorLocalization.Text(
-                            "Local", "本地")).Append(' ')
-                            .Append(state.LocalSeconds.ToString("0.######"))
-                        .Append("; ").Append(CoCoEditorLocalization.Text(
-                            "Progress", "进度")).Append(' ')
-                            .Append(state.ActionProgress.ToString("0.######"));
+            return rows;
+        }
+
+        internal static bool IsSameFrame(
+            in CoCoTemporalFrameInfo left,
+            in CoCoTemporalFrameInfo right) =>
+            left.IsValid &&
+            right.IsValid &&
+            left.GraphInstanceId == right.GraphInstanceId &&
+            left.TickFrame == right.TickFrame &&
+            left.Revision == right.Revision;
+
+        internal void SeedSnapshotForTests(
+            CoCoStateGraphHostTemporalDebugSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+            _selectedDepth = 0;
+        }
+
+        internal void SeedPersistedFrameForTests(
+            CoCoTemporalFrameInfo frame,
+            int slotIndex,
+            DateTimeOffset updatedUtc)
+        {
+            _persistedFrame = new CoCoDebuggerPersistedFrame(
+                frame,
+                slotIndex,
+                updatedUtc);
+        }
+
+        private void EnsureNameCache(CoCoStateGraphAsset asset)
+        {
+            if (_namesAsset == asset)
+            {
+                return;
+            }
+
+            ClearNameCache();
+            _namesAsset = asset;
+            if (asset == null)
+            {
+                return;
+            }
+
+            var serializedAsset = new SerializedObject(asset);
+            serializedAsset.Update();
+            SerializedProperty layers = serializedAsset.FindProperty("layers");
+            if (layers == null || !layers.isArray)
+            {
+                return;
+            }
+
+            for (int layerIndex = 0;
+                 layerIndex < layers.arraySize;
+                 layerIndex++)
+            {
+                SerializedProperty layer =
+                    layers.GetArrayElementAtIndex(layerIndex);
+                string layerName = layer.FindPropertyRelative("displayName")
+                    ?.stringValue;
+                if (TryReadLayerId(
+                        layer.FindPropertyRelative("layerId"),
+                        out CoCoLayerId layerId))
+                {
+                    _layerNames[layerId] = string.IsNullOrWhiteSpace(layerName)
+                        ? ShortId(layerId.ToString())
+                        : layerName;
                 }
 
-                rows.Add(new CoCoDebuggerLayerRow(
-                    layer.LayerId.ToString(),
-                    layer.WinningTransitionId.ToString(),
-                    states.ToString()));
-            }
-
-            return rows;
-        }
-
-        /// <summary>Claims 投影行（每条一行）。</summary>
-        internal List<string> BuildClaimRows()
-        {
-            var rows = new List<string>();
-            CoCoStateGraphHostDebugSnapshot snapshot = _snapshot;
-            if (snapshot == null)
-            {
-                return rows;
-            }
-
-            for (int claimIndex = 0; claimIndex < snapshot.ClaimCount; claimIndex++)
-            {
-                CoCoOperatorClaimState claim = snapshot.GetClaim(claimIndex);
-                rows.Add(
-                    claim.ClaimId +
-                    "; " + CoCoEditorLocalization.Text("Section", "区段") +
-                    " " + claim.SectionId +
-                    "; " + (claim.IsHeld
-                        ? CoCoEditorLocalization.Text("held", "持有")
-                        : CoCoEditorLocalization.Text("free", "空闲")) +
-                    "; " + CoCoEditorLocalization.Text("Owner", "持有者") +
-                    " " + claim.OwnerOperatorId);
-            }
-
-            return rows;
-        }
-
-        /// <summary>可见 Trace 条目 → 分组行投影（Transition/Operation/Context Commit/Event；语义保持）。</summary>
-        internal List<CoCoDebuggerTraceRow> BuildTraceRows()
-        {
-            var rows = new List<CoCoDebuggerTraceRow>();
-            AppendTraceGroup(
-                rows,
-                CoCoEditorLocalization.Text("Transition", "转移"),
-                TransitionGroupKinds);
-            AppendTraceGroup(
-                rows,
-                CoCoEditorLocalization.Text("Operation", "操作"),
-                OperationGroupKinds);
-            AppendTraceGroup(
-                rows,
-                CoCoEditorLocalization.Text("Context Commit", "上下文提交"),
-                ContextCommitGroupKinds);
-            AppendTraceGroup(
-                rows,
-                CoCoEditorLocalization.Text("Event", "事件"),
-                EventGroupKinds);
-            return rows;
-        }
-
-        private void AppendTraceGroup(
-            List<CoCoDebuggerTraceRow> rows,
-            string label,
-            CoCoStateFlowTraceKind kinds)
-        {
-            bool drewHeader = false;
-            for (int index = 0; index < _visibleTraceCount; index++)
-            {
-                CoCoStateFlowTraceEntry entry = _traceEntries[index];
-                if ((entry.Kind & kinds) == 0)
+                SerializedProperty states = layer.FindPropertyRelative("states");
+                if (states == null || !states.isArray)
                 {
                     continue;
                 }
 
-                if (!drewHeader)
+                for (int stateIndex = 0;
+                     stateIndex < states.arraySize;
+                     stateIndex++)
                 {
-                    rows.Add(new CoCoDebuggerTraceRow(true, label));
-                    drewHeader = true;
-                }
-
-                rows.Add(new CoCoDebuggerTraceRow(false, FormatTraceEntry(entry)));
-            }
-        }
-
-        /// <summary>Trace 过滤器构造（三模式互斥；语义与校验消息保持）。</summary>
-        internal static bool TryBuildTraceFilter(
-            CoCoStateGraphHostTraceFilterMode mode,
-            string text,
-            out CoCoStateFlowTraceFilter filter,
-            out string validationMessage)
-        {
-            switch (mode)
-            {
-                case CoCoStateGraphHostTraceFilterMode.All:
-                    filter = CoCoStateFlowTraceFilter.All;
-                    validationMessage = string.Empty;
-                    return true;
-                case CoCoStateGraphHostTraceFilterMode.StateId:
-                    if (CoCoStateId.TryParse(
-                            string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim(),
+                    SerializedProperty state =
+                        states.GetArrayElementAtIndex(stateIndex);
+                    string stateName = state.FindPropertyRelative("displayName")
+                        ?.stringValue;
+                    if (TryReadStateId(
+                            state.FindPropertyRelative("stateId"),
                             out CoCoStateId stateId))
                     {
-                        filter = new CoCoStateFlowTraceFilter(
-                            CoCoStateFlowTraceKind.All,
-                            stateId: stateId);
-                        validationMessage = string.Empty;
-                        return true;
+                        _stateNames[stateId] = string.IsNullOrWhiteSpace(stateName)
+                            ? ShortId(stateId.ToString())
+                            : stateName;
                     }
-
-                    filter = default;
-                    validationMessage = CoCoEditorLocalization.Text(
-                        "State ID must be one non-zero 32-digit hexadecimal identity.",
-                        "State ID 必须是一个非零 32 位十六进制标识。");
-                    return false;
-                case CoCoStateGraphHostTraceFilterMode.TransitionId:
-                    if (CoCoTransitionId.TryParse(
-                            string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim(),
-                            out CoCoTransitionId transitionId))
-                    {
-                        filter = new CoCoStateFlowTraceFilter(
-                            CoCoStateFlowTraceKind.All,
-                            transitionId: transitionId);
-                        validationMessage = string.Empty;
-                        return true;
-                    }
-
-                    filter = default;
-                    validationMessage = CoCoEditorLocalization.Text(
-                        "Transition ID must be one non-zero 32-digit hexadecimal identity.",
-                        "Transition ID 必须是一个非零 32 位十六进制标识。");
-                    return false;
-                default:
-                    filter = default;
-                    validationMessage = CoCoEditorLocalization.Text(
-                        "Trace filter mode is invalid.",
-                        "Trace 过滤模式无效。");
-                    return false;
+                }
             }
         }
 
-        private static string FormatTraceEntry(CoCoStateFlowTraceEntry entry)
+        private void ClearNameCache()
         {
-            string prefix = "  " + entry.Kind + " | Tick " + entry.TickFrame.Tick;
-            switch (entry.Kind)
+            _namesAsset = null;
+            _layerNames.Clear();
+            _stateNames.Clear();
+        }
+
+        private string ResolveLayerName(CoCoLayerId id) =>
+            _layerNames.TryGetValue(id, out string name)
+                ? name
+                : ShortId(id.ToString());
+
+        private string ResolveStateName(CoCoStateId id) =>
+            _stateNames.TryGetValue(id, out string name)
+                ? name
+                : ShortId(id.ToString());
+
+        private static void AppendFrameRows(
+            ICollection<CoCoDebuggerKeyValueRow> rows,
+            CoCoGraphInstanceId graphInstanceId,
+            in CoCoTickFrame tickFrame,
+            CoCoContextRevision revision,
+            CoCoContextFrameOrigin origin)
+        {
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Graph Instance", "Graph 实例"),
+                graphInstanceId.IsValid ? graphInstanceId.ToString() : "—"));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Tick", "Tick"),
+                tickFrame.Tick.Value.ToString(CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Timeline position", "时间线位置"),
+                tickFrame.TimelinePosition.Seconds.ToString(
+                    "0.### s",
+                    CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Delta Time", "帧间隔"),
+                tickFrame.DeltaTime.ToString(
+                    "0.##### s",
+                    CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Timeline ID", "时间线 ID"),
+                tickFrame.TimelineId.IsValid ? tickFrame.TimelineId.ToString() : "—"));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Clock Domain", "时钟域"),
+                tickFrame.ClockDomainId.IsValid
+                    ? tickFrame.ClockDomainId.ToString()
+                    : "—"));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Timeline Epoch", "时间线 Epoch"),
+                tickFrame.TimelineEpoch.Value.ToString(CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Execution Sequence", "执行序列"),
+                tickFrame.ExecutionSequence.Value.ToString(
+                    CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Context Revision", "Context Revision"),
+                revision.Value.ToString(CultureInfo.InvariantCulture)));
+            rows.Add(new CoCoDebuggerKeyValueRow(
+                CoCoEditorLocalization.Text("Origin", "来源"),
+                FormatOrigin(origin)));
+        }
+
+        private static string FormatOrigin(CoCoContextFrameOrigin origin)
+        {
+            if (origin.Kind == CoCoContextFrameOriginKind.Commit)
             {
-                case CoCoStateFlowTraceKind.Transition:
-                    return prefix + " | Layer " + entry.LayerId + " | Transition " +
-                        entry.TransitionId + " | Role " + entry.TransitionRole;
-                case CoCoStateFlowTraceKind.ActivePath:
-                    return prefix + " | Layer " + entry.LayerId + " | State " +
-                        entry.StateId;
-                case CoCoStateFlowTraceKind.OperationSection:
-                    return prefix + " | Section " + entry.SectionId;
-                case CoCoStateFlowTraceKind.OperatorOutcome:
-                    return prefix + " | Operator " + entry.OperatorId + " | Outcome " +
-                        entry.OperatorOutcome;
-                case CoCoStateFlowTraceKind.ContextCommit:
-                    return prefix + " | Revision " + entry.PreviousRevision + " -> " +
-                        entry.NewRevision;
-                case CoCoStateFlowTraceKind.EventSequence:
-                case CoCoStateFlowTraceKind.EventPublished:
-                    return prefix + " | Event Sequence " + entry.FirstEventSequence +
-                        " -> " + entry.LastEventSequence;
-                case CoCoStateFlowTraceKind.Diagnostic:
-                case CoCoStateFlowTraceKind.Cancelled:
-                    return prefix + " | Diagnostic " + entry.DiagnosticDomain + "/" +
-                        entry.DiagnosticCode;
-                default:
-                    return prefix;
+                return CoCoEditorLocalization.Text("Commit", "提交");
             }
+
+            if (origin.Kind == CoCoContextFrameOriginKind.Restore)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    CoCoEditorLocalization.Text(
+                        "Restore · Graph {0} · Tick {1} · Revision {2}",
+                        "恢复 · Graph {0} · Tick {1} · Revision {2}"),
+                    origin.SourceGraphInstanceId,
+                    origin.SourceTick.Value,
+                    origin.SourceRevision.Value);
+            }
+
+            return "—";
+        }
+
+        private static bool TryReadLayerId(
+            SerializedProperty property,
+            out CoCoLayerId id)
+        {
+            ReadSerializedId(property, out ulong high, out ulong low);
+            return CoCoLayerId.TryCreate(high, low, out id);
+        }
+
+        private static bool TryReadStateId(
+            SerializedProperty property,
+            out CoCoStateId id)
+        {
+            ReadSerializedId(property, out ulong high, out ulong low);
+            return CoCoStateId.TryCreate(high, low, out id);
+        }
+
+        private static void ReadSerializedId(
+            SerializedProperty property,
+            out ulong high,
+            out ulong low)
+        {
+            SerializedProperty highProperty =
+                property?.FindPropertyRelative("high");
+            SerializedProperty lowProperty =
+                property?.FindPropertyRelative("low");
+            high = highProperty == null
+                ? 0UL
+                : unchecked((ulong)highProperty.longValue);
+            low = lowProperty == null
+                ? 0UL
+                : unchecked((ulong)lowProperty.longValue);
+        }
+
+        private static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                return "—";
+            }
+
+            return id.Length <= 8 ? id : id.Substring(id.Length - 8);
         }
 
         private static EntityId GetObjectEntityId(UnityEngine.Object value)
