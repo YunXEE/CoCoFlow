@@ -27,10 +27,11 @@ Graph Asset
       -> leaf States and same-Layer Transitions
 ```
 
-Composite States are navigated through foldout, drill-in, and breadcrumb
-controls; double-clicking a composite State card on the canvas drills into its
-scope, and the breadcrumb segments navigate back to any ancestor scope. A
-Transition can connect only two leaves in the selected Layer. Its runtime
+The canvas shows the whole selected Layer as one flattened genealogy view:
+every State, at any nesting depth, is placed on the same canvas (positions are
+composed from the per-scope local EditorLayout coordinates), and parent-child
+structure is drawn as white flowchart-style elbow lines (genealogy lines). A
+Transition can connect only two leaves of the Layer, at any depth. Its runtime
 declaration consists of Conditions, one Window, and a Priority that is unique
 among the outgoing Transitions of its source. Completion and Interrupt are not
 authoring fields. The interaction rejects a cross-Layer or composite endpoint
@@ -39,9 +40,33 @@ before mutation, while Compiler validation remains the final gate.
 Canvas edges follow the Animator-style presentation: every edge is anchored on
 the center line of its two State cards (clipped at the card borders), multiple
 Transitions between the same pair of States render as parallel offset lines,
-self-loops render as a loop above the card, and every edge carries a direction
-arrowhead. Clicking an edge selects that Transition for editing in the details
-pane.
+self-loops render as a loop above the card, and every edge carries a filled
+direction triangle at its midpoint. Clicking an edge selects that Transition —
+and only the edge itself — for editing in the details pane; clicking empty
+canvas clears the selection.
+
+Cards use a two-layer border system: the inner border carries node state
+(the Layer initial and each composite's initial child are marked with a
+green inner border plus a "<scope name> Default" badge), while the outer
+border (offset from the card body) is reserved for dynamic states. The first
+outer-border type is the ancestry highlight: selecting a State lights the
+selected State, all of its ancestors, and the genealogy segments between them,
+visualizing how much Logic the State inherits and runs.
+
+Leaf flow states are computed from the Layer default leaf by following all
+Transitions: reachable leaves with outgoing edges (and the default leaf when
+it has outgoing edges) show no marker; reachable leaves without outgoing edges
+(dead ends) show an orange dashed outer ring; topologically unreachable leaves
+(including a default leaf without outgoing edges) show a red dashed ring.
+Rings are 50% opacity and are covered by the ancestry highlight.
+
+Composite cards show a leaf count badge and a "Tidy Subtree" action that
+re-arranges all descendants as an evenly spaced genealogy tree (one undo
+group). Dragging a composite card moves its whole subtree while writing only
+that State's own EditorLayout record. The canvas also offers a one-step
+"Add Composite (sub-state machine)" context action that creates a container
+plus its first child State in one collapsed undo group. Right-dragging from a
+leaf card to another leaf creates an Always Transition.
 
 The Asset Inspector is an entry point, summary, and diagnostic surface built
 with the same unified visual language. It shows identity and count summaries,

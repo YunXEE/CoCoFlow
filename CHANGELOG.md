@@ -55,13 +55,24 @@ Editor tooling, and sample tests, 5193 lines of C#). Git history remains the
   preference. Asset names, descriptor names, and diagnostic payloads are
   never translated. Editor styles load by package path instead of a hard-coded
   GUID.
-- Canvas edges follow the Animator presentation: center-anchored edges clipped
-  at card borders, parallel offsets for multiple transitions between the same
-  State pair, direction arrowheads, self-loops above the card, click-an-edge
-  selects that Transition, and double-clicking a composite State card drills
-  into its scope. The breadcrumb is now clickable per scope segment. All
-  pointer semantics (pan/zoom/drag/capture) and the authoring command/Undo
-  boundary are unchanged.
+- The canvas is rebuilt as a flattened genealogy view: the whole Layer is
+  visible on one canvas (positions composed from per-scope EditorLayout
+  records), parent-child structure is drawn as white flowchart-style lines,
+  and cross-scope transitions are always visible. Cards use a two-layer
+  border system: the inner border carries node state (initial/default
+  markings with "<scope> Default" badges), the outer border carries dynamic
+  states. Selecting a State highlights its full ancestry chain and the
+  genealogy segments between them; selecting a Transition highlights only the
+  edge; clicking empty canvas clears the selection. Leaf flow states are
+  computed from the Layer default (orange dashed ring = reachable dead end,
+  red dashed ring = topologically unreachable / default without outgoing
+  edges). Composite cards show a leaf count and a "Tidy Subtree" action;
+  dragging a composite moves its whole subtree with one layout record. Edges
+  follow the Animator presentation (center-anchored clipping, parallel
+  offsets for bidirectional pairs, midpoint direction triangles, self loops).
+  A dot grid background and an explicit zoom slider were added; wheel zoom
+  sensitivity was reduced. All pointer semantics (pan/zoom/drag/capture) and
+  the authoring command/Undo boundary are unchanged.
 - The StateGraph Asset Inspector moved from IMGUI to UI Toolkit on the same
   visual language. It keeps the reachable surface (identity/count summary,
   Event Adapter Declarations as the sole non-topology editing lane, Open
