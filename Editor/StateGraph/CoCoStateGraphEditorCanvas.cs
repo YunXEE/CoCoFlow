@@ -92,7 +92,7 @@ namespace CoCoFlow.Editor.StateGraph
             Add(gridLayer);
             RegisterCallback<GeometryChangedEvent>(_ => gridLayer.MarkDirtyRepaint());
 
-            content = new VisualElement { name = "state-graph-canvas-content" };
+            content = new VisualElement { name = "state-graph-canvas-content", pickingMode = PickingMode.Ignore };
             content.style.position = Position.Absolute;
             content.style.left = 0f;
             content.style.top = 0f;
@@ -1021,8 +1021,13 @@ namespace CoCoFlow.Editor.StateGraph
             if (evt.button == 0)
             {
                 // D8：左键点击边=选中 Transition；未命中维持现状（不启动任何手势）。
+                // 坐标用 panel→canvas 换算，与事件 target 无关（content 已不可拾取，
+                // 但保持 target 无关可防御任何子层命中路径；此前 evt.localPosition
+                // 在 content 命中时是图坐标，二次变换导致真实编辑器点不中——
+                // 测试直接发事件给 canvas 才碰巧正确）。
+                Vector2 clickGraph = ToGraphPosition(PanelToLocal(evt.position));
                 if (TryHitEdge(
-                        ToGraphPosition(evt.localPosition),
+                        clickGraph,
                         6f / Mathf.Max(CurrentView.Zoom, 0.01f),
                         out CoCoSerializedId128 hitId) &&
                     CoCoTransitionId.TryCreate(hitId.High, hitId.Low, out CoCoTransitionId hitTransitionId))
@@ -1052,7 +1057,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (evt.button == 1)
             {
-                TryRequestContext(ToGraphPosition(evt.localPosition));
+                TryRequestContext(ToGraphPosition(PanelToLocal(evt.position)));
                 evt.StopPropagation();
             }
         }
@@ -1436,6 +1441,28 @@ namespace CoCoFlow.Editor.StateGraph
                 var logicLine = new Label(logicShort.Length > 0 ? $"{logicName}  [{logicShort}]" : logicName);
                 logicLine.AddToClassList("state-card__descriptor");
                 Add(logicLine);
+
+                // 徽标与操作按钮在文字下方（维护者反馈：位置在上方不对）。
+                if (HasChildren())
+                {
+                    int leafCount = CountDescendantLeaves();
+                    var leafBadge = new Label($"Leaf: {leafCount}");
+                    leafBadge.AddToClassList("state-card__leaf-count");
+                    leafBadge.tooltip = CoCoEditorLocalization.Text(
+                        "Leaf states in this subtree",
+                        "该子树内的叶状态数量");
+                    Add(leafBadge);
+
+                    var tidy = new Button(() => tidyRequested(state.StateId))
+                    {
+                        text = CoCoEditorLocalization.Text("Tidy Subtree", "整理子级"),
+                        tooltip = CoCoEditorLocalization.Text(
+                            "Arrange all descendants as an evenly spaced genealogy tree",
+                            "把全部后代按等距谱系树重新排布")
+                    };
+                    tidy.AddToClassList("state-card__drill");
+                    Add(tidy);
+                }
 
                 RegisterCallback<PointerDownEvent>(OnPointerDown);
                 RegisterCallback<PointerMoveEvent>(OnPointerMove);
