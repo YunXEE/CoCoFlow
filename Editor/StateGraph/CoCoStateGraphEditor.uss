@@ -46,11 +46,6 @@
     white-space: normal;
 }
 
-.sg-tree-count {
-    opacity: 0.7;
-    margin-left: 6px;
-}
-
 /* ── 详情区 ───────────────────────────────────────── */
 
 .sg-card {
@@ -103,13 +98,6 @@
     background-color: rgba(45, 112, 180, 0.18);
 }
 
-.sg-transition-row__label {
-    flex-grow: 1;
-    flex-shrink: 1;
-    white-space: normal;
-    -unity-text-align: middle-left;
-}
-
 .sg-condition-row {
     flex-direction: row;
     align-items: center;
@@ -121,12 +109,6 @@
     flex-grow: 1;
     flex-shrink: 1;
     white-space: normal;
-}
-
-.sg-header-badges {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
 }
 
 /* ── 画布（D2/D8：自研画布 + Animator 边体验） ────── */

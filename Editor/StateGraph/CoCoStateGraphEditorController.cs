@@ -198,34 +198,7 @@ namespace CoCoFlow.Editor.StateGraph
             SaveAndNotify();
         }
 
-        internal void DrillInto(CoCoStateId stateId)
-        {
-            CoCoStateGraphLayerRecord layer = SelectedLayer;
-            CoCoStateGraphStateRecord state = FindState(layer, stateId);
-            if (state == null || !HasChildren(layer, state.StateId))
-            {
-                return;
-            }
 
-            Session.DrillRootStateId = stateId;
-            Session.SelectedStateId = default;
-            SaveAndNotify();
-        }
-
-        internal void DrillUp()
-        {
-            if (!Session.DrillRootStateId.IsValid)
-            {
-                return;
-            }
-
-            CoCoStateGraphStateRecord current = FindState(SelectedLayer, Session.DrillRootStateId);
-            Session.DrillRootStateId = current != null && current.ParentStateId.IsValid
-                ? ToStateId(current.ParentStateId)
-                : default;
-            Session.SelectedStateId = default;
-            SaveAndNotify();
-        }
 
         internal string BreadcrumbLabel
         {
@@ -715,77 +688,6 @@ namespace CoCoFlow.Editor.StateGraph
                 : $"Unresolved  {descriptorId}";
         }
 
-        internal IReadOnlyList<string> BuildRequirementOverlay()
-        {
-            var lines = new List<string>();
-            CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
-            if (state != null &&
-                CoCoStateDescriptorId.TryCreate(
-                    state.StateDescriptorId.High,
-                    state.StateDescriptorId.Low,
-                    out CoCoStateDescriptorId stateDescriptorId) &&
-                catalog != null &&
-                catalog.TryGetStateDescriptor(stateDescriptorId, out CoCoStateDescriptor stateDescriptor))
-            {
-                lines.Add($"State: {stateDescriptor.LogicType.Name}  {stateDescriptor.DescriptorId}");
-                AddIds(lines, "Intent requires", stateDescriptor.IntentRequirements);
-                AddIds(lines, "Operation provides", stateDescriptor.OperationProvides);
-                AddIds(lines, "Context requires", stateDescriptor.ContextStateRequirements);
-            }
-
-            CoCoStateGraphTransitionRecord transition =
-                FindTransition(SelectedLayer, Session.SelectedTransitionId);
-            if (transition != null && catalog != null)
-            {
-                for (int index = 0; index < transition.Conditions.Count; index++)
-                {
-                    CoCoStateGraphConditionRecord condition = transition.Conditions[index];
-                    if (condition != null &&
-                        CoCoConditionDescriptorId.TryCreate(
-                            condition.ConditionDescriptorId.High,
-                            condition.ConditionDescriptorId.Low,
-                            out CoCoConditionDescriptorId conditionDescriptorId) &&
-                        catalog.TryGetConditionDescriptor(
-                            conditionDescriptorId,
-                            out CoCoConditionDescriptor conditionDescriptor))
-                    {
-                        lines.Add(
-                            $"Condition {index + 1}: {conditionDescriptor.ConditionType.Name}  " +
-                            conditionDescriptor.DescriptorId);
-                        AddIds(lines, "Intent requires", conditionDescriptor.IntentRequirements);
-                        AddIds(lines, "Context requires", conditionDescriptor.ContextStateRequirements);
-                    }
-                }
-            }
-
-            if (analysisResult?.Succeeded == true)
-            {
-                lines.Add("Compiled host requirements:");
-                foreach (CoCoIntentRequirement requirement in
-                         analysisResult.Graph.IntentRequirements.Requirements)
-                {
-                    lines.Add($"Intent  {requirement.ValueType.Name}  {requirement.IntentId}");
-                }
-
-                foreach (CoCoGraphOperationProvision requirement in
-                         analysisResult.Graph.OperationProvides.Provides)
-                {
-                    lines.Add($"Operation  {requirement.SectionType.Name}  {requirement.SectionId}");
-                }
-
-                foreach (CoCoContextStateBlockRequirement block in
-                         analysisResult.Graph.ContextStateRequirements.Blocks)
-                {
-                    lines.Add($"Context block  {block.BlockId}");
-                }
-            }
-            else
-            {
-                lines.Add("Compiled host requirements unavailable until analysis succeeds.");
-            }
-
-            return lines;
-        }
 
         internal static bool TryCreateStateConfig(
             CoCoStateDescriptor descriptor,
@@ -1017,13 +919,6 @@ namespace CoCoFlow.Editor.StateGraph
         private static bool Matches(CoCoSerializedId128 id, CoCoTransitionId value) =>
             value.IsValid && id.High == value.High && id.Low == value.Low;
 
-        private static void AddIds<T>(ICollection<string> lines, string label, IReadOnlyList<T> ids)
-        {
-            for (int index = 0; index < ids.Count; index++)
-            {
-                lines.Add($"{label}  {ids[index]}");
-            }
-        }
     }
 
     /// <summary>需求条目的语义类别（P03 视图结构化呈现用）。</summary>
@@ -1083,7 +978,7 @@ namespace CoCoFlow.Editor.StateGraph
     internal sealed partial class CoCoStateGraphEditorController
     {
         /// <summary>
-        /// 结构化需求查询（P03 视图消费；与 BuildRequirementOverlay 同源数据，只读）。
+        /// 结构化需求查询（P03 视图消费，只读）。
         /// 选中 State 的 descriptor 需求、选中 Transition 各条件的需求、编译产出的
         /// 三 manifest Host 需求。
         /// </summary>

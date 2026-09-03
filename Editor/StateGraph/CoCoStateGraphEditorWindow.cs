@@ -975,25 +975,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-        private static CoCoStateGraphStateRecord FindState(
-            CoCoStateGraphLayerRecord layer,
-            CoCoSerializedId128 stateId)
-        {
-            if (layer == null || !stateId.IsValid)
-            {
-                return null;
-            }
-
-            foreach (CoCoStateGraphStateRecord state in layer.States)
-            {
-                if (state != null && state.StateId == stateId)
-                {
-                    return state;
-                }
-            }
-
-            return null;
-        }
 
         private static CoCoStateGraphTransitionRecord FindTransition(
             CoCoStateGraphLayerRecord layer,
