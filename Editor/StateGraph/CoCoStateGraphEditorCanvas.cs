@@ -162,6 +162,10 @@ namespace CoCoFlow.Editor.StateGraph
         /// <summary>当前边命中几何数（重绘后更新；测试/诊断用）。</summary>
         internal int EdgeHitCount => edgeHits.Count;
 
+        /// <summary>链条高亮中的谱系段子 State 集合（测试断言用）。</summary>
+        internal System.Collections.Generic.IReadOnlyCollection<CoCoSerializedId128>
+            ChainGenealogyChildren => chainGenealogyChildren;
+
         public void Dispose()
         {
             controller.Changed -= OnControllerChanged;
@@ -225,7 +229,8 @@ namespace CoCoFlow.Editor.StateGraph
                     chainStates.Contains(state.StateId),
                     OnCardMoved,
                     BeginTransitionDrag,
-                    stateId => CardContextRequested?.Invoke(stateId));
+                    stateId => CardContextRequested?.Invoke(stateId),
+                    TidySubtree);
                 content.Add(card);
                 stateCards[state.StateId] = card;
                 stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, CardHeight));
@@ -287,6 +292,127 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 整理子级（维护者裁决）：把以 rootId 为根的全部后代排成等距谱系树——
+        /// 代际一行（y=根y+depth*行距），叶子从左到右等距占槽，父居中于子。
+        /// 各 State 只写自己的本地位置记录（多条命令折叠为一组 Undo）。
+        /// </summary>
+        internal void TidySubtree(CoCoSerializedId128 rootId)
+        {
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateGraphStateRecord root = layer == null ? null : FindStateRecord(layer, rootId);
+            if (root == null || !HasChildren(layer, rootId))
+            {
+                return;
+            }
+
+            if (!stateRects.TryGetValue(rootId, out Rect rootRect))
+            {
+                return;
+            }
+
+            // 收集后代 + 深度。
+            var depth = new Dictionary<CoCoSerializedId128, int> { [rootId] = 0 };
+            var childrenOf = new Dictionary<CoCoSerializedId128, List<CoCoStateGraphStateRecord>>();
+            var queue = new List<CoCoSerializedId128> { rootId };
+            while (queue.Count > 0)
+            {
+                CoCoSerializedId128 parent = queue[0];
+                queue.RemoveAt(0);
+                foreach (CoCoStateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate == null || candidate.ParentStateId != parent)
+                    {
+                        continue;
+                    }
+
+                    depth[candidate.StateId] = depth[parent] + 1;
+                    if (!childrenOf.TryGetValue(parent, out List<CoCoStateGraphStateRecord> list))
+                    {
+                        list = new List<CoCoStateGraphStateRecord>();
+                        childrenOf[parent] = list;
+                    }
+
+                    list.Add(candidate);
+                    queue.Add(candidate.StateId);
+                }
+            }
+
+            // 自底向上分配 x：叶子按访问顺序占槽，父=子均值；y=代际行距。
+            const float xSpacing = 230f;
+            const float ySpacing = 175f;
+            var absolute = new Dictionary<CoCoSerializedId128, Vector2>
+            {
+                [rootId] = rootRect.position
+            };
+            int leafSlot = 0;
+
+            float Assign(CoCoSerializedId128 id)
+            {
+                if (absolute.TryGetValue(id, out Vector2 position))
+                {
+                    return position.x;
+                }
+
+                if (childrenOf.TryGetValue(id, out List<CoCoStateGraphStateRecord> children))
+                {
+                    float sum = 0f;
+                    int count = 0;
+                    foreach (CoCoStateGraphStateRecord child in children)
+                    {
+                        sum += Assign(child.StateId);
+                        count++;
+                    }
+
+                    float x = sum / Mathf.Max(count, 1);
+                    absolute[id] = new Vector2(x, rootRect.y + depth[id] * ySpacing);
+                    return x;
+                }
+
+                float leafX = rootRect.x + leafSlot * xSpacing;
+                leafSlot++;
+                absolute[id] = new Vector2(leafX, rootRect.y + depth[id] * ySpacing);
+                return leafX;
+            }
+
+            if (childrenOf.TryGetValue(rootId, out List<CoCoStateGraphStateRecord> rootChildren))
+            {
+                foreach (CoCoStateGraphStateRecord child in rootChildren)
+                {
+                    Assign(child.StateId);
+                }
+            }
+
+            // 写本地位置：local = 新绝对 − 父新绝对（父在子树内的用新值；根的父用现值）。
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            foreach (KeyValuePair<CoCoSerializedId128, Vector2> entry in absolute)
+            {
+                if (entry.Key == rootId)
+                {
+                    continue;
+                }
+
+                CoCoStateGraphStateRecord record = FindStateRecord(layer, entry.Key);
+                if (record == null)
+                {
+                    continue;
+                }
+
+                Vector2 parentAbsolute = absolute.TryGetValue(
+                    record.ParentStateId,
+                    out Vector2 fromTidy)
+                    ? fromTidy
+                    : ComputeAbsolutePosition(layer, FindStateRecord(layer, record.ParentStateId));
+                if (CoCoStateId.TryCreate(entry.Key.High, entry.Key.Low, out CoCoStateId stateId))
+                {
+                    controller.SetPosition(stateId, entry.Value - parentAbsolute);
+                }
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
         }
 
         /// <summary>
@@ -1192,6 +1318,7 @@ namespace CoCoFlow.Editor.StateGraph
             private readonly Action<CoCoSerializedId128, Vector2, bool> moved;
             private readonly Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag;
             private readonly Action<CoCoSerializedId128> cardContextRequested;
+            private readonly Action<CoCoSerializedId128> tidyRequested;
             private Vector2 position;
             private Vector2 pointerStart;
             private Vector2 positionStart;
@@ -1206,7 +1333,8 @@ namespace CoCoFlow.Editor.StateGraph
                 bool inChain,
                 Action<CoCoSerializedId128, Vector2, bool> moved,
                 Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag,
-                Action<CoCoSerializedId128> cardContextRequested)
+                Action<CoCoSerializedId128> cardContextRequested,
+                Action<CoCoSerializedId128> tidyRequested)
             {
                 this.controller = controller;
                 this.state = state;
@@ -1214,6 +1342,7 @@ namespace CoCoFlow.Editor.StateGraph
                 this.moved = moved;
                 this.beginTransitionDrag = beginTransitionDrag;
                 this.cardContextRequested = cardContextRequested;
+                this.tidyRequested = tidyRequested;
                 name = "state-card";
                 style.position = Position.Absolute;
                 style.left = position.x;
@@ -1228,15 +1357,47 @@ namespace CoCoFlow.Editor.StateGraph
 
                 if (IsInitial())
                 {
-                    AddToClassList("state-card--initial");
-                    var initialBadge = new Label(CoCoEditorLocalization.Text("Initial", "初始"));
+                    // 维护者裁决：Layer 初始=亮绿 + 「Layer名 Default」；
+                    // 子机初始=淡绿 + 「父状态名 Default」。
+                    bool isLayerInitial = !state.ParentStateId.IsValid;
+                    AddToClassList(isLayerInitial
+                        ? "state-card--initial-layer"
+                        : "state-card--initial-composite");
+                    string scopeName = isLayerInitial
+                        ? controller.SelectedLayer?.DisplayName ?? "Layer"
+                        : ParentDisplayName();
+                    var initialBadge = new Label($"{scopeName} Default");
                     initialBadge.AddToClassList("state-card__initial-badge");
+                    initialBadge.AddToClassList(isLayerInitial
+                        ? "state-card__initial-badge--layer"
+                        : "state-card__initial-badge--composite");
                     Add(initialBadge);
                 }
 
                 if (inChain)
                 {
                     AddToClassList("state-card--chain");
+                }
+
+                if (HasChildren())
+                {
+                    int leafCount = CountDescendantLeaves();
+                    var leafBadge = new Label($"Leaf: {leafCount}");
+                    leafBadge.AddToClassList("state-card__leaf-count");
+                    leafBadge.tooltip = CoCoEditorLocalization.Text(
+                        "Leaf states in this subtree",
+                        "该子树内的叶状态数量");
+                    Add(leafBadge);
+
+                    var tidy = new Button(() => tidyRequested(state.StateId))
+                    {
+                        text = CoCoEditorLocalization.Text("Tidy Subtree", "整理子级"),
+                        tooltip = CoCoEditorLocalization.Text(
+                            "Arrange all descendants as an evenly spaced genealogy tree",
+                            "把全部后代按等距谱系树重新排布")
+                    };
+                    tidy.AddToClassList("state-card__drill");
+                    Add(tidy);
                 }
 
                 tooltip = CoCoEditorLocalization.Text(
@@ -1444,6 +1605,59 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 CoCoStateId selected = controller.Session.SelectedStateId;
                 return selected.IsValid && state.StateId.High == selected.High && state.StateId.Low == selected.Low;
+            }
+
+            private string ParentDisplayName()
+            {
+                CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+                CoCoStateGraphStateRecord parent = layer == null
+                    ? null
+                    : FindStateRecord(layer, state.ParentStateId);
+                return parent != null ? parent.DisplayName : "?";
+            }
+
+            private int CountDescendantLeaves()
+            {
+                CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+                if (layer == null)
+                {
+                    return 0;
+                }
+
+                int CountChildren(CoCoSerializedId128 parentId, HashSet<CoCoSerializedId128> visited)
+                {
+                    int leaves = 0;
+                    foreach (CoCoStateGraphStateRecord candidate in layer.States)
+                    {
+                        if (candidate == null || candidate.ParentStateId != parentId)
+                        {
+                            continue;
+                        }
+
+                        bool hasChildren = false;
+                        foreach (CoCoStateGraphStateRecord grandchild in layer.States)
+                        {
+                            if (grandchild != null && grandchild.ParentStateId == candidate.StateId)
+                            {
+                                hasChildren = true;
+                                break;
+                            }
+                        }
+
+                        if (!hasChildren)
+                        {
+                            leaves++;
+                        }
+                        else if (visited.Add(candidate.StateId))
+                        {
+                            leaves += CountChildren(candidate.StateId, visited);
+                        }
+                    }
+
+                    return leaves;
+                }
+
+                return CountChildren(state.StateId, new HashSet<CoCoSerializedId128>());
             }
 
             private bool IsInitial()

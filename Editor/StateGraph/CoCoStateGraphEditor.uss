@@ -319,3 +319,40 @@
     margin-top: 2px;
     -unity-text-align: middle-left;
 }
+
+/* 初始徽标分级（维护者裁决）：Layer=亮绿，子机=淡绿 */
+.state-card--initial-layer {
+    border-left-color: rgb(89, 219, 122);
+    border-right-color: rgb(89, 219, 122);
+    border-top-color: rgb(89, 219, 122);
+    border-bottom-color: rgb(89, 219, 122);
+}
+
+.state-card--initial-composite {
+    border-left-color: rgba(89, 219, 122, 0.45);
+    border-right-color: rgba(89, 219, 122, 0.45);
+    border-top-color: rgba(89, 219, 122, 0.45);
+    border-bottom-color: rgba(89, 219, 122, 0.45);
+}
+
+.state-card__initial-badge--layer {
+    color: rgb(126, 232, 154);
+    -unity-font-style: bold;
+}
+
+.state-card__initial-badge--composite {
+    color: rgba(126, 232, 154, 0.62);
+}
+
+.state-card__leaf-count {
+    position: absolute;
+    right: 6px;
+    top: 4px;
+    font-size: 8px;
+    color: rgb(160, 168, 178);
+    -unity-text-align: middle-right;
+}
+
+.state-card--chain {
+    background-color: rgba(255, 184, 51, 0.08);
+}

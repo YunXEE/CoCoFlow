@@ -351,6 +351,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(compositeCard.ClassListContains("state-card--chain"), "target ancestor must be lit");
             Assert.IsTrue(childCard.ClassListContains("state-card--chain"), "target leaf must be lit");
 
+            // 谱系线段染色集：目标→其父的两段谱系线进入高亮集（绘制消费同一集合）。
+            Assert.IsTrue(canvas.ChainGenealogyChildren.Contains(
+                new CoCoSerializedId128(child.High, child.Low)));
+            Assert.IsTrue(canvas.ChainGenealogyChildren.Contains(
+                new CoCoSerializedId128(composite.High, composite.Low)));
+
             // 选中态解除后高亮消失。
             controller.SelectState(rootLeaf);
             yield return null;
