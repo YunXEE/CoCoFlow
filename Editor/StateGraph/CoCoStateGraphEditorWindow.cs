@@ -685,21 +685,13 @@ namespace CoCoFlow.Editor.StateGraph
                 menu.AddDisabledItem(new GUIContent(L("Add Child State", "添加子 State")));
             }
 
-            if (HasChildren(layer, state.StateId))
-            {
-                menu.AddItem(
-                    new GUIContent(L("Open Child Canvas", "打开子级画布")),
-                    false,
-                    () => controller.DrillInto(id));
-            }
-
             menu.ShowAsContext();
         }
 
         /// <summary>
         /// 一步式子状态机（维护者反馈：Animator 式 Create Sub-state Machine）。
         /// 模型不变：Composite=有子 State 的普通 State。本动作=建容器+建首个子 State
-        /// （两次 AuthoringOperations 命令，Undo 折叠为一组），随后 DrillInto 进入其子画布。
+        /// （两次 AuthoringOperations 命令，Undo 折叠为一组），随后选中新容器（全展开画布）。
         /// </summary>
         internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
         {
@@ -756,7 +748,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Undo.CollapseUndoOperations(undoGroup);
-            controller.DrillInto(containerId); // 全量失效刷新 + 进入子画布
+            controller.SelectState(containerId); // 全量失效刷新 + 选中新建容器
             return true;
         }
 

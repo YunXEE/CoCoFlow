@@ -1437,16 +1437,6 @@ namespace CoCoFlow.Editor.StateGraph
                 logicLine.AddToClassList("state-card__descriptor");
                 Add(logicLine);
 
-                if (HasChildren())
-                {
-                    var drill = new Button(() => controller.DrillInto(ToStateId()))
-                    {
-                        text = CoCoEditorLocalization.Text("Open children", "打开子级")
-                    };
-                    drill.AddToClassList("state-card__drill");
-                    Add(drill);
-                }
-
                 RegisterCallback<PointerDownEvent>(OnPointerDown);
                 RegisterCallback<PointerMoveEvent>(OnPointerMove);
                 RegisterCallback<PointerUpEvent>(OnPointerUp);
