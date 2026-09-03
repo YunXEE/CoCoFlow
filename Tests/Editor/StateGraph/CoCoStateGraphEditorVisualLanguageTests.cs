@@ -373,6 +373,67 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "transition selection must not light genealogy segments");
         }
 
+        [Test]
+        public void LeafFlowStatesFollowLayerDefaultReachability()
+        {
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId entry = AddState(asset, layerId, "Entry", new Vector2(40f, 60f));
+            CoCoStateId mid = AddState(asset, layerId, "Mid", new Vector2(300f, 60f));
+            CoCoStateId dead = AddState(asset, layerId, "Dead", new Vector2(560f, 60f));
+            CoCoStateId isolated = AddState(asset, layerId, "Isolated", new Vector2(820f, 60f));
+            CoCoStateGraphLayerRecord layer = asset.Layers[0];
+            layer.InitialStateId = new CoCoSerializedId128(entry.High, entry.Low);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, entry, mid, 0, CoCoTransitionWindow.Always, null, out _, out string failure),
+                failure);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, mid, dead, 0, CoCoTransitionWindow.Always, null, out _, out failure),
+                failure);
+            CoCoStateGraphTransitionRecord firstTransition = asset.Layers[0].Transitions[0];
+
+            var controller = new CoCoStateGraphEditorController(asset);
+            controllers.Add(controller);
+            var canvas = new CoCoStateGraphEditorCanvas(controller);
+            canvases.Add(canvas);
+
+            Assert.AreEqual(
+                CoCoStateGraphEditorCanvas.LeafFlowState.None,
+                canvas.LeafFlowStates[new CoCoSerializedId128(entry.High, entry.Low)],
+                "layer default with outgoing edges is valid");
+            Assert.AreEqual(
+                CoCoStateGraphEditorCanvas.LeafFlowState.None,
+                canvas.LeafFlowStates[new CoCoSerializedId128(mid.High, mid.Low)],
+                "reachable with in and out is valid");
+            Assert.AreEqual(
+                CoCoStateGraphEditorCanvas.LeafFlowState.DeadEnd,
+                canvas.LeafFlowStates[new CoCoSerializedId128(dead.High, dead.Low)],
+                "reachable without outgoing is a dead end (orange)");
+            Assert.AreEqual(
+                CoCoStateGraphEditorCanvas.LeafFlowState.Unreachable,
+                canvas.LeafFlowStates[new CoCoSerializedId128(isolated.High, isolated.Low)],
+                "isolated leaf is topologically unreachable (red)");
+
+            // Default 无出边 → 红。
+            Assert.IsTrue(CoCoTransitionId.TryCreate(
+                firstTransition.TransitionId.High, firstTransition.TransitionId.Low,
+                out CoCoTransitionId entryTransition));
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryDeleteTransition(
+                asset, layerId, entryTransition, out failure), failure);
+            controller.Dispose();
+            controllers.RemoveAt(controllers.Count - 1);
+            canvas.Dispose();
+            canvases.RemoveAt(canvases.Count - 1);
+            var controller2 = new CoCoStateGraphEditorController(asset);
+            controllers.Add(controller2);
+            var canvas2 = new CoCoStateGraphEditorCanvas(controller2);
+            canvases.Add(canvas2);
+            Assert.AreEqual(
+                CoCoStateGraphEditorCanvas.LeafFlowState.Unreachable,
+                canvas2.LeafFlowStates[new CoCoSerializedId128(entry.High, entry.Low)],
+                "layer default without outgoing edges is invalid (red)");
+        }
+
         // ── 助手 ───────────────────────────────────────────
 
         private CoCoStateGraphAsset CreateAsset()
