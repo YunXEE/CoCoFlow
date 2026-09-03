@@ -335,23 +335,31 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void BreadcrumbTerminatesAndMarksInvalidParentCycle()
+        public void FlatCanvasDiscardsLegacyDrillRootAndNavigationKeepsLayerRootScope()
         {
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
-            CoCoStateId first = AddState(asset, layerId, default, "First");
-            CoCoStateId second = AddState(asset, layerId, default, "Second");
-            CoCoStateGraphStateRecord firstRecord = asset.Layers[0].States.Single(state =>
-                state.StateId == Serialize(first));
-            CoCoStateGraphStateRecord secondRecord = asset.Layers[0].States.Single(state =>
-                state.StateId == Serialize(second));
-            firstRecord.ParentStateId = Serialize(second);
-            secondRecord.ParentStateId = Serialize(first);
+            CoCoStateId root = AddState(asset, layerId, default, "Root");
+            CoCoStateId child = AddState(asset, layerId, root, "Child");
+            CoCoStateGraphEditorSessionState legacySession =
+                CoCoStateGraphEditorSessionState.Load(asset);
+            legacySession.SelectedLayerId = layerId;
+            legacySession.DrillRootStateId = root;
+            legacySession.Save();
 
             using (var controller = new CoCoStateGraphEditorController(asset))
             {
-                controller.NavigateToState(first);
-                StringAssert.Contains("<cycle>", controller.BreadcrumbLabel);
+                Assert.IsFalse(controller.Session.DrillRootStateId.IsValid,
+                    "D9 flat canvas must discard a legacy nested drill scope");
+                CollectionAssert.AreEqual(
+                    new[] { Serialize(root) },
+                    controller.VisibleStates.Select(state => state.StateId).ToArray());
+
+                controller.NavigateToState(child);
+
+                Assert.AreEqual(child, controller.Session.SelectedStateId);
+                Assert.IsFalse(controller.Session.DrillRootStateId.IsValid,
+                    "navigating to a nested State must keep the flat canvas at Layer root");
             }
         }
 

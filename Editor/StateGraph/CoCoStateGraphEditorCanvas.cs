@@ -1336,7 +1336,7 @@ namespace CoCoFlow.Editor.StateGraph
             ReleaseCapturedPointer(panPointerId);
             controller.Session.SetCanvasView(
                 controller.Session.SelectedLayerId,
-                controller.Session.DrillRootStateId,
+                default,
                 CurrentView);
             controller.Session.Save();
             panPointerId = 0;
@@ -1390,14 +1390,14 @@ namespace CoCoFlow.Editor.StateGraph
         private CoCoStateGraphCanvasView CurrentView =>
             controller.Session.GetCanvasView(
                 controller.Session.SelectedLayerId,
-                controller.Session.DrillRootStateId);
+                default);
 
         private void SetView(CoCoStateGraphCanvasView view, bool save)
         {
             view = view.Clamp();
             controller.Session.SetCanvasView(
                 controller.Session.SelectedLayerId,
-                controller.Session.DrillRootStateId,
+                default,
                 view);
             ApplyView();
             gridLayer.MarkDirtyRepaint();
@@ -1728,7 +1728,7 @@ namespace CoCoFlow.Editor.StateGraph
 
                 float zoom = controller.Session.GetCanvasView(
                     controller.Session.SelectedLayerId,
-                    controller.Session.DrillRootStateId).Zoom;
+                    default).Zoom;
                 Vector2 delta = ((Vector2)evt.position - pointerStart) / zoom;
                 if (!hasMoved && delta.sqrMagnitude <= 4f)
                 {

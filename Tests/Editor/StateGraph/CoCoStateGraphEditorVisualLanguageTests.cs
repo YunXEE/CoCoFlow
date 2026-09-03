@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Linq;
+using System.Reflection;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
@@ -216,6 +217,71 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             // 不提供第二裸拓扑编辑面：不得出现绑定 layers/states/transitions 的 PropertyField。
             UnityEngine.Object.DestroyImmediate(editor);
+        }
+
+        [Test]
+        public void FlatCanvasCreationUsesRootScopeAndIndependentCompositeConfigs()
+        {
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            FieldInfo authorRoots = typeof(CoCoGraphDescriptorCatalog).GetField(
+                "_authorAssemblyRootNames",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(authorRoots);
+            authorRoots.SetValue(catalog, Array.Empty<string>());
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId legacyRoot = AddState(
+                asset, layerId, "Legacy Root", new Vector2(40f, 60f));
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddState(
+                asset,
+                layerId,
+                legacyRoot,
+                CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(),
+                "Legacy Child",
+                new Vector2(80f, 80f),
+                out _,
+                out string failure), failure);
+
+            CoCoStateGraphEditorSessionState legacySession =
+                CoCoStateGraphEditorSessionState.Load(asset);
+            legacySession.SelectedLayerId = layerId;
+            legacySession.DrillRootStateId = legacyRoot;
+            legacySession.Save();
+
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            var windowController = (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(window);
+            Assert.NotNull(windowController);
+            var statePosition = new Vector2(640f, 320f);
+            Assert.IsTrue(
+                window.TryAddStateAtCanvasPosition(statePosition),
+                $"Catalog: {windowController.CatalogStatus}; command: {windowController.CommandFailure}");
+            CoCoStateGraphStateRecord added = asset.Layers[0].States.Last();
+            Assert.IsFalse(added.ParentStateId.IsValid,
+                "canvas creation must ignore a legacy nested drill scope");
+            Assert.IsTrue(asset.EditorLayout.TryGetPosition(added.StateId, out Vector2 actualPosition));
+            Assert.AreEqual(statePosition, actualPosition);
+
+            Assert.IsTrue(
+                window.TryAddCompositeAtCanvasPosition(new Vector2(300f, 200f)),
+                $"Catalog: {windowController.CatalogStatus}; command: {windowController.CommandFailure}");
+            CoCoStateGraphStateRecord composite = asset.Layers[0].States.Single(state =>
+                state.DisplayName == "Composite");
+            CoCoStateGraphStateRecord child = asset.Layers[0].States.Single(state =>
+                state.ParentStateId == composite.StateId);
+            Assert.IsFalse(composite.ParentStateId.IsValid,
+                "a canvas-created Composite must be rooted at the Layer");
+            Assert.AreNotSame(composite.Config, child.Config,
+                "Composite and first child must own independent managed-reference configs");
+
+            var compositeConfig = (TestStateAuthoringConfig)composite.Config;
+            var childConfig = (TestStateAuthoringConfig)child.Config;
+            compositeConfig.Value = 41;
+            Assert.AreEqual(0, childConfig.Value,
+                "editing the Composite config must not mutate its first child");
         }
 
         [UnityTest]

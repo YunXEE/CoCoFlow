@@ -632,7 +632,7 @@ namespace CoCoFlow.Editor.StateGraph
                 new GUIContent(L("Paste Subtree Here", "粘贴子树到此处")),
                 false,
                 () => TryExecuteCanvasAuthoringAction(() => controller.PasteState(
-                    controller.Session.DrillRootStateId,
+                    default,
                     contextPosition)));
             menu.AddSeparator(string.Empty);
             menu.AddItem(
@@ -711,7 +711,11 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (!CoCoStateGraphEditorController.TryCreateStateConfig(
                     descriptor,
-                    out CoCoStateConfig config,
+                    out CoCoStateConfig containerConfig,
+                    out failure) ||
+                !CoCoStateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out CoCoStateConfig childConfig,
                     out failure))
             {
                 ShowNotification(new GUIContent(failure));
@@ -719,15 +723,14 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             CoCoLayerId layerId = controller.Session.SelectedLayerId;
-            CoCoStateId parent = controller.Session.DrillRootStateId;
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             if (!CoCoStateGraphAuthoringOperations.TryAddState(
                     asset,
                     layerId,
-                    parent,
+                    default,
                     descriptor.DescriptorId,
-                    config,
+                    containerConfig,
                     "Composite",
                     position,
                     out CoCoStateId containerId,
@@ -737,7 +740,7 @@ namespace CoCoFlow.Editor.StateGraph
                     layerId,
                     containerId,
                     descriptor.DescriptorId,
-                    config,
+                    childConfig,
                     "State",
                     new Vector2(80f, 80f),
                     out _,
@@ -761,7 +764,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
             return controller.AddState(
-                controller.Session.DrillRootStateId,
+                default,
                 descriptor,
                 "State",
                 position);

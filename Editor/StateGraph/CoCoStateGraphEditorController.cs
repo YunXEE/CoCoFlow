@@ -29,6 +29,10 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Asset = asset != null ? asset : throw new ArgumentNullException(nameof(asset));
             Session = CoCoStateGraphEditorSessionState.Load(asset);
+            // D9 renders the complete Layer as one flat genealogy canvas. Older
+            // sessions may still carry a pre-D9 drill root; keeping it active
+            // would make root-level authoring silently target that stale State.
+            Session.DrillRootStateId = default;
             ReloadCatalog();
             if (Session.AnalysisRequested && catalog != null)
             {
@@ -82,10 +86,9 @@ namespace CoCoFlow.Editor.StateGraph
                     return result;
                 }
 
-                CoCoSerializedId128 parentId = Serialize(Session.DrillRootStateId);
                 foreach (CoCoStateGraphStateRecord state in layer.States)
                 {
-                    if (state == null || state.ParentStateId != parentId)
+                    if (state == null || state.ParentStateId.IsValid)
                     {
                         continue;
                     }
@@ -183,9 +186,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            Session.DrillRootStateId = state.ParentStateId.IsValid
-                ? ToStateId(state.ParentStateId)
-                : default;
+            Session.DrillRootStateId = default;
             Session.SelectedStateId = stateId;
             Session.SelectedTransitionId = default;
             SaveAndNotify();
@@ -197,40 +198,6 @@ namespace CoCoFlow.Editor.StateGraph
             Session.SelectedStateId = default;
             SaveAndNotify();
         }
-
-
-
-        internal string BreadcrumbLabel
-        {
-            get
-            {
-                CoCoStateGraphLayerRecord layer = SelectedLayer;
-                if (layer == null)
-                {
-                    return "No Layer";
-                }
-
-                var names = new List<string> { layer.DisplayName };
-                var visited = new HashSet<CoCoSerializedId128>();
-                CoCoStateGraphStateRecord current = FindState(layer, Session.DrillRootStateId);
-                while (current != null)
-                {
-                    if (!visited.Add(current.StateId))
-                    {
-                        names.Insert(1, "<cycle>");
-                        break;
-                    }
-
-                    names.Insert(1, current.DisplayName);
-                    current = current.ParentStateId.IsValid
-                        ? FindState(layer, current.ParentStateId)
-                        : null;
-                }
-
-                return string.Join(" / ", names);
-            }
-        }
-
         internal void SetSearch(string value)
         {
             Session.SearchText = value ?? string.Empty;
@@ -602,13 +569,7 @@ namespace CoCoFlow.Editor.StateGraph
             Session.SelectedStateId = location.StateId;
             Session.SelectedTransitionId = location.TransitionId;
             Session.SelectedDiagnosticLocation = location;
-            if (location.StateId.IsValid)
-            {
-                CoCoStateGraphStateRecord state = FindState(SelectedLayer, location.StateId);
-                Session.DrillRootStateId = state != null && state.ParentStateId.IsValid
-                    ? ToStateId(state.ParentStateId)
-                    : default;
-            }
+            Session.DrillRootStateId = default;
 
             SaveAndNotify();
         }

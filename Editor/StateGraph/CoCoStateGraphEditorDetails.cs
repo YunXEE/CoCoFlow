@@ -153,8 +153,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             var addHere = new Button(() =>
             {
-                CoCoStateId parent = controller.Session.DrillRootStateId;
-                controller.AddState(parent, addDescriptor.Value, stateName.value, NextPosition());
+                controller.AddState(default, addDescriptor.Value, stateName.value, NextPosition());
             })
             {
                 text = "Add State Here"
@@ -162,7 +161,7 @@ namespace CoCoFlow.Editor.StateGraph
             card.Add(addHere);
 
             var pasteHere = new Button(() => controller.PasteState(
-                controller.Session.DrillRootStateId,
+                default,
                 NextPosition()))
             {
                 text = L("Paste Subtree Here", "粘贴子树到此处")
