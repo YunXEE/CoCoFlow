@@ -859,8 +859,8 @@ namespace CoCoFlow.Editor.StateGraph
             foreach (CoCoStateGraphTransitionRecord transition in controller.VisibleTransitions)
             {
                 if (transition == null ||
-                    !stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
-                    !stateRects.TryGetValue(transition.TargetStateId, out Rect target))
+                    !stateRects.ContainsKey(transition.SourceStateId) ||
+                    !stateRects.ContainsKey(transition.TargetStateId))
                 {
                     continue;
                 }
@@ -963,9 +963,9 @@ namespace CoCoFlow.Editor.StateGraph
             Vector2 a = source.center + sharedNormal * offset;
             Vector2 b = target.center + sharedNormal * offset;
 
-            // 视觉段在卡片边界出/入（线不穿卡身）。
-            Vector2 start = a;
-            Vector2 end = b;
+            // 视觉段在卡片边界出/入（线不穿卡身）；两分支均赋值，无冗余初值。
+            Vector2 start;
+            Vector2 end;
             if (ClipSegmentToRectExit(a, b, source, out float tExit) &&
                 ClipSegmentToRectEnter(a, b, target, out float tEnter) &&
                 tEnter > tExit)
@@ -1064,7 +1064,7 @@ namespace CoCoFlow.Editor.StateGraph
         /// <summary>线段 a→b 从内部离开矩形 clip 的参数 t（a 在矩形内）。</summary>
         private static bool ClipSegmentToRectExit(Vector2 a, Vector2 b, Rect clip, out float tExit)
         {
-            if (!ClipSegmentToRect(a, b, clip, out float tEnter, out float tLeave))
+            if (!ClipSegmentToRect(a, b, clip, out _, out float tLeave))
             {
                 tExit = 0f;
                 return false;
@@ -1077,7 +1077,7 @@ namespace CoCoFlow.Editor.StateGraph
         /// <summary>线段 a→b 进入矩形 clip 的参数 t（b 在矩形内）。</summary>
         private static bool ClipSegmentToRectEnter(Vector2 a, Vector2 b, Rect clip, out float tEnter)
         {
-            if (!ClipSegmentToRect(a, b, clip, out float enter, out float leave))
+            if (!ClipSegmentToRect(a, b, clip, out tEnter, out _))
             {
                 tEnter = 1f;
                 return false;
@@ -1410,8 +1410,10 @@ namespace CoCoFlow.Editor.StateGraph
         private void ApplyView()
         {
             CoCoStateGraphCanvasView view = CurrentView;
-            content.transform.position = new Vector3(view.Pan.x, view.Pan.y, 0f);
-            content.transform.scale = new Vector3(view.Zoom, view.Zoom, 1f);
+            content.transform = new Transform(
+                new Vector3(view.Pan.x, view.Pan.y, 0f),
+                Quaternion.identity,
+                new Vector3(view.Zoom, view.Zoom, 1f));
             SyncZoomControls();
         }
 

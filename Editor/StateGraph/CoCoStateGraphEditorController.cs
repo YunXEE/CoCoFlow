@@ -888,18 +888,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-        private static bool HasChildren(CoCoStateGraphLayerRecord layer, CoCoSerializedId128 stateId)
-        {
-            foreach (CoCoStateGraphStateRecord state in layer.States)
-            {
-                if (state != null && state.ParentStateId == stateId)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
 
         private static CoCoSerializedId128 Serialize(CoCoStateId id) =>
             new CoCoSerializedId128(id.High, id.Low);
