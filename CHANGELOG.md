@@ -10,6 +10,26 @@ migration runtime for 0.3.9 projects.
 
 Legacy Gameplay sample exit and boundary cleanup. No new Runtime capability.
 
+### Changed
+
+- Rebuilt the Setup Assistant as the **CoCoFlow Utility** panel
+  (`CoCoFlow > Utility Panel`, window title "CoCoFlow Utility"), migrated
+  from IMGUI to UI Toolkit with the unified `ccflow` visual language, and
+  split the 2035-line window into focused setup modules (module catalog,
+  dependency actions, status scanner, JSON utility, version policies).
+  The `CoCoFlowSetupAssistant` editor type is replaced by `CoCoFlowUtility`.
+- "Apply Recommended Dependencies" now shows an explicit impact-disclosure
+  confirmation before writing (manifest entries, UniTask source replacement,
+  active-target support defines); cancelling writes nothing.
+- Support-define and module status now focus on the active build target
+  instead of enumerating every build target group. A legacy manual
+  `COCOFLOW_UNITASK_SUPPORT` define on the active target is disclosed as a
+  warning (versionDefines stays the single authority).
+- The DOTween dependency row reports a manifest read error as an error state
+  (previously the message said "Manifest error" while the row showed OK/WARN).
+- The panel is bilingual (English / 简体中文) with an in-header language
+  switch shared with the other ccflow editor windows.
+
 ### Removed
 
 - The entire `Samples~/Gameplay` sample tree (Character/Enemy/Item runtime,

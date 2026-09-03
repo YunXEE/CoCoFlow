@@ -58,7 +58,8 @@ The Direct backend is always registered by the Host:
 The Addressables backend is an optional conditional assembly. It keeps raw
 Addressables handles private and presents the same request/result/lease model as
 Direct. The package manifest does not force Addressables into Direct-only
-projects; Setup Assistant provides an explicit optional installation action.
+projects; the CoCoFlow Utility panel provides an explicit optional installation
+action.
 The supported package range is `[2.9.1,3.0.0)`.
 
 ## Concurrency and failure
