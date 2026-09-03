@@ -29,6 +29,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         private readonly List<CoCoStateGraphEditorController> controllers =
             new List<CoCoStateGraphEditorController>();
 
+        [SetUp]
+        public void SetUp()
+        {
+            // 语言自钉：反馈文案断言依赖英文态；EditorPrefs 机器级共享。
+            CoCoFlow.Editor.Common.CoCoEditorLocalization.SetLanguage(
+                CoCoFlow.Editor.Common.CoCoEditorLanguage.English);
+        }
+
         [TearDown]
         public void TearDown()
         {

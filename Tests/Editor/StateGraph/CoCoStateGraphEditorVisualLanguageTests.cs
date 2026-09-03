@@ -34,6 +34,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         private readonly System.Collections.Generic.List<CoCoStateGraphEditorController> controllers =
             new System.Collections.Generic.List<CoCoStateGraphEditorController>();
 
+        [SetUp]
+        public void SetUp()
+        {
+            // 语言自钉：EditorPrefs 为机器级共享（维护者会话可能停在中文）。
+            CoCoEditorLocalization.SetLanguage(CoCoEditorLanguage.English);
+        }
+
         [TearDown]
         public void TearDown()
         {
@@ -355,9 +362,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             // 谱系线段染色集：目标→其父的两段谱系线进入高亮集（绘制消费同一集合）。
             Assert.IsTrue(
                 canvas.ChainGenealogyChildren.Contains(new CoCoSerializedId128(child.High, child.Low)),
-                $"genealogy chain set=[{string.Join(",", canvas.ChainGenealogyChildren.Select(id => id.ToString()))}] " +
-                $"expect child={child} selT={controller.Session.SelectedTransitionId}");
-            Assert.IsTrue(canvas.ChainGenealogyChildren.Contains(
+                "the child<-composite genealogy segment must be lit");
+            // 根 Composite 无父 → 无谱系段；不在集合是正确行为。
+            Assert.IsFalse(canvas.ChainGenealogyChildren.Contains(
                 new CoCoSerializedId128(composite.High, composite.Low)));
 
             // 选中态解除后高亮消失。
