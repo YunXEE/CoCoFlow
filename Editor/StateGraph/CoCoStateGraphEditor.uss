@@ -1,5 +1,36 @@
+/* CoCoFlow StateGraph Editor 专用视觉（sg-）。
+ * 语义组件一律复用 Editor/Common 的 ccflow-（P02 冻结）；此处只承载
+ * StateGraph 特有的画布/节点/布局样式。深色（Pro）主题唯一支持形态（P02 D15 继承）。 */
+
+/* ── 窗口骨架 ─────────────────────────────────────── */
+
+#state-graph-left-pane {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+#state-graph-header-card {
+    margin-bottom: 6px;
+}
+
+#state-graph-header-asset-field {
+    margin-bottom: 4px;
+}
+
+#state-graph-header-badges {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
 #state-graph-toolbar-host {
     flex-shrink: 0;
+}
+
+#state-graph-tree {
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-bottom: 12px;
 }
 
 #state-graph-details {
@@ -8,16 +39,274 @@
     padding-bottom: 12px;
 }
 
-.state-graph-heading {
-    margin-top: 12px;
-    margin-bottom: 5px;
-    padding-bottom: 3px;
-    font-size: 13px;
-    -unity-font-style: bold;
-    border-bottom-width: 1px;
-    border-bottom-color: rgb(75, 79, 85);
+.sg-tree-row {
+    margin-top: 1px;
+    margin-bottom: 1px;
+    -unity-text-align: middle-left;
+    white-space: normal;
 }
+
+/* ── 详情区 ───────────────────────────────────────── */
+
+.sg-card {
+    margin-bottom: 8px;
+}
+
+.sg-card-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-card-row > VisualElement {
+    margin-right: 4px;
+}
+
+.sg-id-label {
+    opacity: 0.6;
+    white-space: normal;
+    font-size: 10px;
+    margin-bottom: 3px;
+}
+
+.sg-muted {
+    opacity: 0.65;
+    white-space: normal;
+}
+
+.sg-navigation {
+    /* Play Mode 只读态下保持可用的导航控件（窗口内查询语义） */
+}
+
+.sg-transition-row {
+    flex-direction: row;
+    align-items: center;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.16);
+}
+
+.sg-transition-row:hover {
+    background-color: rgba(45, 112, 180, 0.12);
+}
+
+.sg-transition-row--selected {
+    background-color: rgba(45, 112, 180, 0.18);
+}
+
+.sg-condition-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-condition-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+}
+
+/* ── 画布（D2/D8：自研画布 + Animator 边体验） ────── */
+
+#state-graph-canvas {
+    background-color: rgb(27, 30, 33);
+}
+
+#state-graph-canvas-content {
+}
+
+#state-graph-canvas-hint {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    opacity: 0.55;
+    white-space: normal;
+    -unity-text-align: middle-left;
+    picking-mode: ignore;
+}
+
+/* 双层描边体系（维护者裁决）：外描边=动态状态（外环与卡体 2px 偏移，可扩展）；
+ * 内描边=节点状态（Default/初始等）。 */
+
+.state-card {
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-right-color: rgba(0, 0, 0, 0);
+    border-top-color: rgba(0, 0, 0, 0);
+    border-bottom-color: rgba(0, 0, 0, 0);
+    padding-left: 2px;
+    padding-right: 2px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+/* 外描边类型 1：血统链选中（自己+全部祖先；最高优先级） */
+.state-card--ancestry {
+    border-left-color: rgb(255, 184, 51);
+    border-right-color: rgb(255, 184, 51);
+    border-top-color: rgb(255, 184, 51);
+    border-bottom-color: rgb(255, 184, 51);
+}
+
+.state-card__body {
+    flex-grow: 1;
+    padding-left: 7px;
+    padding-right: 7px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    background-color: rgba(41, 46, 54, 0.96);
+    border-left-color: rgb(84, 97, 110);
+    border-right-color: rgb(84, 97, 110);
+    border-top-color: rgb(84, 97, 110);
+    border-bottom-color: rgb(84, 97, 110);
+}
+
+/* 内描边：节点状态（初始/Default 分级——Layer 亮绿 / 子机淡绿） */
+.state-card__body--initial-layer {
+    border-left-color: rgb(89, 219, 122);
+    border-right-color: rgb(89, 219, 122);
+    border-top-color: rgb(89, 219, 122);
+    border-bottom-color: rgb(89, 219, 122);
+}
+
+.state-card__body--initial-composite {
+    border-left-color: rgba(89, 219, 122, 0.45);
+    border-right-color: rgba(89, 219, 122, 0.45);
+    border-top-color: rgba(89, 219, 122, 0.45);
+    border-bottom-color: rgba(89, 219, 122, 0.45);
+}
+
+.state-card__title {
+    -unity-font-style: bold;
+    font-size: 13px;
+    color: rgb(232, 235, 238);
+    white-space: normal;
+}
+
+/* 维护者反馈：三行——Name / State 编号 / Logic 名+编号 */
+.state-card__id {
+    font-size: 10px;
+    color: rgb(160, 168, 178);
+    white-space: normal;
+}
+
+.state-card__descriptor {
+    font-size: 8px;
+    color: rgb(142, 150, 160);
+    white-space: normal;
+}
+
+.state-card__tidy {
+    height: 20px;
+    margin-top: 3px;
+}
+
+/* ── 空状态 ───────────────────────────────────────── */
 
 #state-graph-empty {
     padding: 24px;
+}
+
+/* ── 需求/Host 建议行（结构化短 ID 呈现） ────────── */
+
+.sg-requirement-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+.sg-requirement-row__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    margin-left: 4px;
+}
+
+/* ── 画布缩放控件（Animator 同款右下角） ─────────── */
+
+#state-graph-canvas-zoom {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(128, 128, 128, 0.3);
+    border-right-color: rgba(128, 128, 128, 0.3);
+    border-top-color: rgba(128, 128, 128, 0.3);
+    border-bottom-color: rgba(128, 128, 128, 0.3);
+    background-color: rgba(27, 30, 33, 0.85);
+}
+
+.sg-canvas-zoom__label {
+    min-width: 38px;
+    -unity-text-align: middle-right;
+    opacity: 0.75;
+    margin-right: 6px;
+}
+
+.sg-canvas-zoom__slider {
+    min-width: 110px;
+    max-width: 110px;
+}
+
+.sg-header-add-layer {
+    flex-shrink: 0;
+}
+
+/* ── D9：链条高亮与初始徽标 ─────────────────────── */
+
+.state-card__initial-badge {
+    font-size: 8px;
+    -unity-font-style: bold;
+    color: rgb(126, 232, 154);
+    margin-top: 2px;
+    -unity-text-align: middle-left;
+}
+
+/* 初始徽标分级（维护者裁决）：Layer=亮绿，子机=淡绿 */
+.state-card__initial-badge--layer {
+    color: rgb(126, 232, 154);
+    -unity-font-style: bold;
+}
+
+.state-card__initial-badge--composite {
+    color: rgba(126, 232, 154, 0.62);
+}
+
+.state-card__leaf-count {
+    position: absolute;
+    right: 6px;
+    top: 4px;
+    font-size: 8px;
+    color: rgb(160, 168, 178);
+    -unity-text-align: middle-right;
 }

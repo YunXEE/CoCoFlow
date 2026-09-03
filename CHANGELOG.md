@@ -66,6 +66,50 @@ Editor tooling, and sample tests, 5193 lines of C#). Git history remains the
   on an actor with a running StateGraph host.
 - The remaining 35 sample-specific tests were removed with the sample.
 
+### Changed
+
+- StateGraph Editor rebuilt on the unified UI Toolkit visual language
+  (`ccflow-` from `Editor/Common`): the main window, canvas cards, preset
+  wizard, and the asset Inspector now share one theme, with bilingual
+  (English / Simplified Chinese) static chrome driven by the Editor language
+  preference. Asset names, descriptor names, and diagnostic payloads are
+  never translated. Editor styles load by package path instead of a hard-coded
+  GUID.
+- The canvas is rebuilt as a flattened genealogy view: the whole Layer is
+  visible on one canvas (positions composed from per-scope EditorLayout
+  records), parent-child structure is drawn as white flowchart-style lines,
+  and cross-scope transitions are always visible. Cards use a two-layer
+  border system: the inner border carries node state (initial/default
+  markings with "<scope> Default" badges), the outer border carries dynamic
+  states. Selecting a State highlights its full ancestry chain and the
+  genealogy segments between them; selecting a Transition highlights only the
+  edge; clicking empty canvas clears the selection. Leaf flow states are
+  computed from the Layer default (orange dashed ring = reachable dead end,
+  red dashed ring = topologically unreachable / default without outgoing
+  edges). Composite cards show a leaf count and a "Tidy Subtree" action;
+  dragging a composite moves its whole subtree with one layout record. Edges
+  follow the Animator presentation (center-anchored clipping, parallel
+  offsets for bidirectional pairs, midpoint direction triangles, self loops).
+  A dot grid background and an explicit zoom slider were added; wheel zoom
+  sensitivity was reduced. All pointer semantics (pan/zoom/drag/capture) and
+  the authoring command/Undo boundary are unchanged.
+- The StateGraph Asset Inspector moved from IMGUI to UI Toolkit on the same
+  visual language. It keeps the reachable surface (identity/count summary,
+  Event Adapter Declarations as the sole non-topology editing lane, Open
+  Editor, Add Layer, Analyze with Locate, Play Mode read-only) and adds a
+  read-only Host-requirements card derived from the three compilation
+  manifests. Unreachable dead layer-operation code was removed rather than
+  revived.
+- `CoCoFlow.Editor.StateGraph` now references `CoCoFlow.Editor.Common`.
+
+### Added
+
+- `Tests/Editor/StateGraph/CoCoStateGraphEditorVisualLanguageTests.cs`: theme
+  attachment, severity-to-badge mapping, empty states, bilingual chrome,
+  Animator edge interactions (hit/miss selection, parallel bidirectional
+  offsets, self-loop, double-click drill), Inspector UI Toolkit equivalents,
+  and the three upgraded element-name anchors.
+
 ## [0.4.0] - 2026-08-29
 
 Closes the expanded RC2 line as a usable 0.4.0 release. Runtime code, Editor

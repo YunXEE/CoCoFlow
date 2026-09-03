@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEditor.Callbacks;
@@ -9,14 +10,21 @@ using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraph
 {
-    internal sealed class CoCoStateGraphEditorWindow : EditorWindow
+    /// <summary>
+    /// StateGraph 主编辑器窗口（P03 重做）。
+    /// 视图=纯重建：拓扑写全部经 Controller→AuthoringOperations；本类不直接改序列化数据。
+    /// 视觉语言复用 Editor/Common（ccflow-），画布/布局专用样式走 sg-*（方案 D3）。
+    /// </summary>
+    internal sealed partial class CoCoStateGraphEditorWindow : EditorWindow
     {
-        private const string StyleGuid = "28e9fb1d474b4b87ac711d1de7aa0dd1";
+        private const string StyleSheetPath =
+            "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss";
 
         [SerializeField] private CoCoStateGraphAsset asset;
 
         private CoCoStateGraphEditorController controller;
         private CoCoStateGraphEditorCanvas canvas;
+        private VisualElement headerHost;
         private VisualElement toolbarHost;
         private ScrollView tree;
         private ScrollView details;
@@ -31,6 +39,11 @@ namespace CoCoFlow.Editor.StateGraph
         private bool awaitingCompilation;
         private CoCoConditionDescriptorId addConditionDescriptorId;
         private Vector2 contextPosition = new Vector2(80f, 80f);
+
+        private readonly LocalizedTextRegistry texts = new LocalizedTextRegistry();
+
+        private static string L(string english, string chinese) =>
+            CoCoEditorLocalization.Text(english, chinese);
 
         [MenuItem("Window/CoCoFlow/State Graph Editor")]
         internal static void OpenWindow()
@@ -61,6 +74,7 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnEnable()
         {
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged; // 唯一订阅点（P02 §3.2）
             if (awaitingCompilation)
             {
                 // The domain reloaded and this window reopened: the generated
@@ -78,7 +92,22 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnDisable()
         {
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged; // 对称退订
             DisposeController();
+        }
+
+        private void OnLanguageChanged()
+        {
+            if (asset == null)
+            {
+                Rebuild();
+                return;
+            }
+
+            // 只刷新静态文案，不重建结构（方案 §3.2）；
+            // 反馈区内容在下次 RefreshFeedback 时按当前语言重绘。
+            texts.ApplyCurrentLanguage();
+            RefreshFeedback();
         }
 
         private void Rebuild()
@@ -90,15 +119,21 @@ namespace CoCoFlow.Editor.StateGraph
 
             DisposeController();
             rootVisualElement.Clear();
-            string stylePath = AssetDatabase.GUIDToAssetPath(StyleGuid);
-            StyleSheet styleSheet = string.IsNullOrEmpty(stylePath)
-                ? null
-                : AssetDatabase.LoadAssetAtPath<StyleSheet>(stylePath);
-            if (styleSheet != null)
+            texts.Clear();
+
+            CoCoEditorElements.ApplyTheme(rootVisualElement);
+            StyleSheet styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(StyleSheetPath);
+            if (styleSheet == null)
+            {
+                Debug.LogError(
+                    $"[CoCoStateGraphEditorWindow] style sheet missing at {StyleSheetPath}; panel falls back to bare controls.");
+            }
+            else if (!rootVisualElement.styleSheets.Contains(styleSheet))
             {
                 rootVisualElement.styleSheets.Add(styleSheet);
             }
 
+            // 维护者反馈 5：顶部页头并入左栏最上方，不再占独立横条。
             toolbarHost = new VisualElement { name = "state-graph-toolbar-host" };
             rootVisualElement.Add(toolbarHost);
 
@@ -116,9 +151,16 @@ namespace CoCoFlow.Editor.StateGraph
             body.style.flexGrow = 1f;
             rootVisualElement.Add(body);
 
+            var leftPane = new VisualElement { name = "state-graph-left-pane" };
+            body.Add(leftPane);
+
+            headerHost = new VisualElement { name = "state-graph-header-host" };
+            leftPane.Add(headerHost);
+
             tree = new ScrollView { name = "state-graph-tree" };
+            tree.style.flexGrow = 1f;
             tree.style.minWidth = 180f;
-            body.Add(tree);
+            leftPane.Add(tree);
 
             var workspace = new TwoPaneSplitView(1, 350f, TwoPaneSplitViewOrientation.Horizontal);
             workspace.style.flexGrow = 1f;
@@ -126,6 +168,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             canvas = new CoCoStateGraphEditorCanvas(controller);
             canvas.ContextRequested += OnCanvasContextRequested;
+            canvas.CardContextRequested += OnCardContextRequested;
             workspace.Add(canvas);
 
             details = new ScrollView { name = "state-graph-details" };
@@ -133,19 +176,155 @@ namespace CoCoFlow.Editor.StateGraph
             details.style.minWidth = 290f;
             workspace.Add(details);
 
+            RefreshHeader();
             RefreshToolbar();
             RefreshTree();
             RefreshDetails();
         }
 
+        private void RefreshHeader()
+        {
+            if (headerHost == null)
+            {
+                return;
+            }
+
+            headerHost.Clear();
+            if (controller == null)
+            {
+                return;
+            }
+
+            // 紧凑页头（左栏顶部）：资产字段 + 徽章两行，无标题条。
+            var card = CoCoEditorElements.CreateCard(string.Empty);
+            card.name = "state-graph-header-card";
+
+            var assetField = new ObjectField
+            {
+                objectType = typeof(CoCoStateGraphAsset),
+                allowSceneObjects = false,
+                tooltip = L("State Graph Asset", "StateGraph 资产")
+            };
+            assetField.name = "state-graph-header-asset-field";
+            assetField.SetValueWithoutNotify(asset);
+            assetField.RegisterValueChangedCallback(evt =>
+            {
+                asset = evt.newValue as CoCoStateGraphAsset;
+                Rebuild();
+            });
+            card.Add(assetField);
+
+            // 维护者反馈：Layer 选择/新建移入左栏页头（工具栏左上解拥）。
+            var layerRow = new VisualElement();
+            layerRow.AddToClassList("sg-card-row");
+            AddLayerPopup(layerRow, compact: true);
+            var addLayer = new Button(() => controller.AddLayer())
+            {
+                text = L("+ New Layer", "+ 新建 Layer"),
+                tooltip = L("Append a new Layer", "追加一个新 Layer")
+            };
+            texts.Register(addLayer, "+ New Layer", "+ 新建 Layer");
+            addLayer.AddToClassList("sg-header-add-layer");
+            addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
+            layerRow.Add(addLayer);
+            card.Add(layerRow);
+
+            card.Add(BuildHeaderBadges());
+            headerHost.Add(card);
+        }
+
+        private VisualElement BuildHeaderBadges()
+        {
+            var badges = new VisualElement { name = "state-graph-header-badges" };
+
+            badges.Add(CoCoEditorElements.CreateBadge(
+                $"Schema {asset.SchemaVersion}",
+                CoCoEditorBadgeKind.Neutral));
+
+            int stateCount = 0;
+            int transitionCount = 0;
+            foreach (CoCoStateGraphLayerRecord layer in asset.Layers)
+            {
+                if (layer == null)
+                {
+                    continue;
+                }
+
+                stateCount += layer.States.Count;
+                transitionCount += layer.Transitions.Count;
+            }
+
+            badges.Add(CoCoEditorElements.CreateBadge(
+                L($"{asset.Layers.Count} Layer(s)", $"{asset.Layers.Count} 层") +
+                " · " +
+                L($"{stateCount} State(s)", $"{stateCount} 个 State") +
+                " · " +
+                L($"{transitionCount} Transition(s)", $"{transitionCount} 个 Transition"),
+                CoCoEditorBadgeKind.Info));
+
+            if (!string.IsNullOrEmpty(controller.CatalogStatus))
+            {
+                badges.Add(CoCoEditorElements.CreateBadge(
+                    L("Catalog degraded", "目录降级"),
+                    CoCoEditorBadgeKind.Warning));
+            }
+            else if (controller.Catalog != null)
+            {
+                badges.Add(CoCoEditorElements.CreateBadge(
+                    L("Catalog ready", "目录就绪"),
+                    CoCoEditorBadgeKind.Success));
+            }
+            else
+            {
+                badges.Add(CoCoEditorElements.CreateBadge(
+                    L("No catalog", "无目录"),
+                    CoCoEditorBadgeKind.Neutral));
+            }
+
+            CoCoStateGraphAssetCompileResult analysis = controller.AnalysisResult;
+            CoCoEditorBadgeKind analysisKind = CoCoEditorBadgeKind.Neutral;
+            string analysisText = L("Not analyzed", "未分析");
+            if (analysis != null)
+            {
+                if (analysis.Succeeded && analysis.Diagnostics.Count == 0)
+                {
+                    analysisKind = CoCoEditorBadgeKind.Success;
+                    analysisText = L("Compiled", "编译通过");
+                }
+                else if (analysis.Succeeded)
+                {
+                    analysisKind = CoCoEditorBadgeKind.Warning;
+                    analysisText = L($"Compiled · {analysis.Diagnostics.Count} diagnostic(s)",
+                        $"编译通过 · {analysis.Diagnostics.Count} 条诊断");
+                }
+                else
+                {
+                    analysisKind = CoCoEditorBadgeKind.Error;
+                    analysisText = L($"Blocked · {analysis.Diagnostics.Count} diagnostic(s)",
+                        $"编译阻断 · {analysis.Diagnostics.Count} 条诊断");
+                }
+            }
+
+            badges.Add(CoCoEditorElements.CreateBadge(analysisText, analysisKind));
+            return badges;
+        }
+
         private void BuildEmptyState()
         {
-            var container = new VisualElement { name = "state-graph-empty" };
-            container.style.flexGrow = 1f;
-            container.style.alignItems = Align.Center;
-            container.style.justifyContent = Justify.Center;
-            container.Add(new Label("Select a CoCoStateGraphAsset to begin."));
-            var field = new ObjectField("State Graph Asset")
+            string title = L("No State Graph selected", "未选择 StateGraph");
+            string message = L(
+                "Select a CoCoStateGraphAsset to begin editing its Layers, States, and Transitions.",
+                "选择一个 CoCoStateGraphAsset，开始编辑它的 Layer、State 与 Transition。");
+            string firstStep = L(
+                "Pick or drop an asset in the field below.",
+                "在下方字段选择或拖入资产。");
+            string alternative = L(
+                "Or create a new graph from a preset.",
+                "或从预设新建。");
+            var empty = CoCoEditorElements.CreateEmptyState(title, message, firstStep, alternative);
+            empty.name = "state-graph-empty";
+
+            var field = new ObjectField(L("State Graph Asset", "StateGraph 资产"))
             {
                 objectType = typeof(CoCoStateGraphAsset),
                 allowSceneObjects = false
@@ -155,8 +334,8 @@ namespace CoCoFlow.Editor.StateGraph
                 asset = evt.newValue as CoCoStateGraphAsset;
                 Rebuild();
             });
-            container.Add(field);
-            rootVisualElement.Add(container);
+            empty.Add(field);
+            rootVisualElement.Add(empty);
         }
 
         private void RefreshToolbar()
@@ -170,21 +349,6 @@ namespace CoCoFlow.Editor.StateGraph
             var toolbar = new Toolbar();
             toolbarHost.Add(toolbar);
 
-            var assetField = new ObjectField
-            {
-                objectType = typeof(CoCoStateGraphAsset),
-                allowSceneObjects = false,
-                tooltip = "State Graph Asset"
-            };
-            assetField.style.width = 190f;
-            assetField.SetValueWithoutNotify(asset);
-            assetField.RegisterValueChangedCallback(evt =>
-            {
-                asset = evt.newValue as CoCoStateGraphAsset;
-                Rebuild();
-            });
-            toolbar.Add(assetField);
-
             if (controller == null)
             {
                 var emptyCreatePreset = new ToolbarButton(() => CoCoStateGraphPresetWizard.Open())
@@ -196,6 +360,29 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            var search = new ToolbarSearchField();
+            search.name = "state-graph-search";
+            search.SetValueWithoutNotify(controller.Session.SearchText);
+            search.RegisterValueChangedCallback(evt => controller.SetSearch(evt.newValue));
+            toolbar.Add(search);
+
+            var spacer = new ToolbarSpacer();
+            spacer.style.flexGrow = 1f;
+            toolbar.Add(spacer);
+
+            var analyze = new ToolbarButton(() => controller.Analyze()) { text = "Analyze" };
+            toolbar.Add(analyze);
+
+            var createPreset = new ToolbarButton(() => CoCoStateGraphPresetWizard.Open())
+            {
+                text = "Create Preset"
+            };
+            createPreset.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
+            toolbar.Add(createPreset);
+        }
+
+        private void AddLayerPopup(VisualElement slot, bool compact = false)
+        {
             var layerIds = new List<CoCoLayerId>();
             var layerLabels = new List<string>();
             int selectedIndex = 0;
@@ -212,52 +399,38 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 layerIds.Add(layerId);
-                layerLabels.Add($"{layer.DisplayName}  [{ShortId(layerId.ToString())}]");
+                layerLabels.Add(compact
+                    ? layer.DisplayName
+                    : $"{layer.DisplayName}  [{ShortId(layerId.ToString())}]");
             }
 
-            if (layerLabels.Count > 0)
+            if (layerLabels.Count == 0)
             {
-                var layerPopup = new PopupField<string>(layerLabels, selectedIndex);
-                layerPopup.style.width = 190f;
-                layerPopup.RegisterValueChangedCallback(evt =>
-                {
-                    int index = layerLabels.IndexOf(evt.newValue);
-                    if (index >= 0)
-                    {
-                        controller.SelectLayer(layerIds[index]);
-                    }
-                });
-                toolbar.Add(layerPopup);
+                return;
             }
 
-            var addLayer = new ToolbarButton(() => controller.AddLayer()) { text = "+ Layer" };
-            addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
-            toolbar.Add(addLayer);
-            toolbar.Add(new ToolbarButton(() => controller.DrillUp())
+            var layerPopup = new PopupField<string>(layerLabels, selectedIndex)
             {
-                text = "Up",
-                tooltip = "Move to the parent State canvas"
-            });
-            var breadcrumb = new Label(controller.BreadcrumbLabel);
-            breadcrumb.style.minWidth = 120f;
-            breadcrumb.style.unityTextAlign = TextAnchor.MiddleLeft;
-            toolbar.Add(breadcrumb);
-
-            var search = new ToolbarSearchField();
-            search.name = "state-graph-search";
-            search.SetValueWithoutNotify(controller.Session.SearchText);
-            search.RegisterValueChangedCallback(evt => controller.SetSearch(evt.newValue));
-            toolbar.Add(search);
-            var spacer = new ToolbarSpacer();
-            spacer.style.flexGrow = 1f;
-            toolbar.Add(spacer);
-            toolbar.Add(new ToolbarButton(() => controller.Analyze()) { text = "Analyze" });
-            var createPreset = new ToolbarButton(() => CoCoStateGraphPresetWizard.Open())
-            {
-                text = "Create Preset"
+                tooltip = L("Layer", "Layer")
             };
-            createPreset.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
-            toolbar.Add(createPreset);
+            if (compact)
+            {
+                layerPopup.style.flexGrow = 1f;
+                layerPopup.style.minWidth = 60f;
+            }
+            else
+            {
+                layerPopup.style.width = 190f;
+            }
+            layerPopup.RegisterValueChangedCallback(evt =>
+            {
+                int index = layerLabels.IndexOf(evt.newValue);
+                if (index >= 0)
+                {
+                    controller.SelectLayer(layerIds[index]);
+                }
+            });
+            slot.Add(layerPopup);
         }
 
         /// <summary>
@@ -291,102 +464,6 @@ namespace CoCoFlow.Editor.StateGraph
             }
         }
 
-        private void RefreshDetails()
-        {
-            if (details == null || controller == null)
-            {
-                return;
-            }
-
-            details.Clear();
-            feedbackHost = null;
-            serializedAsset?.UpdateIfRequiredOrScript();
-            AddHeading("Layer");
-            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
-            if (layer == null)
-            {
-                details.Add(new HelpBox("Add or select a valid Layer.", HelpBoxMessageType.Info));
-                feedbackHost = new VisualElement { name = "state-graph-feedback" };
-                details.Add(feedbackHost);
-                RefreshFeedback();
-                ApplyPlayModeReadOnly();
-                return;
-            }
-
-            var layerName = new TextField("Name") { value = layer.DisplayName };
-            details.Add(layerName);
-            details.Add(new Button(() => controller.RenameLayer(layerName.value)) { text = "Rename Layer" });
-            var layerOrder = new VisualElement();
-            layerOrder.style.flexDirection = FlexDirection.Row;
-            layerOrder.Add(new Button(() => controller.MoveSelectedLayer(-1)) { text = "Move Layer Up" });
-            layerOrder.Add(new Button(() => controller.MoveSelectedLayer(1)) { text = "Move Layer Down" });
-            details.Add(layerOrder);
-            details.Add(new Button(() => controller.DuplicateSelectedLayer()) { text = "Duplicate Layer" });
-            details.Add(new Button(DeleteLayer) { text = "Delete Layer" });
-
-            AddHeading("Add State");
-            IReadOnlyList<CoCoStateDescriptor> stateDescriptors =
-                controller.Catalog?.StateDescriptors ?? Array.Empty<CoCoStateDescriptor>();
-            StateDescriptorChoice addDescriptor = AddStateDescriptorPopup(
-                stateDescriptors,
-                addStateDescriptorId,
-                persistAsAddDefault: true,
-                "add-state-descriptor");
-            var stateName = new TextField("Name") { value = "State" };
-            details.Add(stateName);
-
-            // Create-new-logic lane: graph-driven authoring. Entering a new
-            // state name and clicking Create generates the attributed state
-            // script behind the scenes; after the script compilation and
-            // standard-catalog rescan, this window reopens the Add State
-            // panel with the fresh descriptor already selected.
-            var createNewScriptName = new TextField("New Logic Name");
-            details.Add(createNewScriptName);
-            var createStatus = new Label(string.Empty);
-            createStatus.style.whiteSpace = UnityEngine.UIElements.WhiteSpace.Normal;
-            details.Add(createStatus);
-            details.Add(new Button(() =>
-            {
-                string error = CoCoStateScriptWizard.TryCreate(
-                    createNewScriptName.value);
-                if (error != null)
-                {
-                    createStatus.text = error;
-                    return;
-                }
-
-                createStatus.text =
-                    createNewScriptName.value.Trim() +
-                    "Logic.cs generated. Waiting for script compilation...";
-                pendingCreateSelectName = createNewScriptName.value.Trim() + "Logic";
-                awaitingCompilation = true;
-            }) { text = "Create New Logic Script" });
-
-            details.Add(new Button(() =>
-            {
-                CoCoStateId parent = controller.Session.DrillRootStateId;
-                controller.AddState(parent, addDescriptor.Value, stateName.value, NextPosition());
-            }) { text = "Add State Here" });
-            details.Add(new Button(() => controller.PasteState(
-                controller.Session.DrillRootStateId,
-                NextPosition())) { text = "Paste Subtree Here" });
-
-            CoCoStateGraphStateRecord selectedState = FindState(
-                layer,
-                controller.Session.SelectedStateId);
-            if (selectedState != null)
-            {
-                DrawSelectedState(selectedState, stateDescriptors);
-            }
-
-            DrawTransitions(layer);
-            feedbackHost = new VisualElement { name = "state-graph-feedback" };
-            details.Add(feedbackHost);
-            RefreshFeedback();
-
-            ApplyPlayModeReadOnly();
-        }
-
         private void RefreshTree()
         {
             if (tree == null || controller == null)
@@ -395,30 +472,51 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             tree.Clear();
-            var heading = new Label("State Tree");
-            heading.AddToClassList("state-graph-heading");
+            var heading = CoCoEditorElements.CreateHeading(L("State Tree", "State 树"));
+            texts.Register(heading, "State Tree", "State 树");
             tree.Add(heading);
+
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
             if (layer == null)
             {
-                tree.Add(new Label("No Layer selected."));
+                var none = new Label(L("No Layer selected.", "未选择 Layer。"));
+                texts.Register(none, "No Layer selected.", "未选择 Layer。");
+                tree.Add(none);
                 return;
             }
 
             IReadOnlyList<CoCoStateGraphStateRecord> searchResults = controller.SearchResults;
             if (!string.IsNullOrWhiteSpace(controller.Session.SearchText))
             {
-                var searchHeading = new Label($"Search results ({searchResults.Count})");
-                searchHeading.style.unityFontStyleAndWeight = FontStyle.Bold;
-                tree.Add(searchHeading);
+                var count = new Label(
+                    $"{L("Search results", "搜索结果")} ({searchResults.Count})");
+                count.style.unityFontStyleAndWeight = FontStyle.Bold;
+                count.style.marginTop = 12f;
+                count.style.marginBottom = 5f;
+                count.style.paddingBottom = 3f;
+                count.style.borderBottomWidth = 1f;
+                count.style.borderBottomColor = Color.grey;
+                tree.Add(count);
+                if (searchResults.Count == 0)
+                {
+                    var noMatch = new Label(L("No matching States.", "没有匹配的 State。"));
+                    noMatch.AddToClassList("sg-muted");
+                    texts.Register(noMatch, "No matching States.", "没有匹配的 State。");
+                    tree.Add(noMatch);
+                }
+
                 foreach (CoCoStateGraphStateRecord result in searchResults)
                 {
                     CoCoStateId stateId = ToStateId(result.StateId);
-                    tree.Add(new Button(() => controller.NavigateToState(stateId))
+                    var row = new Button(() => controller.NavigateToState(stateId))
                     {
                         text = $"{result.DisplayName}  [{ShortId(stateId.ToString())}]"
-                    });
+                    };
+                    row.AddToClassList("sg-tree-row");
+                    tree.Add(row);
                 }
+
+                return;
             }
 
             AddTreeChildren(tree, layer, default, 0);
@@ -432,7 +530,9 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (depth > layer.States.Count)
             {
-                parent.Add(new HelpBox("State hierarchy contains a cycle.", HelpBoxMessageType.Error));
+                parent.Add(new HelpBox(
+                    L("State hierarchy contains a cycle.", "State 层级存在环。"),
+                    HelpBoxMessageType.Error));
                 return;
             }
 
@@ -452,6 +552,7 @@ namespace CoCoFlow.Editor.StateGraph
                         text = state.DisplayName
                     };
                     leaf.style.marginLeft = depth * 8f;
+                    leaf.AddToClassList("sg-tree-row");
                     parent.Add(leaf);
                     continue;
                 }
@@ -462,550 +563,29 @@ namespace CoCoFlow.Editor.StateGraph
                     value = !controller.Session.IsCollapsed(stateId)
                 };
                 foldout.style.marginLeft = depth * 8f;
+                foldout.AddToClassList("ccflow-foldout");
                 foldout.RegisterValueChangedCallback(evt =>
                 {
                     controller.Session.SetCollapsed(stateId, !evt.newValue);
                     controller.Session.Save();
                 });
-                foldout.Add(new Button(() => controller.NavigateToState(stateId))
+                var open = new Button(() => controller.NavigateToState(stateId))
                 {
-                    text = "Select / Open Parent Canvas"
-                });
+                    text = L("Select", "选中")
+                };
+                texts.Register(open, "Select", "选中");
+                open.AddToClassList("sg-navigation");
+                foldout.Add(open);
                 AddTreeChildren(foldout, layer, state.StateId, depth + 1);
                 parent.Add(foldout);
             }
-        }
-
-        private void DrawSelectedState(
-            CoCoStateGraphStateRecord state,
-            IReadOnlyList<CoCoStateDescriptor> descriptors)
-        {
-            AddHeading("Selected State");
-            details.Add(new Label(StableStateId(state)));
-            var stateName = new TextField("Name") { value = state.DisplayName };
-            details.Add(stateName);
-            details.Add(new Button(() => controller.RenameSelectedState(stateName.value))
-            {
-                text = "Rename State"
-            });
-            var stateOrder = new VisualElement();
-            stateOrder.style.flexDirection = FlexDirection.Row;
-            stateOrder.Add(new Button(() => controller.MoveSelectedState(-1)) { text = "Move Up" });
-            stateOrder.Add(new Button(() => controller.MoveSelectedState(1)) { text = "Move Down" });
-            details.Add(stateOrder);
-
-            StateDescriptorChoice selectedDescriptor = AddStateDescriptorPopup(
-                descriptors,
-                ToStateDescriptorId(state.StateDescriptorId),
-                persistAsAddDefault: false,
-                "selected-state-descriptor");
-            details.Add(new Button(() => controller.SetSelectedStateDescriptor(
-                selectedDescriptor.Value)) { text = "Set Descriptor" });
-            DrawConfigProperty(
-                FindStateConfigProperty(
-                    controller.Session.SelectedLayerId,
-                    ToStateId(state.StateId)),
-                "State Config");
-
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.Add(new Button(() => controller.SetSelectedStateInitial()) { text = "Set Initial" });
-            row.Add(new Button(() => controller.CopySelectedState()) { text = "Copy" });
-            details.Add(row);
-
-            CoCoStateId selectedId = ToStateId(state.StateId);
-            details.Add(new Button(() => controller.AddState(
-                selectedId,
-                selectedDescriptor.Value,
-                "Child State",
-                new Vector2(80f, 80f))) { text = "Add Child State" });
-
-            if (HasChildren(controller.SelectedLayer, state.StateId))
-            {
-                var openChildren = new Button(() => controller.DrillInto(selectedId))
-                {
-                    text = "Open Child Canvas"
-                };
-                openChildren.AddToClassList("state-graph-navigation");
-                details.Add(openChildren);
-            }
-
-            List<CoCoStateId> siblingIds = SiblingIds(controller.SelectedLayer, state);
-            StateIdChoice replacement = AddExplicitStateIdPopup(
-                "Initial replacement",
-                siblingIds);
-
-            var parentChoices = new List<CoCoStateId> { default };
-            foreach (CoCoStateGraphStateRecord candidate in controller.SelectedLayer.States)
-            {
-                if (candidate != null && candidate.StateId != state.StateId)
-                {
-                    parentChoices.Add(ToStateId(candidate.StateId));
-                }
-            }
-
-            CoCoStateId currentParent = ToStateId(state.ParentStateId);
-            StateIdChoice targetParent = AddStateIdPopup("Reparent under", parentChoices, currentParent);
-            details.Add(new Button(() =>
-            {
-                if (targetParent.Value != currentParent &&
-                    RequiresInitialReplacement(controller.SelectedLayer, state) &&
-                    !replacement.HasExplicitSelection)
-                {
-                    ShowNotification(new GUIContent(
-                        "Choose an explicit replacement before moving the initial State."));
-                    return;
-                }
-
-                controller.ReparentSelectedState(
-                    targetParent.Value,
-                    replacement.Value,
-                    new Vector2(80f, 80f));
-            }) { text = "Reparent Subtree" });
-
-            details.Add(new Button(() => DeleteState(replacement)) { text = "Delete Subtree" });
-        }
-
-        private void DrawTransitions(CoCoStateGraphLayerRecord layer)
-        {
-            AddHeading("Transitions");
-            foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
-            {
-                if (transition == null ||
-                    !TryTransitionId(transition.TransitionId, out CoCoTransitionId transitionId))
-                {
-                    continue;
-                }
-
-                string label = TransitionLabel(layer, transition);
-                details.Add(new Button(() => controller.SelectTransition(transitionId)) { text = label });
-            }
-
-            var leafIds = new List<CoCoStateId>();
-            foreach (CoCoStateGraphStateRecord state in layer.States)
-            {
-                if (state != null && !HasChildren(layer, state.StateId))
-                {
-                    leafIds.Add(ToStateId(state.StateId));
-                }
-            }
-
-            CoCoStateGraphTransitionRecord selected = FindTransition(
-                layer,
-                controller.Session.SelectedTransitionId);
-            CoCoStateId sourceId = selected == null
-                ? leafIds.Count > 0 ? leafIds[0] : default
-                : ToStateId(selected.SourceStateId);
-            CoCoStateId targetId = selected == null
-                ? leafIds.Count > 1 ? leafIds[1] : sourceId
-                : ToStateId(selected.TargetStateId);
-            StateIdChoice source = AddStateIdPopup("Source State", leafIds, sourceId);
-            StateIdChoice target = AddStateIdPopup("Target State", leafIds, targetId);
-            var priority = new IntegerField("Priority") { value = selected?.Priority ?? 0 };
-            details.Add(priority);
-            var windowMode = new EnumField(
-                "Window",
-                selected?.WindowMode ?? CoCoTransitionWindowMode.Always);
-            details.Add(windowMode);
-            var start = new DoubleField("Start inclusive")
-            {
-                value = selected?.WindowStartInclusive ?? 0d
-            };
-            var end = new DoubleField("End exclusive")
-            {
-                value = selected?.WindowEndExclusive ?? 1d
-            };
-            details.Add(start);
-            details.Add(end);
-            details.Add(new Button(() =>
-            {
-                CoCoTransitionWindowMode mode = (CoCoTransitionWindowMode)windowMode.value;
-                if (!CoCoTransitionWindow.TryCreate(mode, start.value, end.value, out CoCoTransitionWindow window))
-                {
-                    ShowNotification(new GUIContent("Invalid Transition Window."));
-                    return;
-                }
-
-                if (selected == null)
-                {
-                    controller.AddTransition(source.Value, target.Value, priority.value, window);
-                }
-                else
-                {
-                    controller.UpdateSelectedTransition(source.Value, target.Value, priority.value, window);
-                }
-            }) { text = selected == null ? "Add Transition" : "Update Transition" });
-
-            if (selected == null)
-            {
-                return;
-            }
-
-            details.Add(new Button(() => controller.DeleteSelectedTransition())
-            {
-                text = "Delete Transition"
-            });
-
-            AddHeading("Conditions");
-            for (int index = 0; index < selected.Conditions.Count; index++)
-            {
-                int capturedIndex = index;
-                CoCoStateGraphConditionRecord condition = selected.Conditions[index];
-                var conditionRow = new VisualElement();
-                conditionRow.style.flexDirection = FlexDirection.Row;
-                var label = new Label(controller.ConditionDescriptorLabel(condition));
-                label.style.flexGrow = 1f;
-                conditionRow.Add(label);
-                conditionRow.Add(new Button(() => controller.MoveCondition(
-                    capturedIndex,
-                    Mathf.Max(0, capturedIndex - 1))) { text = "↑" });
-                conditionRow.Add(new Button(() => controller.MoveCondition(
-                    capturedIndex,
-                    Mathf.Min(selected.Conditions.Count - 1, capturedIndex + 1))) { text = "↓" });
-                conditionRow.Add(new Button(() => controller.DeleteCondition(capturedIndex)) { text = "×" });
-                details.Add(conditionRow);
-                DrawConfigProperty(
-                    FindConditionConfigProperty(
-                        controller.Session.SelectedLayerId,
-                        controller.Session.SelectedTransitionId,
-                        capturedIndex),
-                    $"Condition {capturedIndex + 1} Config");
-            }
-
-            IReadOnlyList<CoCoConditionDescriptor> conditionDescriptors =
-                controller.Catalog?.ConditionDescriptors ?? Array.Empty<CoCoConditionDescriptor>();
-            CoCoConditionDescriptor conditionDescriptor = AddConditionDescriptorPopup(conditionDescriptors);
-            details.Add(new Button(() => controller.AddCondition(
-                ResolveConditionDescriptor(conditionDescriptor))) { text = "Add Condition" });
-        }
-
-        private void RefreshFeedback()
-        {
-            if (feedbackHost == null || controller == null)
-            {
-                return;
-            }
-
-            feedbackHost.Clear();
-            DrawRequirements(feedbackHost);
-            DrawDiagnostics(feedbackHost);
-            AddCatalogStatus(feedbackHost);
-            if (!string.IsNullOrEmpty(controller.CommandFailure))
-            {
-                feedbackHost.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
-            }
-        }
-
-        private void DrawRequirements(VisualElement parent)
-        {
-            AddHeading(parent, "Requirements / Host Suggestions");
-            foreach (string line in controller.BuildRequirementOverlay())
-            {
-                var label = new Label(line);
-                label.style.whiteSpace = WhiteSpace.Normal;
-                parent.Add(label);
-            }
-        }
-
-        private void DrawDiagnostics(VisualElement parent)
-        {
-            AddHeading(parent, "Diagnostics");
-            if (controller.AnalysisResult == null)
-            {
-                parent.Add(new Label("Run Analyze to recompute diagnostics."));
-                return;
-            }
-
-            parent.Add(new Label(controller.AnalysisResult.Succeeded
-                ? "Compilation succeeded."
-                : "Compilation blocked."));
-            foreach (CoCoGraphDiagnostic diagnostic in controller.AnalysisResult.Diagnostics)
-            {
-                var box = new VisualElement();
-                box.Add(new Label(diagnostic.Diagnostic.Message));
-                var locate = new Button(() => controller.Locate(diagnostic.Location)) { text = "Locate" };
-                locate.AddToClassList("state-graph-navigation");
-                box.Add(locate);
-                parent.Add(box);
-            }
-        }
-
-        private void ApplyPlayModeReadOnly()
-        {
-            if (CoCoStateGraphAuthoringOperations.CanEdit(out string failure))
-            {
-                return;
-            }
-
-            details.Insert(0, new HelpBox(failure, HelpBoxMessageType.Info));
-            details.Query<Button>().ForEach(button =>
-            {
-                if (!button.ClassListContains("state-graph-navigation"))
-                {
-                    button.SetEnabled(false);
-                }
-            });
-            details.Query<TextField>().ForEach(field => field.SetEnabled(false));
-            details.Query<IntegerField>().ForEach(field => field.SetEnabled(false));
-            details.Query<DoubleField>().ForEach(field => field.SetEnabled(false));
-            details.Query<EnumField>().ForEach(field => field.SetEnabled(false));
-            details.Query<PopupField<string>>().ForEach(field => field.SetEnabled(false));
-            details.Query<PropertyField>().ForEach(field => field.SetEnabled(false));
-        }
-
-        private void AddCatalogStatus(VisualElement parent = null)
-        {
-            if (!string.IsNullOrEmpty(controller?.CatalogStatus))
-            {
-                (parent ?? details).Add(new HelpBox(controller.CatalogStatus, HelpBoxMessageType.Warning));
-            }
-        }
-
-        private void DrawConfigProperty(SerializedProperty property, string label)
-        {
-            if (property == null || serializedAsset == null)
-            {
-                details.Add(new HelpBox($"{label} is unavailable.", HelpBoxMessageType.Warning));
-                return;
-            }
-
-            var field = new PropertyField(property.Copy(), label);
-            field.name = label == "State Config"
-                ? "state-graph-state-config"
-                : "state-graph-condition-config";
-            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => controller.NotifyConfigChanged());
-            field.Bind(serializedAsset);
-            details.Add(field);
-        }
-
-        private SerializedProperty FindStateConfigProperty(
-            CoCoLayerId layerId,
-            CoCoStateId stateId)
-        {
-            SerializedProperty layer = FindLayerProperty(layerId);
-            SerializedProperty states = layer?.FindPropertyRelative("states");
-            for (int index = 0; states != null && index < states.arraySize; index++)
-            {
-                SerializedProperty state = states.GetArrayElementAtIndex(index);
-                if (SerializedIdMatches(state.FindPropertyRelative("stateId"), stateId.High, stateId.Low))
-                {
-                    return state.FindPropertyRelative("config");
-                }
-            }
-
-            return null;
-        }
-
-        private SerializedProperty FindConditionConfigProperty(
-            CoCoLayerId layerId,
-            CoCoTransitionId transitionId,
-            int conditionIndex)
-        {
-            SerializedProperty layer = FindLayerProperty(layerId);
-            SerializedProperty transitions = layer?.FindPropertyRelative("transitions");
-            for (int index = 0; transitions != null && index < transitions.arraySize; index++)
-            {
-                SerializedProperty transition = transitions.GetArrayElementAtIndex(index);
-                if (!SerializedIdMatches(
-                        transition.FindPropertyRelative("transitionId"),
-                        transitionId.High,
-                        transitionId.Low))
-                {
-                    continue;
-                }
-
-                SerializedProperty conditions = transition.FindPropertyRelative("conditions");
-                return conditions != null &&
-                       conditionIndex >= 0 &&
-                       conditionIndex < conditions.arraySize
-                    ? conditions.GetArrayElementAtIndex(conditionIndex).FindPropertyRelative("config")
-                    : null;
-            }
-
-            return null;
-        }
-
-        private SerializedProperty FindLayerProperty(CoCoLayerId layerId)
-        {
-            SerializedProperty layers = serializedAsset?.FindProperty("layers");
-            for (int index = 0; layers != null && index < layers.arraySize; index++)
-            {
-                SerializedProperty layer = layers.GetArrayElementAtIndex(index);
-                if (SerializedIdMatches(layer.FindPropertyRelative("layerId"), layerId.High, layerId.Low))
-                {
-                    return layer;
-                }
-            }
-
-            return null;
-        }
-
-        private static bool SerializedIdMatches(
-            SerializedProperty serializedId,
-            ulong expectedHigh,
-            ulong expectedLow)
-        {
-            SerializedProperty high = serializedId?.FindPropertyRelative("high");
-            SerializedProperty low = serializedId?.FindPropertyRelative("low");
-            return high != null && low != null &&
-                   high.ulongValue == expectedHigh &&
-                   low.ulongValue == expectedLow;
-        }
-
-        private StateDescriptorChoice AddStateDescriptorPopup(
-            IReadOnlyList<CoCoStateDescriptor> descriptors,
-            CoCoStateDescriptorId preferred,
-            bool persistAsAddDefault,
-            string popupName)
-        {
-            var choice = new StateDescriptorChoice();
-            if (descriptors.Count == 0)
-            {
-                details.Add(new HelpBox("No State descriptors are available.", HelpBoxMessageType.Warning));
-                return choice;
-            }
-
-            int selectedIndex = 0;
-            var labels = new List<string>(descriptors.Count);
-            for (int index = 0; index < descriptors.Count; index++)
-            {
-                CoCoStateDescriptor descriptor = descriptors[index];
-                labels.Add($"{descriptor.LogicType.Name}  [{ShortId(descriptor.DescriptorId.ToString())}]");
-                if ((preferred.IsValid && descriptor.DescriptorId == preferred) ||
-                    (!preferred.IsValid && descriptor.DescriptorId == addStateDescriptorId))
-                {
-                    selectedIndex = index;
-                }
-            }
-
-            choice.Value = descriptors[selectedIndex];
-            if (persistAsAddDefault)
-            {
-                addStateDescriptorId = choice.Value.DescriptorId;
-            }
-
-            var popup = new PopupField<string>("Descriptor", labels, selectedIndex)
-            {
-                name = popupName
-            };
-            popup.RegisterValueChangedCallback(evt =>
-            {
-                int index = labels.IndexOf(evt.newValue);
-                if (index >= 0)
-                {
-                    choice.Value = descriptors[index];
-                    if (persistAsAddDefault)
-                    {
-                        addStateDescriptorId = choice.Value.DescriptorId;
-                    }
-                }
-            });
-            details.Add(popup);
-            return choice;
-        }
-
-        private CoCoConditionDescriptor AddConditionDescriptorPopup(
-            IReadOnlyList<CoCoConditionDescriptor> descriptors)
-        {
-            if (descriptors.Count == 0)
-            {
-                details.Add(new HelpBox("No Condition descriptors are available.", HelpBoxMessageType.Info));
-                return null;
-            }
-
-            int selectedIndex = 0;
-            var labels = new List<string>(descriptors.Count);
-            for (int index = 0; index < descriptors.Count; index++)
-            {
-                CoCoConditionDescriptor descriptor = descriptors[index];
-                labels.Add($"{descriptor.ConditionType.Name}  [{ShortId(descriptor.DescriptorId.ToString())}]");
-                if (descriptor.DescriptorId == addConditionDescriptorId)
-                {
-                    selectedIndex = index;
-                }
-            }
-
-            addConditionDescriptorId = descriptors[selectedIndex].DescriptorId;
-            var popup = new PopupField<string>("Descriptor", labels, selectedIndex);
-            popup.RegisterValueChangedCallback(evt =>
-            {
-                int index = labels.IndexOf(evt.newValue);
-                if (index >= 0)
-                {
-                    addConditionDescriptorId = descriptors[index].DescriptorId;
-                }
-            });
-            details.Add(popup);
-            return descriptors[selectedIndex];
-        }
-
-        private StateIdChoice AddStateIdPopup(
-            string label,
-            IReadOnlyList<CoCoStateId> ids,
-            CoCoStateId selected)
-        {
-            var choice = new StateIdChoice();
-            if (ids.Count == 0)
-            {
-                return choice;
-            }
-
-            int selectedIndex = 0;
-            var labels = new List<string>(ids.Count);
-            for (int index = 0; index < ids.Count; index++)
-            {
-                labels.Add(StateLabel(ids[index]));
-                if (ids[index] == selected)
-                {
-                    selectedIndex = index;
-                }
-            }
-
-            choice.Value = ids[selectedIndex];
-            var popup = new PopupField<string>(label, labels, selectedIndex);
-            popup.RegisterValueChangedCallback(evt =>
-            {
-                int index = labels.IndexOf(evt.newValue);
-                if (index >= 0)
-                {
-                    choice.Value = ids[index];
-                }
-            });
-            details.Add(popup);
-            return choice;
-        }
-
-        private StateIdChoice AddExplicitStateIdPopup(
-            string label,
-            IReadOnlyList<CoCoStateId> ids)
-        {
-            var choice = new StateIdChoice();
-            if (ids.Count == 0)
-            {
-                return choice;
-            }
-
-            var labels = new List<string>(ids.Count + 1) { "<Select replacement>" };
-            for (int index = 0; index < ids.Count; index++)
-            {
-                labels.Add(StateLabel(ids[index]));
-            }
-
-            var popup = new PopupField<string>(label, labels, 0);
-            popup.RegisterValueChangedCallback(evt =>
-            {
-                int index = labels.IndexOf(evt.newValue) - 1;
-                choice.HasExplicitSelection = index >= 0;
-                choice.Value = index >= 0 ? ids[index] : default;
-            });
-            details.Add(popup);
-            return choice;
         }
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
             if ((invalidation & CoCoStateGraphEditorInvalidation.Toolbar) != 0)
             {
+                RefreshHeader();
                 RefreshToolbar();
             }
 
@@ -1020,6 +600,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
             else if ((invalidation & CoCoStateGraphEditorInvalidation.Feedback) != 0)
             {
+                RefreshHeader(); // 分析状态徽章随 Feedback 失效更新
                 RefreshFeedback();
             }
 
@@ -1028,6 +609,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnPlayModeStateChanged(PlayModeStateChange change)
         {
+            RefreshHeader();
             RefreshToolbar();
             RefreshDetails();
             canvas?.Refresh();
@@ -1042,15 +624,135 @@ namespace CoCoFlow.Editor.StateGraph
 
             contextPosition = position;
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("Add State Here"), false, () =>
+            menu.AddItem(new GUIContent(L("Add State Here", "在此添加 State")), false, () =>
             {
                 TryExecuteCanvasAuthoringAction(() => TryAddStateAtCanvasPosition(contextPosition));
             });
-            menu.AddItem(new GUIContent("Paste Subtree Here"), false, () =>
-                TryExecuteCanvasAuthoringAction(() => controller.PasteState(
-                    controller.Session.DrillRootStateId,
+            menu.AddItem(
+                new GUIContent(L("Paste Subtree Here", "粘贴子树到此处")),
+                false,
+                () => TryExecuteCanvasAuthoringAction(() => controller.PasteState(
+                    default,
                     contextPosition)));
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(
+                new GUIContent(L("Add Composite (sub-state machine)", "添加 Composite（子状态机）")),
+                false,
+                () => TryExecuteCanvasAuthoringAction(() =>
+                    TryAddCompositeAtCanvasPosition(contextPosition)));
             menu.ShowAsContext();
+        }
+
+        /// <summary>卡片右键菜单：子状态机的画布内建立/下钻入口（维护者反馈：可发现性）。</summary>
+        private void OnCardContextRequested(CoCoSerializedId128 stateId)
+        {
+            if (!CoCoStateId.TryCreate(stateId.High, stateId.Low, out CoCoStateId id))
+            {
+                return;
+            }
+
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateGraphStateRecord state = FindState(layer, id);
+            if (state == null)
+            {
+                return;
+            }
+
+            controller.SelectState(id);
+            bool hasIncidentTransition = HasIncidentTransition(layer, state.StateId);
+            var menu = new GenericMenu();
+            if (CoCoStateGraphAuthoringOperations.CanEdit(out _) && !hasIncidentTransition)
+            {
+                menu.AddItem(
+                    new GUIContent(L("Add Child State (makes it a sub-state machine)",
+                        "添加子 State（成为子状态机）")),
+                    false,
+                    () => TryExecuteCanvasAuthoringAction(() => controller.AddState(
+                        id,
+                        ResolveStateDescriptor(addStateDescriptorId),
+                        "Child State",
+                        new Vector2(80f, 80f))));
+            }
+            else if (CoCoStateGraphAuthoringOperations.CanEdit(out _))
+            {
+                // 契约：有 Transition 的叶子不能成为 Composite——禁用并给出原因，而非允许后报错。
+                menu.AddDisabledItem(new GUIContent(L(
+                    "Add Child State (remove incident Transitions first)",
+                    "添加子 State（需先移除相关 Transition）")));
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent(L("Add Child State", "添加子 State")));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        /// <summary>
+        /// 一步式子状态机（维护者反馈：Animator 式 Create Sub-state Machine）。
+        /// 模型不变：Composite=有子 State 的普通 State。本动作=建容器+建首个子 State
+        /// （两次 AuthoringOperations 命令，Undo 折叠为一组），随后选中新容器（全展开画布）。
+        /// </summary>
+        internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
+        {
+            if (controller == null || !CoCoStateGraphAuthoringOperations.CanEdit(out string failure))
+            {
+                return false;
+            }
+
+            CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
+            if (descriptor == null)
+            {
+                ShowNotification(new GUIContent(
+                    L("A State descriptor is required (see Add State card).",
+                        "需要可用的 State 描述符（见「添加 State」卡）。")));
+                return false;
+            }
+
+            if (!CoCoStateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out CoCoStateConfig containerConfig,
+                    out failure) ||
+                !CoCoStateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out CoCoStateConfig childConfig,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            CoCoLayerId layerId = controller.Session.SelectedLayerId;
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            if (!CoCoStateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    default,
+                    descriptor.DescriptorId,
+                    containerConfig,
+                    "Composite",
+                    position,
+                    out CoCoStateId containerId,
+                    out failure) ||
+                !CoCoStateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    containerId,
+                    descriptor.DescriptorId,
+                    childConfig,
+                    "State",
+                    new Vector2(80f, 80f),
+                    out _,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            controller.SelectState(containerId); // 全量失效刷新 + 选中新建容器
+            return true;
         }
 
         internal bool TryAddStateAtCanvasPosition(Vector2 position)
@@ -1062,7 +764,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
             return controller.AddState(
-                controller.Session.DrillRootStateId,
+                default,
                 descriptor,
                 "State",
                 position);
@@ -1098,11 +800,14 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
             if (layer == null ||
                 !EditorUtility.DisplayDialog(
-                    "Delete State Graph Layer",
-                    $"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
-                    $"{layer.Transitions.Count} Transition(s)?",
-                    "Delete",
-                    "Cancel"))
+                    L("Delete State Graph Layer", "删除 State Graph Layer"),
+                    L(
+                        $"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
+                        $"{layer.Transitions.Count} Transition(s)?",
+                        $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
+                        $"{layer.Transitions.Count} 个 Transition？"),
+                    L("Delete", "删除"),
+                    L("Cancel", "取消")))
             {
                 return;
             }
@@ -1134,21 +839,26 @@ namespace CoCoFlow.Editor.StateGraph
             if (deletingInitial && hasSurvivingSibling && !replacement.HasExplicitSelection)
             {
                 ShowNotification(new GUIContent(
-                    "Choose an explicit replacement before deleting the initial State."));
+                    L("Choose an explicit replacement before deleting the initial State.",
+                        "删除初始 State 前请选择显式替换。")));
                 return;
             }
 
             string initialWarning = deletingInitial && !hasSurvivingSibling
-                ? "\n\nThis is the last initial State in its scope. Initial will be cleared and the saved " +
-                  "draft may remain compiler-invalid until another State is assigned."
+                ? "\n\n" + L(
+                    "This is the last initial State in its scope. Initial will be cleared and the saved " +
+                    "draft may remain compiler-invalid until another State is assigned.",
+                    "这是该作用域最后一个初始 State。Initial 将被清空，保存的草稿可能保持编译无效，直到指定新的 State。")
                 : string.Empty;
 
             if (EditorUtility.DisplayDialog(
-                    "Delete State Subtree",
-                    $"Delete {impact.StateCount} State(s) and {impact.TransitionCount} incident Transition(s)?" +
+                    L("Delete State Subtree", "删除 State 子树"),
+                    L(
+                        $"Delete {impact.StateCount} State(s) and {impact.TransitionCount} incident Transition(s)?",
+                        $"删除 {impact.StateCount} 个 State 与 {impact.TransitionCount} 个关联 Transition？") +
                     initialWarning,
-                    "Delete",
-                    "Cancel"))
+                    L("Delete", "删除"),
+                    L("Cancel", "取消")))
             {
                 controller.DeleteSelectedState(replacement.Value);
             }
@@ -1211,7 +921,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (!stateId.IsValid)
             {
-                return "Layer root";
+                return L("Layer root", "Layer 根");
             }
 
             CoCoStateGraphStateRecord state = FindState(controller.SelectedLayer, stateId);
@@ -1268,6 +978,7 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
+
         private static CoCoStateGraphTransitionRecord FindTransition(
             CoCoStateGraphLayerRecord layer,
             CoCoTransitionId transitionId)
@@ -1303,16 +1014,20 @@ namespace CoCoFlow.Editor.StateGraph
             return false;
         }
 
-        private void AddHeading(string text)
+        private static bool HasIncidentTransition(
+            CoCoStateGraphLayerRecord layer,
+            CoCoSerializedId128 stateId)
         {
-            AddHeading(details, text);
-        }
+            foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+            {
+                if (transition != null &&
+                    (transition.SourceStateId == stateId || transition.TargetStateId == stateId))
+                {
+                    return true;
+                }
+            }
 
-        private static void AddHeading(VisualElement parent, string text)
-        {
-            var label = new Label(text);
-            label.AddToClassList("state-graph-heading");
-            parent.Add(label);
+            return false;
         }
 
         private void DisposeController()
@@ -1320,6 +1035,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (canvas != null)
             {
                 canvas.ContextRequested -= OnCanvasContextRequested;
+                canvas.CardContextRequested -= OnCardContextRequested;
                 canvas.Dispose();
                 canvas = null;
             }
@@ -1334,7 +1050,7 @@ namespace CoCoFlow.Editor.StateGraph
             serializedAsset = null;
         }
 
-        private static CoCoStateId ToStateId(CoCoSerializedId128 id)
+        internal static CoCoStateId ToStateId(CoCoSerializedId128 id)
         {
             CoCoStateId.TryCreate(id.High, id.Low, out CoCoStateId value);
             return value;
@@ -1367,6 +1083,53 @@ namespace CoCoFlow.Editor.StateGraph
         private sealed class StateDescriptorChoice
         {
             internal CoCoStateDescriptor Value;
+        }
+
+        /// <summary>
+        /// 静态文案注册表：语言切换时只刷新文本，不重建结构（方案 §3.2；
+        /// P02 D14 无 deferral，切换后即时生效）。
+        /// </summary>
+        private sealed class LocalizedTextRegistry
+        {
+            private readonly List<(VisualElement Element, string English, string Chinese)> entries =
+                new List<(VisualElement, string, string)>();
+
+            internal void Register(VisualElement element, string english, string chinese)
+            {
+                if (element == null)
+                {
+                    return;
+                }
+
+                entries.Add((element, english, chinese));
+            }
+
+            internal void ApplyCurrentLanguage()
+            {
+                bool isChinese = CoCoEditorLocalization.CurrentLanguage ==
+                                 CoCoEditorLanguage.SimplifiedChinese;
+                foreach ((VisualElement element, string english, string zh) in entries)
+                {
+                    string text = isChinese ? zh : english;
+                    switch (element)
+                    {
+                        case Button button: // ToolbarButton : Button，同一分支覆盖
+                            button.text = text;
+                            break;
+                        case Label label:
+                            label.text = text;
+                            break;
+                        case PopupField<string> popup:
+                            popup.label = text;
+                            break;
+                    }
+                }
+            }
+
+            internal void Clear()
+            {
+                entries.Clear();
+            }
         }
     }
 
