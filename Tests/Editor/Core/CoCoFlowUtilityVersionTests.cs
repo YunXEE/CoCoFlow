@@ -13,7 +13,7 @@ namespace CoCoFlow.Editor.Core.Tests
             PackageInfo packageInfo = PackageInfo.FindForAssembly(
                 typeof(CoCoFlowUtility).Assembly);
             Assert.IsNotNull(packageInfo);
-            Assert.AreEqual("0.4.0", packageInfo.version);
+            Assert.AreEqual("0.4.1", packageInfo.version);
 
             string manifest = File.ReadAllText(
                 Path.Combine(packageInfo.resolvedPath, "package.json"));

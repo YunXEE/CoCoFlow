@@ -1,6 +1,6 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "displayName": "CoCoFlow",
   "description": "A Unity 6 State Flow and layered HFSM framework with transactional Context commits, Temporal restore, package-owned Locomotion, and Animator projection.",
   "unity": "6000.0",

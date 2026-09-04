@@ -6,12 +6,17 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
-## [0.4.1] - Unreleased
+## [0.4.1] - 2026-09-04
 
-Legacy Gameplay sample exit and boundary cleanup. No new Runtime capability.
+Legacy Gameplay sample removal and mature Editor polish. No new public Runtime
+capability is added.
 
 ### Changed
 
+- Added the shared `Editor/Common` UI Toolkit visual language (`ccflow` USS,
+  reusable element builders, and bilingual Editor chrome), then migrated the
+  CoCoLog window to it while preserving filtering, counts, clear, auto-scroll,
+  module colors, and unknown-module behavior.
 - Rebuilt the Setup Assistant as the **CoCoFlow Utility** panel
   (`CoCoFlow > Utility Panel`, window title "CoCoFlow Utility"), migrated
   from IMGUI to UI Toolkit with the unified `ccflow` visual language, and
@@ -29,6 +34,12 @@ Legacy Gameplay sample exit and boundary cleanup. No new Runtime capability.
   (previously the message said "Manifest error" while the row showed OK/WARN).
 - The panel is bilingual (English / 简体中文) with an in-header language
   switch shared with the other ccflow editor windows.
+- Rebuilt the StateGraphHost Inspector and Runtime Debugger with UI Toolkit.
+  The Inspector keeps the existing binding and validation contracts; the
+  Debugger is now a read-only temporal-history view for the selected Host,
+  covering Current Frame, Temporal Ring, and Persisted Frame, with an optional
+  SceneView target marker. Editor-only internal debug seams do not expand the
+  public Runtime API or serialized schema.
 
 ### Removed
 
