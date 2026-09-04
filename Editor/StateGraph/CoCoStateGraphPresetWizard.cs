@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEngine;
@@ -37,32 +38,35 @@ namespace CoCoFlow.Editor.StateGraph
         public void CreateGUI()
         {
             rootVisualElement.Clear();
-            rootVisualElement.style.paddingLeft = 12f;
-            rootVisualElement.style.paddingRight = 12f;
-            rootVisualElement.style.paddingTop = 10f;
-            rootVisualElement.style.paddingBottom = 10f;
+            CoCoEditorElements.ApplyTheme(rootVisualElement);
 
-            var heading = new Label("Create State Graph Preset");
-            heading.style.fontSize = 15f;
-            heading.style.unityFontStyleAndWeight = FontStyle.Bold;
+            var heading = CoCoEditorElements.CreateHeading(CoCoEditorLocalization.Text(
+                "Create State Graph Preset",
+                "创建 StateGraph 预设"));
             rootVisualElement.Add(heading);
-            rootVisualElement.Add(new Label(
-                "Presets create ordinary CoCoStateGraphAsset files using descriptors from the registered catalog."));
+            var intro = new Label(CoCoEditorLocalization.Text(
+                "Presets create ordinary CoCoStateGraphAsset files using descriptors from the registered catalog.",
+                "预设使用注册目录中的描述符创建普通 CoCoStateGraphAsset 文件。"));
+            intro.AddToClassList("sg-muted");
+            rootVisualElement.Add(intro);
 
-            var kind = new EnumField("Preset", presetKind);
+            var card = CoCoEditorElements.CreateCard(CoCoEditorLocalization.Text("Parameters", "参数"));
+            var kind = new EnumField(CoCoEditorLocalization.Text("Preset", "预设"), presetKind);
             kind.RegisterValueChangedCallback(evt =>
             {
                 presetKind = (PresetKind)evt.newValue;
                 RebuildForm();
             });
-            rootVisualElement.Add(kind);
+            card.Add(kind);
 
             form = new VisualElement();
-            rootVisualElement.Add(form);
+            card.Add(form);
+            rootVisualElement.Add(card);
+
             status = new HelpBox(string.Empty, HelpBoxMessageType.None);
             status.style.display = DisplayStyle.None;
             rootVisualElement.Add(status);
-            var create = new Button(CreatePreset) { text = "Create Asset…" };
+            var create = CoCoEditorElements.CreatePrimaryButton("Create Asset…", CreatePreset);
             create.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
             rootVisualElement.Add(create);
             ReloadCatalog();
@@ -114,7 +118,9 @@ namespace CoCoFlow.Editor.StateGraph
             form.Clear();
             if (catalog == null)
             {
-                form.Add(new Label("A catalog is required before a preset can be parameterized."));
+                form.Add(new Label(CoCoEditorLocalization.Text(
+                    "A catalog is required before a preset can be parameterized.",
+                    "需要目录才能配置预设参数。")));
                 return;
             }
 
@@ -122,17 +128,19 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 IReadOnlyList<CoCoStateDescriptor> descriptors = catalog.StateDescriptors;
                 AddStateDescriptorPopup(
-                    "Start descriptor",
+                    CoCoEditorLocalization.Text("Start descriptor", "起始描述符"),
                     descriptors,
                     simpleSourceDescriptorId,
                     value => simpleSourceDescriptorId = value);
                 AddStateDescriptorPopup(
-                    "End descriptor",
+                    CoCoEditorLocalization.Text("End descriptor", "结束描述符"),
                     descriptors,
                     simpleTargetDescriptorId,
                     value => simpleTargetDescriptorId = value);
                 form.Add(new HelpBox(
-                    "Creates one Layer with Start and End root leaf States and one Start → End Always Transition.",
+                    CoCoEditorLocalization.Text(
+                        "Creates one Layer with Start and End root leaf States and one Start → End Always Transition.",
+                        "创建一个 Layer，含 Start/End 两个根叶子 State 和一条 Start → End Always Transition。"),
                     HelpBoxMessageType.Info));
                 return;
             }
@@ -147,23 +155,31 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             AddStateDescriptorPopup(
-                "Step1–4 descriptor",
+                CoCoEditorLocalization.Text("Step1–4 descriptor", "Step1–4 描述符"),
                 progressDescriptors,
                 comboStepDescriptorId,
                 value => comboStepDescriptorId = value);
             AddStateDescriptorPopup(
-                "Exit descriptor",
+                CoCoEditorLocalization.Text("Exit descriptor", "退出描述符"),
                 catalog.StateDescriptors,
                 comboExitDescriptorId,
                 value => comboExitDescriptorId = value);
-            var start = new DoubleField("Window start inclusive") { value = comboWindowStart };
+            var start = new DoubleField(CoCoEditorLocalization.Text("Window start inclusive", "窗口起始（含）"))
+            {
+                value = comboWindowStart
+            };
             start.RegisterValueChangedCallback(evt => comboWindowStart = evt.newValue);
             form.Add(start);
-            var end = new DoubleField("Window end exclusive") { value = comboWindowEnd };
+            var end = new DoubleField(CoCoEditorLocalization.Text("Window end exclusive", "窗口结束（不含）"))
+            {
+                value = comboWindowEnd
+            };
             end.RegisterValueChangedCallback(evt => comboWindowEnd = evt.newValue);
             form.Add(end);
             form.Add(new HelpBox(
-                "Creates Step1 → Step2 → Step3 → Step4 → Exit using four ActionProgress Transitions.",
+                CoCoEditorLocalization.Text(
+                    "Creates Step1 → Step2 → Step3 → Step4 → Exit using four ActionProgress Transitions.",
+                    "用四条 ActionProgress Transition 创建 Step1 → Step2 → Step3 → Step4 → Exit。"),
                 HelpBoxMessageType.Info));
         }
 
@@ -175,7 +191,11 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (descriptors.Count == 0)
             {
-                form.Add(new HelpBox($"No descriptors are eligible for '{label}'.", HelpBoxMessageType.Error));
+                form.Add(new HelpBox(
+                    CoCoEditorLocalization.Text(
+                        $"No descriptors are eligible for '{label}'.",
+                        $"「{label}」没有可用描述符。"),
+                    HelpBoxMessageType.Error));
                 selected(default);
                 return;
             }

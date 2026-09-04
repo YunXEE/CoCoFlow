@@ -753,7 +753,6 @@ namespace CoCoFlow.Runtime.Core
                     out diagnostic) ||
                 !_transaction.TryCaptureCommittedDebugState(
                     out CoCoContextFrame context,
-                    out CoCoOperatorClaimState[] claims,
                     out diagnostic))
             {
                 return false;
@@ -784,11 +783,121 @@ namespace CoCoFlow.Runtime.Core
                 _runtime.Fault,
                 _requiresWorldCorrection,
                 _lastDiagnostic,
-                context,
-                claims);
+                context);
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Captures one immutable committed debugger snapshot together with a
+        /// logical-depth copy of the Temporal ring metadata. No retained
+        /// payload or mutable Context handle crosses this boundary.
+        /// </summary>
+        internal bool TryCaptureTemporalDebugSnapshot(
+            out CoCoStateGraphHostTemporalDebugSnapshot snapshot,
+            out CoCoDiagnostic diagnostic)
+        {
+            snapshot = null;
+            if (!TryCaptureDebugSnapshot(
+                    out CoCoStateGraphHostDebugSnapshot current,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            int capacity;
+            CoCoTemporalFrameInfo[] frames;
+            if (_temporal == null)
+            {
+                capacity = temporalHistoryCapacity < 0
+                    ? 0
+                    : temporalHistoryCapacity;
+                frames = Array.Empty<CoCoTemporalFrameInfo>();
+            }
+            else if (!_temporal.TryCaptureDebugFrameInfos(
+                         out capacity,
+                         out frames))
+            {
+                diagnostic = LifecycleError(
+                    "Temporal debugger metadata changed outside one committed Host boundary.");
+                return false;
+            }
+
+            if (frames.Length > 0 &&
+                (current.ContextHeader.Identity.GraphInstanceId !=
+                 frames[0].GraphInstanceId ||
+                 current.ContextHeader.TickFrame != frames[0].TickFrame ||
+                 current.ContextRevision != frames[0].Revision))
+            {
+                diagnostic = LifecycleError(
+                    "Current Context and Temporal ring head were not one atomic debugger boundary.");
+                return false;
+            }
+
+            snapshot = new CoCoStateGraphHostTemporalDebugSnapshot(
+                current,
+                capacity,
+                frames);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        /// <summary>
+        /// Validates and decodes only the source-frame metadata in an existing
+        /// persistence payload. It never imports the payload and never updates
+        /// Host diagnostics or lifecycle state.
+        /// </summary>
+        internal bool TryDecodePersistenceDebugFrame(
+            byte[] payload,
+            out CoCoTemporalFrameInfo frame,
+            out CoCoDiagnostic diagnostic)
+        {
+            frame = default;
+            if (payload == null ||
+                payload.Length == 0 ||
+                _runtime == null ||
+                _bindings == null ||
+                _isStarting ||
+                _isAdvancing ||
+                _isTemporalOperation ||
+                _isPublishingCommittedEvents)
+            {
+                diagnostic = LifecycleError(
+                    "Persistence debugger decoding requires one live idle Host and one existing payload.");
+                return false;
+            }
+
+            try
+            {
+                return CoCoStateGraphPersistencePayloadCodec.TryCreate(
+                           _runtime.Graph.GraphId,
+                           _bindings.ContextLayout,
+                           _bindings.ContextCodecs,
+                           out CoCoStateGraphPersistencePayloadCodec codec,
+                           out diagnostic) &&
+                       codec.TryDecode(
+                           payload,
+                           out CoCoStateGraphPersistenceEnvelope envelope,
+                           out CoCoProjectionRestoreSource source,
+                           out diagnostic) &&
+                       CoCoStateGraphPersistencePayloadCodec.TryCreatePersistedSourceInfo(
+                           envelope,
+                           source,
+                           out frame,
+                           out diagnostic);
+            }
+            catch (Exception)
+            {
+                frame = default;
+                diagnostic = CoCoDiagnostic.Error(
+                    CoCoDiagnosticDomain.Restore,
+                    CoCoDiagnosticCode.InvalidRestoreMetadata,
+                    "Persistence debugger decoding rejected an unreadable payload.");
+                return false;
+            }
+        }
+#endif
 
         internal bool TryDebugStepWhileSuspended(
             double deltaTime,

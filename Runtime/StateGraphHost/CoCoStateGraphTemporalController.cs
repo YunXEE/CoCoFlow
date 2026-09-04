@@ -86,6 +86,56 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+#if UNITY_EDITOR
+        /// <summary>
+        /// Copies only immutable metadata from the Temporal ring. This path
+        /// never selects or decodes a retained payload and never creates a
+        /// Context read token.
+        /// </summary>
+        internal bool TryCaptureDebugFrameInfos(
+            out int capacity,
+            out CoCoTemporalFrameInfo[] frames)
+        {
+            capacity = _history?.Capacity ?? 0;
+            frames = Array.Empty<CoCoTemporalFrameInfo>();
+            if (_isDisposed)
+            {
+                return false;
+            }
+
+            if (_history == null)
+            {
+                return true;
+            }
+
+            int count = _history.Count;
+            if (count == 0)
+            {
+                return true;
+            }
+
+            var copy = new CoCoTemporalFrameInfo[count];
+            for (int depth = 0; depth < count; depth++)
+            {
+                if (!_history.TryGetInfo(
+                        depth,
+                        out CoCoTemporalHistoryEntryInfo info))
+                {
+                    return false;
+                }
+
+                copy[depth] = ToPublicInfo(info);
+                if (!copy[depth].IsValid)
+                {
+                    return false;
+                }
+            }
+
+            frames = copy;
+            return true;
+        }
+#endif
+
         internal static bool TryValidateConfiguration(
             CoCoStateGraphHost host,
             CoCoContextFrameLayout layout,

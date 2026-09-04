@@ -1,14 +1,14 @@
 # CoCoFlow
 
-> **Version**: 0.4.0 · **Unity**: 6000+
+> **Version**: 0.4.1 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
 CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
-runtime ownership. Version 0.4.0 closes the current Runtime line as a usable
-release: it stops feature expansion and documents the boundaries that exist in
-the package today.
+runtime ownership. Version 0.4.1 removes the legacy Gameplay sample and rebuilds
+the mature Editor surfaces around a unified UI Toolkit visual language, while
+keeping the public Runtime line focused on its existing contracts.
 
 ## What “mature” means
 
@@ -65,7 +65,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.0
+https://github.com/YunXEE/CoCoFlow.git#v0.4.1
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -73,15 +73,15 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.0"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.1"
   }
 }
 ```
 
-Use **Tools > CoCoFlow > Setup Assistant** to inspect optional integration
-dependencies and project settings. Some integration assemblies are compiled
-only when their external packages and support defines are present; see the
-[dependency matrix](Docs/DependencyMatrix.md).
+Use **CoCoFlow > Utility Panel** (the CoCoFlow Utility window) to inspect optional
+integration dependencies and project settings. Some integration assemblies are
+compiled only when their external packages and support defines are present; see
+the [dependency matrix](Docs/DependencyMatrix.md).
 
 ## Documentation
 

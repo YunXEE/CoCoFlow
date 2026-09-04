@@ -5,7 +5,7 @@
 - [ ] The PR implements only the named Pre and does not pull later-Pre runtime or
       editor work forward.
 - [ ] Core dependency direction remains one-way; Core does not reference
-      Gameplay, presentation modules, Editor, or project code.
+      presentation modules, Editor, or project code.
 - [ ] New 0.4 public API, serialized schemas, Editor, and user documentation use
       Graph/Layer/State/Transition concepts rather than Machine/Node; retained
       0.3.9 Controller names remain transitional and are not migrated by this PR.

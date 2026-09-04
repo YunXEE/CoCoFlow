@@ -1,12 +1,13 @@
 # CoCoFlow
 
-> **版本**：0.4.0 · **Unity**：6000+
+> **版本**：0.4.1 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
-0.4.0 将当前 Runtime 直接收口为可用版本：停止继续扩张功能，并准确说明包内现有边界。
+0.4.1 移除旧 Gameplay Sample，并以统一 UI Toolkit 视觉语言重做成熟 Editor
+界面；公共 Runtime 继续聚焦既有契约，不新增能力。
 
 ## “成熟”的定义
 
@@ -59,7 +60,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.0
+https://github.com/YunXEE/CoCoFlow.git#v0.4.1
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -67,12 +68,12 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.0
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.0"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.1"
   }
 }
 ```
 
-通过 **Tools > CoCoFlow > Setup Assistant** 检查可选集成依赖和项目设置。
+通过 **CoCoFlow > Utility Panel**（CoCoFlow Utility 窗口）检查可选集成依赖和项目设置。
 部分集成程序集只有在外部包和对应 support define 存在时才会编译，详见
 [依赖矩阵](Docs/DependencyMatrix.md)。
 

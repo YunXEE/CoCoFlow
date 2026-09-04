@@ -412,12 +412,34 @@ namespace CoCoFlow.Runtime.Modules.Animation
             snapshot.LaneCount = (byte)laneCount;
             for (int index = 0; index < laneCount; index++)
             {
-                snapshot.SetLane(
-                    index,
-                    animator.GetFloat(bindings[index].ParameterName));
+                // BUG-032: typed read per binding kind — Integer rides the
+                // lane as raw 32-bit bits (never a numeric cast), Boolean
+                // as 0f/1f, Float keeps GetFloat.
+                snapshot.SetLane(index, SampleLane(animator, bindings[index]));
             }
 
             return snapshot;
+        }
+
+        private static float SampleLane(
+            Animator animator,
+            AnimParameterBinding binding)
+        {
+            switch (binding.ParameterKind)
+            {
+                case AnimParameterValueKind.Float:
+                    return animator.GetFloat(binding.ParameterName);
+                case AnimParameterValueKind.Integer:
+                    return BitConverter.Int32BitsToSingle(
+                        animator.GetInteger(binding.ParameterName));
+                case AnimParameterValueKind.Boolean:
+                    return animator.GetBool(binding.ParameterName) ? 1f : 0f;
+                default:
+                    throw new ArgumentException(
+                        "AnimSnapshot.Sample received binding '" +
+                        binding.ParameterName + "' with invalid ParameterKind " +
+                        (int)binding.ParameterKind + ".");
+            }
         }
 
         public static bool TryProject(
@@ -458,9 +480,26 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 }
             }
 
+            // BUG-032: validate every projected lane's kind before any
+            // Animator write (parameters, Play, weights) — an invalid
+            // kind is a layout mismatch and must never partially restore.
             for (int index = 0; index < laneCount; index++)
             {
-                animator.SetFloat(bindings[index].ParameterName, snapshot.Lane(index));
+                AnimParameterValueKind kind = bindings[index].ParameterKind;
+                if (kind < AnimParameterValueKind.Float ||
+                    kind > AnimParameterValueKind.Boolean)
+                {
+                    diagnostic = LayoutMismatch(
+                        "The saved Animator parameter layout does not match the current bindings: lane " +
+                        index + " ('" + bindings[index].ParameterName +
+                        "') declares invalid parameter kind " + (int)kind + ".");
+                    return false;
+                }
+            }
+
+            for (int index = 0; index < laneCount; index++)
+            {
+                ApplyLane(animator, bindings[index], snapshot.Lane(index));
             }
 
             for (int index = 0; index < layerCount; index++)
@@ -478,6 +517,30 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             diagnostic = CoCoDiagnostic.None;
             return true;
+        }
+
+        // BUG-032: symmetric typed projection — Integer decodes the raw
+        // 32-bit payload with SingleToInt32Bits; Boolean restores from
+        // the stored 0f/1f encoding; Float keeps SetFloat.
+        private static void ApplyLane(
+            Animator animator,
+            AnimParameterBinding binding,
+            float lane)
+        {
+            switch (binding.ParameterKind)
+            {
+                case AnimParameterValueKind.Float:
+                    animator.SetFloat(binding.ParameterName, lane);
+                    break;
+                case AnimParameterValueKind.Integer:
+                    animator.SetInteger(
+                        binding.ParameterName,
+                        BitConverter.SingleToInt32Bits(lane));
+                    break;
+                case AnimParameterValueKind.Boolean:
+                    animator.SetBool(binding.ParameterName, lane != 0f);
+                    break;
+            }
         }
 
         private static CoCoDiagnostic LayoutMismatch(string message)

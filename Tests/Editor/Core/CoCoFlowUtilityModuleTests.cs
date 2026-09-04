@@ -1,0 +1,260 @@
+using System;
+using System.Reflection;
+using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Build;
+
+namespace CoCoFlow.Editor.Core.Tests
+{
+    public sealed class CoCoFlowUtilityModuleTests
+    {
+        [Test]
+        public void PoolingModuleRequiresUniTaskAndContentWithoutAddressables()
+        {
+            ModuleView module = FindModule("Pooling");
+
+            Assert.That(module.RequiredSupportDefines, Is.EqualTo(new[]
+            {
+                "COCOFLOW_UNITASK_SUPPORT"
+            }));
+            Assert.That(module.RequiredAssemblies, Does.Contain("UniTask"));
+            Assert.That(module.RequiredAssemblies, Does.Contain("CoCoFlow.Runtime.Content"));
+            Assert.That(module.RequiredAssemblies, Does.Contain("CoCoFlow.Runtime.Pooling"));
+            Assert.That(module.RequiredAssemblies, Does.Not.Contain("Unity.Addressables"));
+            Assert.That(
+                module.Description,
+                Does.Contain("private pool implementation"));
+        }
+
+        [Test]
+        public void TemporalPoolingModuleIsHostScopedAndHasNoAddressablesRequirement()
+        {
+            ModuleView module = FindModule("Pooling (Temporal)");
+
+            Assert.That(module.RequiredSupportDefines, Is.EqualTo(new[]
+            {
+                "COCOFLOW_UNITASK_SUPPORT"
+            }));
+            Assert.That(module.RequiredAssemblies, Does.Contain("UniTask"));
+            Assert.That(module.RequiredAssemblies, Does.Contain("CoCoFlow.Runtime.Pooling"));
+            Assert.That(
+                module.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Pooling.Temporal"));
+            Assert.That(
+                module.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.StateGraphHost"));
+            Assert.That(module.RequiredAssemblies, Does.Not.Contain("Unity.Addressables"));
+            Assert.That(module.Description, Does.Contain("not world rollback"));
+        }
+
+        [Test]
+        public void LocalizationCoreIsDefaultAndUiExtensionsRequireUiV2Support()
+        {
+            ModuleView localization = FindModule("Localization");
+            Assert.That(localization.RequiredSupportDefines, Is.Empty);
+            Assert.That(
+                localization.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization"));
+            Assert.That(
+                localization.RequiredAssemblies,
+                Does.Not.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+
+            string[] uiDefines =
+            {
+                "COCOFLOW_UNITASK_SUPPORT",
+                "COCOFLOW_DOTWEEN_SUPPORT",
+                "UNITASK_DOTWEEN_SUPPORT"
+            };
+            ModuleView localizationUi = FindModule("Localization (UI)");
+            Assert.That(
+                localizationUi.RequiredSupportDefines,
+                Is.EqualTo(uiDefines));
+            Assert.That(
+                localizationUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+
+            ModuleView inputPromptUi = FindModule("Input Prompt (UI)");
+            Assert.That(
+                inputPromptUi.RequiredSupportDefines,
+                Is.EqualTo(uiDefines));
+            Assert.That(
+                inputPromptUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Input.UI"));
+            Assert.That(
+                inputPromptUi.RequiredAssemblies,
+                Does.Contain("CoCoFlow.Runtime.Modules.Localization.UI"));
+        }
+
+        [TestCase(false, false, false, false, "")]
+        [TestCase(false, true, false, false, "COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(false, true, true, false, "COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(true, false, false, false, "COCOFLOW_UNITASK_SUPPORT")]
+        [TestCase(true, false, true, true, "COCOFLOW_UNITASK_SUPPORT")]
+        [TestCase(
+            true,
+            true,
+            true,
+            false,
+            "COCOFLOW_UNITASK_SUPPORT;COCOFLOW_DOTWEEN_SUPPORT")]
+        [TestCase(
+            true,
+            true,
+            true,
+            true,
+            "COCOFLOW_UNITASK_SUPPORT;COCOFLOW_DOTWEEN_SUPPORT;UNITASK_DOTWEEN_SUPPORT")]
+        public void SupportDefinesRequireTheirExactOptionalDependencies(
+            bool uniTaskAvailable,
+            bool dotweenAvailable,
+            bool dotweenModulesAvailable,
+            bool uniTaskDotweenAvailable,
+            string expectedDefines)
+        {
+            string[] actual = CoCoFlowUtility.SelectAvailableSupportDefines(
+                uniTaskAvailable,
+                dotweenAvailable,
+                dotweenModulesAvailable,
+                uniTaskDotweenAvailable);
+
+            string[] expected = string.IsNullOrEmpty(expectedDefines)
+                ? Array.Empty<string>()
+                : expectedDefines.Split(';');
+            Assert.That(actual, Is.EqualTo(expected));
+        }
+
+
+        [TestCase(false, false, 0)]
+        [TestCase(true, false, 1)]
+        [TestCase(true, true, 1)]
+        [TestCase(false, true, 2)]
+        public void UniTaskFormPrefersUpmRegistrationOverAssemblyPresence(
+            bool manifestHasUniTaskDependency,
+            bool uniTaskAssemblyAvailable,
+            int expectedForm)
+        {
+            // int 形态绕开 internal 枚举的 CS0051（IVT 在 enum 参数上不生效）
+            Assert.That(
+                (int)CoCoFlowUtility.ClassifyUniTaskForm(manifestHasUniTaskDependency, uniTaskAssemblyAvailable),
+                Is.EqualTo(expectedForm));
+        }
+
+        [TestCase("2.5.11", 2)]
+        [TestCase("2.6.0", 2)]
+        [TestCase("2.5.10", 1)]
+        [TestCase("3.0.0", 3)]
+        [TestCase("4.1.2", 3)]
+        [TestCase(
+            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
+            2)]
+        [TestCase(
+            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#3.0.0",
+            3)]
+        [TestCase("file:../UniTask", 0)]
+        [TestCase("", 0)]
+        [TestCase(null, 0)]
+        [TestCase("not-a-version", 0)]
+        public void CoCoUniTaskVersionPolicyEvaluatesSemverAndGitUrlSuffix(
+            string dependency,
+            int expected)
+        {
+            // int 形态绕开 internal 枚举的 CS0051（IVT 在 enum 参数上不生效）
+            Assert.That(
+                (int)CoCoUniTaskVersionPolicy.Evaluate(dependency),
+                Is.EqualTo(expected));
+        }
+
+        [TestCase(BuildTarget.StandaloneWindows64, BuildTargetGroup.Standalone, StandaloneBuildSubtarget.Player, "Standalone")]
+        [TestCase(BuildTarget.StandaloneOSX, BuildTargetGroup.Standalone, StandaloneBuildSubtarget.Server, "Server")]
+        [TestCase(BuildTarget.Android, BuildTargetGroup.Android, StandaloneBuildSubtarget.Player, "Android")]
+        public void ResolverMapsActiveTargetToCorrectNamedTarget(
+            BuildTarget activeTarget,
+            BuildTargetGroup group,
+            StandaloneBuildSubtarget subtarget,
+            string expectedTargetName)
+        {
+            // BUG-050：Standalone 子目标为 Server 时 define 存储身份必须是
+            // NamedBuildTarget.Server；其余按 group 解析（D-18 单目标）。
+            NamedBuildTarget resolved = CoCoSetupStatusScanner.ResolveActiveNamedTarget(
+                activeTarget,
+                group,
+                subtarget);
+            Assert.That(resolved.TargetName, Is.EqualTo(expectedTargetName));
+        }
+
+        private static ModuleView FindModule(string displayName)
+        {
+            FieldInfo modulesField = typeof(CoCoSetupModuleCatalog).GetField(
+                "Modules",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.That(modulesField, Is.Not.Null);
+
+            Array modules = modulesField.GetValue(null) as Array;
+            Assert.That(modules, Is.Not.Null);
+
+            foreach (object module in modules)
+            {
+                Type moduleType = module.GetType();
+                string candidateName = ReadProperty<string>(
+                    moduleType,
+                    module,
+                    "DisplayName");
+                if (candidateName != displayName)
+                {
+                    continue;
+                }
+
+                return new ModuleView(
+                    candidateName,
+                    ReadProperty<string[]>(
+                        moduleType,
+                        module,
+                        "RequiredSupportDefines"),
+                    ReadProperty<string[]>(
+                        moduleType,
+                        module,
+                        "RequiredAssemblies"),
+                    ReadProperty<string>(
+                        moduleType,
+                        module,
+                        "Description"));
+            }
+
+            Assert.Fail("CoCoFlow Utility module not found: " + displayName);
+            return default;
+        }
+
+        private static T ReadProperty<T>(
+            Type type,
+            object instance,
+            string propertyName)
+        {
+            PropertyInfo property = type.GetProperty(
+                propertyName,
+                BindingFlags.Public | BindingFlags.Instance);
+            Assert.That(property, Is.Not.Null);
+            return (T)property.GetValue(instance);
+        }
+
+        private readonly struct ModuleView
+        {
+            public ModuleView(
+                string displayName,
+                string[] requiredSupportDefines,
+                string[] requiredAssemblies,
+                string description)
+            {
+                DisplayName = displayName;
+                RequiredSupportDefines = requiredSupportDefines;
+                RequiredAssemblies = requiredAssemblies;
+                Description = description;
+            }
+
+            public string DisplayName { get; }
+
+            public string[] RequiredSupportDefines { get; }
+
+            public string[] RequiredAssemblies { get; }
+
+            public string Description { get; }
+        }
+    }
+}

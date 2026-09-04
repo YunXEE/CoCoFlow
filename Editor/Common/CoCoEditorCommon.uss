@@ -1,0 +1,238 @@
+/* CoCoFlow Editor 统一视觉语言（ccflow-）
+ * Token 基准：design-system.md + CoCoAssetFlowEditor.uss 实物逐值对应（D2）。
+ * 语义状态不单靠颜色（D3）；深色（Pro）主题唯一支持形态（D15）。 */
+
+/* ── 页根 ─────────────────────────────────────────── */
+
+.ccflow-root {
+    flex-grow: 1;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 10px;
+    padding-bottom: 12px;
+}
+
+/* ── 标题层级 ─────────────────────────────────────── */
+
+.ccflow-heading {
+    font-size: 13px;
+    -unity-font-style: bold;
+    margin-top: 12px;
+    margin-bottom: 5px;
+    padding-bottom: 3px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgb(75, 79, 85);
+}
+
+.ccflow-section-title {
+    font-size: 13px;
+    -unity-font-style: bold;
+    margin-top: 8px;
+    margin-bottom: 5px;
+}
+
+.ccflow-muted {
+    opacity: 0.65;
+    white-space: normal;
+}
+
+/* ── 卡片 ─────────────────────────────────────────── */
+
+.ccflow-card {
+    margin-bottom: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(128, 128, 128, 0.3);
+    border-right-color: rgba(128, 128, 128, 0.3);
+    border-top-color: rgba(128, 128, 128, 0.3);
+    border-bottom-color: rgba(128, 128, 128, 0.3);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    background-color: rgba(128, 128, 128, 0.055);
+}
+
+.ccflow-card__title {
+    -unity-font-style: bold;
+    margin-bottom: 5px;
+}
+
+/* ── 徽章（五语义，D3） ───────────────────────────── */
+
+.ccflow-badge {
+    align-self: center;
+    min-height: 20px;
+    margin-right: 4px;
+    margin-left: 0px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    padding-left: 7px;
+    padding-right: 7px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    border-bottom-left-radius: 9px;
+    border-bottom-right-radius: 9px;
+    -unity-font-style: bold;
+    background-color: rgba(128, 128, 128, 0.18);
+}
+
+.ccflow-badge--neutral {
+    background-color: rgba(128, 128, 128, 0.18);
+}
+
+.ccflow-badge--success {
+    background-color: rgba(68, 157, 83, 0.28);
+}
+
+.ccflow-badge--warning {
+    background-color: rgba(210, 145, 36, 0.3);
+}
+
+.ccflow-badge--error {
+    background-color: rgba(196, 63, 63, 0.3);
+}
+
+.ccflow-badge--info {
+    background-color: rgba(45, 112, 180, 0.3);
+}
+
+/* ── 按钮 ─────────────────────────────────────────── */
+
+.ccflow-button--primary {
+    min-height: 26px;
+    padding-left: 12px;
+    padding-right: 12px;
+    background-color: rgb(45, 112, 180);
+    color: rgb(255, 255, 255);
+    -unity-font-style: bold;
+}
+
+.ccflow-button--danger {
+    -unity-font-style: bold;
+    background-color: rgba(196, 63, 63, 0.16);
+}
+
+/* ── 空状态 ───────────────────────────────────────── */
+
+.ccflow-empty {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    padding-left: 30px;
+    padding-right: 30px;
+    padding-top: 30px;
+    padding-bottom: 30px;
+    opacity: 0.85;
+}
+
+.ccflow-empty__title {
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
+.ccflow-empty__message {
+    opacity: 0.75;
+    white-space: normal;
+    margin-bottom: 8px;
+}
+
+.ccflow-empty__first-step {
+    white-space: normal;
+    margin-bottom: 4px;
+}
+
+.ccflow-empty__alternative {
+    white-space: normal;
+    opacity: 0.65;
+}
+
+/* ── 工具栏 ───────────────────────────────────────── */
+
+.ccflow-toolbar {
+    min-height: 32px;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+/* ── 列表行 ───────────────────────────────────────── */
+
+.ccflow-list-row {
+    min-height: 28px;
+    flex-direction: row;
+    align-items: center;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.16);
+}
+
+.ccflow-list-row:hover {
+    background-color: rgba(45, 112, 180, 0.12);
+}
+
+/* ── 诊断行 ───────────────────────────────────────── */
+
+.ccflow-diagnostic-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 2px;
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.ccflow-diagnostic-row__message {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: normal;
+    margin-left: 4px;
+    margin-right: 8px;
+}
+
+.ccflow-diagnostic-row__locate {
+    flex-shrink: 0;
+}
+
+/* ── 折叠 ─────────────────────────────────────────── */
+
+.ccflow-foldout {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+/* ── 反馈区 ───────────────────────────────────────── */
+
+.ccflow-feedback {
+    margin-top: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(128, 128, 128, 0.3);
+    border-right-color: rgba(128, 128, 128, 0.3);
+    border-top-color: rgba(128, 128, 128, 0.3);
+    border-bottom-color: rgba(128, 128, 128, 0.3);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    background-color: rgba(128, 128, 128, 0.055);
+}

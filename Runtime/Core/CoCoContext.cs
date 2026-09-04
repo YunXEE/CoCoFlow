@@ -23,18 +23,6 @@ namespace CoCoFlow.Runtime.Core
         TContext Context { get; }
     }
 
-    public interface ICoCoContextFrameResolver
-    {
-        void ResolveContextFrame(ICoCoContext context);
-    }
-
-    public interface ICoCoIntent { }
-
-    public interface ICoCoIntentSource<out TIntent> where TIntent : ICoCoIntent
-    {
-        TIntent Intent { get; }
-    }
-
     public interface ICoCoStableEntityIdProvider
     {
         string StableEntityId { get; }

@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.0` · Updated 2026-08-29
+> Documentation baseline: `0.4.1` · Updated 2026-09-02
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
@@ -9,6 +9,12 @@ The package provides a constrained Unity authoring surface for the layered
 HFSM contract. It edits Layer, recursive State, and same-Layer Transition data;
 it is not a general visual-scripting system and does not introduce Machine,
 Node, cross-Layer communication, or arbitrary state-change concepts.
+
+The Editor windows use the package's unified UI Toolkit visual language
+(`ccflow-`) shared with the other mature CoCoFlow Editors, and render bilingual
+(English / Simplified Chinese) static chrome from the Editor language
+preference. Asset names, descriptor names, and Runtime diagnostic payloads are
+never translated.
 
 ## Authoring surface
 
@@ -21,18 +27,57 @@ Graph Asset
       -> leaf States and same-Layer Transitions
 ```
 
-Composite States are navigated through foldout, drill-in, and breadcrumb
-controls. A Transition can connect only two leaves in the selected Layer. Its
-runtime declaration consists of Conditions, one Window, and a Priority that is
-unique among the outgoing Transitions of its source. Completion and Interrupt
-are not authoring fields. The interaction rejects a cross-Layer or composite
-endpoint before mutation, while Compiler validation remains the final gate.
+The canvas shows the whole selected Layer as one flattened genealogy view:
+every State, at any nesting depth, is placed on the same canvas (positions are
+composed from the per-scope local EditorLayout coordinates), and parent-child
+structure is drawn as white flowchart-style elbow lines (genealogy lines). A
+Transition can connect only two leaves of the Layer, at any depth. Its runtime
+declaration consists of Conditions, one Window, and a Priority that is unique
+among the outgoing Transitions of its source. Completion and Interrupt are not
+authoring fields. The interaction rejects a cross-Layer or composite endpoint
+before mutation, while Compiler validation remains the final gate.
 
-The Asset Inspector is an entry point, summary, and diagnostic surface. It does
-not provide a second raw serialized topology editor that can bypass the command
-boundary. All Asset authoring becomes read-only while Unity is entering or
-running Play Mode; navigation, search, Analyze, and diagnostic location remain
-available without mutating serialized data.
+Canvas edges follow the Animator-style presentation: every edge is anchored on
+the center line of its two State cards (clipped at the card borders), multiple
+Transitions between the same pair of States render as parallel offset lines,
+self-loops render as a loop above the card, and every edge carries a filled
+direction triangle at its midpoint. Clicking an edge selects that Transition —
+and only the edge itself — for editing in the details pane; clicking empty
+canvas clears the selection.
+
+Cards use a two-layer border system: the inner border carries node state
+(the Layer initial and each composite's initial child are marked with a
+green inner border plus a "<scope name> Default" badge), while the outer
+border (offset from the card body) is reserved for dynamic states. The first
+outer-border type is the ancestry highlight: selecting a State lights the
+selected State, all of its ancestors, and the genealogy segments between them,
+visualizing how much Logic the State inherits and runs.
+
+Leaf flow states are computed from the Layer default leaf by following all
+Transitions: reachable leaves with outgoing edges (and the default leaf when
+it has outgoing edges) show no marker; reachable leaves without outgoing edges
+(dead ends) show an orange dashed outer ring; topologically unreachable leaves
+(including a default leaf without outgoing edges) show a red dashed ring.
+Rings are 50% opacity and are covered by the ancestry highlight.
+
+Composite cards show a leaf count badge and a "Tidy Subtree" action that
+re-arranges all descendants as an evenly spaced genealogy tree (one undo
+group). Dragging a composite card moves its whole subtree while writing only
+that State's own EditorLayout record. The canvas also offers a one-step
+"Add Composite (sub-state machine)" context action that creates a container
+plus its first child State in one collapsed undo group. Right-dragging from a
+leaf card to another leaf creates an Always Transition.
+
+The Asset Inspector is an entry point, summary, and diagnostic surface built
+with the same unified visual language. It shows identity and count summaries,
+a read-only Host-requirements card derived from the three compilation
+manifests, the Event Adapter Declarations editor (the single non-topology
+authoring surface outside the graph editor), Analyze with Locate, and the graph
+editor entry points. It does not provide a second raw serialized topology
+editor that can bypass the command boundary. All Asset authoring becomes
+read-only while Unity is entering or running Play Mode; navigation, search,
+Analyze, and diagnostic location remain available without mutating serialized
+data.
 
 ## Commands, Undo, and identity
 

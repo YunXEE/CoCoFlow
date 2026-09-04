@@ -11,10 +11,8 @@
 | `com.unity.inputsystem` | `1.18.0` | Input, Camera, UI |
 | `com.unity.localization` | `1.5.9` | Localization and optional Localization UI |
 | `com.unity.cinemachine` | `3.1.6` | Camera |
-| `com.unity.ai.navigation` | `2.0.0` | Project/sample integration surface |
-| `com.unity.mathematics` | `1.3.3` | Project/sample integration surface |
+| `com.unity.mathematics` | `1.3.3` | No direct package consumer; resolved transitively via Cinemachine → Splines |
 | `com.unity.nuget.newtonsoft-json` | `3.2.2` | Persistence and Container commands |
-| `com.unity.splines` | `2.6.0` | Project/sample integration surface |
 
 Unity Localization resolves Addressables transitively. CoCoFlow's optional
 Addressables Content backend compiles only when the resolved Addressables
@@ -44,9 +42,9 @@ UniTask and DOTween are not entries in `package.json`.
 | DOTween unitypackage | `COCOFLOW_DOTWEEN_SUPPORT` plus `DOTween.Modules` assembly | UI and optional UI extensions |
 | UniTask.DOTween | `UNITASK_DOTWEEN_SUPPORT` plus UniTask/DOTween gates | UI and optional UI extensions |
 
-The Setup Assistant can inspect these packages/assemblies and reconcile the
-manual support defines. A stale manual define is not a supported way to bypass
-an asmdef version range.
+The CoCoFlow Utility panel can inspect these packages/assemblies and reconcile
+the manual support defines for the active build target. A stale manual define
+is not a supported way to bypass an asmdef version range.
 
 ## Runtime module matrix
 
