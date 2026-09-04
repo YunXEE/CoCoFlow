@@ -13,9 +13,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
 
         public static string GetSaveDirectory()
         {
-            string path = !string.IsNullOrEmpty(SaveDirectoryOverride)
-                ? SaveDirectoryOverride
-                : Application.persistentDataPath;
+            string path = ResolveSaveDirectory();
 
             if (!Directory.Exists(path))
             {
@@ -88,6 +86,48 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
         #endregion
 
         #region Internal Logic
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Reads an already existing save document without creating its parent
+        /// directory. This is the read-only entry used by Editor diagnostics.
+        /// </summary>
+        internal static bool TryReadExistingDocument(
+            int slotIndex,
+            out PersistenceSaveDocument document)
+        {
+            document = null;
+            string directory = ResolveSaveDirectory();
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+            {
+                return false;
+            }
+
+            string path = Path.Combine(
+                directory,
+                $"savegame_slot_{slotIndex}.json");
+            if (!File.Exists(path))
+            {
+                string backupPath = GetBackupFilePath(path);
+                if (!File.Exists(backupPath))
+                {
+                    return false;
+                }
+
+                path = backupPath;
+            }
+
+            string json = File.ReadAllText(path);
+            document = JsonConvert.DeserializeObject<PersistenceSaveDocument>(json);
+            document = PersistenceSaveDocument.MigrateToCurrentSchema(document);
+            return document != null;
+        }
+#endif
+
+        private static string ResolveSaveDirectory() =>
+            !string.IsNullOrEmpty(SaveDirectoryOverride)
+                ? SaveDirectoryOverride
+                : Application.persistentDataPath;
 
         private static string GetBackupFilePath(string targetPath)
         {

@@ -2,6 +2,7 @@
     "name": "CoCoFlow.Tests.Editor.StateGraph",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests",
     "references": [
+        "CoCoFlow.Editor.Common",
         "CoCoFlow.Editor.StateGraph",
         "CoCoFlow.Editor.StateGraph.PlayerMetadata",
         "CoCoFlow.Runtime.Core.Contracts",

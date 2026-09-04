@@ -2,6 +2,7 @@
     "name": "CoCoFlow.Editor.StateGraph",
     "rootNamespace": "CoCoFlow.Editor.StateGraph",
     "references": [
+        "CoCoFlow.Editor.Common",
         "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateFlow",
         "CoCoFlow.Runtime.Core.StateGraph",

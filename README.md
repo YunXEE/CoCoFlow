@@ -78,10 +78,10 @@ Or add this entry to `Packages/manifest.json`:
 }
 ```
 
-Use **Tools > CoCoFlow > Setup Assistant** to inspect optional integration
-dependencies and project settings. Some integration assemblies are compiled
-only when their external packages and support defines are present; see the
-[dependency matrix](Docs/DependencyMatrix.md).
+Use **CoCoFlow > Utility Panel** (the CoCoFlow Utility window) to inspect optional
+integration dependencies and project settings. Some integration assemblies are
+compiled only when their external packages and support defines are present; see
+the [dependency matrix](Docs/DependencyMatrix.md).
 
 ## Documentation
 

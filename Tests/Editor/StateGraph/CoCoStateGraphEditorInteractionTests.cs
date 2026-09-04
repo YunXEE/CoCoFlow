@@ -29,6 +29,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         private readonly List<CoCoStateGraphEditorController> controllers =
             new List<CoCoStateGraphEditorController>();
 
+        [SetUp]
+        public void SetUp()
+        {
+            // 语言自钉：反馈文案断言依赖英文态；EditorPrefs 机器级共享。
+            CoCoFlow.Editor.Common.CoCoEditorLocalization.SetLanguage(
+                CoCoFlow.Editor.Common.CoCoEditorLanguage.English);
+        }
+
         [TearDown]
         public void TearDown()
         {
@@ -321,10 +329,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             yield return null;
             Assert.NotNull(canvas.panel);
 
-            VisualElement connector = FirstConnector(canvas);
-            Vector2 source = connector.worldBound.center;
+            // 维护者反馈：连接点已移除，改为右键从源 State 卡拖拽建 Transition。
+            VisualElement sourceCard = FirstSourceCard(canvas);
+            Vector2 source = sourceCard.worldBound.center;
             Vector2 target = canvas.worldBound.position + new Vector2(10f, 20f) + new Vector2(320f, 80f);
-            SendDown(connector, 9, 0, source);
+            SendDown(sourceCard, 9, 1, source);
             Assert.IsTrue(canvas.HasPointerCapture(9));
             SendUp(canvas, 10, 0, target);
             Assert.IsTrue(canvas.HasPointerCapture(9));
@@ -333,21 +342,21 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsFalse(canvas.HasPointerCapture(9));
             Assert.AreEqual(0, asset.Layers[0].Transitions.Count);
 
-            connector = FirstConnector(canvas);
-            SendDown(connector, 11, 0, source);
+            sourceCard = FirstSourceCard(canvas);
+            SendDown(sourceCard, 11, 1, source);
             SendCaptureOut(canvas, host.rootVisualElement, 11);
             Assert.IsFalse(canvas.HasPointerCapture(11));
             Assert.AreEqual(0, asset.Layers[0].Transitions.Count);
 
-            connector = FirstConnector(canvas);
-            SendDown(connector, 12, 0, source);
+            sourceCard = FirstSourceCard(canvas);
+            SendDown(sourceCard, 12, 1, source);
             Vector2 outsidePanel = OutsidePanel(host.rootVisualElement);
             SendUp(host.rootVisualElement, 12, 0, outsidePanel);
             Assert.IsFalse(canvas.HasPointerCapture(12));
             Assert.AreEqual(0, asset.Layers[0].Transitions.Count);
 
-            connector = FirstConnector(canvas);
-            SendDown(connector, 13, 0, source);
+            sourceCard = FirstSourceCard(canvas);
+            SendDown(sourceCard, 13, 1, source);
             SendMove(canvas, 13, target);
             SendUp(canvas, 13, 0, target);
             yield return null;
@@ -547,11 +556,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             return found;
         }
 
-        private static VisualElement FirstConnector(VisualElement root)
+        private static VisualElement FirstSourceCard(VisualElement root)
         {
-            VisualElement connector = root.Q<VisualElement>("transition-source-connector");
-            Assert.NotNull(connector);
-            return connector;
+            VisualElement card = root.Q<VisualElement>("state-card");
+            Assert.NotNull(card);
+            return card;
         }
 
         private static void Click(Button target)

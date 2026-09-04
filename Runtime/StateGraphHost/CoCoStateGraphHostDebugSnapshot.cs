@@ -6,18 +6,15 @@ namespace CoCoFlow.Runtime.Core
     {
         internal CoCoStateGraphHostDebugActiveState(
             CoCoStateId stateId,
-            CoCoActivationId activationId,
             double localSeconds,
             double actionProgress)
         {
             StateId = stateId;
-            ActivationId = activationId;
             LocalSeconds = localSeconds;
             ActionProgress = actionProgress;
         }
 
         internal CoCoStateId StateId { get; }
-        internal CoCoActivationId ActivationId { get; }
         internal double LocalSeconds { get; }
         internal double ActionProgress { get; }
     }
@@ -47,7 +44,6 @@ namespace CoCoFlow.Runtime.Core
     internal sealed class CoCoStateGraphHostDebugSnapshot
     {
         private readonly CoCoStateGraphHostDebugLayer[] _layers;
-        private readonly CoCoOperatorClaimState[] _claims;
 
         private CoCoStateGraphHostDebugSnapshot(
             CoCoStateGraphCommittedDebugState graph,
@@ -58,8 +54,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateFlowFrameHeader contextHeader,
             CoCoContextRevision contextRevision,
             CoCoContextFrameOrigin contextOrigin,
-            CoCoStateGraphHostDebugLayer[] layers,
-            CoCoOperatorClaimState[] claims)
+            CoCoStateGraphHostDebugLayer[] layers)
         {
             SchemaVersion = graph.SchemaVersion;
             ContentFingerprint = graph.ContentFingerprint;
@@ -80,7 +75,6 @@ namespace CoCoFlow.Runtime.Core
             ContextRevision = contextRevision;
             ContextOrigin = contextOrigin;
             _layers = layers;
-            _claims = claims;
         }
 
         internal uint SchemaVersion { get; }
@@ -102,10 +96,8 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoContextRevision ContextRevision { get; }
         internal CoCoContextFrameOrigin ContextOrigin { get; }
         internal int LayerCount => _layers.Length;
-        internal int ClaimCount => _claims.Length;
 
         internal CoCoStateGraphHostDebugLayer GetLayer(int index) => _layers[index];
-        internal CoCoOperatorClaimState GetClaim(int index) => _claims[index];
 
         internal static CoCoStateGraphHostDebugSnapshot CopyFrom(
             CoCoStateGraphCommittedDebugState graph,
@@ -113,8 +105,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoRuntimeFault fault,
             bool requiresWorldCorrection,
             CoCoDiagnostic lastDiagnostic,
-            CoCoContextFrame context,
-            CoCoOperatorClaimState[] claims)
+            CoCoContextFrame context)
         {
             var layers = new CoCoStateGraphHostDebugLayer[graph.LayerCount];
             for (int layerIndex = 0; layerIndex < layers.Length; layerIndex++)
@@ -128,7 +119,6 @@ namespace CoCoFlow.Runtime.Core
                         sourceLayer.GetActiveState(stateIndex);
                     states[stateIndex] = new CoCoStateGraphHostDebugActiveState(
                         source.StateId,
-                        source.ActivationId,
                         source.LocalSeconds,
                         source.ActionProgress);
                 }
@@ -139,9 +129,6 @@ namespace CoCoFlow.Runtime.Core
                     states);
             }
 
-            CoCoOperatorClaimState[] claimCopy = claims == null || claims.Length == 0
-                ? Array.Empty<CoCoOperatorClaimState>()
-                : (CoCoOperatorClaimState[])claims.Clone();
             return new CoCoStateGraphHostDebugSnapshot(
                 graph,
                 lifecycle,
@@ -151,8 +138,49 @@ namespace CoCoFlow.Runtime.Core
                 context.Header,
                 context.Revision,
                 context.Origin,
-                layers,
-                claimCopy);
+                layers);
         }
     }
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// Editor-only immutable copy of one committed Host boundary and its
+    /// Temporal ring metadata. Frames are ordered by logical history depth:
+    /// depth zero is the newest retained authority.
+    /// </summary>
+    internal sealed class CoCoStateGraphHostTemporalDebugSnapshot
+    {
+        private readonly CoCoStateGraphHostDebugSnapshot _current;
+        private readonly CoCoTemporalFrameInfo[] _frames;
+
+        internal CoCoStateGraphHostTemporalDebugSnapshot(
+            CoCoStateGraphHostDebugSnapshot current,
+            int capacity,
+            CoCoTemporalFrameInfo[] frames)
+        {
+            _current = current;
+            Capacity = capacity < 0 ? 0 : capacity;
+            _frames = frames == null || frames.Length == 0
+                ? Array.Empty<CoCoTemporalFrameInfo>()
+                : (CoCoTemporalFrameInfo[])frames.Clone();
+        }
+
+        internal int Capacity { get; }
+        internal int Count => _frames.Length;
+        internal CoCoRuntimeFault Fault =>
+            _current == null ? default : _current.Fault;
+        internal CoCoStateFlowFrameHeader ContextHeader =>
+            _current == null ? default : _current.ContextHeader;
+        internal CoCoContextRevision ContextRevision =>
+            _current == null ? default : _current.ContextRevision;
+        internal CoCoContextFrameOrigin ContextOrigin =>
+            _current == null ? default : _current.ContextOrigin;
+        internal int LayerCount => _current?.LayerCount ?? 0;
+
+        internal CoCoTemporalFrameInfo GetFrame(int depth) => _frames[depth];
+
+        internal CoCoStateGraphHostDebugLayer GetLayer(int index) =>
+            _current.GetLayer(index);
+    }
+#endif
 }
