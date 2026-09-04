@@ -15,6 +15,18 @@ namespace CoCoFlow.Editor.StateGraphHost
             Find(host, assigned, results, IsIntentSource);
         }
 
+        internal static void FindOperators(
+            CoCoStateGraphHost host,
+            IReadOnlyList<MonoBehaviour> assigned,
+            List<MonoBehaviour> results)
+        {
+            Find(
+                host,
+                assigned,
+                results,
+                component => component is ICoCoOperator);
+        }
+
         internal static void FindEventAdapters(
             CoCoStateGraphHost host,
             Type eventType,
