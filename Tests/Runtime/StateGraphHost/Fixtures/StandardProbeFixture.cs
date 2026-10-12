@@ -12,8 +12,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public void Update(CoCoStateExecutionContext context)
         {
-            if (context.Intents != null &&
-                context.Intents.TryFirst(out RawInputIntent intent) &&
+            if (context.TryReadIntent(out RawInputIntent intent) &&
                 Received != null)
             {
                 for (int index = 0; index < intent.Count; index++)

@@ -16,6 +16,7 @@ namespace CoCoFlow.Editor.StateGraph
     internal static class CoCoStandardCatalogBootstrap
     {
         private static CoCoStandardBindingProvider _provider;
+        private static CoCoStandardBindingException _intentFailure;
 
         static CoCoStandardCatalogBootstrap()
         {
@@ -24,6 +25,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal static void Rescan()
         {
+            _intentFailure = null;
             try
             {
                 var assemblies = new List<Assembly>();
@@ -46,19 +48,31 @@ namespace CoCoFlow.Editor.StateGraph
 
                 _provider = CoCoStandardBindingProvider.Build(assemblies);
             }
+            catch (CoCoStandardBindingException exception)
+            {
+                _provider = null;
+                _intentFailure = exception;
+            }
             catch (InvalidOperationException)
             {
                 _provider = null; // no CoCoState classes in this project
             }
 
             CoCoStateGraphEditorCatalogProvider.Provider =
-                _provider != null ? (Func<CoCoGraphDescriptorCatalog>)(() => _provider.Catalog) : null;
+                _intentFailure != null
+                    ? () => throw _intentFailure
+                    : _provider != null ? () => _provider.Catalog : null;
         }
 
         [MenuItem("CoCoFlow/Setup/Rescan Standard States")]
         internal static void RescanMenu()
         {
             Rescan();
+            if (_intentFailure != null)
+            {
+                Debug.LogError("[CoCoFlow] standard Intent catalog failed: " + _intentFailure.Message);
+                return;
+            }
             Debug.Log(
                 _provider != null
                     ? "[CoCoFlow] standard catalog refreshed."

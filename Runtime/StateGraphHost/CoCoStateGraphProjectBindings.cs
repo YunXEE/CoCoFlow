@@ -380,6 +380,45 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        /// <summary>
+        /// Binds exactly one explicit Host source with the requested value type.
+        /// Source list order never defines Intent identity. The low-level indexed
+        /// overload remains available for custom multi-producer bindings.
+        /// </summary>
+        public bool TryBindStandardIntentSource<TIntent>(CoCoIntentHandle<TIntent> handle,
+            out CoCoDiagnostic diagnostic) where TIntent : unmanaged
+        {
+            int selected = -1;
+            for (int index = 0; index < _intentSourceComponents.Count; index++)
+            {
+                MonoBehaviour component = _intentSourceComponents[index];
+                if (component == null || component is not ICoCoIntentFrameSource<TIntent>) continue;
+                if (selected >= 0)
+                {
+                    diagnostic = RegistryError(CoCoDiagnosticCode.DuplicateIdentifier,
+                        "Multiple Host Intent Sources provide " + typeof(TIntent).FullName +
+                        "; the standard path requires exactly one explicit source per Intent type.");
+                    return LatchFailure(diagnostic);
+                }
+                selected = index;
+            }
+            if (selected < 0)
+            {
+                diagnostic = RegistryError(CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Missing Host Intent Source with exact contract ICoCoIntentFrameSource<" +
+                    typeof(TIntent).FullName + ">. Check the explicit Intent Sources list and source type.");
+                return LatchFailure(diagnostic);
+            }
+            if (!CoCoIntentSourceRequirement<TIntent>.TryCreate(handle, 1,
+                    out CoCoIntentSourceRequirement<TIntent> requirement))
+            {
+                diagnostic = RegistryError(CoCoDiagnosticCode.InvalidIntentDescriptor,
+                    "Standard Intent source requirement is invalid: " + typeof(TIntent).FullName + ".");
+                return LatchFailure(diagnostic);
+            }
+            return TryBindIntentSource(selected, requirement, out diagnostic);
+        }
+
         public bool TryBindIntentSource<TIntent>(
             int hostSourceIndex,
             CoCoIntentSourceRequirement<TIntent> requirement,

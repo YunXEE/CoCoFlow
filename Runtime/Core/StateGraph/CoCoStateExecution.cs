@@ -278,7 +278,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoFrozenConfigSnapshot Config { get; }
     }
 
-    public sealed class CoCoStateExecutionContext
+    public sealed partial class CoCoStateExecutionContext
     {
         private CoCoStateGraphRuntime _runtime;
         private CoCoActivationMemory _memory;
@@ -307,10 +307,11 @@ namespace CoCoFlow.Runtime.Core
 
         internal CoCoStateExecutionContext()
         {
+            _intentView = new CoCoStateIntentFrameView(this);
         }
 
         public CoCoTickFrame TickFrame => _tickFrame;
-        public ICoCoIntentFrame Intents => _intents;
+        public ICoCoIntentFrame Intents => _intents == null ? null : _intentView;
         public CoCoContextFrameReadView PreviousContext => _previousContext;
         public CoCoFrozenConfigSnapshot Config => _config;
         public CoCoStateOperationWriter Operations => _isCallbackActive
@@ -513,6 +514,7 @@ namespace CoCoFlow.Runtime.Core
             _memory = memory;
             _config = config;
             _intents = intents;
+            _intentView.Configure(runtime.Graph, layerId, stateId);
             _previousContext = previousContext;
             _tickFrame = tickFrame;
             _operationWriter = operationWriter;

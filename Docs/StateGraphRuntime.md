@@ -39,17 +39,24 @@ otherwise it scans loaded non-package assemblies for concrete
 `CoCoStateAttribute` logic classes. Finding no attributed State is a valid
 no-op for projects that do not use the standard path.
 
-For a standard graph, Host source slot `0` is the scene `InputReader` and the
-only automatically registered Intent is `RawInputIntent` with the package
-pass-through reducer. Operator registrars bind only the compiled Operation
-Sections and Context blocks they own. Each compiled attributed State is given a
-fresh StateLogic factory plus its deterministic Graph-state slot. Missing,
-extra, duplicate, or type-incompatible coverage rejects Host startup before
-Router registration or the first Tick.
+For a standard graph, each explicit `CoCoIntentConsume(typeof(TIntent))`
+resolves through a module-owned `CoCoIntentRegistration` registrar. The graph
+manifest contains the union of its States' declarations. The standard Host
+binds exactly one source per required type from its explicit Intent Sources
+list; list position does not determine Intent identity. Zero Intent graphs need
+no source. Existing explicit `RawInputIntent` declarations continue to use the
+Input module's registrar and `InputReader`.
 
-Projects needing additional Intent types, custom config/memory, or another
-construction policy install an explicit `ICoCoStateGraphProjectBindingProvider`
-instead of relying on this standard provider.
+Operator registrars bind only the compiled Operation Sections and Context
+blocks they own. Each compiled attributed State receives a fresh StateLogic
+factory plus its deterministic Graph-state slot. Missing, extra, duplicate,
+type-incompatible, or cross-Host coverage rejects startup before sampling.
+See [Intent and Operation authoring](StateGraphIntentAuthoring.md) for module
+registration, author reads, proxy writes, and source diagnostics.
+
+Custom config/memory or multi-source policies still use an explicit
+`ICoCoStateGraphProjectBindingProvider`; existing indexed generic bindings remain
+available.
 
 The Host exposes lifecycle control, Manual Step, read-only authority inspection,
 and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,

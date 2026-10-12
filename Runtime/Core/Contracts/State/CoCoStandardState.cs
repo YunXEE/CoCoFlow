@@ -20,8 +20,8 @@ namespace CoCoFlow.Runtime.Core
 
     /// <summary>
     /// Declares that a state logic consumes one intent type. The standard
-    /// binding binds the intent's package source (for RawInputIntent, the
-    /// scene InputReader) with the built-in pass-through reducer.
+    /// binding uses the registrar supplied by the Intent's module. No
+    /// Intent is implicit; a state may consume zero, one, or several types.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
     public sealed class CoCoIntentConsumeAttribute : Attribute
@@ -32,6 +32,21 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public Type IntentType { get; }
+    }
+
+    /// <summary>
+    /// Exports an Intent registrar from its module. Put this on a source or
+    /// registrar class; the Intent value and StateLogic stay engine-free.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
+    public sealed class CoCoIntentRegistrationAttribute : Attribute
+    {
+        public CoCoIntentRegistrationAttribute(Type registrarType)
+        {
+            RegistrarType = registrarType ?? throw new ArgumentNullException(nameof(registrarType));
+        }
+
+        public Type RegistrarType { get; }
     }
 
     /// <summary>

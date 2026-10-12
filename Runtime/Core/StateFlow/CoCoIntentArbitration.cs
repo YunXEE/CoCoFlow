@@ -53,6 +53,16 @@ namespace CoCoFlow.Runtime.Core
             where TIntent : unmanaged;
     }
 
+    /// <summary>
+    /// Optional exact-identity lookup for type-based State authors. Existing
+    /// custom frames remain source-compatible and can continue exposing handles.
+    /// </summary>
+    public interface ICoCoIntentFrameLookup : ICoCoIntentFrame
+    {
+        bool TryGet<TIntent>(CoCoIntentId intentId, out TIntent value)
+            where TIntent : unmanaged;
+    }
+
     public enum CoCoIntentContributionResult
     {
         None = 0,
@@ -454,7 +464,7 @@ namespace CoCoFlow.Runtime.Core
                                MinimumProjectionCapacity > 0;
     }
 
-    internal sealed class CoCoIntentFrame : ICoCoIntentFrame
+    internal sealed class CoCoIntentFrame : ICoCoIntentFrameLookup
     {
         private readonly CoCoIntentFrameLayout _layout;
         private readonly ICoCoIntentFrameSlot[] _slots;
@@ -522,6 +532,26 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
+            value = default;
+            return false;
+        }
+
+        public bool TryGet<TIntent>(CoCoIntentId intentId, out TIntent value)
+            where TIntent : unmanaged
+        {
+            if (_isFrozen)
+            {
+                for (int index = 0; index < _slots.Length; index++)
+                {
+                    if (_layout.TryGetDescriptor(index, out CoCoIntentDescriptor descriptor) &&
+                        descriptor.IntentId == intentId && descriptor.ValueType == typeof(TIntent) &&
+                        _slots[index] is CoCoIntentFrameSlot<TIntent> slot && slot.IsPresent)
+                    {
+                        value = slot.Value;
+                        return true;
+                    }
+                }
+            }
             value = default;
             return false;
         }

@@ -11,7 +11,7 @@ namespace CoCoFlow.Editor.StateGraph
 {
     /// <summary>
     /// Generates a fully compilable state logic script from a name:
-    /// CoCoState attribute, CoCoIntentConsume(RawInputIntent), class shell
+    /// CoCoState attribute and a class shell
     /// with an empty Update. The user pastes logic into Update only. The
     /// descriptor id is derived from the name deterministically, so no
     /// registration file is required (bootstrap scans attributes).
@@ -66,9 +66,8 @@ namespace CoCoFlow.Editor.StateGraph
                 "using CoCoFlow.Runtime.Core;\n" +
                 "\n" +
                 "// State logic for the '" + name + "' graph state. Everything " +
-                "outside Update was generated; paste your logic into Update.\n" +
+                "outside Update was generated. Declare Intent and Operation types explicitly when needed.\n" +
                 "[CoCoState(\"" + name + "\")]\n" +
-                "[CoCoIntentConsume(typeof(RawInputIntent))]\n" +
                 "public sealed class " + name + "Logic : CoCoStateLogic, ICoCoStateUpdate\n" +
                 "{\n" +
                 "    public void Update(CoCoStateExecutionContext context)\n" +

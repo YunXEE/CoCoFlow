@@ -72,6 +72,10 @@ namespace CoCoFlow.Runtime.Core
                         diagnostic.Message);
                 }
             }
+            catch (CoCoStandardBindingException exception)
+            {
+                Debug.LogError("[CoCoFlow] standard Intent binding failed: " + exception.Message);
+            }
             catch (InvalidOperationException)
             {
                 // No CoCoState classes found — this project does not use the

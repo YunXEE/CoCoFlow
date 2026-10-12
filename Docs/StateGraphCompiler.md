@@ -91,8 +91,10 @@ fully custom binding provider:
   parameterless constructor, and is marked with `CoCoStateAttribute` becomes a
   Catalog State; its descriptor ID is derived deterministically from the
   attribute name;
-- `CoCoIntentConsumeAttribute(typeof(RawInputIntent))` declares the one
-  package-provided standard Intent lane;
+- each `CoCoIntentConsumeAttribute(typeof(TIntent))` declares a module-owned
+  Intent type. Zero, one, and multiple explicit types are supported; the script
+  wizard generates no Intent declarations. A discoverable
+  `CoCoIntentRegistrationAttribute` exports its standard registrar;
 - `CoCoOperationProvideAttribute` declares an Operation Section whose owning
   `ICoCoStandardOperatorRegistrar` must be discoverable from an Operator's
   `CoCoOperatorRegistrationAttribute`;

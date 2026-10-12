@@ -31,6 +31,12 @@ version is in `[2.9.1,3.0.0)`.
 The older `CoCoFlow.Runtime.Core` assembly is a separate Unity-facing
 compatibility surface and is not part of the mature Core Engine declaration.
 
+The engine-free `Animation.Contracts` and `Locomotion.Contracts` assemblies
+reference Core Contracts, StateFlow, and StateGraph for callback-scoped Operation
+author proxies. Core does not reference either module. The Unity-facing Input
+module additionally references StateGraph and StateGraphHost to carry its own
+standard Intent registrar.
+
 ## Optional integrations
 
 UniTask and DOTween are not entries in `package.json`.

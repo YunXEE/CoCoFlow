@@ -18,18 +18,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public void Update(CoCoStateExecutionContext context)
         {
-            var moveZ = context.Operations.ResolveField<ILocomotionSection, float>(
-                LocomotionSectionFields.MoveZ);
-            var gravity = context.Operations.ResolveField<ILocomotionSection, bool>(
-                LocomotionSectionFields.UseGravity);
-            if (!moveZ.IsValid || !gravity.IsValid)
+            var author = new LocomotionOperationAuthor(context.Operations);
+            if (!author.Move(0f, 2f) || !author.Gravity(true))
             {
                 LastDelta = null;
                 return;
             }
 
-            _ = context.Operations.Write(moveZ, 2f);   // MoveZ = 2 m/s
-            _ = context.Operations.Write(gravity, true);
             LastDelta = 2f;
         }
     }
