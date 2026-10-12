@@ -111,7 +111,7 @@ which value type reaches a State. The standard path accepts one source per type.
 | Missing source or wrong generic source type | `DescriptorTypeMismatch`, including the expected type |
 | Two matching sources, including a repeated reference | `DuplicateIdentifier` |
 | Foreign or nested Host source | `DescriptorTypeMismatch`, Host boundary explanation |
-| Extra explicit source not used by the compiled graph | `ManifestConflict` from Host coverage validation |
+| Extra explicit source not used by the compiled graph | `MissingDescriptor` from Host coverage validation |
 
 Catalog errors expose `CoCoStandardBindingException.Diagnostic`; the editor's
 analysis panel preserves the message, and the runtime bootstrap reports it.
