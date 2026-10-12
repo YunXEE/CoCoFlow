@@ -72,6 +72,25 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.That(duplicateError.Diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.DuplicateIdentifier));
         }
 
+        [Test]
+        public void OpenGenericRegistrarHasStructuredInvalidDescriptorDiagnostic()
+        {
+            var error = Assert.Throws<CoCoStandardBindingException>(() =>
+                CoCoStandardBindingProvider.Build(new[] { DeclareRegistrars(typeof(OpenGenericMetadataRegistrarProbe<>)) }));
+            Assert.That(error.Diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidIntentDescriptor));
+            Assert.That(error.Message, Does.Contain(typeof(OpenGenericMetadataRegistrarProbe<>).FullName));
+        }
+
+        [Test]
+        public void ThrowingRegistrarHasStructuredInvalidDescriptorDiagnostic()
+        {
+            var error = Assert.Throws<CoCoStandardBindingException>(() =>
+                CoCoStandardBindingProvider.Build(new[] { DeclareRegistrars(typeof(ThrowingMetadataRegistrarProbe)) }));
+            Assert.That(error.Diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidIntentDescriptor));
+            Assert.That(error.Message, Does.Contain(typeof(ThrowingMetadataRegistrarProbe).FullName));
+            Assert.That(error.Message, Does.Contain("Intent id, capacity and fingerprint must be valid."));
+        }
+
         private static TypeBuilder DefineProbe(Type baseType)
         {
             var name = new AssemblyName("IntentMetadataProbe" + Guid.NewGuid().ToString("N"));
@@ -113,6 +132,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             { binding = null; diagnostic = CoCoDiagnostic.None; return false; }
         }
         public sealed class DuplicateMetadataRegistrarProbe : MetadataRegistrarProbe { }
+        public sealed class OpenGenericMetadataRegistrarProbe<T> : MetadataRegistrarProbe { }
+        public sealed class ThrowingMetadataRegistrarProbe :
+            CoCoStandardIntentRegistrar<RawInputIntent, RawInputPassThroughReducer, RawInputReducerFactory>
+        {
+            public ThrowingMetadataRegistrarProbe() : base(default, 0, 0UL) { }
+            protected override RawInputReducerFactory CreateReducerFactory() => new RawInputReducerFactory();
+        }
 
         [Test]
         public void CatalogUsesTheSameIntentMetadataRegardlessOfAssemblyOrder()

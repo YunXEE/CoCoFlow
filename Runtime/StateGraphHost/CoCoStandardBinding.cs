@@ -107,11 +107,22 @@ namespace CoCoFlow.Runtime.Core
                     {
                         if (!seenIntentRegistrars.Add(registration.RegistrarType)) continue;
                         if (registration.RegistrarType.IsAbstract ||
+                            registration.RegistrarType.ContainsGenericParameters ||
                             !typeof(ICoCoStandardIntentRegistrar).IsAssignableFrom(registration.RegistrarType) ||
                             registration.RegistrarType.GetConstructor(Type.EmptyTypes) == null)
                             throw IntentError(CoCoDiagnosticCode.InvalidIntentDescriptor,
-                                "Intent registrar must be concrete and have a public parameterless constructor: " + registration.RegistrarType.FullName);
-                        var registrar = (ICoCoStandardIntentRegistrar)Activator.CreateInstance(registration.RegistrarType);
+                                "Intent registrar must be closed, concrete and have a public parameterless constructor: " + registration.RegistrarType.FullName);
+                        ICoCoStandardIntentRegistrar registrar;
+                        try
+                        {
+                            registrar = (ICoCoStandardIntentRegistrar)Activator.CreateInstance(registration.RegistrarType);
+                        }
+                        catch (System.Reflection.TargetInvocationException exception)
+                        {
+                            throw IntentError(CoCoDiagnosticCode.InvalidIntentDescriptor,
+                                "Intent registrar construction failed: " + registration.RegistrarType.FullName + ". " +
+                                (exception.InnerException?.Message ?? exception.Message));
+                        }
                         if (registrar.IntentType == null || !registrar.IntentId.IsValid ||
                             intentIdsByType.ContainsKey(registrar.IntentType) || intentRegistrars.ContainsKey(registrar.IntentId))
                             throw IntentError(CoCoDiagnosticCode.DuplicateIdentifier,
