@@ -6,8 +6,8 @@ using System.Runtime.InteropServices;
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
-    /// Marks a read-only data contract that a StateGraph can place in an OperationFrame.
-    /// Section interfaces must inherit this interface directly and may only declare getter properties.
+    /// Marks a data contract that a StateGraph can place in an OperationFrame.
+    /// Section interfaces inherit this interface directly; setters and data methods are optional.
     /// </summary>
     public interface ICoCoOperationSection
     {
@@ -538,16 +538,38 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
+    internal interface ICoCoOperationSectionWriteTarget
+    {
+        void Write<TValue>(CoCoOperationSectionField<TValue> field, in TValue value)
+            where TValue : unmanaged;
+        void Enable<TSection>() where TSection : class, ICoCoOperationSection;
+    }
+
     /// <summary>
-    /// Stable reader shared by every pre-created view owned by one OperationFrame.
+    /// Accesses the existing frame for Operator reads or the callback writer for Logic writes.
     /// </summary>
     public sealed class CoCoOperationSectionReader
     {
         private readonly CoCoOperationFrame _frame;
+        private readonly ICoCoOperationSectionWriteTarget _writeTarget;
+        private readonly Action _enable;
 
         internal CoCoOperationSectionReader(CoCoOperationFrame frame)
         {
             _frame = frame;
+        }
+
+        internal CoCoOperationSectionReader(ICoCoOperationSectionWriteTarget writeTarget, Action enable)
+        {
+            _writeTarget = writeTarget;
+            _enable = enable;
+        }
+
+        public void Write<TValue>(CoCoOperationSectionField<TValue> field, in TValue value)
+            where TValue : unmanaged
+        {
+            _enable?.Invoke();
+            _writeTarget.Write(field, value);
         }
 
         public bool TryRead<TValue>(
@@ -1015,6 +1037,16 @@ namespace CoCoFlow.Runtime.Core
             return field.ByteOffset == section.ByteOffset + descriptor.ByteOffset &&
                    field.ByteSize == descriptor.ByteSize &&
                    descriptor.ValueType == typeof(TValue);
+        }
+
+        internal object CreateWriteView(Type sectionType, ICoCoOperationSectionWriteTarget target)
+        {
+            for (int index = 0; index < _descriptors.Length; index++)
+            {
+                if (_descriptors[index].SectionType == sectionType)
+                    return _factories[index].CreateWriteView(this, target, _descriptors[index]);
+            }
+            throw new InvalidOperationException("No registered Operation Section: " + sectionType);
         }
 
         internal object[] CreateViews(CoCoOperationFrame frame)
@@ -1827,6 +1859,9 @@ namespace CoCoFlow.Runtime.Core
     {
         object FactoryInstance { get; }
 
+        object CreateWriteView(CoCoOperationSectionRegistry registry,
+            ICoCoOperationSectionWriteTarget target, CoCoOperationSectionDescriptor descriptor);
+
         object Create(
             CoCoOperationSectionRegistry registry,
             CoCoOperationSectionReader reader,
@@ -1844,6 +1879,14 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public object FactoryInstance => _factory;
+
+        public object CreateWriteView(CoCoOperationSectionRegistry registry,
+            ICoCoOperationSectionWriteTarget target, CoCoOperationSectionDescriptor descriptor)
+        {
+            Action enable = descriptor.Mode == CoCoOperationSectionMode.Discrete
+                ? (Action)target.Enable<TSection> : null;
+            return Create(registry, new CoCoOperationSectionReader(target, enable), descriptor);
+        }
 
         public object Create(
             CoCoOperationSectionRegistry registry,
@@ -1996,7 +2039,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             Array.Sort(properties, PropertyComparer.Instance);
-            var getters = new HashSet<MethodInfo>();
+            var accessors = new HashSet<MethodInfo>();
             for (int index = 0; index < properties.Length; index++)
             {
                 PropertyInfo property = properties[index];
@@ -2005,7 +2048,6 @@ namespace CoCoFlow.Runtime.Core
                     !getter.IsPublic ||
                     getter.IsStatic ||
                     !getter.IsAbstract ||
-                    property.GetSetMethod(true) != null ||
                     property.GetIndexParameters().Length != 0 ||
                     property.PropertyType.IsByRef ||
                     Nullable.GetUnderlyingType(property.PropertyType) != null ||
@@ -2014,22 +2056,28 @@ namespace CoCoFlow.Runtime.Core
                     properties = null;
                     diagnostic = Error(
                         CoCoDiagnosticCode.InvalidOperationSection,
-                        "Operation Section properties must be public abstract getter-only unmanaged values.");
+                        "Operation Section properties must be public abstract unmanaged properties.");
                     return false;
                 }
 
-                getters.Add(getter);
+                accessors.Add(getter);
+                if (property.GetSetMethod(true) is MethodInfo setter) accessors.Add(setter);
             }
 
             MethodInfo[] methods = sectionType.GetMethods(declaredMembers);
             for (int index = 0; index < methods.Length; index++)
             {
-                if (!getters.Contains(methods[index]))
+                MethodInfo method = methods[index];
+                bool dataMethod = method.IsPublic && method.IsAbstract && !method.IsStatic &&
+                    method.ReturnType == typeof(void) &&
+                    Array.TrueForAll(method.GetParameters(), parameter =>
+                        CoCoStateFlowTypeRules.IsReferenceFreeValueType(parameter.ParameterType));
+                if (!accessors.Contains(method) && !dataMethod)
                 {
                     properties = null;
                     diagnostic = Error(
                         CoCoDiagnosticCode.InvalidOperationSection,
-                        "Operation Section cannot declare methods beyond property getters.");
+                        "Operation Section methods must be void data operations.");
                     return false;
                 }
             }

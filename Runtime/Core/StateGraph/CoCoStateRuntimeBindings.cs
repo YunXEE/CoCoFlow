@@ -1,8 +1,76 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace CoCoFlow.Runtime.Core
 {
+    // Instances belong to one Logic; cached delegates keep reflection out of callbacks.
+    internal sealed class CoCoStatePropertyBindings
+    {
+        private readonly Action<ICoCoIntentFrame>[] _intents;
+
+        internal static PropertyInfo[] Properties(Type logicType)
+        {
+            var result = new List<PropertyInfo>();
+            foreach (PropertyInfo property in logicType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.IsDefined(typeof(IntentAttribute), false) ||
+                    property.IsDefined(typeof(OperationAttribute), false))
+                {
+                    result.Add(property);
+                }
+            }
+            if (result.Count != 0 &&
+                (logicType.IsDefined(typeof(CoCoIntentConsumeAttribute), false) ||
+                 logicType.IsDefined(typeof(CoCoOperationProvideAttribute), false)))
+            {
+                throw new InvalidOperationException("Use either property or class dependency declarations: " + logicType);
+            }
+            return result.ToArray();
+        }
+
+        internal CoCoStatePropertyBindings(CoCoStateLogic logic,
+            CoCoOperationSectionRegistry registry, CoCoStateExecutionContext context)
+        {
+            var intents = new List<Action<ICoCoIntentFrame>>();
+            foreach (PropertyInfo property in Properties(logic.GetType()))
+            {
+                if (property.IsDefined(typeof(IntentAttribute), false))
+                {
+                    var factory = typeof(CoCoStatePropertyBindings).GetMethod(
+                        nameof(CreateIntentSetter), BindingFlags.Static | BindingFlags.NonPublic);
+                    intents.Add((Action<ICoCoIntentFrame>)factory.MakeGenericMethod(property.PropertyType)
+                        .Invoke(null, new object[] { logic, property }));
+                }
+                else
+                {
+                    property.SetValue(logic, registry.CreateWriteView(property.PropertyType, context));
+                }
+            }
+            _intents = intents.ToArray();
+        }
+
+        private static Action<ICoCoIntentFrame> CreateIntentSetter<TIntent>(
+            CoCoStateLogic logic, PropertyInfo property) where TIntent : unmanaged
+        {
+            var setter = (Action<TIntent>)Delegate.CreateDelegate(typeof(Action<TIntent>), logic, property.SetMethod);
+            return frame =>
+            {
+                TIntent value = default;
+                frame?.TryFirst(out value);
+                setter(value);
+            };
+        }
+
+        internal void Refresh(ICoCoIntentFrame frame)
+        {
+            for (int index = 0; index < _intents.Length; index++)
+            {
+                _intents[index](frame);
+            }
+        }
+    }
+
     public interface ICoCoStateRuntimeFactory
     {
         Type LogicType { get; }

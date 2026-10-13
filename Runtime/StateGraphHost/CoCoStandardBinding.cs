@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
@@ -212,11 +212,22 @@ namespace CoCoFlow.Runtime.Core
                             type.FullName);
                     }
 
+                    var intentDeclarations = new List<CoCoIntentConsumeAttribute>(Array.ConvertAll(
+                        type.GetCustomAttributes(typeof(CoCoIntentConsumeAttribute), false),
+                        value => (CoCoIntentConsumeAttribute)value));
+                    var operationDeclarations = new List<CoCoOperationProvideAttribute>(Array.ConvertAll(
+                        type.GetCustomAttributes(typeof(CoCoOperationProvideAttribute), false),
+                        value => (CoCoOperationProvideAttribute)value));
+                    foreach (var property in CoCoStatePropertyBindings.Properties(type))
+                    {
+                        if (property.IsDefined(typeof(IntentAttribute), false))
+                            intentDeclarations.Add(new CoCoIntentConsumeAttribute(property.PropertyType));
+                        else operationDeclarations.Add(new CoCoOperationProvideAttribute(property.PropertyType));
+                    }
+
                     bool consumesRawInput = false;
                     foreach (CoCoIntentConsumeAttribute consume in
-                             type.GetCustomAttributes(
-                                 typeof(CoCoIntentConsumeAttribute),
-                                 false))
+                             intentDeclarations)
                     {
                         if (consume.IntentType != typeof(RawInputIntent))
                         {
@@ -234,9 +245,7 @@ namespace CoCoFlow.Runtime.Core
                         StandardGraphState.BlockFor(descriptorId),
                     };
                     foreach (CoCoOperationProvideAttribute provide in
-                             type.GetCustomAttributes(
-                                 typeof(CoCoOperationProvideAttribute),
-                                 false))
+                             operationDeclarations)
                     {
                         if (operationIdsByType.TryGetValue(
                                 provide.SectionType,

@@ -2,6 +2,18 @@ using System;
 
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>Refreshes an Intent data property before each State callback.</summary>
+    [AttributeUsage(AttributeTargets.Property, Inherited = false)]
+    public sealed class IntentAttribute : Attribute
+    {
+    }
+
+    /// <summary>Binds an Operation Section property to the State's existing writer.</summary>
+    [AttributeUsage(AttributeTargets.Property, Inherited = false)]
+    public sealed class OperationAttribute : Attribute
+    {
+    }
+
     /// <summary>
     /// Marks a class as a StateGraph state logic. The state's descriptor id
     /// is derived deterministically from the graph's identity scope and the
