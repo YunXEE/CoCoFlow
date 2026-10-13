@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
@@ -278,7 +278,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoFrozenConfigSnapshot Config { get; }
     }
 
-    public sealed class CoCoStateExecutionContext
+    public sealed class CoCoStateExecutionContext : ICoCoOperationSectionWriteTarget
     {
         private CoCoStateGraphRuntime _runtime;
         private CoCoActivationMemory _memory;
@@ -437,6 +437,13 @@ namespace CoCoFlow.Runtime.Core
             field = _operationWriter.ResolveField<TSection, TValue>(fieldIndex);
             return field.IsValid;
         }
+
+        void ICoCoOperationSectionWriteTarget.Write<TValue>(
+            CoCoOperationSectionField<TValue> field, in TValue value) =>
+            TryWriteOperation(_callbackGeneration, field, value);
+
+        void ICoCoOperationSectionWriteTarget.Enable<TSection>() =>
+            TryResolveAndEnableDiscreteOperation<TSection>(_callbackGeneration);
 
         internal bool TryWriteOperation<TValue>(
             ulong callbackToken,

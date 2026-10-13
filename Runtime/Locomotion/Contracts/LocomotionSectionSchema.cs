@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Locomotion.Contracts
@@ -33,7 +33,7 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     }
 
     /// <summary>
-    /// Read view over the locomotion section fields.
+    /// View over the locomotion section fields; the supplied access owns read or write routing.
     /// </summary>
     public sealed class LocomotionSectionView : ILocomotionSection
     {
@@ -54,26 +54,38 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
         private float F(int index) => _reader.Read(_floats[index]);
         private bool B(int index) => _reader.Read(_bools[index]);
 
-        public float MoveX => F(0);
-        public float MoveZ => F(1);
-        public float ForcedX => F(2);
-        public float ForcedZ => F(3);
-        public bool UseGravity => B(0);
-        public float GravityScale => F(4);
-        public bool JumpRequested => B(1);
-        public bool LaunchForced => B(2);
-        public float VerticalImpulse => F(5);
-        public float LookX => F(6);
-        public float LookZ => F(7);
-        public bool InstantRotation => B(3);
-        public bool TeleportRequested => B(4);
-        public float TeleportX => F(8);
-        public float TeleportY => F(9);
-        public float TeleportZ => F(10);
-        public float TeleportRotationX => F(11);
-        public float TeleportRotationY => F(12);
-        public float TeleportRotationZ => F(13);
-        public float TeleportRotationW => F(14);
+        public float MoveX { get => F(0); set => _reader.Write(_floats[0], value); }
+        public float MoveZ { get => F(1); set => _reader.Write(_floats[1], value); }
+        public float ForcedX { get => F(2); set => _reader.Write(_floats[2], value); }
+        public float ForcedZ { get => F(3); set => _reader.Write(_floats[3], value); }
+        public bool UseGravity { get => B(0); set => _reader.Write(_bools[0], value); }
+        public float GravityScale { get => F(4); set => _reader.Write(_floats[4], value); }
+        public bool JumpRequested { get => B(1); set => _reader.Write(_bools[1], value); }
+        public bool LaunchForced { get => B(2); set => _reader.Write(_bools[2], value); }
+        public float VerticalImpulse { get => F(5); set => _reader.Write(_floats[5], value); }
+        public float LookX { get => F(6); set => _reader.Write(_floats[6], value); }
+        public float LookZ { get => F(7); set => _reader.Write(_floats[7], value); }
+        public bool InstantRotation { get => B(3); set => _reader.Write(_bools[3], value); }
+        public bool TeleportRequested { get => B(4); set => _reader.Write(_bools[4], value); }
+        public float TeleportX { get => F(8); set => _reader.Write(_floats[8], value); }
+        public float TeleportY { get => F(9); set => _reader.Write(_floats[9], value); }
+        public float TeleportZ { get => F(10); set => _reader.Write(_floats[10], value); }
+        public float TeleportRotationX { get => F(11); set => _reader.Write(_floats[11], value); }
+        public float TeleportRotationY { get => F(12); set => _reader.Write(_floats[12], value); }
+        public float TeleportRotationZ { get => F(13); set => _reader.Write(_floats[13], value); }
+        public float TeleportRotationW { get => F(14); set => _reader.Write(_floats[14], value); }
+
+        public void Jump(float verticalImpulse)
+        {
+            JumpRequested = true;
+            VerticalImpulse = verticalImpulse;
+        }
+
+        public void Launch(float verticalImpulse)
+        {
+            LaunchForced = true;
+            VerticalImpulse = verticalImpulse;
+        }
     }
 
     /// <summary>

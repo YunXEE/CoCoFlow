@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Locomotion.Contracts
@@ -17,59 +17,62 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
         /// <summary>Desired horizontal velocity, world X. Final-conclusion
         /// semantics: the state logic has already applied every multiplier.
         /// Velocity, not a displacement.</summary>
-        float MoveX { get; }
+        float MoveX { get; set; }
 
         /// <summary>Desired horizontal velocity, world Z.</summary>
-        float MoveZ { get; }
+        float MoveZ { get; set; }
 
         /// <summary>Forced horizontal velocity, world X — overrides Move
         /// when nonzero (knockback and dashes ignore multipliers).</summary>
-        float ForcedX { get; }
+        float ForcedX { get; set; }
 
         /// <summary>Forced horizontal velocity, world Z.</summary>
-        float ForcedZ { get; }
+        float ForcedZ { get; set; }
 
         /// <summary>Gravity integration toggle. false = hover
         /// (VerticalVelocity is held at zero).</summary>
-        bool UseGravity { get; }
+        bool UseGravity { get; set; }
 
         /// <summary>Gravity scale for this tick (slow-fall, heavy state).
         /// Final-conclusion value.</summary>
-        float GravityScale { get; }
+        float GravityScale { get; set; }
 
         /// <summary>One-shot jump request; applied only when grounded.</summary>
-        bool JumpRequested { get; }
+        bool JumpRequested { get; set; }
 
         /// <summary>true = apply VerticalImpulse unconditionally (launch);
         /// false = grounded-gated (jump).</summary>
-        bool LaunchForced { get; }
+        bool LaunchForced { get; set; }
 
         /// <summary>Vertical impulse value for Jump/Launch.</summary>
-        float VerticalImpulse { get; }
+        float VerticalImpulse { get; set; }
 
         /// <summary>Desired facing direction, world X. Zero vector =
         /// keep current rotation.</summary>
-        float LookX { get; }
+        float LookX { get; set; }
 
         /// <summary>Desired facing direction, world Z.</summary>
-        float LookZ { get; }
+        float LookZ { get; set; }
 
         /// <summary>true = snap rotation this tick instead of smooth-damp.</summary>
-        bool InstantRotation { get; }
+        bool InstantRotation { get; set; }
 
         /// <summary>Logic teleport (respawn / placement): this tick's
         /// position becomes the Teleport values directly, bypassing the
         /// delta path; the next tick resumes normal delta movement.</summary>
-        bool TeleportRequested { get; }
+        bool TeleportRequested { get; set; }
 
-        float TeleportX { get; }
-        float TeleportY { get; }
-        float TeleportZ { get; }
+        float TeleportX { get; set; }
+        float TeleportY { get; set; }
+        float TeleportZ { get; set; }
 
-        float TeleportRotationX { get; }
-        float TeleportRotationY { get; }
-        float TeleportRotationZ { get; }
-        float TeleportRotationW { get; }
+        float TeleportRotationX { get; set; }
+        float TeleportRotationY { get; set; }
+        float TeleportRotationZ { get; set; }
+        float TeleportRotationW { get; set; }
+
+        void Jump(float verticalImpulse);
+        void Launch(float verticalImpulse);
     }
 
     /// <summary>

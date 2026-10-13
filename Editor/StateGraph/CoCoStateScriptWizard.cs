@@ -1,4 +1,4 @@
-#if UNITY_EDITOR
+﻿#if UNITY_EDITOR
 using System;
 using System.IO;
 using System.Text;
@@ -11,8 +11,8 @@ namespace CoCoFlow.Editor.StateGraph
 {
     /// <summary>
     /// Generates a fully compilable state logic script from a name:
-    /// CoCoState attribute, CoCoIntentConsume(RawInputIntent), class shell
-    /// with an empty Update. The user pastes logic into Update only. The
+    /// CoCoState attribute and an editable class shell
+    /// with an empty Update. The author declares dependencies and writes business logic. The
     /// descriptor id is derived from the name deterministically, so no
     /// registration file is required (bootstrap scans attributes).
     /// </summary>
@@ -65,15 +65,14 @@ namespace CoCoFlow.Editor.StateGraph
             return
                 "using CoCoFlow.Runtime.Core;\n" +
                 "\n" +
-                "// State logic for the '" + name + "' graph state. Everything " +
-                "outside Update was generated; paste your logic into Update.\n" +
                 "[CoCoState(\"" + name + "\")]\n" +
-                "[CoCoIntentConsume(typeof(RawInputIntent))]\n" +
-                "public sealed class " + name + "Logic : CoCoStateLogic, ICoCoStateUpdate\n" +
+                "public class " + name + "Logic : CoCoStateLogic, ICoCoStateUpdate\n" +
                 "{\n" +
+                "    // [Intent] Declare the data this logic reads.\n" +
+                "    // [Operation] Declare the Sections this logic writes.\n" +
+                "\n" +
                 "    public void Update(CoCoStateExecutionContext context)\n" +
                 "    {\n" +
-                "        // TODO: your logic here\n" +
                 "    }\n" +
                 "}\n";
         }

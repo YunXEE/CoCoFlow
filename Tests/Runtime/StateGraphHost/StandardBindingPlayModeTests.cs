@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Input;
+using CoCoFlow.Runtime.Modules.Locomotion;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -46,11 +47,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [UnityTest]
-        public IEnumerator AttributedStateRunsThroughStandardBinding()
+        public IEnumerator AttributedStateRunsThroughStandardBinding() => RunInputState(false);
+
+        [UnityTest]
+        public IEnumerator PropertyStateReadsInputAndMovesThroughTheExistingOperator() => RunInputState(true);
+
+        private IEnumerator RunInputState(bool properties)
         {
+            System.Type logicType = properties ? typeof(PropertyProbeLogic) : typeof(StandardProbeLogic);
+            string logicName = properties ? "PropertyProbe" : "StandardProbe";
             CoCoStandardBindingProvider provider =
                 CoCoStandardBindingProvider.Build(
-                    new[] { typeof(StandardProbeLogic).Assembly });
+                    new[] { logicType.Assembly });
             Assert.IsNotNull(provider.Catalog);
             Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
                 provider,
@@ -59,8 +67,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             // one-state graph referencing the derived descriptor id
             Assert.IsTrue(StandardDescriptors.TryCreate(
-                typeof(StandardProbeLogic),
-                "StandardProbe",
+                logicType,
+                logicName,
                 out CoCoStateDescriptorId descriptorId));
             var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
             _objects.Add(asset);
@@ -89,6 +97,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[] { reader });
+            gameObject.AddComponent<CharacterController>();
+            var movement = gameObject.AddComponent<LocomotionOperator>();
+            SetField(host, "operators", new MonoBehaviour[] { movement });
 
             yield return null;
             playerInput.actions.FindActionMap("Player").Enable();
@@ -99,6 +110,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             StandardProbeLogic.Received = new List<RawInputRecord>();
             Assert.IsTrue(host.TryStep(1f / 60f, out _)); // baseline
+            Vector3 expected = new Vector3(0f, 5f / 60f, 2f / 60f);
+            Assert.Less((gameObject.transform.position - expected).sqrMagnitude, 0.000001f,
+                "New properties and legacy Writer must produce the same movement.");
             yield return null;
 
             Press(keyboard.wKey);
@@ -113,6 +127,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "standard binding");
             Assert.IsTrue(StandardProbeLogic.Received.Exists(
                 r => r.Action.ToString() == "Move"));
+            if (properties)
+            {
+                Assert.Greater(gameObject.transform.position.z, 0f);
+                Assert.Greater(gameObject.transform.position.y, 0f);
+                Assert.IsNotNull(PropertyProbeLogic.Last.Movement);
+                StandardProbeLogic.Received = null;
+                for (int index = 0; index < 100; index++) host.TryStep(1f / 60f, out _);
+                long before = System.GC.GetAllocatedBytesForCurrentThread();
+                bool stepped = true;
+                for (int index = 0; index < 10000; index++) stepped &= host.TryStep(1f / 60f, out _);
+                long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+                Assert.IsTrue(stepped);
+                Assert.AreEqual(0L, allocated, "Property binding must allocate only during initialization.");
+                PropertyProbeLogic.Last = null;
+            }
         }
 
         [UnityTest]

@@ -41,3 +41,13 @@ maturity statement.
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
 - [Animation](../Docs/Module-Animation.md)
+
+## StateLogic properties
+
+Declare reads with `[Intent] public RawInputIntent Input { get; set; }` and writes with
+`[Operation] public ILocomotionSection Movement { get; set; }`.
+Use `Movement.MoveZ = speed;` or `Movement.Jump(impulse);` inside the normal callback.
+The framework refreshes Intent using the existing TryFirst rule and routes Section writes
+through the existing composition and Operator execution. No source registration is added.
+Class-level dependency attributes and explicit Providers remain supported; choose one
+style per Logic. The script template leaves both dependency declarations to the author.
