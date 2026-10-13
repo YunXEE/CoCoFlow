@@ -819,6 +819,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoFinalizedContextCommit finalizedContext;
             try
             {
+                _contextArena.RetainedRestoreSlots = _host.RetainedRecoverySlots;
                 if (!history.TryPrepareRestore(
                         selection,
                         _contextArena,
@@ -968,6 +969,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoFinalizedContextCommit finalizedContext;
             try
             {
+                _contextArena.RetainedRestoreSlots = _host.RetainedRecoverySlots;
                 if (!codec.TryDecodeAndPrepareImport(
                         encoded,
                         _contextArena,
