@@ -274,15 +274,19 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return null;
             }
 
+            if (root is ICoCoOperator)
+                return new CoCoBindingHint(CoCoBindingHintKind.Error, root,
+                    "Remove this Operator binding and use its Host recovery switches.",
+                    "请移除旧 Operator 恢复绑定，改用 Host 中的两个开关。");
             if (!(root is ICoCoContextRestoreBinding))
             {
                 return new CoCoBindingHint(
                     CoCoBindingHintKind.Error,
                     root,
                     root.name + " does not implement ICoCoContextRestoreBinding — " +
-                        "restore projection will be silently skipped",
+                        "enabled temporal history will reject this binding",
                     root.name + " 未实现 ICoCoContextRestoreBinding——恢复投影" +
-                        "将被静默跳过");
+                        "启用时间历史时将拒绝此绑定");
             }
 
             if (!CoCoStateGraphHostBoundary.Contains(host, root))
@@ -484,7 +488,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 MonoBehaviour component = components[index];
                 if (component != null &&
-                    component is ICoCoContextRestoreBinding &&
+                    component is ICoCoContextRestoreBinding && !(component is ICoCoOperator) &&
                     CoCoStateGraphHostBoundary.Contains(host, component))
                 {
                     chain.Add(component);

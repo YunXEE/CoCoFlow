@@ -11,9 +11,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
     [CoCoOperatorRegistration(typeof(AnimSectionRegistrar))]
     public sealed class AnimAutoOperator :
         MonoBehaviour,
-        ICoCoOperator,
-        ICoCoContextRestoreBinding,
-        ICoCoTemporalDecoratorBinding,
+        ICoCoPersistenceRestoreOperator,
+        ICoCoTemporalRestoreOperator,
         ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>,
         IAnimEventReceiver,
         IAnimEventStateResolver
@@ -24,7 +23,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
             Array.Empty<AnimParameterBinding>();
         [SerializeField] private AnimTriggerBinding[] triggerBindings =
             Array.Empty<AnimTriggerBinding>();
-        [SerializeField] private MonoBehaviour downstreamRestoreBinding;
 
         private readonly AnimFeedbackBuffer _feedback = new AnimFeedbackBuffer();
         private readonly AnimFeedbackEventToIntentAdapter _feedbackAdapter =
@@ -36,8 +34,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
         public CoCoOperatorDescriptor Descriptor => AnimOperatorContracts.AutoDescriptor;
 
-        MonoBehaviour ICoCoTemporalDecoratorBinding.DownstreamRestoreBinding =>
-            downstreamRestoreBinding;
         public Animator Animator => animator;
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
@@ -180,7 +176,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         /// for every restore kind — preview, confirm, cancel and
         /// correction all read the same slot and write the same world.
         /// </summary>
-        public bool TryApply(
+        public bool TryRestore(
             in CoCoContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
         {

@@ -342,6 +342,7 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                FreezeOperatorRecovery(bindings.ContextLayout);
                 if (_destroyRequested)
                 {
                     transaction.Dispose();
@@ -1532,6 +1533,7 @@ namespace CoCoFlow.Runtime.Core
 
             if (worldMayBeDirty)
             {
+                RecoveryProjection = null;
                 _requiresWorldCorrection = true;
             }
 
@@ -1752,6 +1754,9 @@ namespace CoCoFlow.Runtime.Core
             _bindings = null;
             _runtime?.Dispose();
             _runtime = null;
+            _recovery = Array.Empty<OperatorRecovery>();
+            _retainPersistence = _retainTemporal = null;
+            RecoveryProjection = null;
             _isPublishingCommittedEvents = false;
             _stopAfterPublish = false;
             _disposeAfterPublish = false;

@@ -64,7 +64,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
     }
 
-    internal sealed class EditorHostOperatorComponent :
+    internal class EditorHostOperatorComponent :
         MonoBehaviour,
         ICoCoOperator
     {
@@ -75,6 +75,16 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             out CoCoOperatorOutcome outcome)
         {
             outcome = CoCoOperatorOutcome.NoOp;
+            return true;
+        }
+    }
+
+    internal sealed class EditorHostRecoveryOperatorComponent : EditorHostOperatorComponent,
+        ICoCoPersistenceRestoreOperator, ICoCoTemporalRestoreOperator
+    {
+        public bool TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
             return true;
         }
     }
@@ -919,6 +929,65 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         }
 
         // ===== 辅助 =====
+
+        [UnityEngine.TestTools.UnityTest]
+        public System.Collections.IEnumerator RecoverySwitchesUseCapabilitiesAndSerializeOnlyWhenEdited()
+        {
+            CoCoStateGraphHost host = CreateHost("Recovery switches");
+            var component = host.gameObject.AddComponent<EditorHostRecoveryOperatorComponent>();
+            var serialized = new SerializedObject(host);
+            var operators = serialized.FindProperty("operators");
+            operators.arraySize = 1;
+            operators.GetArrayElementAtIndex(0).objectReferenceValue = component;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            UnityEditor.Editor editor = UnityEditor.Editor.CreateEditor(host);
+            var window = ScriptableObject.CreateInstance<EditorWindow>();
+            try
+            {
+                window.Show();
+                VisualElement root = editor.CreateInspectorGUI();
+                window.rootVisualElement.Add(root);
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                serialized.Update();
+                Assert.Zero(serialized.FindProperty("operatorRecovery").arraySize);
+                Toggle persistence = root.Q<Toggle>("ccflow-recovery-persistence");
+                Toggle temporal = root.Q<Toggle>("ccflow-recovery-temporal");
+                Assert.NotNull(persistence);
+                Assert.NotNull(temporal);
+                persistence.value = true;
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                serialized.Update();
+                Assert.That(serialized.FindProperty("operatorRecovery").arraySize, Is.EqualTo(1));
+                Assert.IsTrue(root.Q<Toggle>("ccflow-recovery-persistence").value);
+                var entry = serialized.FindProperty("operatorRecovery").GetArrayElementAtIndex(0);
+                Assert.IsTrue(entry.FindPropertyRelative("persistence").boolValue);
+                Assert.IsFalse(entry.FindPropertyRelative("temporal").boolValue);
+                Assert.AreEqual(component, entry.FindPropertyRelative("component").objectReferenceValue);
+                Undo.PerformUndo();
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                serialized.Update();
+                Assert.Zero(serialized.FindProperty("operatorRecovery").arraySize);
+                Assert.IsFalse(root.Q<Toggle>("ccflow-recovery-persistence").value);
+                Undo.PerformRedo();
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                Assert.IsTrue(root.Q<Toggle>("ccflow-recovery-persistence").value);
+                root.Q<Toggle>("ccflow-recovery-temporal").value = true;
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                Object.DestroyImmediate(editor);
+                window.rootVisualElement.Clear();
+                editor = UnityEditor.Editor.CreateEditor(host);
+                root = editor.CreateInspectorGUI();
+                window.rootVisualElement.Add(root);
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                Assert.IsTrue(root.Q<Toggle>("ccflow-recovery-persistence").value);
+                Assert.IsTrue(root.Q<Toggle>("ccflow-recovery-temporal").value);
+                root.Q<Toggle>("ccflow-recovery-persistence").value = false;
+                for (int frame = 0; frame < 10; frame++) yield return null;
+                Assert.IsFalse(root.Q<Toggle>("ccflow-recovery-persistence").value);
+                Assert.IsTrue(root.Q<Toggle>("ccflow-recovery-temporal").value);
+            }
+            finally { window.Close(); Object.DestroyImmediate(editor); }
+        }
 
         private CoCoStateGraphHost CreateHost(string name)
         {

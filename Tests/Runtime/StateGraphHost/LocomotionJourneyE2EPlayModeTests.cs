@@ -147,7 +147,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             BuildActor(withAnimator: false);
             SetField(_host, "temporalHistoryCapacity", 8);
-            SetField(_host, "contextRestoreBinding", _locomotion);
+            SetRecovery(true, true);
             Require(StartHost());
             // The first tick after start establishes the graph baseline and
             // drops transition requests — hold the press for two ticks.
@@ -190,7 +190,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             // would desync the registry key (capture writes one id, apply
             // looks up another and silently skips).
             _actor.AddComponent<PersistenceContext>();
-            SetField(_host, "contextRestoreBinding", _locomotion);
+            SetRecovery(true, true);
             Require(StartHost());
             // The first tick after start establishes the graph baseline and
             // drops transition requests — hold the press for two ticks.
@@ -462,6 +462,142 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return false;
         }
 
+        private void SetRecovery(bool persistence, bool temporal)
+        {
+            SetField(_host, "operatorRecovery", new[]
+            {
+                new CoCoStateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
+                new CoCoStateGraphHost.OperatorRecovery { component = _animation, persistence = persistence, temporal = temporal }
+            });
+        }
+
+        [TestCase(false, false)]
+        [TestCase(true, false)]
+        [TestCase(false, true)]
+        [TestCase(true, true)]
+        public void RecoverySwitchesAreIndependentAndPreserveDisabledOutcomes(bool persistence, bool temporal)
+        {
+            BuildActor(withAnimator: false);
+            SetRecovery(persistence, temporal);
+            SetField(_host, "temporalHistoryCapacity", 8);
+            Require(StartHost());
+            _intents.EnqueueMove(0f, 2f);
+            JourneyMoveStep(3);
+            float saved = _actor.transform.position.z;
+            Require(_host.TryCapturePersistencePayload(out byte[] payload, out _));
+            JourneyMoveStep(3);
+            float current = _actor.transform.position.z;
+            Assert.Greater(current, saved);
+            Require(_host.TryBeginTemporalPreview(out _));
+            Require(_host.TryPreviewTemporal(3, out _));
+            Assert.That(_actor.transform.position.z, Is.EqualTo(temporal ? saved : current).Within(0.001f));
+            Require(_host.TryCancelTemporalPreview(out _));
+            Assert.That(_actor.transform.position.z, Is.EqualTo(current).Within(0.001f));
+            Require(_host.TryBeginTemporalPreview(out _));
+            Require(_host.TryPreviewTemporal(3, out _));
+            Require(_host.TryConfirmTemporalRestore(out _));
+            Assert.That(_host.CurrentContext.Layout.TryResolveSlot(LocoContractIds.StateSlotId,
+                out CoCoStateSlot<LocomotionState> slot), Is.True);
+            Assert.That(_host.CurrentContext.Read(slot).PositionZ, Is.EqualTo(temporal ? saved : current).Within(0.001f));
+            JourneyMoveStep(1);
+            current = _actor.transform.position.z;
+            Require(_host.TryApplyPersistencePayload(payload, out _));
+            Assert.That(_actor.transform.position.z, Is.EqualTo(persistence ? saved : current).Within(0.001f));
+            Assert.That(_host.CurrentContext.Read(slot).PositionZ, Is.EqualTo(persistence ? saved : current).Within(0.001f));
+            JourneyMoveStep(1);
+            Assert.Greater(_actor.transform.position.z, persistence ? saved : current);
+        }
+
+        [Test]
+        public void OldOperatorBindingIsRejectedAndUncoveredTickFaultCannotBeCleared()
+        {
+            BuildActor(withAnimator: false);
+            SetField(_host, "contextRestoreBinding", _locomotion);
+            Assert.IsFalse(_host.TryStart(out _));
+            SetField(_host, "contextRestoreBinding", null);
+            var saboteur = _actor.AddComponent<JourneyRejectOperator>();
+            SetHostOperators(_locomotion, _animation, saboteur);
+            saboteur.RejectOnTick = 3;
+            Require(StartHost());
+            _intents.EnqueueMove(0f, 2f);
+            JourneyMoveStep(2);
+            Assert.IsFalse(_host.TryStep(Step, out _));
+            Assert.IsTrue(_host.RequiresWorldCorrection);
+            Assert.IsFalse(_host.TryCorrectWorld(out _));
+            Assert.IsTrue(_host.RequiresWorldCorrection);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void FailedOperatorRestoreCorrectsWithTheSameAbilityAndExpiresReader(bool temporal)
+        {
+            BuildActor(withAnimator: false);
+            var probe = _actor.AddComponent<JourneyRejectOperator>();
+            SetHostOperators(_locomotion, _animation, probe);
+            SetField(_host, "operatorRecovery", new[]
+            {
+                new CoCoStateGraphHost.OperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
+                new CoCoStateGraphHost.OperatorRecovery { component = probe, persistence = true, temporal = true }
+            });
+            SetField(_host, "temporalHistoryCapacity", temporal ? 8 : 0);
+            Require(StartHost());
+            _intents.EnqueueMove(0f, 2f);
+            JourneyMoveStep(3);
+            Require(_host.TryCapturePersistencePayload(out byte[] payload, out _));
+            JourneyMoveStep(2);
+            float authority = _actor.transform.position.z;
+            probe.FailRecovery = true;
+            if (temporal)
+            {
+                Require(_host.TryBeginTemporalPreview(out _));
+                Assert.IsFalse(_host.TryPreviewTemporal(2, out _));
+            }
+            else Assert.IsFalse(_host.TryApplyPersistencePayload(payload, out _));
+            Assert.IsTrue(_host.RequiresWorldCorrection);
+            Assert.IsFalse(probe.RecoveryReader.IsValid);
+            probe.FailRecovery = false;
+            Require(_host.TryCorrectWorld(out _));
+            Assert.IsFalse(_host.RequiresWorldCorrection);
+            Assert.That(_actor.transform.position.z, Is.EqualTo(authority).Within(0.001f));
+            Assert.AreEqual(temporal ? 2 : 0, probe.TemporalRestores);
+            Assert.AreEqual(temporal ? 0 : 2, probe.PersistenceRestores);
+        }
+
+        public static void PrepareOperatorRecoveryScene()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.DefaultGameObjects);
+            var type = System.Type.GetType("CoCoFlow004.Logic.RecoveryMoveLogic, CoCoFlow004");
+            Require(type != null, "The manual scene requires the authored RecoveryMoveLogic script.");
+            Require(StandardDescriptors.TryCreate(type, "RecoveryMove", out var descriptor));
+            var asset = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>("Assets/CoCoFlow004/RecoveryGraph.asset")
+                ?? ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            if (string.IsNullOrEmpty(AssetDatabase.GetAssetPath(asset)))
+                AssetDatabase.CreateAsset(asset, "Assets/CoCoFlow004/RecoveryGraph.asset");
+            asset.Layers.Clear();
+            asset.EnsureAssetIdentity(AssetDatabase.AssetPathToGUID("Assets/CoCoFlow004/RecoveryGraph.asset"));
+            var stateId = new CoCoSerializedId128(4, 1);
+            var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(4, 2), "Base");
+            layer.InitialStateId = stateId;
+            layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Recovery Move",
+                new CoCoSerializedId128(descriptor.High, descriptor.Low), new CoCoFieldConfig()));
+            asset.Layers.Add(layer);
+            EditorUtility.SetDirty(asset);
+            var actor = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            actor.name = "Operator Recovery - select me";
+            Object.DestroyImmediate(actor.GetComponent<Collider>());
+            var host = actor.AddComponent<CoCoStateGraphHost>();
+            var movement = actor.AddComponent<LocomotionOperator>();
+            actor.AddComponent<PersistenceContext>();
+            actor.AddComponent(System.Type.GetType("CoCoFlow004.OperatorRecoveryProbe, Assembly-CSharp"));
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+            SetField(host, "operators", new MonoBehaviour[] { movement });
+            SetField(host, "temporalHistoryCapacity", 16);
+            AssetDatabase.SaveAssets();
+            UnityEditor.SceneManagement.EditorSceneManager.SaveScene(actor.scene, "Assets/CoCoFlow004/OperatorRecovery.unity");
+            Selection.activeGameObject = actor;
+        }
+
         private void SetHostOperators(params MonoBehaviour[] operators)
         {
             SetField(_host, "operators", operators);
@@ -596,12 +732,29 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         /// Rejects its whole transaction on one chosen tick (scenario B).
         /// </summary>
         private sealed class JourneyRejectOperator :
-            MonoBehaviour, ICoCoOperator
+            MonoBehaviour, ICoCoPersistenceRestoreOperator, ICoCoTemporalRestoreOperator
         {
             private static readonly CoCoOperatorDescriptor RejectDescriptor =
                 BuildDescriptor();
 
             public int RejectOnTick = -1;
+            internal bool FailRecovery;
+            internal int TemporalRestores, PersistenceRestores;
+            public CoCoContextRestoreReader RecoveryReader;
+            bool ICoCoTemporalRestoreOperator.TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            {
+                TemporalRestores++;
+                RecoveryReader = context.Reader;
+                diagnostic = CoCoDiagnostic.None;
+                return !FailRecovery;
+            }
+            bool ICoCoPersistenceRestoreOperator.TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            {
+                PersistenceRestores++;
+                RecoveryReader = context.Reader;
+                diagnostic = CoCoDiagnostic.None;
+                return !FailRecovery;
+            }
             private int _tick;
 
             public CoCoOperatorDescriptor Descriptor => RejectDescriptor;

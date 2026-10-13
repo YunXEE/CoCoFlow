@@ -197,6 +197,16 @@ namespace CoCoFlow.Runtime.Core
             Reader.IsValid;
     }
 
+    public interface ICoCoPersistenceRestoreOperator : ICoCoOperator
+    {
+        bool TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic);
+    }
+
+    public interface ICoCoTemporalRestoreOperator : ICoCoOperator
+    {
+        bool TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic);
+    }
+
     public interface ICoCoContextRestoreBinding
     {
         bool TryApply(
@@ -230,7 +240,7 @@ namespace CoCoFlow.Runtime.Core
             MonoBehaviour current = root;
             while (!ReferenceEquals(current, null))
             {
-                if (current == null ||
+                if (current == null || current is ICoCoOperator ||
                     !(current is ICoCoContextRestoreBinding) ||
                     !CoCoStateGraphHostBoundary.Contains(host, current))
                 {

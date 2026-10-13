@@ -230,7 +230,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 #endif
             SetField(host, "temporalHistoryCapacity", 8);
-            SetField(host, "contextRestoreBinding", go.AddComponent<CoCoStateGraphHostOperatorCommitPlayModeTests.TemporalCodecRestoreBinding>());
             _objects.Add(go);
             _objects.Add(asset);
             var seen = (IList)type.GetField("Seen").GetValue(null);
