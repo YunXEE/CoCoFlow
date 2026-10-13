@@ -193,6 +193,66 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 step.Message);
         }
 
+        [UnityTest]
+        public IEnumerator ConfigAndMemoryFieldsUseTheRealHost()
+        {
+            var type = System.Type.GetType("MoveLogic, CoCoFlow002") ?? typeof(ConfigMemoryProbeLogic);
+            var provider = CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            CoCoStateGraphProjectBindings.ResetForTests();
+            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out _));
+            var name = ((CoCoStateAttribute)System.Attribute.GetCustomAttribute(type, typeof(CoCoStateAttribute))).Name;
+            StandardDescriptors.TryCreate(type, name, out var descriptor);
+            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
+            for (ulong i = 0; i < 10; i++)
+            {
+                var config = new CoCoFieldConfig();
+                if (i != 1) config.Set("Speed", (float)(3 + i * 3));
+                var stateId = new CoCoSerializedId128(11 + i, 12);
+                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21 + i, 22), "Layer " + i);
+                layer.InitialStateId = stateId;
+                layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Move " + i,
+                    new CoCoSerializedId128(descriptor.High, descriptor.Low), config));
+                asset.Layers.Add(layer);
+            }
+            var go = new GameObject("Config Memory - MoveLogic");
+            var host = go.AddComponent<CoCoStateGraphHost>();
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "autoStart", false);
+            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                UnityEditor.AssetDatabase.CreateAsset(asset, "Assets/CoCoFlow002/MoveGraph.asset");
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(go.scene, "Assets/CoCoFlow002/MoveConfig.unity");
+                UnityEditor.Selection.activeGameObject = go;
+                yield break;
+            }
+#endif
+            SetField(host, "temporalHistoryCapacity", 8);
+            SetField(host, "contextRestoreBinding", go.AddComponent<CoCoStateGraphHostOperatorCommitPlayModeTests.TemporalCodecRestoreBinding>());
+            _objects.Add(go);
+            _objects.Add(asset);
+            var seen = (IList)type.GetField("Seen").GetValue(null);
+            seen.Clear();
+            type.GetField("Impulses").SetValue(null, 0);
+            yield return null;
+            Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, seen.Count);
+            for (int i = 0; i < 10; i++)
+                Assert.AreEqual((float)(3 + i * 3), type.GetField("Speed").GetValue(seen[i]));
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryBeginTemporalPreview(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryPreviewTemporal(1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryConfirmTemporalRestore(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, type.GetField("Impulses").GetValue(null));
+            Assert.That((float)type.GetField("Distance").GetValue(seen[0]), Is.EqualTo(0.6f).Within(0.0001f));
+        }
+
+        public static void PrepareConfigMemoryScene() => new StandardBindingPlayModeTests().ConfigAndMemoryFieldsUseTheRealHost().MoveNext();
+
         private static InputActionAsset CreateActions()
         {
             var asset = ScriptableObject.CreateInstance<InputActionAsset>();

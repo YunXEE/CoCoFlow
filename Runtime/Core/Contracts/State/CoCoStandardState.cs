@@ -52,7 +52,7 @@ namespace CoCoFlow.Runtime.Core
     /// The field type must be unmanaged.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field, Inherited = false)]
-    public sealed class CoCoStateConfigAttribute : Attribute
+    public class CoCoStateConfigAttribute : Attribute
     {
     }
 
@@ -62,9 +62,12 @@ namespace CoCoFlow.Runtime.Core
     /// The field type must be unmanaged.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field, Inherited = false)]
-    public sealed class CoCoStateMemoryAttribute : Attribute
+    public class CoCoStateMemoryAttribute : Attribute
     {
     }
+
+    public sealed class ConfigAttribute : CoCoStateConfigAttribute { }
+    public sealed class MemoryAttribute : CoCoStateMemoryAttribute { }
 
     /// <summary>
     /// Declares the standard-path registrar carried by one Operator. The

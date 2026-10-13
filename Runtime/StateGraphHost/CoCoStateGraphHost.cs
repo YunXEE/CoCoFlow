@@ -12,7 +12,7 @@ namespace CoCoFlow.Runtime.Core
     }
 
     [DisallowMultipleComponent]
-    public sealed class CoCoStateGraphHost : MonoBehaviour
+    public sealed partial class CoCoStateGraphHost : MonoBehaviour
     {
         [SerializeField] private CoCoStateGraphAsset stateGraphAsset;
         [SerializeField] private CoCoStateGraphDriver driver = CoCoStateGraphDriver.Update;
@@ -219,10 +219,12 @@ namespace CoCoFlow.Runtime.Core
             }
 
             CoCoStateGraphAssetCompileResult compileResult;
+            CoCoStateGraphAsset configuredGraph = null;
             try
             {
+                configuredGraph = ConfiguredGraph(ref provider);
                 compileResult = new CoCoStateGraphAssetCompiler().Compile(
-                    stateGraphAsset,
+                    configuredGraph,
                     provider.Catalog);
             }
             catch (Exception)
@@ -234,6 +236,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (configuredGraph != stateGraphAsset)
+                Destroy(configuredGraph);
             if (!compileResult.Succeeded)
             {
                 diagnostic = FirstCompileError(compileResult);

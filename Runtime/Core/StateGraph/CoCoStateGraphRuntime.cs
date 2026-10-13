@@ -1910,6 +1910,7 @@ namespace CoCoFlow.Runtime.Core
                     canRequestTransition,
                     state.Compiled.Descriptor.ProvidesActionProgress);
                 state.PropertyBindings.Refresh(intents);
+                (state.CandidateMemory as ICoCoFieldMemory)?.Load(state.Logic);
                 _executingLayerIndex = layerIndex;
                 _executingStateIndex = stateIndex;
                 _acceptsTransitionRequests = canRequestTransition;
@@ -1928,6 +1929,7 @@ namespace CoCoFlow.Runtime.Core
                         throw new InvalidOperationException("State callback phase is invalid.");
                 }
 
+                (state.CandidateMemory as ICoCoFieldMemory)?.Store(state.Logic);
                 resultActionProgress = stateContext.ResultActionProgress;
                 contextHasError = stateContext.HasError ||
                                   _stateCallbackOperationLease.HasError;

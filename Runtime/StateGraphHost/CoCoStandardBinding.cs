@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CoCoFlow.Runtime.Core
 {
@@ -13,7 +14,7 @@ namespace CoCoFlow.Runtime.Core
     /// default graph-state slot per compiled state using the graph's real
     /// ids. Install via CoCoFlowRuntimeBootstrap (automatic on play).
     /// </summary>
-    public sealed class CoCoStandardBindingProvider :
+    public sealed partial class CoCoStandardBindingProvider :
         ICoCoStateGraphProjectBindingProvider
     {
         private static readonly StatelessMemoryBinding MemoryBinding =
@@ -54,7 +55,8 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public static CoCoStandardBindingProvider Build(
-            IReadOnlyList<System.Reflection.Assembly> assemblies)
+            IReadOnlyList<System.Reflection.Assembly> assemblies,
+            IReadOnlyDictionary<CoCoStateDescriptorId, Type> aliases = null)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             if (!builder.TryRegisterIntent(
@@ -185,7 +187,8 @@ namespace CoCoFlow.Runtime.Core
             var stateTypes = new Dictionary<CoCoStateDescriptorId, Type>();
             foreach (System.Reflection.Assembly assembly in assemblies)
             {
-                foreach (Type type in GetLoadableTypes(assembly))
+                foreach (Type type in GetLoadableTypes(assembly).SelectMany(type => aliases == null ?
+                             new[] { type } : aliases.Values.Where(value => value == type)))
                 {
                     if (type == null ||
                         !type.IsClass ||
@@ -212,6 +215,8 @@ namespace CoCoFlow.Runtime.Core
                             type.FullName);
                     }
 
+                    if (aliases != null)
+                        descriptorId = aliases.First(pair => pair.Value == type && !stateTypes.ContainsKey(pair.Key)).Key;
                     var intentDeclarations = new List<CoCoIntentConsumeAttribute>(Array.ConvertAll(
                         type.GetCustomAttributes(typeof(CoCoIntentConsumeAttribute), false),
                         value => (CoCoIntentConsumeAttribute)value));
@@ -512,6 +517,13 @@ namespace CoCoFlow.Runtime.Core
             CoCoCompiledState state,
             out CoCoDiagnostic diagnostic)
         {
+            if (HasFields(state.Descriptor.LogicType))
+            {
+                object[] args = { bindingBuilder, layer, state, null };
+                bool result = (bool)InvokeFields(nameof(BindFields), state.Descriptor.LogicType, args);
+                diagnostic = (CoCoDiagnostic)args[3];
+                return result;
+            }
             CoCoStateSlotId slotId = StandardGraphState.SlotFor(
                 state.Descriptor.DescriptorId);
             if (block.Slots.Count != 1 || block.Slots[0].SlotId != slotId)
@@ -527,14 +539,13 @@ namespace CoCoFlow.Runtime.Core
             // active (activation 1, enter pending), every other state
             // starts inactive (no activation, zero clocks). A hardcoded
             // active record only matches single-state graphs.
-            bool isInitialState = layer.States.Count > layer.InitialStateIndex &&
-                                  layer.States[layer.InitialStateIndex].StateId ==
-                                          state.StateId;
+            ulong initialActivation = InitialActivation(bindingBuilder.Graph, state);
+            bool isInitialState = initialActivation != 0;
             CoCoGraphStateRecord<int> defaultRecord;
             if (isInitialState)
             {
                 if (!CoCoActivationId.TryCreate(
-                        1UL,
+                        initialActivation,
                         out CoCoActivationId activationId) ||
                     !CoCoGraphStateRecord<int>.TryCreate(
                         layer.LayerId,
@@ -589,6 +600,9 @@ namespace CoCoFlow.Runtime.Core
             CoCoOperationSectionId[] providedSections,
             CoCoStateBlockId[] contextBlocks)
         {
+            if (HasFields(type))
+                return (bool)InvokeFields(nameof(RegisterFields), type, builder, descriptorId,
+                    consumesRawInput, providedSections, contextBlocks);
             System.Reflection.MethodInfo helper = typeof(CoCoStandardBindingProvider)
                 .GetMethod(
                     "RegisterStateTyped",
@@ -727,6 +741,11 @@ namespace CoCoFlow.Runtime.Core
             Type logicType,
             out ICoCoStateRuntimeFactory factory)
         {
+            if (HasFields(logicType))
+            {
+                factory = (ICoCoStateRuntimeFactory)InvokeFields(nameof(FieldFactory), logicType);
+                return true;
+            }
             factory = (ICoCoStateRuntimeFactory)typeof(CoCoStandardBindingProvider)
                 .GetMethod(
                     "CreateFactoryTyped",
