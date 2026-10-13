@@ -2516,7 +2516,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
-        private sealed class TemporalCodecRestoreBinding :
+        internal sealed class TemporalCodecRestoreBinding :
             MonoBehaviour,
             ICoCoContextRestoreBinding
         {

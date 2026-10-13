@@ -193,6 +193,101 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 step.Message);
         }
 
+        [UnityTest]
+        public IEnumerator ConfigAndMemoryFieldsUseTheRealHost()
+        {
+            var type = System.Type.GetType("MoveLogic, CoCoFlow002") ?? typeof(ConfigMemoryProbeLogic);
+            var provider = CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            CoCoStateGraphProjectBindings.ResetForTests();
+            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out _));
+            var name = ((CoCoStateAttribute)System.Attribute.GetCustomAttribute(type, typeof(CoCoStateAttribute))).Name;
+            StandardDescriptors.TryCreate(type, name, out var descriptor);
+            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
+            for (ulong i = 0; i < 10; i++)
+            {
+                var config = new CoCoFieldConfig();
+                if (i != 1) config.Set("Speed", (float)(3 + i * 3));
+                var stateId = new CoCoSerializedId128(11 + i, 12);
+                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21 + i, 22), "Layer " + i);
+                layer.InitialStateId = stateId;
+                layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Move " + i,
+                    new CoCoSerializedId128(descriptor.High, descriptor.Low), config));
+                asset.Layers.Add(layer);
+            }
+            var go = new GameObject("Config Memory - MoveLogic");
+            var host = go.AddComponent<CoCoStateGraphHost>();
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "autoStart", false);
+            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                UnityEditor.AssetDatabase.CreateAsset(asset, "Assets/CoCoFlow002/MoveGraph.asset");
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(go.scene, "Assets/CoCoFlow002/MoveConfig.unity");
+                UnityEditor.Selection.activeGameObject = go;
+                yield break;
+            }
+#endif
+            SetField(host, "temporalHistoryCapacity", 8);
+            SetField(host, "contextRestoreBinding", go.AddComponent<CoCoStateGraphHostOperatorCommitPlayModeTests.TemporalCodecRestoreBinding>());
+            _objects.Add(go);
+            _objects.Add(asset);
+            var seen = (IList)type.GetField("Seen").GetValue(null);
+            seen.Clear();
+            type.GetField("Impulses").SetValue(null, 0);
+            yield return null;
+            Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, seen.Count);
+            for (int i = 0; i < 10; i++)
+                Assert.AreEqual((float)(3 + i * 3), type.GetField("Speed").GetValue(seen[i]));
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryBeginTemporalPreview(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryPreviewTemporal(1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryConfirmTemporalRestore(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, type.GetField("Impulses").GetValue(null));
+            Assert.That((float)type.GetField("Distance").GetValue(seen[0]), Is.EqualTo(0.6f).Within(0.0001f));
+        }
+
+        [TestCase(typeof(ConfigMemoryProbeLogic))]
+        [TestCase(typeof(ConfigOnlyProbe))]
+        [TestCase(typeof(MemoryOnlyProbe))]
+        public void FieldMemoryRoundTripDoesNotAllocate(System.Type type)
+        {
+            CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            var logic = (CoCoStateLogic)System.Activator.CreateInstance(type);
+            var memory = (ICoCoFieldMemory)System.Activator.CreateInstance(
+                typeof(CoCoFieldMemory<,>).MakeGenericType(type, CoCoStateFields.StoredType(type)));
+            var fields = CoCoStateFields.Fields(type, typeof(CoCoStateMemoryAttribute));
+            foreach (var field in fields) field.SetValue(logic, field.FieldType == typeof(bool) ? (object)true : 9f);
+            memory.Store(logic);
+            foreach (var field in fields) field.SetValue(logic, System.Activator.CreateInstance(field.FieldType));
+            memory.Load(logic);
+            foreach (var field in fields) Assert.AreEqual(field.FieldType == typeof(bool) ? (object)true : 9f, field.GetValue(logic));
+            for (int i = 0; i < 100; i++) { memory.Load(logic); memory.Store(logic); }
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 10000; i++) { memory.Load(logic); memory.Store(logic); }
+            Assert.AreEqual(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.IsNotNull(typeof(CoCoStandardBindingProvider).GetMethod("Build",
+                new[] { typeof(IReadOnlyList<System.Reflection.Assembly>) }));
+        }
+
+        [TestCase("RemovedSpeed", "3")]
+        [TestCase("Speed", "invalid")]
+        [TestCase("Distance", "2")]
+        public void InvalidConfigFailsDuringFreezing(string path, string value)
+        {
+            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
+            StandardDescriptors.TryCreate(typeof(ConfigMemoryProbeLogic), "ConfigMemoryProbeLogic", out var id);
+            Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id,
+                new CoCoFieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));
+            Assert.IsFalse(diagnostic.IsNone);
+        }
+
+        public static void PrepareConfigMemoryScene() => new StandardBindingPlayModeTests().ConfigAndMemoryFieldsUseTheRealHost().MoveNext();
+
         private static InputActionAsset CreateActions()
         {
             var asset = ScriptableObject.CreateInstance<InputActionAsset>();
