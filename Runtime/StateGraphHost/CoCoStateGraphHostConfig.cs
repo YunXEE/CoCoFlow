@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
@@ -9,7 +8,7 @@ namespace CoCoFlow.Runtime.Core
     {
         private CoCoStateGraphAsset ConfiguredGraph(ref ICoCoStateGraphProjectBindingProvider provider)
         {
-            if (!(provider is CoCoStandardBindingProvider)) return stateGraphAsset;
+            if (!(provider is CoCoStandardBindingProvider standard)) return stateGraphAsset;
             var graph = Instantiate(stateGraphAsset);
             var aliases = new Dictionary<CoCoStateDescriptorId, Type>();
             foreach (var layer in graph.Layers)
@@ -24,7 +23,7 @@ namespace CoCoFlow.Runtime.Core
                 if (descriptor.AuthoringConfigType != typeof(CoCoFieldConfig)) continue;
                 state.Config = state.Config as CoCoFieldConfig ?? new CoCoFieldConfig();
             }
-            provider = CoCoStandardBindingProvider.Build(aliases.Values.Select(type => type.Assembly).Distinct().ToArray(), aliases);
+            provider = CoCoStandardBindingProvider.Build(standard.Assemblies, aliases);
             return graph;
         }
     }

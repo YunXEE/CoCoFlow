@@ -19,3 +19,19 @@ public sealed class ConfigMemoryProbeLogic : CoCoStateLogic, ICoCoStateUpdate
         Impulses++;
     }
 }
+
+[CoCoState("ConfigOnlyProbe")]
+public sealed class ConfigOnlyProbe : CoCoStateLogic, ICoCoStateUpdate
+{
+    [Config] public float Speed = 6f;
+    public static int Instances;
+    public ConfigOnlyProbe() { Instances++; }
+    public void Update(CoCoStateExecutionContext context) { }
+}
+
+[CoCoState("MemoryOnlyProbe")]
+public sealed class MemoryOnlyProbe : CoCoStateLogic, ICoCoStateUpdate
+{
+    [Memory] public bool Sent = true;
+    public void Update(CoCoStateExecutionContext context) { }
+}

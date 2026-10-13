@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace CoCoFlow.Runtime.Core
 {
@@ -14,15 +15,47 @@ namespace CoCoFlow.Runtime.Core
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
                 .MakeGenericMethod(logic, CoCoStateFields.StoredType(logic)).Invoke(null, args);
 
+        private static unsafe CoCoFieldMemoryTransfer<TState> FieldTransfer<TState>(Type logicType) where TState : unmanaged
+        {
+            var fields = CoCoStateFields.Fields(logicType, typeof(CoCoStateMemoryAttribute));
+            var layout = new (int Logic, int Memory, int Size)[fields.Length];
+            Type cursor = typeof(TState);
+            int offset = 0;
+            for (int i = 0; i < fields.Length; i++)
+            {
+                layout[i] = (UnsafeUtility.GetFieldOffset(fields[i]),
+                    offset + UnsafeUtility.GetFieldOffset(cursor.GetField("Item1")), UnsafeUtility.SizeOf(fields[i].FieldType));
+                offset += UnsafeUtility.GetFieldOffset(cursor.GetField("Item2"));
+                cursor = cursor.GetGenericArguments()[1];
+            }
+            return (CoCoStateLogic logic, ref TState value, bool load) =>
+            {
+                if (layout.Length == 0) return;
+                byte* address = (byte*)UnsafeUtility.PinGCObjectAndGetAddress(logic, out ulong handle);
+                try
+                {
+                    fixed (TState* memory = &value)
+                    foreach (var field in layout)
+                    {
+                        byte* member = address + field.Logic;
+                        byte* stored = (byte*)memory + field.Memory;
+                        UnsafeUtility.MemCpy(load ? member : stored, load ? stored : member, field.Size);
+                    }
+                }
+                finally { UnsafeUtility.ReleaseGCObject(handle); }
+            };
+        }
+
         private static bool RegisterFields<TLogic, TState>(CoCoGraphDescriptorCatalogBuilder builder,
             CoCoStateDescriptorId descriptorId, bool consumesRawInput,
             CoCoOperationSectionId[] providedSections, CoCoStateBlockId[] contextBlocks)
             where TLogic : CoCoStateLogic, ICoCoStateUpdate, new() where TState : unmanaged
         {
+            CoCoFieldMemory<TLogic, TState>.Transfer ??= FieldTransfer<TState>(typeof(TLogic));
             var block = StandardGraphState.BlockFor(descriptorId);
             return builder.TryRegisterStateBlock(block, CoCoStateBlockOwner.Graph, out _) &&
                 builder.TryRegisterState<TLogic, CoCoFieldConfig, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(
-                    descriptorId, 1, new CoCoFieldConfig.Freezer(),
+                    descriptorId, 1, new CoCoFieldConfig.Freezer(typeof(TLogic)),
                     new CoCoStateRuntimeRegistration<TLogic, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(CoCoFieldConfigSchema.Schema),
                     consumesRawInput ? new[] { RawIntents.Player } : null, providedSections, contextBlocks, out _) &&
                 builder.TryRegisterStateSlot<CoCoGraphStateRecord<TState>>(block, StandardGraphState.SlotFor(descriptorId),

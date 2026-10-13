@@ -251,6 +251,41 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That((float)type.GetField("Distance").GetValue(seen[0]), Is.EqualTo(0.6f).Within(0.0001f));
         }
 
+        [TestCase(typeof(ConfigMemoryProbeLogic))]
+        [TestCase(typeof(ConfigOnlyProbe))]
+        [TestCase(typeof(MemoryOnlyProbe))]
+        public void FieldMemoryRoundTripDoesNotAllocate(System.Type type)
+        {
+            CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            var logic = (CoCoStateLogic)System.Activator.CreateInstance(type);
+            var memory = (ICoCoFieldMemory)System.Activator.CreateInstance(
+                typeof(CoCoFieldMemory<,>).MakeGenericType(type, CoCoStateFields.StoredType(type)));
+            var fields = CoCoStateFields.Fields(type, typeof(CoCoStateMemoryAttribute));
+            foreach (var field in fields) field.SetValue(logic, field.FieldType == typeof(bool) ? (object)true : 9f);
+            memory.Store(logic);
+            foreach (var field in fields) field.SetValue(logic, System.Activator.CreateInstance(field.FieldType));
+            memory.Load(logic);
+            foreach (var field in fields) Assert.AreEqual(field.FieldType == typeof(bool) ? (object)true : 9f, field.GetValue(logic));
+            for (int i = 0; i < 100; i++) { memory.Load(logic); memory.Store(logic); }
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 10000; i++) { memory.Load(logic); memory.Store(logic); }
+            Assert.AreEqual(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.IsNotNull(typeof(CoCoStandardBindingProvider).GetMethod("Build",
+                new[] { typeof(IReadOnlyList<System.Reflection.Assembly>) }));
+        }
+
+        [TestCase("RemovedSpeed", "3")]
+        [TestCase("Speed", "invalid")]
+        [TestCase("Distance", "2")]
+        public void InvalidConfigFailsDuringFreezing(string path, string value)
+        {
+            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
+            StandardDescriptors.TryCreate(typeof(ConfigMemoryProbeLogic), "ConfigMemoryProbeLogic", out var id);
+            Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id,
+                new CoCoFieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));
+            Assert.IsFalse(diagnostic.IsNone);
+        }
+
         public static void PrepareConfigMemoryScene() => new StandardBindingPlayModeTests().ConfigAndMemoryFieldsUseTheRealHost().MoveNext();
 
         private static InputActionAsset CreateActions()

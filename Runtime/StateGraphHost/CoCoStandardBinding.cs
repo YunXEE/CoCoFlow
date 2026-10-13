@@ -21,6 +21,7 @@ namespace CoCoFlow.Runtime.Core
             new StatelessMemoryBinding();
 
         private readonly CoCoGraphDescriptorCatalog _catalog;
+        internal IReadOnlyList<System.Reflection.Assembly> Assemblies { get; private set; }
         private readonly Dictionary<CoCoStateDescriptorId, Type> _stateTypes;
         private readonly Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
             _operationBinders;
@@ -55,8 +56,11 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public static CoCoStandardBindingProvider Build(
+            IReadOnlyList<System.Reflection.Assembly> assemblies) => Build(assemblies, null);
+
+        internal static CoCoStandardBindingProvider Build(
             IReadOnlyList<System.Reflection.Assembly> assemblies,
-            IReadOnlyDictionary<CoCoStateDescriptorId, Type> aliases = null)
+            IReadOnlyDictionary<CoCoStateDescriptorId, Type> aliases)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             if (!builder.TryRegisterIntent(
@@ -324,7 +328,7 @@ namespace CoCoFlow.Runtime.Core
                 catalog,
                 stateTypes,
                 operationBinders,
-                contextBinders);
+                contextBinders) { Assemblies = assemblies.ToArray() };
         }
 
         public bool TryConfigure(

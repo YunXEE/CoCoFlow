@@ -33,6 +33,8 @@ namespace CoCoFlow.Runtime.Core
         private static void SetPath(object owner, string[] path, string text, int index)
         {
             FieldInfo field = owner.GetType().GetField(path[index]);
+            if (index == 0 && !field.IsDefined(typeof(CoCoStateConfigAttribute), false))
+                throw new InvalidOperationException("Field is no longer Config: " + path[index]);
             object value = field.GetValue(owner);
             if (index + 1 < path.Length)
                 SetPath(value, path, text, index + 1);
@@ -44,8 +46,15 @@ namespace CoCoFlow.Runtime.Core
 
         public sealed class Freezer : ICoCoConfigFreezer<CoCoFieldConfig, CoCoFieldConfigSchema>
         {
+            private readonly Type logicType;
+            public Freezer(Type logicType) => this.logicType = logicType;
+
             public bool TryFreeze(CoCoFieldConfig source, CoCoFrozenConfigWriter<CoCoFieldConfigSchema> writer,
-                out CoCoDiagnostic diagnostic) => writer.TryWriteArray(CoCoFieldConfigSchema.Values, source.Values, out diagnostic);
+                out CoCoDiagnostic diagnostic)
+            {
+                source.Apply((CoCoStateLogic)Activator.CreateInstance(logicType));
+                return writer.TryWriteArray(CoCoFieldConfigSchema.Values, source.Values, out diagnostic);
+            }
         }
     }
 
@@ -106,12 +115,15 @@ namespace CoCoFlow.Runtime.Core
         void Store(CoCoStateLogic logic);
     }
 
+    internal delegate void CoCoFieldMemoryTransfer<TState>(CoCoStateLogic logic, ref TState state, bool load);
+
     internal sealed class CoCoFieldMemory<TLogic, TState> : CoCoActivationMemory, ICoCoFieldMemory
         where TLogic : CoCoStateLogic, new()
         where TState : unmanaged
     {
         internal static readonly FieldInfo[] Fields = CoCoStateFields.Fields(typeof(TLogic), typeof(CoCoStateMemoryAttribute));
         internal static readonly TState Initial = (TState)PackValue(new TLogic(), typeof(TState), 0);
+        internal static CoCoFieldMemoryTransfer<TState> Transfer;
         internal TState Value = Initial;
 
         private static object PackValue(TLogic logic, Type type, int index) =>
@@ -119,17 +131,8 @@ namespace CoCoFlow.Runtime.Core
             Activator.CreateInstance(type, Fields[index].GetValue(logic),
                 PackValue(logic, type.GetField("Item2").FieldType, index + 1));
 
-        public void Load(CoCoStateLogic logic)
-        {
-            object value = Value;
-            foreach (var field in Fields)
-            {
-                field.SetValue(logic, value.GetType().GetField("Item1").GetValue(value));
-                value = value.GetType().GetField("Item2").GetValue(value);
-            }
-        }
-
-        public void Store(CoCoStateLogic logic) => Value = (TState)PackValue((TLogic)logic, typeof(TState), 0);
+        public void Load(CoCoStateLogic logic) => Transfer(logic, ref Value, true);
+        public void Store(CoCoStateLogic logic) => Transfer(logic, ref Value, false);
 
         internal static ulong Fingerprint(CoCoFieldMemory<TLogic, TState> memory)
         {

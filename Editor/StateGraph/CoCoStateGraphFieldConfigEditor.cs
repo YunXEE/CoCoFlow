@@ -14,32 +14,52 @@ namespace CoCoFlow.Editor.StateGraph
             if (controller.Catalog == null ||
                 !controller.Catalog.TryGetStateDescriptor(ToStateDescriptorId(state.StateDescriptorId), out var descriptor) ||
                 descriptor.AuthoringConfigType != typeof(CoCoFieldConfig)) return false;
+            var config = state.Config as CoCoFieldConfig ?? new CoCoFieldConfig();
+            CoCoStateLogic logic = null;
+            string error = null;
+            try
+            {
+                logic = (CoCoStateLogic)Activator.CreateInstance(descriptor.LogicType);
+                config.Apply(logic);
+            }
+            catch (Exception exception) { error = exception.GetBaseException().Message; }
             parent.Add(new IMGUIContainer(() =>
             {
-                var logic = (CoCoStateLogic)Activator.CreateInstance(descriptor.LogicType);
-                var config = state.Config as CoCoFieldConfig ?? new CoCoFieldConfig();
-                config.Apply(logic);
                 EditorGUILayout.LabelField("State Config", EditorStyles.boldLabel);
                 using (new EditorGUI.DisabledScope(!CoCoStateGraphAuthoringOperations.CanEdit(out _)))
-                foreach (string path in CoCoStateFields.ConfigPaths(descriptor.LogicType))
                 {
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUI.BeginChangeCheck();
-                    object value = DrawConfigValue(path, CoCoStateFields.ReadPath(logic, path));
-                    bool changed = EditorGUI.EndChangeCheck();
-                    bool reset = GUILayout.Button("Reset", GUILayout.Width(45));
-                    EditorGUILayout.EndHorizontal();
-                    if (!changed && !reset) continue;
-                    config = new CoCoFieldConfig { Values = config.Values.ToArray() };
-                    if (reset) config.Values = config.Values.Where(entry => !entry.StartsWith(path + "=", StringComparison.Ordinal)).ToArray();
-                    else config.Set(path, value);
-                    serializedAsset.Update();
-                    FindStateConfigProperty(controller.Session.SelectedLayerId, ToStateId(state.StateId)).managedReferenceValue = config;
-                    serializedAsset.ApplyModifiedProperties();
-                    controller.NotifyConfigChanged();
+                    if (GUILayout.Button(state.Config is CoCoFieldConfig ? "Reset Config" : "Initialize Config"))
+                    {
+                        SaveFieldConfig(state, new CoCoFieldConfig());
+                        return;
+                    }
+                    if (error != null) { EditorGUILayout.HelpBox(error, MessageType.Error); return; }
+                    foreach (string path in CoCoStateFields.ConfigPaths(descriptor.LogicType))
+                    {
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUI.BeginChangeCheck();
+                        object value = DrawConfigValue(path, CoCoStateFields.ReadPath(logic, path));
+                        bool changed = EditorGUI.EndChangeCheck();
+                        bool reset = GUILayout.Button("Reset", GUILayout.Width(45));
+                        EditorGUILayout.EndHorizontal();
+                        if (!changed && !reset) continue;
+                        config = new CoCoFieldConfig { Values = config.Values.ToArray() };
+                        if (reset) config.Values = config.Values.Where(entry => !entry.StartsWith(path + "=", StringComparison.Ordinal)).ToArray();
+                        else config.Set(path, value);
+                        SaveFieldConfig(state, config);
+                    }
                 }
             }));
             return true;
+        }
+
+        private void SaveFieldConfig(CoCoStateGraphStateRecord state, CoCoFieldConfig config)
+        {
+            serializedAsset.Update();
+            FindStateConfigProperty(controller.Session.SelectedLayerId, ToStateId(state.StateId)).managedReferenceValue = config;
+            serializedAsset.ApplyModifiedProperties();
+            controller.NotifyConfigChanged();
+            details.schedule.Execute(RefreshDetails);
         }
 
         private static object DrawConfigValue(string label, object value)
