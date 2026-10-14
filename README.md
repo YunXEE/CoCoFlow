@@ -1,20 +1,36 @@
 # CoCoFlow
 
-> **Version**: 0.4.1 · **Unity**: 6000+
+> **Version**: 0.4.2 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
 CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
-runtime ownership. Version 0.4.1 removes the legacy Gameplay sample and rebuilds
-the mature Editor surfaces around a unified UI Toolkit visual language, while
-keeping the public Runtime line focused on its existing contracts.
+runtime ownership. Version 0.4.2 simplifies StateLogic authoring and connects
+per-state data, Operator recovery, shared input, and Camera to the Host workflow.
+
+## New in 0.4.2
+
+- Declare `[Intent]` and `[Operation]` properties directly in StateLogic. The
+  minimal script template leaves dependencies and business logic to the author.
+- Use `[Config]` fields for independent Graph State configuration and `[Memory]`
+  fields for activation state captured and restored with Context.
+- Enable save/load and Temporal recovery independently for each supported
+  Operator in the Host Inspector. Both switches default to off.
+- Read the output camera's world pose through `CameraIntentData`; send numeric
+  Rig/Camera selections through `CameraOperation`, with Director-owned save/load.
+- Share one persistent `InputReader` between Host-local `InputIntent` components.
+  `InputIntentData` exposes the latest input update without consuming it or
+  replaying input missed while paused.
+
+0.4.2 is a breaking release. No migration for old integrations or saves is provided.
 
 ## What “mature” means
 
 For this release, **mature** means that the public Runtime API is stable, the
 module has been used in a real project to complete its stated responsibility,
-and its known boundaries are documented. It does **not** mean newest
+and its known boundaries are documented. Explicit changes in the release's
+changelog take precedence over compatibility expectations. It does **not** mean newest
 architecture, maximum performance, complete Editor tooling, zero defects, or
 marketplace certification.
 
@@ -65,7 +81,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.1
+https://github.com/YunXEE/CoCoFlow.git#v0.4.2
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -73,7 +89,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.1"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.2"
   }
 }
 ```
@@ -90,6 +106,7 @@ the [dependency matrix](Docs/DependencyMatrix.md).
 - [StateGraph Runtime and Host](Docs/StateGraphRuntime.md)
 - [State Flow / Event Boundary](Docs/ContextNetworkBoundary.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
+- [Input](Docs/Module-Input.md)
 - [Camera](Docs/Module-Camera.md)
 - [Persistence](Docs/Module-Persistence.md)
 - [UI](Docs/Module-UI.md)
@@ -100,8 +117,9 @@ the [dependency matrix](Docs/DependencyMatrix.md).
 ## Release policy
 
 CoCoFlow 0.4.x will iterate in small steps. Mature Runtime surfaces are treated
-as stable APIs. Map and Pooling may change their APIs, configuration, and
-serialized structures during 0.4.x. Unrated modules should be evaluated from
+as stable APIs, with explicit breaking changes documented per release. Map and
+Pooling may change their APIs, configuration, and serialized structures during
+0.4.x. Unrated modules should be evaluated from
 their implementation and module documentation rather than inferred from this
 table.
 

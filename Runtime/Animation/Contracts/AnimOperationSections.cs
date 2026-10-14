@@ -5,34 +5,34 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 {
     public interface IAnimParameterOperationSection : ICoCoOperationSection
     {
-        AnimParameterCommand Slot00 { get; }
-        AnimParameterCommand Slot01 { get; }
-        AnimParameterCommand Slot02 { get; }
-        AnimParameterCommand Slot03 { get; }
-        AnimParameterCommand Slot04 { get; }
-        AnimParameterCommand Slot05 { get; }
-        AnimParameterCommand Slot06 { get; }
-        AnimParameterCommand Slot07 { get; }
-        AnimParameterCommand Slot08 { get; }
-        AnimParameterCommand Slot09 { get; }
-        AnimParameterCommand Slot10 { get; }
-        AnimParameterCommand Slot11 { get; }
-        AnimParameterCommand Slot12 { get; }
-        AnimParameterCommand Slot13 { get; }
-        AnimParameterCommand Slot14 { get; }
-        AnimParameterCommand Slot15 { get; }
+        AnimParameterCommand Slot00 { get; set; }
+        AnimParameterCommand Slot01 { get; set; }
+        AnimParameterCommand Slot02 { get; set; }
+        AnimParameterCommand Slot03 { get; set; }
+        AnimParameterCommand Slot04 { get; set; }
+        AnimParameterCommand Slot05 { get; set; }
+        AnimParameterCommand Slot06 { get; set; }
+        AnimParameterCommand Slot07 { get; set; }
+        AnimParameterCommand Slot08 { get; set; }
+        AnimParameterCommand Slot09 { get; set; }
+        AnimParameterCommand Slot10 { get; set; }
+        AnimParameterCommand Slot11 { get; set; }
+        AnimParameterCommand Slot12 { get; set; }
+        AnimParameterCommand Slot13 { get; set; }
+        AnimParameterCommand Slot14 { get; set; }
+        AnimParameterCommand Slot15 { get; set; }
     }
 
     public interface IAnimTriggerOperationSection : ICoCoOperationSection
     {
-        AnimTriggerCommand Slot00 { get; }
-        AnimTriggerCommand Slot01 { get; }
-        AnimTriggerCommand Slot02 { get; }
-        AnimTriggerCommand Slot03 { get; }
-        AnimTriggerCommand Slot04 { get; }
-        AnimTriggerCommand Slot05 { get; }
-        AnimTriggerCommand Slot06 { get; }
-        AnimTriggerCommand Slot07 { get; }
+        AnimTriggerCommand Slot00 { get; set; }
+        AnimTriggerCommand Slot01 { get; set; }
+        AnimTriggerCommand Slot02 { get; set; }
+        AnimTriggerCommand Slot03 { get; set; }
+        AnimTriggerCommand Slot04 { get; set; }
+        AnimTriggerCommand Slot05 { get; set; }
+        AnimTriggerCommand Slot06 { get; set; }
+        AnimTriggerCommand Slot07 { get; set; }
     }
 
     public sealed class AnimParameterOperationSectionView : IAnimParameterOperationSection
@@ -48,22 +48,22 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             _fields = fields ?? throw new ArgumentNullException(nameof(fields));
         }
 
-        public AnimParameterCommand Slot00 => Read(0);
-        public AnimParameterCommand Slot01 => Read(1);
-        public AnimParameterCommand Slot02 => Read(2);
-        public AnimParameterCommand Slot03 => Read(3);
-        public AnimParameterCommand Slot04 => Read(4);
-        public AnimParameterCommand Slot05 => Read(5);
-        public AnimParameterCommand Slot06 => Read(6);
-        public AnimParameterCommand Slot07 => Read(7);
-        public AnimParameterCommand Slot08 => Read(8);
-        public AnimParameterCommand Slot09 => Read(9);
-        public AnimParameterCommand Slot10 => Read(10);
-        public AnimParameterCommand Slot11 => Read(11);
-        public AnimParameterCommand Slot12 => Read(12);
-        public AnimParameterCommand Slot13 => Read(13);
-        public AnimParameterCommand Slot14 => Read(14);
-        public AnimParameterCommand Slot15 => Read(15);
+        public AnimParameterCommand Slot00 { get => Read(0); set => _reader.Write(_fields[0], value); }
+        public AnimParameterCommand Slot01 { get => Read(1); set => _reader.Write(_fields[1], value); }
+        public AnimParameterCommand Slot02 { get => Read(2); set => _reader.Write(_fields[2], value); }
+        public AnimParameterCommand Slot03 { get => Read(3); set => _reader.Write(_fields[3], value); }
+        public AnimParameterCommand Slot04 { get => Read(4); set => _reader.Write(_fields[4], value); }
+        public AnimParameterCommand Slot05 { get => Read(5); set => _reader.Write(_fields[5], value); }
+        public AnimParameterCommand Slot06 { get => Read(6); set => _reader.Write(_fields[6], value); }
+        public AnimParameterCommand Slot07 { get => Read(7); set => _reader.Write(_fields[7], value); }
+        public AnimParameterCommand Slot08 { get => Read(8); set => _reader.Write(_fields[8], value); }
+        public AnimParameterCommand Slot09 { get => Read(9); set => _reader.Write(_fields[9], value); }
+        public AnimParameterCommand Slot10 { get => Read(10); set => _reader.Write(_fields[10], value); }
+        public AnimParameterCommand Slot11 { get => Read(11); set => _reader.Write(_fields[11], value); }
+        public AnimParameterCommand Slot12 { get => Read(12); set => _reader.Write(_fields[12], value); }
+        public AnimParameterCommand Slot13 { get => Read(13); set => _reader.Write(_fields[13], value); }
+        public AnimParameterCommand Slot14 { get => Read(14); set => _reader.Write(_fields[14], value); }
+        public AnimParameterCommand Slot15 { get => Read(15); set => _reader.Write(_fields[15], value); }
 
         private AnimParameterCommand Read(int index) => _reader.Read(_fields[index]);
     }
@@ -81,14 +81,14 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             _fields = fields ?? throw new ArgumentNullException(nameof(fields));
         }
 
-        public AnimTriggerCommand Slot00 => Read(0);
-        public AnimTriggerCommand Slot01 => Read(1);
-        public AnimTriggerCommand Slot02 => Read(2);
-        public AnimTriggerCommand Slot03 => Read(3);
-        public AnimTriggerCommand Slot04 => Read(4);
-        public AnimTriggerCommand Slot05 => Read(5);
-        public AnimTriggerCommand Slot06 => Read(6);
-        public AnimTriggerCommand Slot07 => Read(7);
+        public AnimTriggerCommand Slot00 { get => Read(0); set => _reader.Write(_fields[0], value); }
+        public AnimTriggerCommand Slot01 { get => Read(1); set => _reader.Write(_fields[1], value); }
+        public AnimTriggerCommand Slot02 { get => Read(2); set => _reader.Write(_fields[2], value); }
+        public AnimTriggerCommand Slot03 { get => Read(3); set => _reader.Write(_fields[3], value); }
+        public AnimTriggerCommand Slot04 { get => Read(4); set => _reader.Write(_fields[4], value); }
+        public AnimTriggerCommand Slot05 { get => Read(5); set => _reader.Write(_fields[5], value); }
+        public AnimTriggerCommand Slot06 { get => Read(6); set => _reader.Write(_fields[6], value); }
+        public AnimTriggerCommand Slot07 { get => Read(7); set => _reader.Write(_fields[7], value); }
 
         private AnimTriggerCommand Read(int index) => _reader.Read(_fields[index]);
     }

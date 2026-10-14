@@ -309,13 +309,81 @@ namespace CoCoFlow.Runtime.Core.Tests
         public void OperationSectionRejectsInheritanceAndIllegalMemberShapes()
         {
             AssertInvalidSection<IInheritedMovementSection>();
-            AssertInvalidSection<IWritableSection>();
-            AssertInvalidSection<IMethodSection>();
             AssertInvalidSection<IEventSection>();
             AssertInvalidSection<IIndexerSection>();
             AssertInvalidSection<IReferenceSection>();
             AssertInvalidSection<IStringSection>();
             AssertInvalidSection<IRefReturnSection>();
+        }
+
+        [Test]
+        public void SectionSettersAndDataMethodsKeepTheSameFieldShape()
+        {
+            Assert.IsTrue(CoCoOperationSectionShape.TryCreate(typeof(IWritableSection), out var writable, out _));
+            Assert.IsTrue(CoCoOperationSectionShape.TryCreate(typeof(IMethodSection), out var method, out _));
+            Assert.AreEqual(1, writable.FieldCount);
+            Assert.AreEqual(1, method.FieldCount);
+            Assert.AreEqual(writable.Fields[0].Name, method.Fields[0].Name);
+            Assert.AreEqual(writable.Fields[0].ValueType, method.Fields[0].ValueType);
+        }
+
+        [TestCase(CoCoOperationSectionMode.Continuous)]
+        [TestCase(CoCoOperationSectionMode.Discrete)]
+        public void CustomSectionViewWritesThroughTheExistingFrame(CoCoOperationSectionMode mode)
+        {
+            var builder = new CoCoOperationSectionRegistryBuilder();
+            Assert.IsTrue(builder.TryRegister(CreateSectionId(91UL, 1UL), mode,
+                new WritableViewFactory(), out var requirement, out _));
+            Assert.IsTrue(builder.TryFreeze(CreateLayoutId(91UL, 2UL), out var registry, out _));
+            Assert.IsTrue(CoCoOperationFrame.TryCreate(registry, CreateGraphInstanceId(91UL),
+                new[] { requirement }, out var frame, out _));
+            Assert.IsTrue(frame.TryBegin(CreateTickFrame(1UL, 1UL, 1UL), out var writer));
+            var target = new SectionWriteTarget(registry, writer);
+            var view = (IWritableSection)registry.CreateWriteView(typeof(IWritableSection), target);
+            view.Value = 3;
+            view.Value = 7;
+            Assert.AreEqual(mode == CoCoOperationSectionMode.Discrete ? 2 : 0, target.Enables);
+            Assert.IsTrue(registry.TryResolve(requirement, out CoCoOperationSectionHandle<IWritableSection> handle));
+            Assert.IsTrue(writer.TryFinalize(out var finalized));
+            Assert.IsTrue(finalized.TryGet(handle, out var entry));
+            Assert.AreEqual(7, entry.View.Value);
+            Assert.IsTrue(finalized.Commit());
+        }
+
+        private sealed class WritableView : IWritableSection
+        {
+            private readonly CoCoOperationSectionReader _access;
+            private readonly CoCoOperationSectionField<int> _field;
+            public WritableView(CoCoOperationSectionReader access, CoCoOperationSectionField<int> field)
+            { _access = access; _field = field; }
+            public int Value { get => _access.Read(_field); set => _access.Write(_field, value); }
+        }
+
+        private sealed class WritableViewFactory : ICoCoOperationSectionViewFactory<IWritableSection>
+        {
+            public IWritableSection Create(in CoCoOperationSectionViewContext<IWritableSection> context)
+            {
+                context.TryGetField(0, out CoCoOperationSectionField<int> field);
+                return new WritableView(context.Reader, field);
+            }
+        }
+
+        private sealed class SectionWriteTarget : ICoCoOperationSectionWriteTarget
+        {
+            private readonly CoCoOperationSectionRegistry _registry;
+            private readonly CoCoOperationFrameWriter _writer;
+            public int Enables;
+            public SectionWriteTarget(CoCoOperationSectionRegistry registry, CoCoOperationFrameWriter writer)
+            { _registry = registry; _writer = writer; }
+            public void Write<T>(CoCoOperationSectionField<T> field, in T value) where T : unmanaged =>
+                _writer.Write(field, value);
+            public void Enable<T>() where T : class, ICoCoOperationSection
+            {
+                _registry.TryResolveTypedHandle(out CoCoOperationSectionHandle<T> handle);
+                CoCoActivationId.TryCreate(1UL, out var activation);
+                Assert.IsTrue(_writer.EnableDiscrete(handle, activation));
+                Enables++;
+            }
         }
 
         [Test]

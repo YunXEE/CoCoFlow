@@ -154,14 +154,17 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            bool hasBinding = bindingComponent != null;
-            if (capacity > 0 &&
-                (!hasBinding ||
-                 !(bindingComponent is ICoCoContextRestoreBinding) ||
-                 !CoCoStateGraphHostBoundary.Contains(host, bindingComponent)))
+            if (bindingComponent is ICoCoOperator)
             {
-                diagnostic = ConfigurationError(
-                    "Enabled Temporal history requires one live Restore Binding inside the Host boundary.");
+                diagnostic = ConfigurationError("Operator recovery must use the Host Operator switches.");
+                return false;
+            }
+            if (!ReferenceEquals(bindingComponent, null) &&
+                (capacity > 0 || (bindingComponent != null &&
+                 bindingComponent is ICoCoContextRestoreBinding &&
+                 CoCoStateGraphHostBoundary.Contains(host, bindingComponent))) &&
+                !CoCoTemporalDecoratorChain.TryValidate(host, bindingComponent, out diagnostic))
+            {
                 return false;
             }
 
@@ -453,10 +456,11 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_binding != null &&
+            _host.RecoveryProjection = CoCoContextProjection.Durable;
+            if ((_binding != null &&
                 (!IsBindingComponentLive ||
                  !TryEnsurePersistenceParticipantAttached(out diagnostic) ||
-                 !TryRequireLiveBinding(out diagnostic)))
+                 !TryRequireLiveBinding(out diagnostic))) || !_host.RecoveryOperatorsLive())
             {
                 if (diagnostic.IsNone)
                 {
@@ -527,8 +531,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             bool worldMayBeDirty = false;
-            if (_binding != null &&
-                !TryApplyRestore(
+            if (!TryApplyRestore(
                     CoCoContextRestoreApplyKind.Confirm,
                     persistedInfo,
                     importedTickFrame,
@@ -553,7 +556,7 @@ namespace CoCoFlow.Runtime.Core
                 (_history != null && !_history.HasPreparedCapture) ||
                 (_participant != null &&
                  !_participant.IsTemporalParticipantLive(_host)) ||
-                (_binding != null && !IsBindingLive) ||
+                !IsBindingLive ||
                 (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
             {
                 _participant?.CancelPreparedAuthorityResetNoFail();
@@ -602,6 +605,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            _host.RecoveryProjection = CoCoContextProjection.Temporal;
             if (!TryRequireLiveBinding(out diagnostic))
             {
                 return false;
@@ -694,7 +698,8 @@ namespace CoCoFlow.Runtime.Core
                     if (!_history.TrySelect(
                             historyDepth,
                             out selection,
-                            out CoCoDiagnosticCode diagnosticCode))
+                            out CoCoDiagnosticCode diagnosticCode,
+                            _host.RetainedRecoverySlots, _transaction.CurrentContext.Buffer))
                     {
                         diagnostic = HistoryError(
                             diagnosticCode,
@@ -786,7 +791,8 @@ namespace CoCoFlow.Runtime.Core
                 if (!_history.TrySelect(
                         _previewDepth,
                         out selection,
-                        out CoCoDiagnosticCode diagnosticCode))
+                        out CoCoDiagnosticCode diagnosticCode,
+                        _host.RetainedRecoverySlots, _transaction.CurrentContext.Buffer))
                 {
                     diagnostic = HistoryError(
                         diagnosticCode,
@@ -967,6 +973,12 @@ namespace CoCoFlow.Runtime.Core
 
             if (!TryRequireLiveBinding(out diagnostic))
             {
+                return false;
+            }
+
+            if (!_host.RecoveryProjection.HasValue && !_host.RecoveryOperatorsLive(requireCoverage: true))
+            {
+                diagnostic = BindingError("Tick fault correction requires enabled recovery for every bound Operator.");
                 return false;
             }
 
@@ -1198,10 +1210,14 @@ namespace CoCoFlow.Runtime.Core
                 targetTickFrame,
                 new CoCoContextRestoreReader(_readLease, token));
             bool applied;
-            worldMayBeDirty = true;
             try
             {
-                applied = _binding.TryApply(context, out diagnostic);
+                applied = _host.TryRestoreOperators(context, ref worldMayBeDirty, out diagnostic);
+                if (applied && _binding != null)
+                {
+                    worldMayBeDirty = true;
+                    applied = _binding.TryApply(context, out diagnostic);
+                }
             }
             catch (Exception)
             {
@@ -1265,11 +1281,9 @@ namespace CoCoFlow.Runtime.Core
             return false;
         }
 
-        private bool IsBindingLive =>
-            _binding != null &&
-            IsBindingComponentLive &&
-            (!_participantAttached ||
-             IsParticipantLiveNoThrow());
+        private bool IsBindingLive => _host.RecoveryOperatorsLive() &&
+            (_binding == null || (IsBindingComponentLive &&
+            (!_participantAttached || IsParticipantLiveNoThrow())));
 
         private bool IsBindingComponentLive =>
             _bindingComponent != null &&
@@ -1296,7 +1310,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            bool attached = false;
+            bool attached;
             try
             {
                 attached = _participant.TryAttachTemporalHost(

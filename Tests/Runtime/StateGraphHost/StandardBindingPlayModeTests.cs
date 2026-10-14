@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Input;
+using CoCoFlow.Runtime.Modules.Locomotion;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -16,7 +17,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// C4.5 standard path end-to-end: a CoCoState-attributed logic (declared
     /// below in this test assembly) is registered through
     /// CoCoStandardBindingProvider.Build, installed, and a one-state graph
-    /// runs a tick where the state logic receives RawInputIntent records.
+    /// runs a tick where the state logic receives InputIntentData records.
     /// </summary>
     public sealed class StandardBindingPlayModeTests : InputTestFixture
     {
@@ -46,11 +47,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [UnityTest]
-        public IEnumerator AttributedStateRunsThroughStandardBinding()
+        public IEnumerator AttributedStateRunsThroughStandardBinding() => RunInputState(false);
+
+        [UnityTest]
+        public IEnumerator PropertyStateReadsInputAndMovesThroughTheExistingOperator() => RunInputState(true);
+
+        private IEnumerator RunInputState(bool properties)
         {
+            System.Type logicType = properties ? typeof(PropertyProbeLogic) : typeof(StandardProbeLogic);
+            string logicName = properties ? "PropertyProbe" : "StandardProbe";
             CoCoStandardBindingProvider provider =
                 CoCoStandardBindingProvider.Build(
-                    new[] { typeof(StandardProbeLogic).Assembly });
+                    new[] { logicType.Assembly });
             Assert.IsNotNull(provider.Catalog);
             Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
                 provider,
@@ -59,8 +67,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             // one-state graph referencing the derived descriptor id
             Assert.IsTrue(StandardDescriptors.TryCreate(
-                typeof(StandardProbeLogic),
-                "StandardProbe",
+                logicType,
+                logicName,
                 out CoCoStateDescriptorId descriptorId));
             var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
             _objects.Add(asset);
@@ -84,11 +92,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             playerInput.actions = CreateActions();
             playerInput.defaultActionMap = "Player";
             var reader = gameObject.AddComponent<InputReader>();
+            var input = gameObject.AddComponent<InputIntent>();
+            input.SetReader(reader);
             var host = gameObject.AddComponent<CoCoStateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
-            SetField(host, "intentSources", new MonoBehaviour[] { reader });
+            SetField(host, "intentSources", new MonoBehaviour[] { input });
+            gameObject.AddComponent<CharacterController>();
+            var movement = gameObject.AddComponent<LocomotionOperator>();
+            SetField(host, "operators", new MonoBehaviour[] { movement });
 
             yield return null;
             playerInput.actions.FindActionMap("Player").Enable();
@@ -99,12 +112,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             StandardProbeLogic.Received = new List<RawInputRecord>();
             Assert.IsTrue(host.TryStep(1f / 60f, out _)); // baseline
+            Vector3 expected = new Vector3(0f, 5f / 60f, 2f / 60f);
+            Assert.Less((gameObject.transform.position - expected).sqrMagnitude, 0.000001f,
+                "New properties and legacy Writer must produce the same movement.");
             yield return null;
 
             Press(keyboard.wKey);
-            yield return new WaitForSeconds(0.05f);
+            InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
             Assert.IsTrue(host.TryStep(1f / 60f, out _));
-            InputSystem.Update();
             yield return null;
 
             Assert.IsNotEmpty(
@@ -113,6 +128,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "standard binding");
             Assert.IsTrue(StandardProbeLogic.Received.Exists(
                 r => r.Action.ToString() == "Move"));
+            if (properties)
+            {
+                Assert.Greater(gameObject.transform.position.z, 0f);
+                Assert.Greater(gameObject.transform.position.y, 0f);
+                Assert.IsNotNull(PropertyProbeLogic.Last.Movement);
+                StandardProbeLogic.Received = null;
+                for (int index = 0; index < 100; index++) host.TryStep(1f / 60f, out _);
+                long before = System.GC.GetAllocatedBytesForCurrentThread();
+                bool stepped = true;
+                for (int index = 0; index < 10000; index++) stepped &= host.TryStep(1f / 60f, out _);
+                long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+                Assert.IsTrue(stepped);
+                Assert.AreEqual(0L, allocated, "Property binding must allocate only during initialization.");
+                PropertyProbeLogic.Last = null;
+            }
         }
 
         [UnityTest]
@@ -163,6 +193,100 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(host.TryStep(1f / 60f, out CoCoDiagnostic step),
                 step.Message);
         }
+
+        [UnityTest]
+        public IEnumerator ConfigAndMemoryFieldsUseTheRealHost()
+        {
+            var type = System.Type.GetType("MoveLogic, CoCoFlow002") ?? typeof(ConfigMemoryProbeLogic);
+            var provider = CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            CoCoStateGraphProjectBindings.ResetForTests();
+            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out _));
+            var name = ((CoCoStateAttribute)System.Attribute.GetCustomAttribute(type, typeof(CoCoStateAttribute))).Name;
+            StandardDescriptors.TryCreate(type, name, out var descriptor);
+            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
+            for (ulong i = 0; i < 10; i++)
+            {
+                var config = new CoCoFieldConfig();
+                if (i != 1) config.Set("Speed", (float)(3 + i * 3));
+                var stateId = new CoCoSerializedId128(11 + i, 12);
+                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21 + i, 22), "Layer " + i);
+                layer.InitialStateId = stateId;
+                layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Move " + i,
+                    new CoCoSerializedId128(descriptor.High, descriptor.Low), config));
+                asset.Layers.Add(layer);
+            }
+            var go = new GameObject("Config Memory - MoveLogic");
+            var host = go.AddComponent<CoCoStateGraphHost>();
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "autoStart", false);
+            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+            {
+                UnityEditor.AssetDatabase.CreateAsset(asset, "Assets/CoCoFlow002/MoveGraph.asset");
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(go.scene, "Assets/CoCoFlow002/MoveConfig.unity");
+                UnityEditor.Selection.activeGameObject = go;
+                yield break;
+            }
+#endif
+            SetField(host, "temporalHistoryCapacity", 8);
+            _objects.Add(go);
+            _objects.Add(asset);
+            var seen = (IList)type.GetField("Seen").GetValue(null);
+            seen.Clear();
+            type.GetField("Impulses").SetValue(null, 0);
+            yield return null;
+            Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, seen.Count);
+            for (int i = 0; i < 10; i++)
+                Assert.AreEqual((float)(3 + i * 3), type.GetField("Speed").GetValue(seen[i]));
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryBeginTemporalPreview(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryPreviewTemporal(1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryConfirmTemporalRestore(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(10, type.GetField("Impulses").GetValue(null));
+            Assert.That((float)type.GetField("Distance").GetValue(seen[0]), Is.EqualTo(0.6f).Within(0.0001f));
+        }
+
+        [TestCase(typeof(ConfigMemoryProbeLogic))]
+        [TestCase(typeof(ConfigOnlyProbe))]
+        [TestCase(typeof(MemoryOnlyProbe))]
+        public void FieldMemoryRoundTripDoesNotAllocate(System.Type type)
+        {
+            CoCoStandardBindingProvider.Build(new[] { type.Assembly });
+            var logic = (CoCoStateLogic)System.Activator.CreateInstance(type);
+            var memory = (ICoCoFieldMemory)System.Activator.CreateInstance(
+                typeof(CoCoFieldMemory<,>).MakeGenericType(type, CoCoStateFields.StoredType(type)));
+            var fields = CoCoStateFields.Fields(type, typeof(CoCoStateMemoryAttribute));
+            foreach (var field in fields) field.SetValue(logic, field.FieldType == typeof(bool) ? (object)true : 9f);
+            memory.Store(logic);
+            foreach (var field in fields) field.SetValue(logic, System.Activator.CreateInstance(field.FieldType));
+            memory.Load(logic);
+            foreach (var field in fields) Assert.AreEqual(field.FieldType == typeof(bool) ? (object)true : 9f, field.GetValue(logic));
+            for (int i = 0; i < 100; i++) { memory.Load(logic); memory.Store(logic); }
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 10000; i++) { memory.Load(logic); memory.Store(logic); }
+            Assert.AreEqual(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.IsNotNull(typeof(CoCoStandardBindingProvider).GetMethod("Build",
+                new[] { typeof(IReadOnlyList<System.Reflection.Assembly>) }));
+        }
+
+        [TestCase("RemovedSpeed", "3")]
+        [TestCase("Speed", "invalid")]
+        [TestCase("Distance", "2")]
+        public void InvalidConfigFailsDuringFreezing(string path, string value)
+        {
+            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
+            StandardDescriptors.TryCreate(typeof(ConfigMemoryProbeLogic), "ConfigMemoryProbeLogic", out var id);
+            Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id,
+                new CoCoFieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));
+            Assert.IsFalse(diagnostic.IsNone);
+        }
+
+        public static void PrepareConfigMemoryScene() => new StandardBindingPlayModeTests().ConfigAndMemoryFieldsUseTheRealHost().MoveNext();
 
         private static InputActionAsset CreateActions()
         {

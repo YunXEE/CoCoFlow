@@ -150,12 +150,12 @@ namespace CoCoFlow.Runtime.Core
     }
 
     /// <summary>
-    /// The one intent per tick: the raw input stream frozen as-is. At most
-    /// eight records in arrival order; a ninth same-tick record is dropped
-    /// (documented capacity, no fallback). Continuous actions appear as one
-    /// Held record per tick while actuated and stop appearing on release.
+    /// Latest input-update image copied by each Host's InputIntent. At most
+    /// eight records; the last discrete phase replaces earlier phases of the
+    /// same action. Continuous convenience actions append Held while actuated.
+    /// Reading never drains this value; missed input updates are not replayed.
     /// </summary>
-    public struct RawInputIntent
+    public struct InputIntentData
     {
         public const int RecordCapacity = 8;
 

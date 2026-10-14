@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using NUnit.Framework;
 
 namespace CoCoFlow.Runtime.Core.Tests
@@ -110,6 +111,21 @@ namespace CoCoFlow.Runtime.Core.Tests
             Assert.IsFalse(selection.IsValid);
             Assert.IsFalse(view.IsValid);
             Assert.IsTrue(replacement.IsValid);
+            var retained = Array.FindAll(fixture.Layout.Slots.ToArray(),
+                slot => slot.SlotId == fixture.TemporalStored.SlotId);
+            Assert.IsTrue(history.TrySelect(1, out selection, out _, retained, arena.Current.Buffer));
+            Assert.IsTrue(selection.RestoreView.TryRead(fixture.TemporalDerived, out derived));
+            Assert.AreEqual(44, derived, "Derived must use the retained current value, not the historical one.");
+            arena.RetainedRestoreSlots = retained;
+            Assert.IsTrue(history.TryPrepareRestore(selection, arena, Tick(1UL, 2UL, 3UL),
+                out CoCoFinalizedContextCommit mixed, out _, out _));
+            Assert.IsTrue(mixed.TryCreateRestoreReadView(out var mixedView));
+            Assert.IsTrue(mixedView.TryRead(fixture.TemporalDerived, out derived));
+            Assert.AreEqual(44, derived);
+            mixed.Cancel();
+            Assert.IsTrue(history.TrySelect(1, out selection, out _, retained));
+            Assert.IsTrue(selection.RestoreView.TryRead(fixture.TemporalDerived, out derived));
+            Assert.AreEqual(2, derived, "No committed authority uses layout defaults for retained slots.");
         }
 
         [Test]

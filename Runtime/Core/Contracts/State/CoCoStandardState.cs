@@ -2,6 +2,29 @@ using System;
 
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>Declares the module registration carried by an Intent source component.</summary>
+    [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
+    public sealed class CoCoIntentRegistrationAttribute : Attribute
+    {
+        public CoCoIntentRegistrationAttribute(Type registrationType)
+        {
+            RegistrationType = registrationType ?? throw new ArgumentNullException(nameof(registrationType));
+        }
+        public Type RegistrationType { get; }
+    }
+
+    /// <summary>Refreshes an Intent data property before each State callback.</summary>
+    [AttributeUsage(AttributeTargets.Property, Inherited = false)]
+    public sealed class IntentAttribute : Attribute
+    {
+    }
+
+    /// <summary>Binds an Operation Section property to the State's existing writer.</summary>
+    [AttributeUsage(AttributeTargets.Property, Inherited = false)]
+    public sealed class OperationAttribute : Attribute
+    {
+    }
+
     /// <summary>
     /// Marks a class as a StateGraph state logic. The state's descriptor id
     /// is derived deterministically from the graph's identity scope and the
@@ -20,8 +43,8 @@ namespace CoCoFlow.Runtime.Core
 
     /// <summary>
     /// Declares that a state logic consumes one intent type. The standard
-    /// binding binds the intent's package source (for RawInputIntent, the
-    /// scene InputReader) with the built-in pass-through reducer.
+    /// binding binds the intent's package source (for InputIntentData, the
+    /// Host InputIntent) with the built-in pass-through reducer.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
     public sealed class CoCoIntentConsumeAttribute : Attribute
@@ -40,7 +63,7 @@ namespace CoCoFlow.Runtime.Core
     /// The field type must be unmanaged.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field, Inherited = false)]
-    public sealed class CoCoStateConfigAttribute : Attribute
+    public class CoCoStateConfigAttribute : Attribute
     {
     }
 
@@ -50,9 +73,12 @@ namespace CoCoFlow.Runtime.Core
     /// The field type must be unmanaged.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field, Inherited = false)]
-    public sealed class CoCoStateMemoryAttribute : Attribute
+    public class CoCoStateMemoryAttribute : Attribute
     {
     }
+
+    public sealed class ConfigAttribute : CoCoStateConfigAttribute { }
+    public sealed class MemoryAttribute : CoCoStateMemoryAttribute { }
 
     /// <summary>
     /// Declares the standard-path registrar carried by one Operator. The

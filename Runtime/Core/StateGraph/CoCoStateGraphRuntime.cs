@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -1909,6 +1909,8 @@ namespace CoCoFlow.Runtime.Core
                     state.CandidateActionProgress,
                     canRequestTransition,
                     state.Compiled.Descriptor.ProvidesActionProgress);
+                state.PropertyBindings.Refresh(intents);
+                (state.CandidateMemory as ICoCoFieldMemory)?.Load(state.Logic);
                 _executingLayerIndex = layerIndex;
                 _executingStateIndex = stateIndex;
                 _acceptsTransitionRequests = canRequestTransition;
@@ -1927,6 +1929,7 @@ namespace CoCoFlow.Runtime.Core
                         throw new InvalidOperationException("State callback phase is invalid.");
                 }
 
+                (state.CandidateMemory as ICoCoFieldMemory)?.Store(state.Logic);
                 resultActionProgress = stateContext.ResultActionProgress;
                 contextHasError = stateContext.HasError ||
                                   _stateCallbackOperationLease.HasError;
@@ -2622,7 +2625,8 @@ namespace CoCoFlow.Runtime.Core
                     memory0,
                     memory1,
                     handles,
-                    allowedOperationSections);
+                    allowedOperationSections,
+                    operationRegistry);
                 states[stateIndex].ExecutionContext
                     .AttachOutgoingTransitions(handles);
             }
@@ -2838,7 +2842,8 @@ namespace CoCoFlow.Runtime.Core
                 CoCoActivationMemory memory0,
                 CoCoActivationMemory memory1,
                 CoCoTransitionHandle[] handles,
-                bool[] allowedOperationSections)
+                bool[] allowedOperationSections,
+                CoCoOperationSectionRegistry operationRegistry)
             {
                 Compiled = compiled;
                 Factory = factory;
@@ -2848,6 +2853,7 @@ namespace CoCoFlow.Runtime.Core
                 Handles = handles;
                 AllowedOperationSections = allowedOperationSections;
                 ExecutionContext = new CoCoStateExecutionContext();
+                PropertyBindings = new CoCoStatePropertyBindings(logic, operationRegistry, ExecutionContext);
             }
 
             public CoCoCompiledState Compiled { get; }
@@ -2858,6 +2864,7 @@ namespace CoCoFlow.Runtime.Core
             public CoCoTransitionHandle[] Handles { get; }
             public bool[] AllowedOperationSections { get; }
             public CoCoStateExecutionContext ExecutionContext { get; }
+            public CoCoStatePropertyBindings PropertyBindings { get; }
             public CoCoActivationMemory CommittedMemory => _committedUsesMemory1 ? Memory1 : Memory0;
             public CoCoActivationMemory CandidateMemory => _committedUsesMemory1 ? Memory0 : Memory1;
             public CoCoActivationId CommittedActivationId { get; set; }

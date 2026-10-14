@@ -337,7 +337,9 @@ namespace CoCoFlow.Runtime.Core
         internal bool TrySelect(
             int depth,
             out CoCoTemporalSelection selection,
-            out CoCoDiagnosticCode diagnosticCode)
+            out CoCoDiagnosticCode diagnosticCode,
+            System.Collections.Generic.IReadOnlyList<CoCoStateSlotDescriptor> retainedSlots = null,
+            byte[] authority = null)
         {
             selection = default;
             if (_isDisposed ||
@@ -355,7 +357,7 @@ namespace CoCoFlow.Runtime.Core
             if (!_codec.TryDecodePayload(
                     new ReadOnlySpan<byte>(entry.Payload, 0, entry.EncodedLength),
                     _previewBuffer,
-                    out diagnosticCode))
+                    out diagnosticCode, retainedSlots, authority))
             {
                 return false;
             }

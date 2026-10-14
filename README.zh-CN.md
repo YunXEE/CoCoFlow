@@ -1,18 +1,34 @@
 # CoCoFlow
 
-> **版本**：0.4.1 · **Unity**：6000+
+> **版本**：0.4.2 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
-0.4.1 移除旧 Gameplay Sample，并以统一 UI Toolkit 视觉语言重做成熟 Editor
-界面；公共 Runtime 继续聚焦既有契约，不新增能力。
+0.4.2 简化 StateLogic 编写，并将节点数据、Operator 恢复、共享输入和 Camera
+接入 Host 的标准使用路径。
+
+## 0.4.2 新内容
+
+- 在 StateLogic 中直接声明 `[Intent]` 和 `[Operation]` 属性。最小脚本模板由作者
+  按需添加依赖和业务逻辑。
+- 用 `[Config]` 字段配置各个 Graph State，用 `[Memory]` 字段保存随 Context
+  快照采集和恢复的激活状态；同一 Logic 的不同节点拥有独立配置。
+- 在 Host Inspector 中分别开启各个受支持 Operator 的存读档和 Temporal 恢复。
+  两个开关独立，默认均关闭。
+- 通过 `CameraIntentData` 读取最终输出 Camera 的世界位姿，通过 `CameraOperation`
+  发送数字 Rig/Camera 选择请求；具体镜头状态的采集与恢复由 Director 负责。
+- 常驻 `InputReader` 可供多个 Host 本地 `InputIntent` 共享。`InputIntentData`
+  只提供最新一次输入更新，读取不消费，暂停期间错过的输入不补发。
+
+0.4.2 是破坏性更新，不提供旧接线或旧存档的迁移。
 
 ## “成熟”的定义
 
 本次发布中的 **成熟** 表示：公共 Runtime API 稳定、模块已在实际项目中完成过其职责，
-并且已知边界能够被准确说明。它**不表示**架构最新、效能最高、Editor 工具完整、
+并且已知边界能够被准确说明；各版本更新记录中明确列出的变更优先于兼容预期。
+它**不表示**架构最新、效能最高、Editor 工具完整、
 零缺陷或通过商店级认证。
 
 | 模块 | 状态 | 准确说明 |
@@ -60,7 +76,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.1
+https://github.com/YunXEE/CoCoFlow.git#v0.4.2
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -68,7 +84,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.1
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.1"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.2"
   }
 }
 ```
@@ -84,6 +100,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.1
 - [StateGraph Runtime 与 Host](Docs/StateGraphRuntime.md)
 - [State Flow / Event 边界](Docs/ContextNetworkBoundary.md)
 - [Temporal Rewind](Docs/TemporalRewind.md)
+- [Input](Docs/Module-Input.md)
 - [Camera](Docs/Module-Camera.md)
 - [Persistence](Docs/Module-Persistence.md)
 - [UI](Docs/Module-UI.md)
@@ -93,8 +110,9 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.1
 
 ## 发布策略
 
-CoCoFlow 0.4.x 采用小步迭代。成熟的 Runtime surface 按稳定 API 对待。Map 与 Pooling
-可能在 0.4.x 调整 API、配置和序列化结构。未评级模块应依据实际实现和模块文档判断，
+CoCoFlow 0.4.x 采用小步迭代。成熟的 Runtime surface 按稳定 API 对待，破坏性变更会在
+对应版本中明确列出。Map 与 Pooling 可能在 0.4.x 调整 API、配置和序列化结构。
+未评级模块应依据实际实现和模块文档判断，
 不能从本表推导成熟度。
 
 ## License

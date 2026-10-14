@@ -4,19 +4,19 @@ using CoCoFlow.Runtime.Core;
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
-    /// Built-in pass-through reduction for RawInputIntent. With one source
-    /// per runtime (the scene InputReader) the latest contribution is the
+    /// Built-in pass-through reduction for InputIntentData. With one source
+    /// per Host (its local InputIntent) the latest contribution is the
     /// frozen value; multi-source merges require an explicit reducer.
     /// </summary>
-    public struct RawInputPassThroughReducer : ICoCoIntentReducer<RawInputIntent>
+    public struct RawInputPassThroughReducer : ICoCoIntentReducer<InputIntentData>
     {
-        public RawInputIntent Reduce(
-            in RawInputIntent current,
-            in RawInputIntent candidate) => candidate;
+        public InputIntentData Reduce(
+            in InputIntentData current,
+            in InputIntentData candidate) => candidate;
     }
 
     public sealed class RawInputReducerFactory :
-        ICoCoIntentReducerFactory<RawInputIntent, RawInputPassThroughReducer>
+        ICoCoIntentReducerFactory<InputIntentData, RawInputPassThroughReducer>
     {
         public RawInputPassThroughReducer Create(
             CoCoGraphInstanceId graphInstanceId) => default;

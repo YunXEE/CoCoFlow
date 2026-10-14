@@ -5,7 +5,12 @@
         "Unity.Cinemachine",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Modules.Input",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Runtime.Camera.Contracts"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -1395,6 +1395,15 @@ namespace CoCoFlow.Runtime.Core
             System.Buffer.BlockCopy(_defaultBuffer, 0, destination, 0, _defaultBuffer.Length);
         }
 
+        internal void CopyRetainedSlots(IReadOnlyList<CoCoStateSlotDescriptor> slots,
+            byte[] authority, byte[] destination)
+        {
+            if (slots == null) return;
+            foreach (CoCoStateSlotDescriptor slot in slots)
+                System.Buffer.BlockCopy(authority ?? _defaultBuffer, slot.ByteOffset,
+                    destination, slot.ByteOffset, slot.ByteSize);
+        }
+
         internal TValue ReadDefault<TValue>(CoCoStateSlot<TValue> slot)
             where TValue : unmanaged
         {
@@ -1420,7 +1429,7 @@ namespace CoCoFlow.Runtime.Core
                 CoCoStateSlotDescriptor slot = _slots[index];
                 if (slot.RestorePolicy == CoCoContextRestorePolicy.Stored)
                 {
-                    System.Buffer.BlockCopy(
+                    Buffer.BlockCopy(
                         source,
                         slot.ByteOffset,
                         destination,
@@ -1884,7 +1893,9 @@ namespace CoCoFlow.Runtime.Core
         internal bool TryDecodePayload(
             ReadOnlySpan<byte> source,
             byte[] destination,
-            out CoCoDiagnosticCode diagnosticCode)
+            out CoCoDiagnosticCode diagnosticCode,
+            IReadOnlyList<CoCoStateSlotDescriptor> retainedSlots = null,
+            byte[] authority = null)
         {
             if (destination == null || destination.Length != _layout.ByteSize)
             {
@@ -1927,6 +1938,7 @@ namespace CoCoFlow.Runtime.Core
                 cursor += payloadLength;
             }
 
+            _layout.CopyRetainedSlots(retainedSlots, authority, destination);
             if (!_layout.TryRebuildDerived(destination))
             {
                 diagnosticCode = CoCoDiagnosticCode.CommitPreparationFailed;
@@ -2802,6 +2814,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public CoCoContextFrameLayout Layout { get; }
+        internal IReadOnlyList<CoCoStateSlotDescriptor> RetainedRestoreSlots { get; set; }
         public CoCoContextFrame Current => _isDisposed ? default : _current;
         public CoCoContextFrameReadView Previous => _isDisposed
             ? default
@@ -3086,7 +3099,8 @@ namespace CoCoFlow.Runtime.Core
             _isCallbackActive = true;
             try
             {
-                didDecode = codec.TryDecodePayload(encoded, _reserved.Buffer, out diagnosticCode);
+                didDecode = codec.TryDecodePayload(encoded, _reserved.Buffer, out diagnosticCode,
+                    RetainedRestoreSlots, _current.Buffer);
             }
             catch
             {

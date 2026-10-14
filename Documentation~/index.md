@@ -1,14 +1,15 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.1`.
+`0.4.2`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
 boundaries—not maximum performance, complete Editor tooling, zero defects, or
 marketplace certification. Map and Pooling are explicitly immature and do not
 guarantee API, configuration, or serialized compatibility. Other modules are
-unrated in this release.
+unrated in this release. Explicit breaking changes are listed below and in the
+[changelog](../CHANGELOG.md).
 
 ## Start here
 
@@ -41,3 +42,62 @@ maturity statement.
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
 - [Animation](../Docs/Module-Animation.md)
+
+## Operator recovery
+
+In the Host's Operators list, each component exposes only the recovery switches
+supported by its interfaces: `ICoCoPersistenceRestoreOperator` for save/load and
+`ICoCoTemporalRestoreOperator` for history. Both switches start off and are independent.
+Configure them before starting the Host; running Hosts keep their startup settings.
+Reordering the list keeps settings with the component, not the row number.
+
+Implement `TryRestore(in CoCoContextRestoreBindingContext, out CoCoDiagnostic)`
+and read committed state through `context.Reader` during that callback only.
+The Host dispatches enabled Operators in binding order. Normal execution and
+Context capture continue whether recovery is enabled or disabled.
+
+Disabled or unsupported recovery retains that Operator's current Outcome slots
+(layout defaults before the first commit). Graph/Memory restore from the target
+snapshot, then Derived values rebuild from those combined inputs. Preview keeps
+the current committed frame as its reference until confirmation.
+
+LocomotionOperator and AnimAutoOperator support both interfaces. CameraOperator
+supports save/load only. Non-Operator resource bindings keep their separate role;
+Map and Pooling behavior is unchanged.
+
+History capacity remains zero or at least two; zero still permits save/load.
+A failed recovery keeps its original recovery purpose for world correction.
+Correcting a normal Tick fault requires enabled recovery for every bound Operator.
+Recovery does not expand Animator snapshot fidelity or add world rollback.
+
+Locomotion sources now live under `Runtime/Modules/Locomotion`. Its pure C#
+contracts remain in the separate `CoCoFlow.Runtime.Locomotion.Contracts` assembly,
+in `Contracts/LocomotionContract.cs`; existing type names remain unchanged.
+
+## StateLogic properties
+
+Declare reads with `[Intent] public InputIntentData Input { get; set; }` and writes with
+`[Operation] public ILocomotionSection Movement { get; set; }`.
+Use `Movement.MoveZ = speed;` or `Movement.Jump(impulse);` inside the normal callback.
+The framework refreshes Intent using the existing TryFirst rule and routes Section writes
+through the existing composition and Operator execution. Bind the corresponding
+Intent source and Operator on the Host. Module sources can provide their own
+standard registration; see [Host startup](../Docs/StateGraphRuntime.md#standard-binding-startup).
+The script template leaves both dependency declarations to the author.
+
+## Config and Memory fields
+
+On the standard binding path, declare public instance fields on StateLogic:
+
+```csharp
+[Config] public float Speed = 6f;
+[Memory] public bool ImpulseSent;
+```
+
+Config values belong to each Graph State and are edited in the Graph Editor.
+Missing overrides use the field initializer; zero and false are valid overrides.
+Memory is captured with Context and restored with the saved activation state.
+Both kinds of fields must be unmanaged. The runtime generic binding path has
+not been verified in an IL2CPP Player.
+
+0.4.2 is a breaking release; no migration for old integrations or saves is provided.

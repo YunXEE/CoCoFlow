@@ -223,13 +223,16 @@ namespace CoCoFlow.Editor.StateGraph
             };
             card.Add(setDescriptor);
 
-            DrawConfigProperty(
-                card,
-                FindStateConfigProperty(
-                    controller.Session.SelectedLayerId,
-                    ToStateId(state.StateId)),
-                "State Config",
-                "state-graph-state-config");
+            if (!DrawFieldConfig(card, state))
+            {
+                DrawConfigProperty(
+                    card,
+                    FindStateConfigProperty(
+                        controller.Session.SelectedLayerId,
+                        ToStateId(state.StateId)),
+                    "State Config",
+                    "state-graph-state-config");
+            }
 
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;

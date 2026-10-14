@@ -1,0 +1,17 @@
+{
+    "name": "CoCoFlow.Runtime.Camera.Contracts",
+    "rootNamespace": "CoCoFlow.Runtime.Camera.Contracts",
+    "references": [
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

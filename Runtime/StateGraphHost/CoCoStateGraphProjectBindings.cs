@@ -275,6 +275,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        internal IReadOnlyList<MonoBehaviour> IntentSourceComponents => _intentSourceComponents;
         public CoCoCompiledStateGraph Graph => _graph;
         public CoCoGraphInstanceId GraphInstanceId => _graphInstanceId;
         public bool IsFrozen => _isFrozen;

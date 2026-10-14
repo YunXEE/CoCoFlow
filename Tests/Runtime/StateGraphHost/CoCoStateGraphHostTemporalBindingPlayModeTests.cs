@@ -42,18 +42,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
-        public void EnabledHistoryRequiresOneLiveExplicitRestoreBinding()
+        public void EnabledHistoryAllowsNoBindingButRejectsDestroyedExplicitBinding()
         {
             TemporalHostTestScenario missing = Track(
                 TemporalHostTestHarness.Create(
                     historyCapacity: 3,
                     assignRestoreBinding: false));
 
-            Assert.That(missing.Host.TryStart(out CoCoDiagnostic missingBinding), Is.False);
-            Assert.That(missingBinding.IsError, Is.True);
+            Assert.That(missing.Host.TryStart(out CoCoDiagnostic missingBinding), Is.True, missingBinding.Message);
+            Assert.That(missingBinding.IsError, Is.False);
             Assert.That(
                 missing.Host.Lifecycle,
-                Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+                Is.EqualTo(CoCoRuntimeLifecycleState.Running));
             Assert.That(missing.Host.CurrentContext.IsAlive, Is.False);
 
             CoCoStateGraphProjectBindings.ResetForTests();

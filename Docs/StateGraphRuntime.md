@@ -39,17 +39,23 @@ otherwise it scans loaded non-package assemblies for concrete
 `CoCoStateAttribute` logic classes. Finding no attributed State is a valid
 no-op for projects that do not use the standard path.
 
-For a standard graph, Host source slot `0` is the scene `InputReader` and the
-only automatically registered Intent is `RawInputIntent` with the package
-pass-through reducer. Operator registrars bind only the compiled Operation
-Sections and Context blocks they own. Each compiled attributed State is given a
-fresh StateLogic factory plus its deterministic Graph-state slot. Missing,
-extra, duplicate, or type-incompatible coverage rejects Host startup before
-Router registration or the first Tick.
+Standard Intent binding matches each Host source by its exact
+ICoCoIntentFrameSource<T> payload type, not list position. InputIntentData uses the
+Host-local InputIntent; CameraIntentData uses CameraIntent. Missing, extra,
+duplicate or ambiguous sources reject startup. Each Host owns its source handles.
 
-Projects needing additional Intent types, custom config/memory, or another
-construction policy install an explicit `ICoCoStateGraphProjectBindingProvider`
-instead of relying on this standard provider.
+A new module supplies its payload/reducer/factory and an
+ICoCoStandardIntentRegistration (or CoCoStandardIntentRegistration<T,R,F>), then
+marks its source class with [CoCoIntentRegistration(typeof(Registration))].
+The standard catalog discovers registrations in explicit author assemblies and
+package module assemblies. Types and stable Intent IDs must be unique; this does
+not scan arbitrary loaded test/plugin assemblies. Reducers register in compiled
+manifest order before one shared BeginIntentBindings call.
+
+StateLogic declares [Intent] properties directly. The same registration works
+with [Config]/[Memory] and with legacy class-level consume declarations. Operator
+registrars still own their Operation and Context bindings. Custom project
+providers and event adapter bindings retain their existing explicit APIs.
 
 The Host exposes lifecycle control, Manual Step, read-only authority inspection,
 and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,

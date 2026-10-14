@@ -295,6 +295,19 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             MonoBehaviour component =
                 array.GetArrayElementAtIndex(index).objectReferenceValue as MonoBehaviour;
+            if (kind == BindingListKind.Operators)
+            {
+                field.RegisterValueChangedCallback(change =>
+                {
+                    // 重新绑定也会发送值未改变的通知；只有更换组件才清理旧设置。
+                    if (change.previousValue != change.newValue)
+                        RemoveRecoverySettings(change.previousValue);
+                });
+                if (component is ICoCoPersistenceRestoreOperator)
+                    AddRecoveryToggle(row, component, "persistence", "Persistence restore", "存档恢复");
+                if (component is ICoCoTemporalRestoreOperator)
+                    AddRecoveryToggle(row, component, "temporal", "Temporal restore", "时间历史恢复");
+            }
             CoCoBindingHint? hint = kind == BindingListKind.IntentSources
                 ? CoCoStateGraphHostBindingRules.BuildIntentSourceHint(host, component)
                 : CoCoStateGraphHostBindingRules.BuildOperatorHint(host, component);
@@ -338,12 +351,60 @@ namespace CoCoFlow.Editor.StateGraphHost
             return row;
         }
 
+        private SerializedProperty FindRecoverySettings(UnityEngine.Object component)
+        {
+            SerializedProperty settings = serializedObject.FindProperty("operatorRecovery");
+            for (int index = 0; index < settings.arraySize; index++)
+            {
+                SerializedProperty entry = settings.GetArrayElementAtIndex(index);
+                if (entry.FindPropertyRelative("component").objectReferenceValue == component) return entry;
+            }
+            return null;
+        }
+
+        private void AddRecoveryToggle(VisualElement row, MonoBehaviour component,
+            string fieldName, string english, string chinese)
+        {
+            var toggle = new Toggle(CoCoEditorLocalization.Text(english, chinese))
+                { name = "ccflow-recovery-" + fieldName };
+            toggle.SetValueWithoutNotify(FindRecoverySettings(component)?.FindPropertyRelative(fieldName).boolValue ?? false);
+            toggle.RegisterValueChangedCallback(change =>
+            {
+                serializedObject.Update();
+                SerializedProperty entry = FindRecoverySettings(component);
+                if (entry == null)
+                {
+                    SerializedProperty settings = serializedObject.FindProperty("operatorRecovery");
+                    entry = settings.GetArrayElementAtIndex(settings.arraySize++);
+                    entry.FindPropertyRelative("component").objectReferenceValue = component;
+                    entry.FindPropertyRelative("persistence").boolValue = false;
+                    entry.FindPropertyRelative("temporal").boolValue = false;
+                }
+                entry.FindPropertyRelative(fieldName).boolValue = change.newValue;
+                serializedObject.ApplyModifiedProperties();
+            });
+            row.Add(toggle);
+        }
+
+        private void RemoveRecoverySettings(UnityEngine.Object component)
+        {
+            if (component == null) return;
+            serializedObject.Update();
+            SerializedProperty settings = serializedObject.FindProperty("operatorRecovery");
+            for (int index = settings.arraySize - 1; index >= 0; index--)
+                if (settings.GetArrayElementAtIndex(index).FindPropertyRelative("component").objectReferenceValue == component)
+                    settings.DeleteArrayElementAtIndex(index);
+            serializedObject.ApplyModifiedProperties();
+        }
+
         private void RemoveArrayElement(SerializedProperty array, int index)
         {
             _rebuilding = true;
             try
             {
                 serializedObject.Update();
+                if (array.name == "operators")
+                    RemoveRecoverySettings(array.GetArrayElementAtIndex(index).objectReferenceValue);
                 array.DeleteArrayElementAtIndex(index);
                 serializedObject.ApplyModifiedProperties();
             }
@@ -624,9 +685,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             if (root == null)
             {
                 var empty = new Label(CoCoEditorLocalization.Text(
-                    "no root wired — save/load and temporal restore will not " +
-                        "project the world back onto the ledger",
-                    "未连接根——存/读档与时间恢复不会把世界投影回账本"));
+                    "Operator recovery uses the switches in the Operators list. Other restore bindings are optional.",
+                    "Operator 恢复由 Operators 列表中的开关控制；其他恢复绑定按需配置。"));
                 empty.AddToClassList("ccflow-muted");
                 empty.style.whiteSpace = WhiteSpace.Normal;
                 _restorePreviewContent.Add(empty);
