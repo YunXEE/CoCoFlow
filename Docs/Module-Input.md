@@ -8,27 +8,36 @@ rebind overrides remain the physical-input authority. StateGraph consumes the
 unmanaged `RawInputIntent`; it never reads an `InputAction`, device callback, or
 binding path.
 
-## RawInputIntent sampling
+## RawInputIntent broadcast
 
-`InputReader` requires `PlayerInput` and implements
-`ICoCoIntentFrameSource<RawInputIntent>`. It maintains a fixed 32-record queue
-for performed/canceled callbacks. On one accepted CoCoTick, `TrySample`:
+Keep PlayerInput and InputReader on a persistent object. On each Host, add an
+InputIntent, assign its Reader, and put InputIntent in the Host Intent Sources.
+Several Hosts can reference the same Reader. Source list order is not a type ID.
 
-1. records the active action-map name;
-2. drains discrete records in arrival order into the eight-record
-   `RawInputIntent` capacity;
-3. appends one `Held` record for each actuated Move, Look, or Zoom convenience
-   action while capacity remains.
+Each gameplay InputSystem update (Dynamic, Fixed or Manual) replaces the latest
+image, even when no action fires. Performed/Canceled callbacks for the same
+action overwrite its previous phase within that update; Performed then Canceled
+therefore leaves Canceled. Actuated Move/Look/Zoom convenience bindings append
+Held records at the end of the update, while the eight-record capacity permits.
 
-Each record contains the action name, values, phase, and a monotonically
-increasing source sequence. A full callback queue drops the newest record. If
-more discrete records are drained than fit in one Intent, the excess is
-dropped; it is not carried into a second hidden command frame.
+InputIntent implements ICoCoIntentFrameSource<RawInputIntent> and only copies
+Reader.TryReadLatest. Reading never drains, advances, acknowledges or replays
+input. Hosts may see the same image repeatedly, or miss a short pulse while
+paused. Resuming reads the latest update, with no backlog. The optional legacy
+TryConsumeBufferedAction convenience API is separate from this broadcast.
 
-The Standard Binding provider binds this source to the package RawInput Intent
-lane and uses the pass-through reducer. Project state scripts consume semantic
-records through the engine-free contracts in
-`Runtime/Core/Contracts/State/CoCoRawInput.cs`.
+The RawInputIntent type, stable ID, reducer and eight-record layout are retained.
+No extra queue or per-Host cursor is created. The action-name encoding is the
+existing CoCoFixedString64 encoding. Capacity overflow is dropped, not deferred.
+Missing, disabled or uninitialized Reader returns false/default. FenceInput
+clears the latest image for every observer. Disabling one InputIntent has no
+effect on another observer or on the Reader.
+
+Migration: replace every Host Intent Sources reference to InputReader with its
+local InputIntent. Programmatic callers use InputIntent.TrySample or the
+non-consuming InputReader.TryReadLatest; InputReader.TrySample is removed.
+StateLogic continues declaring [Intent] public RawInputIntent Input { get; set; }.
+CameraAimCoupler and other TryReadValue callers require no migration.
 
 ## Convenience and event surface
 
@@ -39,7 +48,7 @@ Unity-facing conveniences; only `RawInputIntent` crosses into StateFlow.
 
 `TryReadValue` fails with `false/default` while the Reader is disabled, not
 initialized, changing maps/bindings, or neutral-gating an action. `FenceInput`
-clears the raw queue, short buffer, and convenience snapshots, then publishes
+clears the latest input image, short buffer, and convenience snapshots, then publishes
 `InputFenced`.
 
 Switching action maps and binding changes fence input before and after the
@@ -73,8 +82,7 @@ snapshot; prompt presentation does not become gameplay authority.
 
 ## Boundaries
 
-- The queue and `RawInputIntent` have fixed capacities; overflow is a drop
-  policy, not backpressure.
+- The latest image has eight records; overflow is dropped without replay.
 - `InputReader` samples one local `PlayerInput`; it does not aggregate players,
   network input, AI, replay files, or platform account state.
 - Rebind storage and conflict policy are project-owned.

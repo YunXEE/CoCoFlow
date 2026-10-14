@@ -2,6 +2,17 @@ using System;
 
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>Declares the module registration carried by an Intent source component.</summary>
+    [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
+    public sealed class CoCoIntentRegistrationAttribute : Attribute
+    {
+        public CoCoIntentRegistrationAttribute(Type registrationType)
+        {
+            RegistrationType = registrationType ?? throw new ArgumentNullException(nameof(registrationType));
+        }
+        public Type RegistrationType { get; }
+    }
+
     /// <summary>Refreshes an Intent data property before each State callback.</summary>
     [AttributeUsage(AttributeTargets.Property, Inherited = false)]
     public sealed class IntentAttribute : Attribute
@@ -33,7 +44,7 @@ namespace CoCoFlow.Runtime.Core
     /// <summary>
     /// Declares that a state logic consumes one intent type. The standard
     /// binding binds the intent's package source (for RawInputIntent, the
-    /// scene InputReader) with the built-in pass-through reducer.
+    /// Host InputIntent) with the built-in pass-through reducer.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
     public sealed class CoCoIntentConsumeAttribute : Attribute

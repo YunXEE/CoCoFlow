@@ -4,16 +4,8 @@ using System.Linq;
 
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>
-    /// Standard project binding provider for state logics declared with
-    /// CoCoStateAttribute. Builds a catalog where every such state uses the
-    /// engine-free empty config and stateless memory (explicit
-    /// TryRegisterState remains available for config/memory states), binds
-    /// the RawInputIntent lane with the built-in pass-through reducer, binds
-    /// Host intent source slot 0 to the scene InputReader, and binds one
-    /// default graph-state slot per compiled state using the graph's real
-    /// ids. Install via CoCoFlowRuntimeBootstrap (automatic on play).
-    /// </summary>
+    /// <summary>Builds the standard catalog and binds module-declared Intents,
+    /// Operations and graph state to each Host's explicit scene references.</summary>
     public sealed partial class CoCoStandardBindingProvider :
         ICoCoStateGraphProjectBindingProvider
     {
@@ -21,6 +13,7 @@ namespace CoCoFlow.Runtime.Core
             new StatelessMemoryBinding();
 
         private readonly CoCoGraphDescriptorCatalog _catalog;
+        private readonly Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> _intentRegistrations;
         internal IReadOnlyList<System.Reflection.Assembly> Assemblies { get; private set; }
         private readonly Dictionary<CoCoStateDescriptorId, Type> _stateTypes;
         private readonly Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
@@ -34,12 +27,14 @@ namespace CoCoFlow.Runtime.Core
             Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
                 operationBinders,
             Dictionary<CoCoStateBlockId, ICoCoStandardOperatorRegistrar>
-                contextBinders)
+                contextBinders,
+            Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> intentRegistrations)
         {
             _catalog = catalog;
             _stateTypes = stateTypes;
             _operationBinders = operationBinders;
             _contextBinders = contextBinders;
+            _intentRegistrations = intentRegistrations;
         }
 
         public CoCoGraphDescriptorCatalog Catalog => _catalog;
@@ -48,7 +43,7 @@ namespace CoCoFlow.Runtime.Core
         /// Scans the assembly of the marker type (put the marker next to your
         /// state scripts, or call the scan overload directly) for
         /// CoCoStateAttribute classes and builds the standard catalog.
-        /// RawInputIntent-consuming states are wired automatically.
+        /// Registered Intent payloads are wired automatically.
         /// </summary>
         public static CoCoStandardBindingProvider BuildForAssemblyOf<TMarker>()
         {
@@ -63,20 +58,6 @@ namespace CoCoFlow.Runtime.Core
             IReadOnlyDictionary<CoCoStateDescriptorId, Type> aliases)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
-            if (!builder.TryRegisterIntent(
-                    RawIntents.Player,
-                    2,
-                    new CoCoIntentReducerFactoryToken<
-                        RawInputIntent,
-                        RawInputPassThroughReducer,
-                        RawInputReducerFactory>(1UL),
-                    out CoCoDiagnostic intentDiagnostic))
-            {
-                throw new InvalidOperationException(
-                    "Standard catalog intent registration failed: " +
-                    intentDiagnostic.Message);
-            }
-
             var operationIdsByType =
                 new Dictionary<Type, CoCoOperationSectionId>();
             var registrarsBySectionType =
@@ -105,6 +86,9 @@ namespace CoCoFlow.Runtime.Core
             registrarAssemblies.Sort((left, right) => string.CompareOrdinal(
                 left.FullName,
                 right.FullName));
+
+            var intentRegistrations = RegisterIntents(registrarAssemblies, builder);
+            var intentsByType = intentRegistrations.Values.ToDictionary(item => item.IntentType);
 
             foreach (System.Reflection.Assembly assembly in registrarAssemblies)
             {
@@ -234,19 +218,16 @@ namespace CoCoFlow.Runtime.Core
                         else operationDeclarations.Add(new CoCoOperationProvideAttribute(property.PropertyType));
                     }
 
-                    bool consumesRawInput = false;
-                    foreach (CoCoIntentConsumeAttribute consume in
-                             intentDeclarations)
+                    var requiredIntents = new HashSet<CoCoIntentId>();
+                    foreach (CoCoIntentConsumeAttribute consume in intentDeclarations)
                     {
-                        if (consume.IntentType != typeof(RawInputIntent))
-                        {
-                            throw new InvalidOperationException(
-                                "Standard binding does not register Intent type " +
-                                consume.IntentType.Name + " for State " + type.Name + ".");
-                        }
-
-                        consumesRawInput = true;
+                        if (!intentsByType.TryGetValue(consume.IntentType, out var registration))
+                            throw new InvalidOperationException("No standard Intent registration for " +
+                                consume.IntentType.Name + " in State " + type.Name + ".");
+                        requiredIntents.Add(registration.IntentId);
                     }
+                    CoCoIntentId[] consumedIntents = requiredIntents
+                        .OrderBy(id => id.High).ThenBy(id => id.Low).ToArray();
 
                     var stateProvides = new HashSet<CoCoOperationSectionId>();
                     var stateContextBlocks = new HashSet<CoCoStateBlockId>
@@ -288,7 +269,7 @@ namespace CoCoFlow.Runtime.Core
                             builder,
                             type,
                             descriptorId,
-                            consumesRawInput,
+                            consumedIntents,
                             providedSections,
                             contextBlocks))
                     {
@@ -328,7 +309,35 @@ namespace CoCoFlow.Runtime.Core
                 catalog,
                 stateTypes,
                 operationBinders,
-                contextBinders) { Assemblies = assemblies.ToArray() };
+                contextBinders, intentRegistrations) { Assemblies = assemblies.ToArray() };
+        }
+
+        private static Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> RegisterIntents(
+            IEnumerable<System.Reflection.Assembly> assemblies, CoCoGraphDescriptorCatalogBuilder builder)
+        {
+            var registrations = new Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration>();
+            var payloadTypes = new HashSet<Type>();
+            var registrarTypes = new HashSet<Type>();
+            void Add(ICoCoStandardIntentRegistration registration)
+            {
+                if (registration == null || !registration.IntentId.IsValid ||
+                    registration.IntentType == null || !payloadTypes.Add(registration.IntentType) ||
+                    registrations.ContainsKey(registration.IntentId) || !registration.RegisterCatalog(builder))
+                    throw new InvalidOperationException("Intent registrations require unique valid types and ids.");
+                registrations.Add(registration.IntentId, registration);
+            }
+            Add(new CoCoStandardIntentRegistration<RawInputIntent, RawInputPassThroughReducer,
+                RawInputReducerFactory>(RawIntents.Player, 2, 1UL));
+            foreach (var assembly in assemblies)
+            foreach (var type in GetLoadableTypes(assembly))
+            {
+                if (type == null || !type.IsClass) continue;
+                foreach (CoCoIntentRegistrationAttribute attribute in
+                         type.GetCustomAttributes(typeof(CoCoIntentRegistrationAttribute), false))
+                    if (registrarTypes.Add(attribute.RegistrationType))
+                        Add(Activator.CreateInstance(attribute.RegistrationType) as ICoCoStandardIntentRegistration);
+            }
+            return registrations;
         }
 
         public bool TryConfigure(
@@ -345,48 +354,57 @@ namespace CoCoFlow.Runtime.Core
             return TryBindStandardFactories(bindingBuilder, out diagnostic);
         }
 
-        private static bool TryBindRequiredIntent(
-            CoCoStateGraphHostBindingBuilder bindingBuilder,
-            out CoCoDiagnostic diagnostic)
+        private bool TryBindRequiredIntent(
+            CoCoStateGraphHostBindingBuilder bindingBuilder, out CoCoDiagnostic diagnostic)
         {
-            IReadOnlyList<CoCoIntentRequirement> requirements =
-                bindingBuilder.Graph.IntentRequirements.Requirements;
-            if (requirements.Count == 0)
-            {
-                diagnostic = CoCoDiagnostic.None;
-                return true;
-            }
-
-            if (requirements.Count != 1 ||
-                requirements[0].IntentId != RawIntents.Player ||
-                requirements[0].ValueType != typeof(RawInputIntent))
-            {
-                diagnostic = RegistryError(
-                    CoCoDiagnosticCode.MissingIntentReducer,
-                    "Standard binding supports only the package RawInputIntent lane.");
-                return false;
-            }
-
-            if (!bindingBuilder.TryRegisterIntent<
-                    RawInputIntent,
-                    RawInputPassThroughReducer,
-                    RawInputReducerFactory>(
-                    RawIntents.Player,
-                    new RawInputReducerFactory(),
-                    1UL,
-                    out CoCoIntentHandle<RawInputIntent> intent,
-                    out diagnostic) ||
-                !bindingBuilder.TryBeginIntentBindings(out diagnostic) ||
-                !CoCoIntentSourceRequirement<RawInputIntent>.TryCreate(
-                    intent,
-                    1,
-                    out CoCoIntentSourceRequirement<RawInputIntent> source) ||
-                !bindingBuilder.TryBindIntentSource(0, source, out diagnostic))
-            {
-                return false;
-            }
-
+            var requirements = bindingBuilder.Graph.IntentRequirements.Requirements;
             diagnostic = CoCoDiagnostic.None;
+            if (requirements.Count == 0) return true;
+            var bindings = new ICoCoStandardIntentSourceBinding[requirements.Count];
+            for (int i = 0; i < requirements.Count; i++)
+            {
+                var requirement = requirements[i];
+                if (!_intentRegistrations.TryGetValue(requirement.IntentId, out var registration) ||
+                    registration.IntentType != requirement.ValueType)
+                {
+                    diagnostic = RegistryError(CoCoDiagnosticCode.MissingIntentReducer,
+                        "Compiled Intent has no matching standard registration.");
+                    return false;
+                }
+                if (!registration.TryRegisterHost(bindingBuilder, out bindings[i], out diagnostic)) return false;
+            }
+            if (!bindingBuilder.TryBeginIntentBindings(out diagnostic)) return false;
+            var matched = new bool[bindings.Length];
+            var sources = bindingBuilder.IntentSourceComponents;
+            for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
+            {
+                int match = -1;
+                for (int i = 0; i < bindings.Length; i++)
+                {
+                    if (!bindings[i].Accepts(sources[sourceIndex])) continue;
+                    if (match >= 0)
+                    {
+                        diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                            "One source matches multiple required Intent types.");
+                        return false;
+                    }
+                    match = i;
+                }
+                if (match < 0 || matched[match])
+                {
+                    diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                        "Intent sources must each match one distinct required payload type.");
+                    return false;
+                }
+                if (!bindings[match].TryBind(bindingBuilder, sourceIndex, out diagnostic)) return false;
+                matched[match] = true;
+            }
+            if (matched.Any(value => !value))
+            {
+                diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                    "Every required Intent needs exactly one explicit Host source.");
+                return false;
+            }
             return true;
         }
 
@@ -600,13 +618,13 @@ namespace CoCoFlow.Runtime.Core
             CoCoGraphDescriptorCatalogBuilder builder,
             Type type,
             CoCoStateDescriptorId descriptorId,
-            bool consumesRawInput,
+            CoCoIntentId[] consumedIntents,
             CoCoOperationSectionId[] providedSections,
             CoCoStateBlockId[] contextBlocks)
         {
             if (HasFields(type))
                 return (bool)InvokeFields(nameof(RegisterFields), type, builder, descriptorId,
-                    consumesRawInput, providedSections, contextBlocks);
+                    consumedIntents, providedSections, contextBlocks);
             System.Reflection.MethodInfo helper = typeof(CoCoStandardBindingProvider)
                 .GetMethod(
                     "RegisterStateTyped",
@@ -624,7 +642,7 @@ namespace CoCoFlow.Runtime.Core
                 {
                     builder,
                     descriptorId,
-                    consumesRawInput,
+                    consumedIntents,
                     providedSections,
                     contextBlocks
                 });
@@ -634,7 +652,7 @@ namespace CoCoFlow.Runtime.Core
         private static bool RegisterStateTyped<TLogic>(
             CoCoGraphDescriptorCatalogBuilder builder,
             CoCoStateDescriptorId descriptorId,
-            bool consumesRawInput,
+            CoCoIntentId[] consumedIntents,
             CoCoOperationSectionId[] providedSections,
             CoCoStateBlockId[] contextBlocks)
             where TLogic : CoCoStateLogic, new()
@@ -658,7 +676,7 @@ namespace CoCoFlow.Runtime.Core
                 new EmptyStateConfig.Freezer(),
                 new CoCoStateRuntimeRegistration<TLogic, EmptyConfigSchema, StatelessMemory>(
                     EmptySchemas.State),
-                consumesRawInput ? new[] { RawIntents.Player } : null,
+                consumedIntents,
                 providedSections,
                 contextBlocks,
                 out CoCoDiagnostic diagnostic);
