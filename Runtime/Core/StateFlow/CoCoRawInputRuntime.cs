@@ -5,7 +5,7 @@ namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
     /// Built-in pass-through reduction for RawInputIntent. With one source
-    /// per runtime (the scene InputReader) the latest contribution is the
+    /// per Host (its local InputIntent) the latest contribution is the
     /// frozen value; multi-source merges require an explicit reducer.
     /// </summary>
     public struct RawInputPassThroughReducer : ICoCoIntentReducer<RawInputIntent>

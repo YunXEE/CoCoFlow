@@ -12,7 +12,7 @@ using Object = UnityEngine.Object;
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
     /// <summary>
-    /// C4 end-to-end: InputReader (raw channel) -> IntentFrame ->
+    /// C4 end-to-end: InputReader -> InputIntent -> IntentFrame ->
     /// StateGraph (one Idle state) -> RawInputProbeLogic captures records.
     /// Host driven manually via TryStep. Graph types live in Fixtures.
     /// </summary>
@@ -64,11 +64,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             playerInput.actions = CreateActions();
             playerInput.defaultActionMap = "Player";
             var reader = gameObject.AddComponent<InputReader>();
+            var input = gameObject.AddComponent<InputIntent>();
+            input.SetReader(reader);
             var host = gameObject.AddComponent<CoCoStateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
-            SetField(host, "intentSources", new MonoBehaviour[] { reader });
+            SetField(host, "intentSources", new MonoBehaviour[] { input });
 
             yield return null; // Awake/Start
 
@@ -89,7 +91,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
 
             // diagnostics: sample the reader directly
-            Require(reader.TrySample(default(CoCoTickFrame), out RawInputIntent directIntent));
+            Require(input.TrySample(default(CoCoTickFrame), out RawInputIntent directIntent));
             Debug.Log($"[E2E] direct sample: enabled={reader.isActiveAndEnabled} count={directIntent.Count} map={directIntent.ActiveMap}");
             for (int i = 0; i < directIntent.Count; i++)
             {
@@ -101,9 +103,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             // --- hold W: Move contributes a Held record every sample ---
             Press(keyboard.wKey);
-            yield return new WaitForSeconds(0.05f);
+            InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
             Require(host.TryStep(1f / 60f, out _));
-            InputSystem.Update();
             yield return null;
 
             Debug.Log("[E2E] after W tick: " + RawInputProbeCapture.Records.Count + " records");

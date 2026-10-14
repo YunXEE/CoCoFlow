@@ -47,7 +47,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         private static bool RegisterFields<TLogic, TState>(CoCoGraphDescriptorCatalogBuilder builder,
-            CoCoStateDescriptorId descriptorId, bool consumesRawInput,
+            CoCoStateDescriptorId descriptorId, CoCoIntentId[] consumedIntents,
             CoCoOperationSectionId[] providedSections, CoCoStateBlockId[] contextBlocks)
             where TLogic : CoCoStateLogic, ICoCoStateUpdate, new() where TState : unmanaged
         {
@@ -57,7 +57,7 @@ namespace CoCoFlow.Runtime.Core
                 builder.TryRegisterState<TLogic, CoCoFieldConfig, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(
                     descriptorId, 1, new CoCoFieldConfig.Freezer(typeof(TLogic)),
                     new CoCoStateRuntimeRegistration<TLogic, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(CoCoFieldConfigSchema.Schema),
-                    consumesRawInput ? new[] { RawIntents.Player } : null, providedSections, contextBlocks, out _) &&
+                    consumedIntents, providedSections, contextBlocks, out _) &&
                 builder.TryRegisterStateSlot<CoCoGraphStateRecord<TState>>(block, StandardGraphState.SlotFor(descriptorId),
                     CoCoContextProjection.Temporal | CoCoContextProjection.Durable, CoCoContextRestorePolicy.Stored,
                     default, new CoCoFieldMemory<TLogic, TState>.Binding().SemanticFingerprint, default, null, out _);

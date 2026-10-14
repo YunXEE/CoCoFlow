@@ -92,11 +92,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             playerInput.actions = CreateActions();
             playerInput.defaultActionMap = "Player";
             var reader = gameObject.AddComponent<InputReader>();
+            var input = gameObject.AddComponent<InputIntent>();
+            input.SetReader(reader);
             var host = gameObject.AddComponent<CoCoStateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
-            SetField(host, "intentSources", new MonoBehaviour[] { reader });
+            SetField(host, "intentSources", new MonoBehaviour[] { input });
             gameObject.AddComponent<CharacterController>();
             var movement = gameObject.AddComponent<LocomotionOperator>();
             SetField(host, "operators", new MonoBehaviour[] { movement });
@@ -116,9 +118,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
 
             Press(keyboard.wKey);
-            yield return new WaitForSeconds(0.05f);
+            InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
             Assert.IsTrue(host.TryStep(1f / 60f, out _));
-            InputSystem.Update();
             yield return null;
 
             Assert.IsNotEmpty(
