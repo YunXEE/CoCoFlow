@@ -1,14 +1,15 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.1`.
+`0.4.2`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
 boundaries—not maximum performance, complete Editor tooling, zero defects, or
 marketplace certification. Map and Pooling are explicitly immature and do not
 guarantee API, configuration, or serialized compatibility. Other modules are
-unrated in this release.
+unrated in this release. Explicit breaking changes are listed below and in the
+[changelog](../CHANGELOG.md).
 
 ## Start here
 
@@ -60,10 +61,9 @@ Disabled or unsupported recovery retains that Operator's current Outcome slots
 snapshot, then Derived values rebuild from those combined inputs. Preview keeps
 the current committed frame as its reference until confirmation.
 
-LocomotionOperator and AnimAutoOperator support both interfaces. Old Operator
-Restore Binding chains are no longer supported: remove those references and
-enable the Host switches explicitly. Non-Operator resource bindings keep their
-existing separate role; Map and Pooling behavior is unchanged.
+LocomotionOperator and AnimAutoOperator support both interfaces. CameraOperator
+supports save/load only. Non-Operator resource bindings keep their separate role;
+Map and Pooling behavior is unchanged.
 
 History capacity remains zero or at least two; zero still permits save/load.
 A failed recovery keeps its original recovery purpose for world correction.
@@ -76,10 +76,28 @@ in `Contracts/LocomotionContract.cs`; existing type names remain unchanged.
 
 ## StateLogic properties
 
-Declare reads with `[Intent] public RawInputIntent Input { get; set; }` and writes with
+Declare reads with `[Intent] public InputIntentData Input { get; set; }` and writes with
 `[Operation] public ILocomotionSection Movement { get; set; }`.
 Use `Movement.MoveZ = speed;` or `Movement.Jump(impulse);` inside the normal callback.
 The framework refreshes Intent using the existing TryFirst rule and routes Section writes
-through the existing composition and Operator execution. No source registration is added.
-Class-level dependency attributes and explicit Providers remain supported; choose one
-style per Logic. The script template leaves both dependency declarations to the author.
+through the existing composition and Operator execution. Bind the corresponding
+Intent source and Operator on the Host. Module sources can provide their own
+standard registration; see [Host startup](../Docs/StateGraphRuntime.md#standard-binding-startup).
+The script template leaves both dependency declarations to the author.
+
+## Config and Memory fields
+
+On the standard binding path, declare public instance fields on StateLogic:
+
+```csharp
+[Config] public float Speed = 6f;
+[Memory] public bool ImpulseSent;
+```
+
+Config values belong to each Graph State and are edited in the Graph Editor.
+Missing overrides use the field initializer; zero and false are valid overrides.
+Memory is captured with Context and restored with the saved activation state.
+Both kinds of fields must be unmanaged. The runtime generic binding path has
+not been verified in an IL2CPP Player.
+
+0.4.2 is a breaking release; no migration for old integrations or saves is provided.

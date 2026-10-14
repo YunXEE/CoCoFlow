@@ -660,7 +660,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         /// </summary>
         private sealed class JourneyIntentSource :
             MonoBehaviour,
-            ICoCoIntentFrameSource<RawInputIntent>
+            ICoCoIntentFrameSource<InputIntentData>
         {
             private readonly List<RawInputRecord> _pending =
                 new List<RawInputRecord>();
@@ -687,7 +687,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 _pending.Clear();
             }
 
-            public bool TrySample(in CoCoTickFrame tickFrame, out RawInputIntent intent)
+            public bool TrySample(in CoCoTickFrame tickFrame, out InputIntentData intent)
             {
                 if (_holdMove)
                 {
@@ -697,10 +697,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         JourneyContract.Move, _holdX, _holdY, RawInputPhase.Held));
                 }
 
-                intent = new RawInputIntent
+                intent = new InputIntentData
                 {
                     ActiveMap = CoCoFixedString64.FromString("Gameplay"),
-                    Count = System.Math.Min(_pending.Count, RawInputIntent.RecordCapacity),
+                    Count = System.Math.Min(_pending.Count, InputIntentData.RecordCapacity),
                 };
                 for (int index = 0; index < intent.Count; index++)
                 {

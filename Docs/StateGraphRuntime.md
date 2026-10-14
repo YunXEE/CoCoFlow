@@ -40,7 +40,7 @@ otherwise it scans loaded non-package assemblies for concrete
 no-op for projects that do not use the standard path.
 
 Standard Intent binding matches each Host source by its exact
-ICoCoIntentFrameSource<T> payload type, not list position. RawInputIntent uses the
+ICoCoIntentFrameSource<T> payload type, not list position. InputIntentData uses the
 Host-local InputIntent; CameraIntentData uses CameraIntent. Missing, extra,
 duplicate or ambiguous sources reject startup. Each Host owns its source handles.
 

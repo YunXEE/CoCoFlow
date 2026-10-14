@@ -5,7 +5,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 {
     [DisallowMultipleComponent]
     public sealed class InputIntent : MonoBehaviour,
-        ICoCoIntentFrameSource<RawInputIntent>
+        ICoCoIntentFrameSource<InputIntentData>
     {
         [SerializeField] private InputReader reader;
 
@@ -16,7 +16,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
         public bool TrySample(
             in CoCoTickFrame tickFrame,
-            out RawInputIntent intent)
+            out InputIntentData intent)
         {
             intent = default;
             return isActiveAndEnabled &&

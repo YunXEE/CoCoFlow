@@ -80,7 +80,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// (edge order fixed by the test graph build: 0=Move, 1=Jump, 2=Attack).
     /// </summary>
     [CoCoState("JourneyIdle")]
-    [CoCoIntentConsume(typeof(RawInputIntent))]
+    [CoCoIntentConsume(typeof(InputIntentData))]
     [CoCoOperationProvide(typeof(ILocomotionSection))]
     [CoCoOperationProvide(typeof(IAnimParameterOperationSection))]
     public sealed class JourneyIdleLogic : CoCoStateLogic, ICoCoStateUpdate
@@ -112,7 +112,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         {
             moveX = 0f;
             moveZ = 0f;
-            if (!context.Intents.TryFirst(out RawInputIntent intent))
+            if (!context.Intents.TryFirst(out InputIntentData intent))
             {
                 return false;
             }
@@ -135,7 +135,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             CoCoStateExecutionContext context,
             string action)
         {
-            if (!context.Intents.TryFirst(out RawInputIntent intent))
+            if (!context.Intents.TryFirst(out InputIntentData intent))
             {
                 return false;
             }
@@ -161,7 +161,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// Records the committed locomotion slot for convergence assertions.
     /// </summary>
     [CoCoState("JourneyMove")]
-    [CoCoIntentConsume(typeof(RawInputIntent))]
+    [CoCoIntentConsume(typeof(InputIntentData))]
     [CoCoOperationProvide(typeof(ILocomotionSection))]
     public sealed class JourneyMoveLogic : CoCoStateLogic, ICoCoStateUpdate
     {
@@ -225,7 +225,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// Records the committed Animator snapshot for restore assertions.
     /// </summary>
     [CoCoState("JourneyJump")]
-    [CoCoIntentConsume(typeof(RawInputIntent))]
+    [CoCoIntentConsume(typeof(InputIntentData))]
     [CoCoOperationProvide(typeof(ILocomotionSection))]
     public sealed class JourneyJumpLogic : CoCoStateLogic, ICoCoStateEnter, ICoCoStateUpdate
     {
@@ -298,7 +298,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// Idle (edge 0) after a short beat.
     /// </summary>
     [CoCoState("JourneyAttack")]
-    [CoCoIntentConsume(typeof(RawInputIntent))]
+    [CoCoIntentConsume(typeof(InputIntentData))]
     [CoCoOperationProvide(typeof(IAnimTriggerOperationSection))]
     public sealed class JourneyAttackLogic : CoCoStateLogic, ICoCoStateEnter, ICoCoStateUpdate
     {

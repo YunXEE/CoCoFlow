@@ -13,15 +13,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static List<RawInputRecord> Records;
     }
 
-    public struct RawInputProbeReducer : ICoCoIntentReducer<RawInputIntent>
+    public struct RawInputProbeReducer : ICoCoIntentReducer<InputIntentData>
     {
-        public RawInputIntent Reduce(
-            in RawInputIntent current,
-            in RawInputIntent candidate) => candidate;
+        public InputIntentData Reduce(
+            in InputIntentData current,
+            in InputIntentData candidate) => candidate;
     }
 
     public sealed class RawInputProbeReducerFactory :
-        ICoCoIntentReducerFactory<RawInputIntent, RawInputProbeReducer>
+        ICoCoIntentReducerFactory<InputIntentData, RawInputProbeReducer>
     {
         public RawInputProbeReducer Create(
             CoCoGraphInstanceId graphInstanceId) => default;
@@ -31,11 +31,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         CoCoStateLogic,
         ICoCoStateUpdate
     {
-        private readonly CoCoIntentHandle<RawInputIntent> _intent;
+        private readonly CoCoIntentHandle<InputIntentData> _intent;
 
         public RawInputProbeLogic(
             CoCoStateFactoryContext context,
-            CoCoIntentHandle<RawInputIntent> intent)
+            CoCoIntentHandle<InputIntentData> intent)
         {
             _intent = intent;
         }
@@ -44,7 +44,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         {
             if (_intent.IsValid &&
                 context.Intents != null &&
-                context.Intents.TryGet(_intent, out RawInputIntent intent))
+                context.Intents.TryGet(_intent, out InputIntentData intent))
             {
                 if (RawInputProbeCapture.Records == null)
                 {
