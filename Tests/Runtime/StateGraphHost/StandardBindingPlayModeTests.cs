@@ -17,7 +17,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// C4.5 standard path end-to-end: a CoCoState-attributed logic (declared
     /// below in this test assembly) is registered through
     /// CoCoStandardBindingProvider.Build, installed, and a one-state graph
-    /// runs a tick where the state logic receives RawInputIntent records.
+    /// runs a tick where the state logic receives InputIntentData records.
     /// </summary>
     public sealed class StandardBindingPlayModeTests : InputTestFixture
     {

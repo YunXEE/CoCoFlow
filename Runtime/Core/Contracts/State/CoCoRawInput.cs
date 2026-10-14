@@ -155,7 +155,7 @@ namespace CoCoFlow.Runtime.Core
     /// same action. Continuous convenience actions append Held while actuated.
     /// Reading never drains this value; missed input updates are not replayed.
     /// </summary>
-    public struct RawInputIntent
+    public struct InputIntentData
     {
         public const int RecordCapacity = 8;
 

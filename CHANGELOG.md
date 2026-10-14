@@ -6,6 +6,38 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.2] - 2026-10-14
+
+### Added and changed
+
+- StateLogic declares `[Intent]` and `[Operation]` properties directly; the
+  script template starts with an empty Update callback and dependency hints.
+- `[Config]` fields provide independent Graph State configuration. `[Memory]`
+  fields participate in Context snapshots, Temporal restore, and save/load.
+- Host Operators have independent save/load and Temporal recovery switches,
+  both off by default. LocomotionOperator and AnimAutoOperator support both.
+- CameraIntentData exposes the output Camera's world position and Euler rotation.
+  CameraOperation forwards numeric Rig/Camera requests to CameraDirector, which
+  owns state capture and durable recovery.
+- Persistent InputReader broadcasts its latest update to Host-local InputIntent
+  components. Reads do not consume input or replay missed updates. The payload
+  is named InputIntentData, consistent with CameraIntentData; its layout and
+  behavior are unchanged by the rename.
+- Standard Intent sources register by payload type. Locomotion sources now live
+  under `Runtime/Modules/Locomotion`.
+
+### Boundaries
+
+- Breaking release; no migration for old integrations or saves is provided.
+- Camera saves use the latest committed Context and restore the existing Rig
+  set (up to 64), without Lens/FOV or object reconstruction. Keep scheduling
+  enabled, or keep the camera unchanged while suspended. Restore resets blending.
+- Animator snapshot fidelity and Map/Pooling behavior are unchanged.
+- The Config/Memory runtime generic binding path remains unverified in IL2CPP.
+
+See [StateLogic and Host](Documentation~/index.md), [Camera](Docs/Module-Camera.md),
+and [Input](Docs/Module-Input.md) for current usage.
+
 ## [0.4.1] - 2026-09-04
 
 Legacy Gameplay sample removal and mature Editor polish. No new public Runtime

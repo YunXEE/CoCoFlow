@@ -91,16 +91,16 @@ fully custom binding provider:
   parameterless constructor, and is marked with `CoCoStateAttribute` becomes a
   Catalog State; its descriptor ID is derived deterministically from the
   attribute name;
-- `CoCoIntentConsumeAttribute(typeof(RawInputIntent))` declares the one
-  package-provided standard Intent lane;
-- `CoCoOperationProvideAttribute` declares an Operation Section whose owning
+- `[Intent]` properties declare registered payload types, including
+  `InputIntentData` and `CameraIntentData`;
+- `[Operation]` properties declare Operation Sections whose owning
   `ICoCoStandardOperatorRegistrar` must be discoverable from an Operator's
   `CoCoOperatorRegistrationAttribute`;
 - each standard State receives one deterministic Graph-owned Context block and
   Stored state slot marked for Temporal and Durable projection;
-- the current standard registration uses `EmptyStateConfig` and
-  `StatelessMemory`. States that need custom frozen config or activation memory
-  still require explicit Catalog/provider registration.
+- `[Config]` and `[Memory]` public instance fields use the standard automatic
+  binding path. States without these fields use `EmptyStateConfig` and
+  `StatelessMemory`.
 
 The builder rejects abstract or non-State types, unsupported Intent types,
 unknown Operation Sections, duplicate descriptor IDs, missing registrars, and

@@ -326,7 +326,7 @@ namespace CoCoFlow.Runtime.Core
                     throw new InvalidOperationException("Intent registrations require unique valid types and ids.");
                 registrations.Add(registration.IntentId, registration);
             }
-            Add(new CoCoStandardIntentRegistration<RawInputIntent, RawInputPassThroughReducer,
+            Add(new CoCoStandardIntentRegistration<InputIntentData, RawInputPassThroughReducer,
                 RawInputReducerFactory>(RawIntents.Player, 2, 1UL));
             foreach (var assembly in assemblies)
             foreach (var type in GetLoadableTypes(assembly))

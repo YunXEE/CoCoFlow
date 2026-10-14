@@ -50,11 +50,11 @@ namespace CoCoFlow.Tests.Editor.CoreContracts
         [Test]
         public void Intent_TryGetAndCapacityBoundary()
         {
-            var intent = new RawInputIntent();
+            var intent = new InputIntentData();
             Assert.IsFalse(intent.TryGet(0, out _));
             Assert.AreEqual(0, intent.Count);
 
-            for (int index = 0; index < RawInputIntent.RecordCapacity; index++)
+            for (int index = 0; index < InputIntentData.RecordCapacity; index++)
             {
                 intent.Set(index, new RawInputRecord
                 {
@@ -63,7 +63,7 @@ namespace CoCoFlow.Tests.Editor.CoreContracts
                 });
             }
 
-            intent.Count = RawInputIntent.RecordCapacity;
+            intent.Count = InputIntentData.RecordCapacity;
             Assert.IsTrue(intent.TryGet(7, out RawInputRecord last));
             Assert.AreEqual("A7", last.Action.ToString());
             Assert.IsFalse(intent.TryGet(8, out _));
@@ -72,7 +72,7 @@ namespace CoCoFlow.Tests.Editor.CoreContracts
         [Test]
         public void Intent_TryFindMatchesNameAndPhaseInArrivalOrder()
         {
-            var intent = new RawInputIntent();
+            var intent = new InputIntentData();
             intent.Set(intent.Count++, new RawInputRecord
             {
                 Action = CoCoFixedString64.FromString("Move"),
@@ -105,7 +105,7 @@ namespace CoCoFlow.Tests.Editor.CoreContracts
         [Test]
         public void Intent_TryFindReturnsFirstDuplicateInArrivalOrder()
         {
-            var intent = new RawInputIntent();
+            var intent = new InputIntentData();
             intent.Set(intent.Count++, new RawInputRecord
             {
                 Action = CoCoFixedString64.FromString("Jump"),

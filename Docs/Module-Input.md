@@ -1,14 +1,14 @@
 # Module: Input
 
-> Documentation baseline: `0.4.0` · Updated 2026-08-29
+> Documentation baseline: `0.4.2` · Updated 2026-10-14
 
 The Input module owns the Unity Input System boundary. `PlayerInput`, its
 runtime `InputActionAsset`, actions, devices, control scheme, bindings, and
 rebind overrides remain the physical-input authority. StateGraph consumes the
-unmanaged `RawInputIntent`; it never reads an `InputAction`, device callback, or
+unmanaged `InputIntentData`; it never reads an `InputAction`, device callback, or
 binding path.
 
-## RawInputIntent broadcast
+## InputIntentData broadcast
 
 Keep PlayerInput and InputReader on a persistent object. On each Host, add an
 InputIntent, assign its Reader, and put InputIntent in the Host Intent Sources.
@@ -20,31 +20,29 @@ action overwrite its previous phase within that update; Performed then Canceled
 therefore leaves Canceled. Actuated Move/Look/Zoom convenience bindings append
 Held records at the end of the update, while the eight-record capacity permits.
 
-InputIntent implements ICoCoIntentFrameSource<RawInputIntent> and only copies
+InputIntent implements ICoCoIntentFrameSource<InputIntentData> and only copies
 Reader.TryReadLatest. Reading never drains, advances, acknowledges or replays
 input. Hosts may see the same image repeatedly, or miss a short pulse while
 paused. Resuming reads the latest update, with no backlog. The optional legacy
 TryConsumeBufferedAction convenience API is separate from this broadcast.
 
-The RawInputIntent type, stable ID, reducer and eight-record layout are retained.
+InputIntentData carries up to eight records using the pass-through reducer.
 No extra queue or per-Host cursor is created. The action-name encoding is the
 existing CoCoFixedString64 encoding. Capacity overflow is dropped, not deferred.
 Missing, disabled or uninitialized Reader returns false/default. FenceInput
 clears the latest image for every observer. Disabling one InputIntent has no
 effect on another observer or on the Reader.
 
-Migration: replace every Host Intent Sources reference to InputReader with its
-local InputIntent. Programmatic callers use InputIntent.TrySample or the
-non-consuming InputReader.TryReadLatest; InputReader.TrySample is removed.
-StateLogic continues declaring [Intent] public RawInputIntent Input { get; set; }.
-CameraAimCoupler and other TryReadValue callers require no migration.
+Programmatic callers use InputIntent.TrySample or the non-consuming
+InputReader.TryReadLatest. StateLogic declares
+`[Intent] public InputIntentData Input { get; set; }`.
 
 ## Convenience and event surface
 
 `InputReader` also exposes current `MoveInput`, `LookInput`, and `ZoomInput`,
 typed `TryReadValue`, performed/canceled `ActionChanged`, action-name events,
 prompt changes, and a short optional one-action input buffer. These are local
-Unity-facing conveniences; only `RawInputIntent` crosses into StateFlow.
+Unity-facing conveniences; only `InputIntentData` crosses into StateFlow.
 
 `TryReadValue` fails with `false/default` while the Reader is disabled, not
 initialized, changing maps/bindings, or neutral-gating an action. `FenceInput`
@@ -87,4 +85,4 @@ snapshot; prompt presentation does not become gameplay authority.
   network input, AI, replay files, or platform account state.
 - Rebind storage and conflict policy are project-owned.
 - This document describes current behavior but makes no maturity classification
-  for the Input module in 0.4.0.
+  for the Input module in 0.4.2.

@@ -60,7 +60,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         private bool _bindingOverrideLoadAttempted;
         private bool _hasStarted;
 
-        private RawInputIntent _latestInput;
+        private InputIntentData _latestInput;
         private uint _inputUpdateCount;
         private ulong _rawSequence;
 
@@ -206,7 +206,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             AppendHeldIfActuated(zoomAction, ZoomInput, ref _latestInput);
         }
 
-        public bool TryReadLatest(out RawInputIntent intent)
+        public bool TryReadLatest(out InputIntentData intent)
         {
             intent = default;
             if (!isActiveAndEnabled || !_runtimeInitialized)
@@ -221,10 +221,10 @@ namespace CoCoFlow.Runtime.Modules.Input
         private void AppendHeldIfActuated(
             InputActionReference actionReference,
             Vector2 value,
-            ref RawInputIntent intent)
+            ref InputIntentData intent)
         {
             if (value.sqrMagnitude <= 0.0000001f ||
-                intent.Count >= RawInputIntent.RecordCapacity ||
+                intent.Count >= InputIntentData.RecordCapacity ||
                 !TryResolveAction(actionReference, out InputAction action))
             {
                 return;
@@ -259,7 +259,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                 index++;
             }
 
-            if (index >= RawInputIntent.RecordCapacity)
+            if (index >= InputIntentData.RecordCapacity)
             {
                 return;
             }

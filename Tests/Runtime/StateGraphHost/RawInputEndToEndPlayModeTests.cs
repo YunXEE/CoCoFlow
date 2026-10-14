@@ -91,7 +91,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
 
             // diagnostics: sample the reader directly
-            Require(input.TrySample(default(CoCoTickFrame), out RawInputIntent directIntent));
+            Require(input.TrySample(default(CoCoTickFrame), out InputIntentData directIntent));
             Debug.Log($"[E2E] direct sample: enabled={reader.isActiveAndEnabled} count={directIntent.Count} map={directIntent.ActiveMap}");
             for (int i = 0; i < directIntent.Count; i++)
             {
@@ -246,7 +246,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         _intentId,
                         2,
                         new CoCoIntentReducerFactoryToken<
-                            RawInputIntent,
+                            InputIntentData,
                             RawInputProbeReducer,
                             RawInputProbeReducerFactory>(1UL),
                         out CoCoDiagnostic intentDiagnostic) ||
@@ -292,21 +292,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoDiagnostic diagnostic)
             {
                 if (!bindingBuilder.TryRegisterIntent<
-                        RawInputIntent, RawInputProbeReducer, RawInputProbeReducerFactory>(
+                        InputIntentData, RawInputProbeReducer, RawInputProbeReducerFactory>(
                         _intentId,
                         new RawInputProbeReducerFactory(),
                         1UL,
-                        out CoCoIntentHandle<RawInputIntent> intent,
+                        out CoCoIntentHandle<InputIntentData> intent,
                         out diagnostic) ||
                     !bindingBuilder.TryBeginIntentBindings(out diagnostic))
                 {
                     return false;
                 }
 
-                if (!CoCoIntentSourceRequirement<RawInputIntent>.TryCreate(
+                if (!CoCoIntentSourceRequirement<InputIntentData>.TryCreate(
                         intent,
                         1,
-                        out CoCoIntentSourceRequirement<RawInputIntent> requirement) ||
+                        out CoCoIntentSourceRequirement<InputIntentData> requirement) ||
                     !bindingBuilder.TryBindIntentSource(0, requirement, out diagnostic) ||
                     !bindingBuilder.TryBindGraphStateSlot<
                         RawInputProbeMemory,

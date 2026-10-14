@@ -43,7 +43,7 @@ namespace CoCoFlow.Runtime.Core
 
     /// <summary>
     /// Declares that a state logic consumes one intent type. The standard
-    /// binding binds the intent's package source (for RawInputIntent, the
+    /// binding binds the intent's package source (for InputIntentData, the
     /// Host InputIntent) with the built-in pass-through reducer.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]

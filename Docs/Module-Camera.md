@@ -1,6 +1,6 @@
 # Module: Camera
 
-> **Maturity: Mature** · Documentation baseline: `0.4.0` · Updated 2026-08-29
+> **Maturity: Mature** · Documentation baseline: `0.4.2` · Updated 2026-10-14
 >
 > The module originated in 0.3.9. Its current Runtime API is stable and usable;
 > that history does not make it transitional or scheduled for replacement.
