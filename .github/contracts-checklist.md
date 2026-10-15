@@ -64,6 +64,9 @@
 - [ ] D043-14: Direct Adapter components belong to their Host boundary. Only
       Running accepts direct input; full typed queues drop new arrivals without
       faulting the Host. Legacy Packet reliable-overflow rules remain unchanged.
+- [ ] D043-15: Rejected Temporal calls preserve direct Inbox mail while still
+      advancing InputAuthorityRevision. Successful Temporal operations and other
+      lifecycle input-authority boundaries continue to clear direct mail.
 - [ ] D043-12: State Outbox.Publish snapshots raw unmanaged payloads without
       sender registration, shares bounded outbox capacity, publishes only after
       successful commit, and clears candidates on cancellation. Existing Packet

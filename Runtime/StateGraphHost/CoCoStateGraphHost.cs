@@ -1671,7 +1671,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            AdvanceInputAuthorityRevision();
+            AdvanceInputAuthorityRevision(clearStateInbox: false);
             bool succeeded;
             _isTemporalOperation = true;
             try
@@ -1703,6 +1703,11 @@ namespace CoCoFlow.Runtime.Core
                         succeeded = false;
                         diagnostic = LifecycleError("Temporal operation is not defined.");
                         break;
+                }
+
+                if (succeeded)
+                {
+                    _stateInbox?.Clear();
                 }
             }
             finally
@@ -1821,9 +1826,12 @@ namespace CoCoFlow.Runtime.Core
             AdvanceInputAuthorityRevision();
         }
 
-        private void AdvanceInputAuthorityRevision()
+        private void AdvanceInputAuthorityRevision(bool clearStateInbox = true)
         {
-            _stateInbox?.Clear();
+            if (clearStateInbox)
+            {
+                _stateInbox?.Clear();
+            }
             _inputAuthorityRevision =
                 _inputAuthorityRevision == ulong.MaxValue
                     ? 1UL

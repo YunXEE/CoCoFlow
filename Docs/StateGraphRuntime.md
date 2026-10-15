@@ -530,7 +530,7 @@ The Host is the Actor's single gameplay-event boundary. StateLogic cannot
 publish an immediately visible gameplay event; Operators may only append typed,
 preallocated EventOutbox candidates owned by their current transaction token.
 
-### Direct State mailbox (D043-04/07/11/12/14)
+### Direct State mailbox (D043-04/07/11/12/14/15)
 
 An attached component implements `ICoCoEventInboxAdapter<TEvent>.Accept(in TEvent)`
 for each unmanaged event it receives and is referenced in the Host's Event
@@ -551,7 +551,9 @@ and `mails.TryRead(index, out var mail)`. Registered empty batches have Count 0;
 unknown types return false. Views expire after their callback. Reading does not
 consume mail, and later Ticks replace unread batches. Mail arriving after the
 freeze waits for a later Tick. Subscription cleanup follows Host Stop/Dispose;
-input-authority changes clear the direct mailbox backlog.
+lifecycle input-authority changes clear the direct mailbox backlog. Temporal
+attempts still advance `InputAuthorityRevision`, but clear direct mail only when
+the operation succeeds. Rejected Temporal calls preserve pending mail (D043-15).
 
 `context.Outbox.Publish(in mail)` snapshots an unmanaged payload during Enter,
 Update, or Exit. It requires no send registration or receiving Adapter. Success
