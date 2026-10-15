@@ -1,8 +1,8 @@
 {
   "name": "com.yunxee.cocoflow",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "displayName": "CoCoFlow",
-  "description": "A Unity 6 State Flow and layered HFSM framework with declarative StateLogic, per-state Config and Memory, transactional Context commits, selective Operator recovery, and shared input and camera integration.",
+  "description": "A Unity 6 State Flow and layered HFSM framework with declarative StateLogic, per-state Config and Memory, typed State mailboxes, transactional Context commits, delayed event publication, and shared input and camera integration.",
   "unity": "6000.0",
   "dependencies": {
     "com.unity.inputsystem": "1.18.0",

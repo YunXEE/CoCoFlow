@@ -32,6 +32,7 @@ namespace CoCoFlow.Runtime.Core
     internal sealed class CoCoStateGraphTransaction :
         ICoCoEventOutboxSink,
         ICoCoCommittedEventPublisher,
+        ICoCoStateEventOutbox,
         IDisposable
     {
         private readonly CoCoGraphInstanceId _graphInstanceId;
@@ -41,6 +42,8 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoStateGraphOperatorRuntime _operators;
         private readonly ICoCoEventOutboxLane[] _outboxLanes;
         private readonly OutboxLedgerEntry[] _outboxLedger;
+        private readonly List<IPendingStateEvent> _stateEvents = new List<IPendingStateEvent>();
+        private readonly Dictionary<Type, IStateEventPool> _stateEventPools = new Dictionary<Type, IStateEventPool>();
         private readonly CoCoStateFlowTraceBuffer _trace;
         private CoCoPreparedContextCommit _preparedContext;
         private CoCoFinalizedContextCommit _preparedRestoreContext;
@@ -82,7 +85,7 @@ namespace CoCoFlow.Runtime.Core
         internal CoCoContextFrame CurrentContext => _contextArena.Current;
         internal CoCoContextFrameReadView PreviousContext => _contextArena.Previous;
         internal ICoCoStateFlowTrace Trace => _trace;
-        internal int CandidateEventCount => _outboxLedgerCount;
+        internal int CandidateEventCount => _outboxLedgerCount + _stateEvents.Count;
         internal bool HasOutboxFailure => _outboxWriteFault;
 
         internal bool TryCaptureCommittedDebugState(
@@ -1192,7 +1195,7 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoEventOutboxWriteResult.InvalidWriter;
             }
 
-            if (_outboxLedgerCount >= _outboxLedger.Length)
+            if (CandidateEventCount >= _outboxLedger.Length)
             {
                 _outboxWriteFault = true;
                 return CoCoEventOutboxWriteResult.CapacityExceeded;
@@ -1225,6 +1228,48 @@ namespace CoCoFlow.Runtime.Core
 
             _outboxWriteFault = true;
             return CoCoEventOutboxWriteResult.UndeclaredEventType;
+        }
+
+        void ICoCoStateEventOutbox.Publish<TEvent>(in TEvent payload)
+        {
+            if (CandidateEventCount >= _outboxLedger.Length)
+            {
+                _outboxWriteFault = true;
+                return;
+            }
+            if (!_stateEventPools.TryGetValue(typeof(TEvent), out var pool))
+            {
+                pool = new StateEventPool<TEvent>();
+                _stateEventPools.Add(typeof(TEvent), pool);
+            }
+            _stateEvents.Add(((StateEventPool<TEvent>)pool).Append(in payload));
+        }
+
+        private interface IPendingStateEvent { void Publish(); }
+        private interface IStateEventPool { void Reset(); }
+
+        private sealed class StateEventPool<TEvent> : IStateEventPool where TEvent : unmanaged
+        {
+            private readonly List<PendingStateEvent<TEvent>> _items = new List<PendingStateEvent<TEvent>>();
+            private int _count;
+            internal IPendingStateEvent Append(in TEvent payload)
+            {
+                if (_count == _items.Count) _items.Add(new PendingStateEvent<TEvent>());
+                var item = _items[_count++];
+                item.Payload = payload;
+                return item;
+            }
+            public void Reset() => _count = 0;
+        }
+
+        private sealed class PendingStateEvent<TEvent> : IPendingStateEvent where TEvent : unmanaged
+        {
+            internal TEvent Payload;
+            public void Publish()
+            {
+                var copy = Payload;
+                CoCoEventBus.Publish(ref copy);
+            }
         }
 
         bool ICoCoCommittedEventPublisher.TryPublish<TEvent>(
@@ -1278,6 +1323,11 @@ namespace CoCoFlow.Runtime.Core
             _host.BeginCommittedEventPublication();
             try
             {
+                foreach (var pending in _stateEvents)
+                {
+                    try { pending.Publish(); }
+                    catch (Exception) { allPublished = false; }
+                }
                 for (int ledgerIndex = 0; ledgerIndex < _outboxLedgerCount; ledgerIndex++)
                 {
                     OutboxLedgerEntry entry = _outboxLedger[ledgerIndex];
@@ -1396,6 +1446,8 @@ namespace CoCoFlow.Runtime.Core
 
         private void ResetOutbox()
         {
+            _stateEvents.Clear();
+            foreach (var pool in _stateEventPools.Values) pool.Reset();
             for (int index = 0; index < _outboxLanes.Length; index++)
             {
                 _outboxLanes[index].Reset();

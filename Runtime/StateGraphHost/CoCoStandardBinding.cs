@@ -16,6 +16,7 @@ namespace CoCoFlow.Runtime.Core
         private readonly Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> _intentRegistrations;
         internal IReadOnlyList<System.Reflection.Assembly> Assemblies { get; private set; }
         private readonly Dictionary<CoCoStateDescriptorId, Type> _stateTypes;
+        private Dictionary<CoCoConditionDescriptorId, ICoCoConditionRuntimeFactory> _conditionFactories;
         private readonly Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
             _operationBinders;
         private readonly Dictionary<CoCoStateBlockId, ICoCoStandardOperatorRegistrar>
@@ -297,6 +298,7 @@ namespace CoCoFlow.Runtime.Core
                     "state logic classes in the scanned assemblies.");
             }
 
+            var conditionFactories = RegisterConditions(assemblies, builder);
             if (!builder.TryFreeze(
                     out CoCoGraphDescriptorCatalog catalog,
                     out CoCoDiagnostic freezeDiagnostic))
@@ -309,7 +311,8 @@ namespace CoCoFlow.Runtime.Core
                 catalog,
                 stateTypes,
                 operationBinders,
-                contextBinders, intentRegistrations) { Assemblies = assemblies.ToArray() };
+                contextBinders, intentRegistrations)
+                { Assemblies = assemblies.ToArray(), _conditionFactories = conditionFactories };
         }
 
         private static Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> RegisterIntents(
@@ -351,7 +354,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            return TryBindStandardFactories(bindingBuilder, out diagnostic);
+            return TryBindStandardFactories(bindingBuilder, out diagnostic) &&
+                   TryBindStandardConditions(bindingBuilder, out diagnostic);
         }
 
         private bool TryBindRequiredIntent(
@@ -675,7 +679,7 @@ namespace CoCoFlow.Runtime.Core
                 1U,
                 new EmptyStateConfig.Freezer(),
                 new CoCoStateRuntimeRegistration<TLogic, EmptyConfigSchema, StatelessMemory>(
-                    EmptySchemas.State),
+                    EmptySchemas.State, ProvidesActionProgress(typeof(TLogic))),
                 consumedIntents,
                 providedSections,
                 contextBlocks,
@@ -859,6 +863,67 @@ namespace CoCoFlow.Runtime.Core
         {
             int high = left.High.CompareTo(right.High);
             return high != 0 ? high : left.Low.CompareTo(right.Low);
+        }
+
+        private static bool ProvidesActionProgress(Type type) =>
+            ((CoCoStateAttribute)Attribute.GetCustomAttribute(type, typeof(CoCoStateAttribute)))
+                ?.ProvidesActionProgress ?? false;
+
+        private static Dictionary<CoCoConditionDescriptorId, ICoCoConditionRuntimeFactory> RegisterConditions(
+            IReadOnlyList<System.Reflection.Assembly> assemblies, CoCoGraphDescriptorCatalogBuilder builder)
+        {
+            var factories = new Dictionary<CoCoConditionDescriptorId, ICoCoConditionRuntimeFactory>();
+            foreach (var type in assemblies.SelectMany(GetLoadableTypes))
+            {
+                if (type == null || !type.IsDefined(typeof(ConditionAttribute), false)) continue;
+                if (type.IsAbstract || type.ContainsGenericParameters ||
+                    !typeof(CoCoStateCondition).IsAssignableFrom(type) ||
+                    !typeof(ICoCoStateConditionEvaluator).IsAssignableFrom(type) ||
+                    type.GetConstructor(Type.EmptyTypes) == null)
+                    throw new InvalidOperationException("Invalid standard Condition: " + type.FullName);
+                CoCoConditionDescriptorId.TryCreate(0x434F434F434F4E44UL,
+                    StandardDescriptors.DeriveLow(type.FullName), out var id);
+                var factory = (ICoCoConditionRuntimeFactory)typeof(CoCoStandardBindingProvider)
+                    .GetMethod(nameof(RegisterCondition),
+                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                    .MakeGenericMethod(type).Invoke(null, new object[] { builder, id });
+                factories.Add(id, factory);
+            }
+            return factories;
+        }
+
+        private static ICoCoConditionRuntimeFactory RegisterCondition<TCondition>(
+            CoCoGraphDescriptorCatalogBuilder builder, CoCoConditionDescriptorId id)
+            where TCondition : CoCoStateCondition, ICoCoStateConditionEvaluator, new()
+        {
+            if (!builder.TryRegisterCondition(
+                    id, 1, new CoCoEmptyConditionConfig.Freezer(),
+                    new CoCoConditionRuntimeRegistration<TCondition, EmptyConfigSchema>(EmptySchemas.State),
+                    Array.Empty<CoCoIntentId>(), Array.Empty<CoCoStateBlockId>(), out var diagnostic))
+                throw new InvalidOperationException(diagnostic.Message);
+            return new CoCoConditionRuntimeFactory<TCondition>(_ => new TCondition());
+        }
+
+        private bool TryBindStandardConditions(CoCoStateGraphHostBindingBuilder builder,
+            out CoCoDiagnostic diagnostic)
+        {
+            var bound = new HashSet<CoCoConditionDescriptorId>();
+            foreach (var layer in builder.Graph.Layers)
+            foreach (var transition in layer.Transitions)
+            foreach (var condition in transition.Conditions)
+            {
+                var id = condition.Descriptor.DescriptorId;
+                if (!bound.Add(id)) continue;
+                if (!_conditionFactories.TryGetValue(id, out var factory))
+                {
+                    diagnostic = RegistryError(CoCoDiagnosticCode.MissingDescriptor,
+                        "No standard Condition factory for " + id);
+                    return false;
+                }
+                if (!builder.TryBindCondition(id, factory, out diagnostic)) return false;
+            }
+            diagnostic = CoCoDiagnostic.None;
+            return true;
         }
 
         private static CoCoDiagnostic RegistryError(

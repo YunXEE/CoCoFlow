@@ -333,6 +333,9 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoActorClock _clock;
         private readonly object _transitionHandleOwner;
         private readonly LayerRuntime[] _layers;
+        private CoCoStateEventInbox _eventInbox;
+        private ICoCoStateEventOutbox _eventOutbox;
+
         private readonly CoCoActivePath[] _activePaths;
         private readonly CoCoConditionEvaluationContext _conditionContext;
         private readonly CoCoStateCallbackOperationLease _stateCallbackOperationLease;
@@ -358,6 +361,12 @@ namespace CoCoFlow.Runtime.Core
         private bool _isExecutingStep;
         private bool _disposeRequested;
         private bool _isDisposed;
+
+        internal void AttachEvents(CoCoStateEventInbox inbox, ICoCoStateEventOutbox outbox)
+        {
+            _eventInbox = inbox;
+            _eventOutbox = outbox;
+        }
 
         private CoCoStateGraphRuntime(
             CoCoCompiledStateGraph graph,
@@ -1889,6 +1898,7 @@ namespace CoCoFlow.Runtime.Core
             bool contextHasError;
             try
             {
+                stateContext.AttachEvents(_eventInbox, _eventOutbox);
                 stateContext.Prepare(
                     this,
                     state.CandidateMemory,

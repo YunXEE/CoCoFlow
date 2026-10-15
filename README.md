@@ -1,29 +1,28 @@
 # CoCoFlow
 
-> **Version**: 0.4.2 · **Unity**: 6000+
+> **Version**: 0.4.3 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
 CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
-runtime ownership. Version 0.4.2 simplifies StateLogic authoring and connects
-per-state data, Operator recovery, shared input, and Camera to the Host workflow.
+runtime ownership.
 
-## New in 0.4.2
+## New in 0.4.3
 
-- Declare `[Intent]` and `[Operation]` properties directly in StateLogic. The
-  minimal script template leaves dependencies and business logic to the author.
-- Use `[Config]` fields for independent Graph State configuration and `[Memory]`
-  fields for activation state captured and restored with Context.
-- Enable save/load and Temporal recovery independently for each supported
-  Operator in the Host Inspector. Both switches default to off.
-- Read the output camera's world pose through `CameraIntentData`; send numeric
-  Rig/Camera selections through `CameraOperation`, with Director-owned save/load.
-- Share one persistent `InputReader` between Host-local `InputIntent` components.
-  `InputIntentData` exposes the latest input update without consuming it or
-  replaying input missed while paused.
+- Receive external struct events through Host-local Adapters and read the frozen
+  Tick batch with `context.Inbox.TryGetBatch<TEvent>`. Multiple Adapters and event
+  types share one Host inbox; events remain separate from business Intent data.
+- Send struct events with `context.Outbox.Publish(in payload)`. The Host publishes
+  them through the EventBus only after the Tick commits successfully.
+- Declare `ProvidesActionProgress = true` on `[CoCoState]` for both ordinary and
+  Config/Memory states. Independent `[Condition]` classes are discovered and
+  factory-bound automatically, without project Binding code.
 
-0.4.2 is a breaking release. No migration for old integrations or saves is provided.
+Direct mail is accepted only while Running; full per-type queues drop new mail
+without faulting the Host. Rejected Temporal calls keep pending mail. See
+[State mailboxes and binding](Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
+for the APIs and lifecycle rules.
 
 ## What “mature” means
 
@@ -50,24 +49,25 @@ the older `Runtime/Core/*.cs` EventBus, Services, and Context facilities.
 ## Core flow
 
 ```text
-Raw input / typed events
-        ↓
-Mailbox + Intent arbitration
-        ↓
-Layered StateGraph step
-        ↓
-Finalized OperationFrame
-        ↓
-Operators + staged Context candidate
-        ↓
-Atomic commit
-        ├─ committed ContextFrame
-        ├─ Event Outbox + Trace
-        └─ Temporal / persistence projection
+Host-local Intent sources       External struct events
+          ↓                               ↓
+      IntentFrame                  Adapter → Inbox batch
+          └──────────────┬────────────────┘
+               Layered StateGraph Step
+                        ↓
+              Finalized OperationFrame
+                        ↓
+      Operators + staged Context candidate
+                        ↓
+                    Atomic commit
+                        ├─ committed ContextFrame
+                        ├─ Event Outbox + Trace
+                        └─ Temporal / persistence projection
 ```
 
-Each actor owns its runtime state. StateLogic evaluates immutable input and
-writes only declared Operation Sections. The Host validates bindings before
+Each actor owns its runtime state. StateLogic reads immutable Tick input,
+updates activation Memory, writes declared Operation Sections, and stages
+outgoing events. The Host validates bindings before
 start, stages one candidate tick, and either commits the full actor transaction
 or keeps the previous authority unchanged. Cross-object effects leave through
 the committed Event Outbox rather than direct state callbacks.
@@ -81,7 +81,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.2
+https://github.com/YunXEE/CoCoFlow.git#v0.4.3
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -89,7 +89,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.2"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.3"
   }
 }
 ```

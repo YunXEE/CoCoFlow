@@ -14,7 +14,8 @@
 - [ ] StateLogic remains pure C# and does not expose Unity objects, Animator,
       Playable, EventBus, CoCoEventAgent, EventEnvelope, EventRouter, or EventInbox
       types.
-- [ ] StateGraph reads only the current frozen IntentFrame and Previous
+- [ ] StateGraph reads the current frozen IntentFrame, callback-scoped typed
+      Inbox payload batches (D043-11), and Previous
       ContextFrame; it cannot observe an Outcome produced during the same Tick.
 - [ ] IntentFrame does not reuse OperationFrame Sections and does not enter
       Temporal or Durable storage.
@@ -54,8 +55,25 @@
 - [ ] Context/Operator/Claim/Actor/Outbox transaction preflight completes before
       Clock or Runtime creation; invalid setup invokes no Logic, Condition,
       Memory factory/reset/fingerprint, Graph capture, Operator, or Actor callback.
-- [ ] Event Adapter execution follows Asset declaration-list order preserved by
+- [ ] Legacy Event-to-Intent Adapter execution follows Asset declaration-list order preserved by
       the compiled manifest; the binding Provider cannot reorder semantics.
+- [ ] D043-04/11: Host Event Adapters support multiple components and closed
+      event interfaces; raw TEvent delivery filters into one per-type sealed
+      batch without a business Intent or Packet envelope. OR filters enqueue
+      each delivery once; reads do not consume and expire with the State callback.
+- [ ] D043-14: Direct Adapter components belong to their Host boundary. Only
+      Running accepts direct input; full typed queues drop new arrivals without
+      faulting the Host. Legacy Packet reliable-overflow rules remain unchanged.
+- [ ] D043-15: Rejected Temporal calls preserve direct Inbox mail while still
+      advancing InputAuthorityRevision. Successful Temporal operations and other
+      lifecycle input-authority boundaries continue to clear direct mail.
+- [ ] D043-12: State Outbox.Publish snapshots raw unmanaged payloads without
+      sender registration, shares bounded outbox capacity, publishes only after
+      successful commit, and clears candidates on cancellation. Existing Packet
+      Operator publication remains supported.
+- [ ] D043-09/10: [Condition] classes are discovered and factory-bound by the
+      standard Provider; ProvidesActionProgress reaches both State registration
+      paths. Existing transition-request, progress and evaluation rules remain.
 - [ ] Start only selects initial leaves. Enter is parent-to-child, mandatory
       Update is root-to-leaf, Exit is leaf-to-parent, and a Transition keeps its
       source path effective until the target enters on the next accepted Tick.

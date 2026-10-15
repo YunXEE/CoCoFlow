@@ -284,6 +284,8 @@ namespace CoCoFlow.Runtime.Core
         private CoCoActivationMemory _memory;
         private CoCoFrozenConfigSnapshot _config;
         private ICoCoIntentFrame _intents;
+        private CoCoStateEventInbox _eventInbox;
+        private ICoCoStateEventOutbox _eventOutbox;
         private CoCoContextFrameReadView _previousContext;
         private CoCoTickFrame _tickFrame;
         private CoCoOperationFrameWriter _operationWriter;
@@ -311,6 +313,8 @@ namespace CoCoFlow.Runtime.Core
 
         public CoCoTickFrame TickFrame => _tickFrame;
         public ICoCoIntentFrame Intents => _intents;
+        public CoCoStateEventReadView Inbox => new CoCoStateEventReadView(this, _callbackGeneration);
+        public CoCoStateEventOutboxWriter Outbox => new CoCoStateEventOutboxWriter(this, _callbackGeneration);
         public CoCoContextFrameReadView PreviousContext => _previousContext;
         public CoCoFrozenConfigSnapshot Config => _config;
         public CoCoStateOperationWriter Operations => _isCallbackActive
@@ -495,6 +499,36 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+        internal bool IsEventCallbackCurrent(ulong generation) =>
+            _isCallbackActive && generation == _callbackGeneration;
+
+        internal bool TryGetEventBatch<TEvent>(ulong generation, out CoCoStateEventBatch<TEvent> batch)
+            where TEvent : unmanaged
+        {
+            batch = default;
+            if (!IsEventCallbackCurrent(generation)) return false;
+            var lane = _eventInbox?.Find<TEvent>();
+            if (lane == null) return false;
+            batch = new CoCoStateEventBatch<TEvent>(this, generation, lane);
+            return true;
+        }
+
+        internal void PublishEvent<TEvent>(ulong generation, in TEvent payload) where TEvent : unmanaged
+        {
+            if (!IsEventCallbackCurrent(generation) || _eventOutbox == null)
+            {
+                if (_isCallbackActive) _hasError = true;
+                throw new InvalidOperationException("State event writer is outside its callback.");
+            }
+            _eventOutbox.Publish(in payload);
+        }
+
+        internal void AttachEvents(CoCoStateEventInbox inbox, ICoCoStateEventOutbox outbox)
+        {
+            _eventInbox = inbox;
+            _eventOutbox = outbox;
+        }
+
         internal void Prepare(
             CoCoStateGraphRuntime runtime,
             CoCoActivationMemory memory,
@@ -549,6 +583,8 @@ namespace CoCoFlow.Runtime.Core
             _memory = null;
             _config = null;
             _intents = null;
+            _eventInbox = null;
+            _eventOutbox = null;
             _previousContext = default;
             _tickFrame = default;
             _operationWriter = default;

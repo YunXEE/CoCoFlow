@@ -39,6 +39,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public string Name { get; }
+        public bool ProvidesActionProgress { get; set; }
     }
 
     /// <summary>
