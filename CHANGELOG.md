@@ -31,7 +31,9 @@ migration runtime for 0.3.9 projects.
 ### Boundaries
 
 - Mailbox reads do not consume messages, expire after their State callback and
-  are replaced next Tick. Capacity zero is allowed and retains no mail.
+  are replaced next Tick. A serialized zero capacity retains no direct mail only
+  when the Graph has no legacy Event declarations. Legacy or mixed Graphs require
+  positive capacity; the Host Inspector keeps its minimum of 1.
 - Conditions evaluate requested transitions; progress 1 does not request one.
 - Existing Event-to-Intent and Operator Packet paths remain supported.
 - Persistence Runtime simplification is deferred. The Config/Memory runtime

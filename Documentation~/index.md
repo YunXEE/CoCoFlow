@@ -8,8 +8,8 @@ Here, mature means stable public Runtime APIs, proven project use, and documente
 boundaries—not maximum performance, complete Editor tooling, zero defects, or
 marketplace certification. Map and Pooling are explicitly immature and do not
 guarantee API, configuration, or serialized compatibility. Other modules are
-unrated in this release. Explicit breaking changes are listed below and in the
-[changelog](../CHANGELOG.md).
+unrated in this release. See the [changelog](../CHANGELOG.md) for version-specific
+breaking changes and compatibility boundaries.
 
 ## Start here
 
@@ -55,16 +55,20 @@ in the Host list and read the frozen batch with
 after the complete Tick commit. It needs no send Adapter or per-event Binding.
 Reads do not consume mail; the next Tick replaces the batch. Running accepts
 direct mail, while Suspended/Previewing drops it. Full queues drop new arrivals;
-capacity zero retains no mail. Failed Temporal calls preserve pending mail.
+a serialized zero capacity retains no direct mail only if the Graph has no legacy
+Event declarations. Legacy or mixed Graphs require positive capacity, and the Host
+Inspector keeps its minimum of 1. Failed Temporal calls preserve pending mail.
 
 Mark a State with `[CoCoState("Attack", ProvidesActionProgress = true)]` and call
 `context.TrySetActionProgress(value)` to supply its normalized progress.
-Mark each independent `CoCoStateCondition` evaluator class with `[Condition]`;
-several classes may share one file. Add the desired condition in the Graph.
-It evaluates a requested transition and does not request one itself.
+Each `[Condition]` class must be concrete and non-generic, derive from
+`CoCoStateCondition`, implement `ICoCoStateConditionEvaluator`, and have a public
+parameterless constructor. An implicit default constructor already satisfies
+that requirement; several classes may share one file. Add the desired condition
+in the Graph. It evaluates a requested transition and does not request one itself.
 
 See [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
-for complete examples and the existing legacy Event-to-Intent boundary.
+for a compilable Condition example and the existing legacy Event-to-Intent boundary.
 
 ## Operator recovery
 
