@@ -1,3 +1,5 @@
+![CoCoFlow](.github/assets/cocoflow-banner-animated.svg)
+
 # CoCoFlow
 
 > **版本**：0.4.3 · **Unity**：6000+
