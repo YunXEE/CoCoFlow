@@ -20,7 +20,7 @@ Actor GameObject
 ├─ CoCoStateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
 ├─ Intent Source scripts     explicit ordered Host references as required
-├─ Event-to-Intent Adapters  explicit Host references in declaration order
+├─ Event Adapters           explicit Host references; direct mailbox or legacy projection
 ├─ Operator scripts          optional; referenced by the Host in explicit order
 ├─ Actor Context binding     required only when Actor-owned Slots exist
 └─ Context Restore binding   required when Temporal history is enabled
@@ -127,7 +127,7 @@ the supplied default value. After Runtime start but before Host publication, an
 initial Graph-state capture verifies that Graph records match those Layout
 defaults without creating Revision 0.
 
-The Asset declaration list is the authoritative Event Adapter execution order.
+For legacy Event-to-Intent projection, the Asset declaration list is the authoritative Adapter execution order.
 The compiled manifest preserves that order; the project binding Provider may
 only satisfy the declarations and cannot reorder their runtime semantics.
 
@@ -529,6 +529,48 @@ Resume, single-step, Trace, or Context mutation action.
 The Host is the Actor's single gameplay-event boundary. StateLogic cannot
 publish an immediately visible gameplay event; Operators may only append typed,
 preallocated EventOutbox candidates owned by their current transaction token.
+
+### Direct State mailbox (D043-04/07/11/12/14/15)
+
+An attached component implements `ICoCoEventInboxAdapter<TEvent>.Accept(in TEvent)`
+for each unmanaged event it receives and is referenced in the Host's Event
+Adapters list. A Host supports multiple components and each component supports
+multiple event interfaces. One subscription per event type ORs their filters;
+one bus delivery enters the typed Incoming queue at most once. Separate Publish
+calls remain separate messages. Target/group filtering belongs to the payload
+and Adapter, not a second routing API.
+
+Adapters must belong to this Host boundary; a nested Host owns its own descendants.
+Direct mail is accepted only while Running. Each event type keeps at most
+`eventLaneCapacity` incoming messages; a full queue drops new arrivals without
+faulting the Host (D043-14). Suspended and Previewing Hosts drop direct input.
+
+At the Tick boundary the Host freezes Incoming buffers, including Hosts without
+business Intents. State callbacks use `context.Inbox.TryGetBatch<TEvent>(out var mails)`
+and `mails.TryRead(index, out var mail)`. Registered empty batches have Count 0;
+unknown types return false. Views expire after their callback. Reading does not
+consume mail, and later Ticks replace unread batches. Mail arriving after the
+freeze waits for a later Tick. Subscription cleanup follows Host Stop/Dispose;
+lifecycle input-authority changes clear the direct mailbox backlog. Temporal
+attempts still advance `InputAuthorityRevision`, but clear direct mail only when
+the operation succeeds. Rejected Temporal calls preserve pending mail (D043-15).
+
+`context.Outbox.Publish(in mail)` snapshots an unmanaged payload during Enter,
+Update, or Exit. It requires no send registration or receiving Adapter. Success
+publishes the original `TEvent` through ordinary `CoCoEventBus.Publish` after
+the complete commit barrier, in State call order; failure/cancellation publishes
+nothing. Capacity shares the Host outbox limit. Cached typed publication items
+are reused after warm-up without per-message allocation. Ordinary bus subscribers
+and other Hosts' mailbox Adapters observe the same published event type.
+
+`[CoCoState("Attack", ProvidesActionProgress = true)]` enables the existing
+progress setter/window for both ordinary and Config/Memory states. Independent
+classes marked `[Condition]` register automatically with empty config and the
+existing factory/Evaluate contract; multiple classes may share one file. The
+existing Graph selector is reused. Conditions still evaluate only requested
+transitions, and reaching progress 1 does not itself request a transition.
+
+### Legacy Packet / Event-to-Intent protocol
 
 An Actor-local event enters that Host's private Gateway and Inbox directly.
 Cross-Actor Targeted and declared broadcast packets pass through one lazily

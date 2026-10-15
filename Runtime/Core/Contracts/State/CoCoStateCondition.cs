@@ -1,5 +1,17 @@
+using System;
+
 namespace CoCoFlow.Runtime.Core
 {
+    [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+    public sealed class ConditionAttribute : Attribute
+    {
+    }
+
+    public interface ICoCoEventInboxAdapter<TEvent> where TEvent : unmanaged
+    {
+        bool Accept(in TEvent payload);
+    }
+
     public abstract class CoCoStateCondition
     {
         private object _runtimeOwner;

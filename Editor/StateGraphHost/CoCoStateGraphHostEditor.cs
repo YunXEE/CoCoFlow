@@ -511,9 +511,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                 serializedObject.FindProperty("eventAdapters"),
                 CoCoEditorLocalization.Text("Event Adapters", "Event 适配器")));
             var note = new Label(CoCoEditorLocalization.Text(
-                "ordered slot-for-slot against the compiled adapter manifest — " +
-                    "the runtime validates each slot at startup",
-                "按编译适配器清单逐槽有序对应——运行时在启动时逐槽校验"))
+                "Direct mailbox adapters bind their event interfaces automatically; " +
+                    "legacy Event-to-Intent entries retain manifest order.",
+                "直接邮箱适配器按事件接口自动绑定；旧 Event→Intent 适配器保留清单顺序。"))
             {
                 name = "ccflow-adapters-note"
             };

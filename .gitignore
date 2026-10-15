@@ -79,6 +79,7 @@ crashlytics-build.properties
 
 # Local CI evidence
 /.ci-artifacts/
+/.artifacts/
 
 # Local Codex workspace configuration
 /.codex/

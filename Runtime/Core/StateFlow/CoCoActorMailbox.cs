@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
@@ -1568,5 +1569,73 @@ namespace CoCoFlow.Runtime.Core
         public CoCoEventSequence Sequence { get; }
         public CoCoEventTypeId EventTypeId { get; }
         public bool IsValid => Source.IsValid && Sequence.IsValid && EventTypeId.IsValid;
+    }
+}
+
+namespace CoCoFlow.Runtime.Core
+{
+    internal interface ICoCoStateEventLane
+    {
+        void Seal();
+        void Clear();
+    }
+
+    internal sealed class CoCoStateEventInbox
+    {
+        private readonly Dictionary<Type, ICoCoStateEventLane> _lanes = new Dictionary<Type, ICoCoStateEventLane>();
+        private readonly int _capacity;
+        private CoCoTickFrame _tick;
+        internal CoCoStateEventInbox(int capacity) { _capacity = capacity; }
+        internal CoCoStateEventLane<TEvent> Find<TEvent>() where TEvent : unmanaged =>
+            _lanes.TryGetValue(typeof(TEvent), out var lane) ? (CoCoStateEventLane<TEvent>)lane : null;
+        internal CoCoStateEventLane<TEvent> Register<TEvent>() where TEvent : unmanaged
+        {
+            var lane = Find<TEvent>();
+            if (lane != null) return lane;
+            lane = new CoCoStateEventLane<TEvent>(_capacity);
+            _lanes.Add(typeof(TEvent), lane);
+            return lane;
+        }
+        internal void Seal(in CoCoTickFrame tick)
+        {
+            if (_tick == tick) return;
+            foreach (var lane in _lanes.Values) lane.Seal();
+            _tick = tick;
+        }
+        internal void Clear()
+        {
+            foreach (var lane in _lanes.Values) lane.Clear();
+            _tick = default;
+        }
+    }
+
+    internal sealed class CoCoStateEventLane<TEvent> : ICoCoStateEventLane where TEvent : unmanaged
+    {
+        private TEvent[] _incoming;
+        private TEvent[] _sealed;
+        private int _incomingCount;
+        internal readonly List<ICoCoEventInboxAdapter<TEvent>> Adapters = new List<ICoCoEventInboxAdapter<TEvent>>();
+        internal int Count { get; private set; }
+        internal CoCoStateEventLane(int capacity)
+        {
+            _incoming = new TEvent[capacity];
+            _sealed = new TEvent[capacity];
+        }
+        internal bool TryEnqueue(in TEvent payload)
+        {
+            if (_incomingCount == _incoming.Length) return false;
+            _incoming[_incomingCount++] = payload;
+            return true;
+        }
+        internal TEvent Read(int index) => _sealed[index];
+        public void Seal()
+        {
+            var previous = _sealed;
+            _sealed = _incoming;
+            _incoming = previous;
+            Count = _incomingCount;
+            _incomingCount = 0;
+        }
+        public void Clear() { Count = _incomingCount = 0; }
     }
 }

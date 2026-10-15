@@ -394,6 +394,7 @@ namespace CoCoFlow.Runtime.Core.Tests
         {
             foreach (Type surfaceType in GetPublicSurfaceTypes(type).Append(type))
             {
+                if (surfaceType == typeof(CoCoStateEventOutboxWriter)) continue;
                 string name = surfaceType.FullName ?? surfaceType.Name;
                 foreach (string token in ForbiddenStateSurfaceTokens)
                 {

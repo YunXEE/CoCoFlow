@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
@@ -230,7 +231,8 @@ namespace CoCoFlow.Runtime.Core
             _graphInstanceId = graphInstanceId;
             _host = host;
             _intentSourceComponents = host?.IntentSources ?? Array.Empty<MonoBehaviour>();
-            _eventAdapterComponents = host?.EventAdapters ?? Array.Empty<MonoBehaviour>();
+            _eventAdapterComponents = (host?.EventAdapters ?? Array.Empty<MonoBehaviour>())
+                .Where(IsLegacyEventAdapter).ToArray();
             _logic = new CoCoStateGraphLogicBindingsBuilder(graph);
             _operations = new CoCoOperationSectionRegistryBuilder();
             _contextLayout = new CoCoContextFrameLayoutBuilder();
@@ -289,6 +291,16 @@ namespace CoCoFlow.Runtime.Core
                 ? FrozenFailure(out diagnostic)
                 : _logic.TryBindState(descriptorId, factory, out diagnostic);
             return succeeded || LatchFailure(diagnostic);
+        }
+
+        private static bool IsLegacyEventAdapter(MonoBehaviour component)
+        {
+            if (component == null) return true;
+            var contracts = component.GetType().GetInterfaces();
+            return !contracts.Any(type => type.IsGenericType &&
+                       type.GetGenericTypeDefinition() == typeof(ICoCoEventInboxAdapter<>)) ||
+                   contracts.Any(type => type.IsGenericType &&
+                       type.GetGenericTypeDefinition() == typeof(ICoCoEventToIntentAdapter<,>));
         }
 
         public bool TryBindCondition(
