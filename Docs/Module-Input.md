@@ -1,6 +1,6 @@
 # Module: Input
 
-> Documentation baseline: `0.4.2` · Updated 2026-10-14
+> Documentation baseline: `0.4.3` · Updated 2026-10-15
 
 The Input module owns the Unity Input System boundary. `PlayerInput`, its
 runtime `InputActionAsset`, actions, devices, control scheme, bindings, and

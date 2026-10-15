@@ -1,28 +1,26 @@
 # CoCoFlow
 
-> **版本**：0.4.2 · **Unity**：6000+
+> **版本**：0.4.3 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
-0.4.2 简化 StateLogic 编写，并将节点数据、Operator 恢复、共享输入和 Camera
-接入 Host 的标准使用路径。
 
-## 0.4.2 新内容
+## 0.4.3 新内容
 
-- 在 StateLogic 中直接声明 `[Intent]` 和 `[Operation]` 属性。最小脚本模板由作者
-  按需添加依赖和业务逻辑。
-- 用 `[Config]` 字段配置各个 Graph State，用 `[Memory]` 字段保存随 Context
-  快照采集和恢复的激活状态；同一 Logic 的不同节点拥有独立配置。
-- 在 Host Inspector 中分别开启各个受支持 Operator 的存读档和 Temporal 恢复。
-  两个开关独立，默认均关闭。
-- 通过 `CameraIntentData` 读取最终输出 Camera 的世界位姿，通过 `CameraOperation`
-  发送数字 Rig/Camera 选择请求；具体镜头状态的采集与恢复由 Director 负责。
-- 常驻 `InputReader` 可供多个 Host 本地 `InputIntent` 共享。`InputIntentData`
-  只提供最新一次输入更新，读取不消费，暂停期间错过的输入不补发。
+- Host 上挂载 Adapter 接收外部结构体事件，Logic 通过
+  `context.Inbox.TryGetBatch<TEvent>` 读取当前 Tick 冻结的邮件批次。
+  一个 Host 支持多个 Adapter 和事件类型，事件与业务 Intent 分别进入 Logic。
+- 用 `context.Outbox.Publish(in payload)` 发送结构体事件；Tick 成功提交后，
+  Host 才调用普通 EventBus 发布。
+- 在 `[CoCoState]` 上声明 `ProvidesActionProgress = true`，普通与 Config/Memory
+  两条注册路径都可使用进度窗口。独立 `[Condition]` 类自动发现并绑定工厂，
+  无需项目手写 Binding。
 
-0.4.2 是破坏性更新，不提供旧接线或旧存档的迁移。
+直接邮件仅在 Running 时接收；每类型队列满后丢弃新邮件，不触发 Host Fault。
+被拒绝的 Temporal 调用保留待处理邮件。完整 API 与生命周期见
+[State 邮箱与绑定](Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)。
 
 ## “成熟”的定义
 
@@ -47,25 +45,25 @@ Core Engine 的成熟声明不包含 StateGraph Editor，也不包含
 ## Core Flow
 
 ```text
-Raw input / typed events
-        ↓
-Mailbox + Intent 仲裁
-        ↓
-分层 StateGraph Step
-        ↓
-Finalized OperationFrame
-        ↓
-Operators + staged Context candidate
-        ↓
-原子提交
-        ├─ committed ContextFrame
-        ├─ Event Outbox + Trace
-        └─ Temporal / persistence projection
+Host-local Intent sources       External struct events
+          ↓                               ↓
+      IntentFrame                  Adapter → Inbox batch
+          └──────────────┬────────────────┘
+               Layered StateGraph Step
+                        ↓
+              Finalized OperationFrame
+                        ↓
+      Operators + staged Context candidate
+                        ↓
+                    原子提交
+                        ├─ committed ContextFrame
+                        ├─ Event Outbox + Trace
+                        └─ Temporal / persistence projection
 ```
 
-每个 Actor 独占自己的 Runtime 状态。StateLogic 读取不可变输入，只写已声明的
-Operation Section。Host 在启动前校验 binding，每次只暂存一个候选 Tick；整个 Actor
-事务要么一起提交，要么继续保留上一份权威状态。跨对象副作用只从已提交的 Event
+每个 Actor 独占自己的 Runtime 状态。StateLogic 读取不可变的 Tick 输入，更新激活
+Memory，写入已声明的 Operation Section，并暂存待发送事件。Host 在启动前校验 binding，每次只暂存一个候选 Tick；整个
+Actor 事务要么一起提交，要么继续保留上一份权威状态。跨对象副作用只从已提交的 Event
 Outbox 离开，不通过直接 State callback 传播。
 
 Temporal Restore 是同会话、精确 Layout 的恢复。持久化存档使用独立的 Persistence
@@ -76,7 +74,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.2
+https://github.com/YunXEE/CoCoFlow.git#v0.4.3
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -84,7 +82,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.2
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.2"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.3"
   }
 }
 ```

@@ -1,15 +1,15 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.2`.
+`0.4.3`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
 boundaries—not maximum performance, complete Editor tooling, zero defects, or
 marketplace certification. Map and Pooling are explicitly immature and do not
 guarantee API, configuration, or serialized compatibility. Other modules are
-unrated in this release. Explicit breaking changes are listed below and in the
-[changelog](../CHANGELOG.md).
+unrated in this release. See the [changelog](../CHANGELOG.md) for version-specific
+breaking changes and compatibility boundaries.
 
 ## Start here
 
@@ -42,6 +42,33 @@ maturity statement.
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
 - [Animation](../Docs/Module-Animation.md)
+
+## State mailboxes and automatic binding
+
+Host-local Intent sources are sampled each Tick. External struct events instead
+pass through `ICoCoEventInboxAdapter<TEvent>.Accept(in payload)` into the Host's
+typed inbox; a Tick may contain no mail or several messages. Reference Adapters
+in the Host list and read the frozen batch with
+`context.Inbox.TryGetBatch<TEvent>(out var mails)` and `mails.TryRead(index, out var mail)`.
+
+`context.Outbox.Publish(in payload)` snapshots a struct event for publication
+after the complete Tick commit. It needs no send Adapter or per-event Binding.
+Reads do not consume mail; the next Tick replaces the batch. Running accepts
+direct mail, while Suspended/Previewing drops it. Full queues drop new arrivals;
+a serialized zero capacity retains no direct mail only if the Graph has no legacy
+Event declarations. Legacy or mixed Graphs require positive capacity, and the Host
+Inspector keeps its minimum of 1. Failed Temporal calls preserve pending mail.
+
+Mark a State with `[CoCoState("Attack", ProvidesActionProgress = true)]` and call
+`context.TrySetActionProgress(value)` to supply its normalized progress.
+Each `[Condition]` class must be concrete and non-generic, derive from
+`CoCoStateCondition`, implement `ICoCoStateConditionEvaluator`, and have a public
+parameterless constructor. An implicit default constructor already satisfies
+that requirement; several classes may share one file. Add the desired condition
+in the Graph. It evaluates a requested transition and does not request one itself.
+
+See [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
+for a compilable Condition example and the existing legacy Event-to-Intent boundary.
 
 ## Operator recovery
 
@@ -99,5 +126,3 @@ Missing overrides use the field initializer; zero and false are valid overrides.
 Memory is captured with Context and restored with the saved activation state.
 Both kinds of fields must be unmanaged. The runtime generic binding path has
 not been verified in an IL2CPP Player.
-
-0.4.2 is a breaking release; no migration for old integrations or saves is provided.

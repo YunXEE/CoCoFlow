@@ -544,6 +544,9 @@ Adapters must belong to this Host boundary; a nested Host owns its own descendan
 Direct mail is accepted only while Running. Each event type keeps at most
 `eventLaneCapacity` incoming messages; a full queue drops new arrivals without
 faulting the Host (D043-14). Suspended and Previewing Hosts drop direct input.
+A serialized zero capacity retains no direct mail only when the Graph has no
+legacy Event declarations. Legacy or mixed Graphs require positive capacity;
+the Host Inspector keeps its minimum of 1.
 
 At the Tick boundary the Host freezes Incoming buffers, including Hosts without
 business Intents. State callbacks use `context.Inbox.TryGetBatch<TEvent>(out var mails)`
@@ -566,8 +569,24 @@ and other Hosts' mailbox Adapters observe the same published event type.
 `[CoCoState("Attack", ProvidesActionProgress = true)]` enables the existing
 progress setter/window for both ordinary and Config/Memory states. Independent
 classes marked `[Condition]` register automatically with empty config and the
-existing factory/Evaluate contract; multiple classes may share one file. The
-existing Graph selector is reused. Conditions still evaluate only requested
+existing factory/Evaluate contract. They must be concrete, non-generic subclasses
+of `CoCoStateCondition`, implement `ICoCoStateConditionEvaluator`, and expose a
+public parameterless constructor. The implicit constructor in this example is
+sufficient; no explicit constructor is needed:
+
+```csharp
+using CoCoFlow.Runtime.Core;
+
+[Condition]
+public sealed class AttackProgressReadyCondition : CoCoStateCondition,
+    ICoCoStateConditionEvaluator
+{
+    public bool Evaluate(CoCoConditionEvaluationContext context) =>
+        context.ActionProgress >= 0.8;
+}
+```
+
+Multiple Condition classes may share one file. The existing Graph selector is reused. Conditions still evaluate only requested
 transitions, and reaching progress 1 does not itself request a transition.
 
 ### Legacy Packet / Event-to-Intent protocol
