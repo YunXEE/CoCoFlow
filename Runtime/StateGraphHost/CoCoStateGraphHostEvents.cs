@@ -8,6 +8,19 @@ namespace CoCoFlow.Runtime.Core
         private CoCoStateEventInbox _stateInbox;
         private CoCoEventAgent _stateEventAgent;
 
+        private bool TryValidateEventAdapterBoundaries(out CoCoDiagnostic diagnostic)
+        {
+            foreach (var component in EventAdapters)
+            {
+                if (component == null || CoCoStateGraphHostBoundary.Contains(this, component)) continue;
+                diagnostic = RegistryError(CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Event Adapter must belong to this Host boundary.");
+                return false;
+            }
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
         private void StartStateEvents()
         {
             _stateInbox = new CoCoStateEventInbox(eventLaneCapacity);
@@ -34,12 +47,13 @@ namespace CoCoFlow.Runtime.Core
             if (lane.Adapters.Count == 0)
                 _stateEventAgent.Subscribe((ref TEvent payload) =>
                 {
-                    if (!CanAcceptEventInput || _isTemporalOperation ||
+                    if (!CanAcceptEventInput || _runtime.Lifecycle != CoCoRuntimeLifecycleState.Running ||
+                        _isTemporalOperation ||
                         _temporal?.Mode == CoCoTemporalMode.Previewing) return;
                     foreach (var adapter in lane.Adapters)
                     {
                         if ((MonoBehaviour)adapter == null || !adapter.Accept(in payload)) continue;
-                        if (!lane.TryEnqueue(in payload)) _reliableOverflowPending = true;
+                        lane.TryEnqueue(in payload);
                         break;
                     }
                 });

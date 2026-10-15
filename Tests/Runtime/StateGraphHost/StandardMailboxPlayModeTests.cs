@@ -240,13 +240,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [Test]
-        public void MailboxOverflowFaultsBeforeLogicReadsPartialMail()
+        public void MailboxOverflowDropsExcessMailWithoutFaultingHost()
         {
             var host = CreateMailboxHost();
             var damage = new MailboxDamage(host.GraphInstanceId, 1f);
             for (int i = 0; i < 33; i++) CoCoEventBus.Publish(ref damage);
-            Assert.IsFalse(host.TryStep(0.1, out var diagnostic));
-            Assert.AreEqual(CoCoDiagnosticCode.MailboxOverflow, diagnostic.Code);
+            MailboxProbeLogic.Tick = (logic, _) => Assert.That(logic.Health, Is.EqualTo(74.4f).Within(0.001f));
+            Assert.IsTrue(host.TryStep(0.1, out var diagnostic), diagnostic.Message);
         }
 
         [TestCase(0)]
@@ -259,7 +259,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var damage = new MailboxDamage(host.GraphInstanceId, 30f);
             for (int i = 0; i < 2; i++) Assert.IsTrue(host.TryStep(0.1, out _));
             Assert.IsTrue(history == 0 ? host.TrySuspend(out _) : host.TryBeginTemporalPreview(out _));
-            for (int i = 0; i < (history == 0 ? 1 : 33); i++) CoCoEventBus.Publish(ref damage);
+            for (int i = 0; i < 33; i++) CoCoEventBus.Publish(ref damage);
             Assert.IsTrue(history == 0 ? host.TryResume(out _) : host.TryCancelTemporalPreview(out _));
             Assert.IsTrue(host.TryStep(0.1, out _));
             Assert.IsTrue(host.TryStop(out _));

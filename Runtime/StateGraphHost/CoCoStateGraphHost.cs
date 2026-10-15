@@ -218,6 +218,12 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (!TryValidateEventAdapterBoundaries(out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
             CoCoStateGraphAssetCompileResult compileResult;
             CoCoStateGraphAsset configuredGraph = null;
             try

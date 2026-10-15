@@ -530,7 +530,7 @@ The Host is the Actor's single gameplay-event boundary. StateLogic cannot
 publish an immediately visible gameplay event; Operators may only append typed,
 preallocated EventOutbox candidates owned by their current transaction token.
 
-### Direct State mailbox (D043-04/07/11/12)
+### Direct State mailbox (D043-04/07/11/12/14)
 
 An attached component implements `ICoCoEventInboxAdapter<TEvent>.Accept(in TEvent)`
 for each unmanaged event it receives and is referenced in the Host's Event
@@ -539,6 +539,11 @@ multiple event interfaces. One subscription per event type ORs their filters;
 one bus delivery enters the typed Incoming queue at most once. Separate Publish
 calls remain separate messages. Target/group filtering belongs to the payload
 and Adapter, not a second routing API.
+
+Adapters must belong to this Host boundary; a nested Host owns its own descendants.
+Direct mail is accepted only while Running. Each event type keeps at most
+`eventLaneCapacity` incoming messages; a full queue drops new arrivals without
+faulting the Host (D043-14). Suspended and Previewing Hosts drop direct input.
 
 At the Tick boundary the Host freezes Incoming buffers, including Hosts without
 business Intents. State callbacks use `context.Inbox.TryGetBatch<TEvent>(out var mails)`

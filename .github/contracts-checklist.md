@@ -61,6 +61,9 @@
       event interfaces; raw TEvent delivery filters into one per-type sealed
       batch without a business Intent or Packet envelope. OR filters enqueue
       each delivery once; reads do not consume and expire with the State callback.
+- [ ] D043-14: Direct Adapter components belong to their Host boundary. Only
+      Running accepts direct input; full typed queues drop new arrivals without
+      faulting the Host. Legacy Packet reliable-overflow rules remain unchanged.
 - [ ] D043-12: State Outbox.Publish snapshots raw unmanaged payloads without
       sender registration, shares bounded outbox capacity, publishes only after
       successful commit, and clears candidates on cancellation. Existing Packet
