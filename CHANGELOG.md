@@ -6,6 +6,40 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.3] - 2026-10-15
+
+### Added
+
+- Direct State mailboxes accept raw unmanaged events through Host-local
+  `ICoCoEventInboxAdapter<TEvent>` filters. Logic reads a frozen per-Tick batch
+  through `context.Inbox`, independently of business Intent data.
+- `context.Outbox.Publish(in payload)` snapshots raw struct events and publishes
+  through the ordinary EventBus after the Tick commits successfully.
+- Standard registration forwards `ProvidesActionProgress` for both ordinary
+  and Config/Memory states. Independent `[Condition]` classes are discovered,
+  registered and factory-bound automatically.
+
+### Fixed
+
+- Reject direct Adapter references outside their Host boundary, including
+  components owned by a nested Host.
+- Drop direct input while Suspended or Previewing. Full per-type queues keep
+  existing mail and drop new arrivals without faulting the Host.
+- Preserve pending direct mail when a Temporal call is rejected. Failed
+  attempts still advance InputAuthorityRevision; successful boundaries clear mail.
+
+### Boundaries
+
+- Mailbox reads do not consume messages, expire after their State callback and
+  are replaced next Tick. Capacity zero is allowed and retains no mail.
+- Conditions evaluate requested transitions; progress 1 does not request one.
+- Existing Event-to-Intent and Operator Packet paths remain supported.
+- Persistence Runtime simplification is deferred. The Config/Memory runtime
+  generic binding path remains unverified in an IL2CPP Player.
+
+See [State mailboxes and binding](Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
+for current APIs and lifecycle rules.
+
 ## [0.4.2] - 2026-10-14
 
 ### Added and changed

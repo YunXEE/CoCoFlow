@@ -1,6 +1,6 @@
 # CoCoFlow CI baseline
 
-CoCoFlow 0.4.0 has one automatic repository gate and one local Unity
+CoCoFlow has one automatic repository gate and one local Unity
 verification process. They prove different things.
 
 ## Automatic pull request gate
@@ -27,7 +27,8 @@ The maintainer-created projects are:
 Each project must:
 
 - use its matching Editor patch;
-- reference `file:/Users/GitProjects/CoCoFlow`;
+- reference the intended clean package checkout, such as `file:/Users/GitProjects/CoCoFlow`
++  or the task's Paseo worktree;
 - include `com.yunxee.cocoflow` in the manifest `testables` array.
 
 Before recording evidence, confirm the package checkout is on the intended Head
