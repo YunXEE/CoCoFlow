@@ -1,4 +1,4 @@
-![CoCoFlow](.github/assets/cocoflow-banner-animated.svg)
+![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
 # CoCoFlow
 
