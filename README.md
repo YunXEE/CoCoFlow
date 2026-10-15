@@ -1,4 +1,4 @@
-# CoCoFlow
+![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
 > **Version**: 0.4.3 · **Unity**: 6000+
 >
