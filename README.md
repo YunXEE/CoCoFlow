@@ -1,7 +1,5 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-# CoCoFlow
-
 > **Version**: 0.4.3 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
