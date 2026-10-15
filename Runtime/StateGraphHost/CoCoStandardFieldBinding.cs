@@ -56,7 +56,8 @@ namespace CoCoFlow.Runtime.Core
             return builder.TryRegisterStateBlock(block, CoCoStateBlockOwner.Graph, out _) &&
                 builder.TryRegisterState<TLogic, CoCoFieldConfig, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(
                     descriptorId, 1, new CoCoFieldConfig.Freezer(typeof(TLogic)),
-                    new CoCoStateRuntimeRegistration<TLogic, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(CoCoFieldConfigSchema.Schema),
+                    new CoCoStateRuntimeRegistration<TLogic, CoCoFieldConfigSchema, CoCoFieldMemory<TLogic, TState>>(
+                        CoCoFieldConfigSchema.Schema, ProvidesActionProgress(typeof(TLogic))),
                     consumedIntents, providedSections, contextBlocks, out _) &&
                 builder.TryRegisterStateSlot<CoCoGraphStateRecord<TState>>(block, StandardGraphState.SlotFor(descriptorId),
                     CoCoContextProjection.Temporal | CoCoContextProjection.Durable, CoCoContextRestorePolicy.Stored,

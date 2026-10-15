@@ -32,7 +32,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        private static ulong DeriveLow(string name)
+        internal static ulong DeriveLow(string name)
         {
             unchecked
             {

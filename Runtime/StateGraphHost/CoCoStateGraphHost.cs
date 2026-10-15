@@ -476,6 +476,7 @@ namespace CoCoFlow.Runtime.Core
                 _lastAutomaticFrame = -1;
 
                 // Registration is deliberately last: no packet can reach a partially started Host.
+                StartStateEvents();
                 if (!_bindings.RegisterRouter(this))
                 {
                     DisposeInstance();
@@ -1398,6 +1399,7 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
 
+                _stateInbox.Seal(tickFrame);
                 if (!_bindings.TryCollectIntents(
                         tickFrame,
                         out ICoCoIntentFrame intents,
@@ -1745,6 +1747,9 @@ namespace CoCoFlow.Runtime.Core
             }
 
             _acceptsEventInput = false;
+            _stateEventAgent?.UnsubscribeAll();
+            _stateEventAgent = null;
+            _stateInbox = null;
             _bindings?.UnregisterRouter();
             _temporal?.Dispose();
             _temporal = null;
@@ -1812,6 +1817,7 @@ namespace CoCoFlow.Runtime.Core
 
         private void AdvanceInputAuthorityRevision()
         {
+            _stateInbox?.Clear();
             _inputAuthorityRevision =
                 _inputAuthorityRevision == ulong.MaxValue
                     ? 1UL

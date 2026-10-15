@@ -19,7 +19,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// CoCoStandardBindingProvider.Build, installed, and a one-state graph
     /// runs a tick where the state logic receives InputIntentData records.
     /// </summary>
-    public sealed class StandardBindingPlayModeTests : InputTestFixture
+    public sealed partial class StandardBindingPlayModeTests : InputTestFixture
     {
         private readonly List<Object> _objects = new List<Object>();
 
