@@ -19,10 +19,19 @@ namespace CoCoFlow.Editor.Modules.Persistence
         private void OnGUI()
         {
             EditorGUILayout.LabelField("Persistence Save", EditorStyles.boldLabel);
-            PersistenceSaveLoadSystem.MaxSaveSlots =
-                Mathf.Max(1, EditorGUILayout.IntField("Max Slots", PersistenceSaveLoadSystem.MaxSaveSlots));
-            _slotIndex = EditorGUILayout.IntSlider("Slot", _slotIndex, 0, PersistenceSaveLoadSystem.MaxSaveSlots - 1);
+            PersistenceHost host = PersistenceHost.ActiveHost;
+            using (new EditorGUI.DisabledScope(true))
+                EditorGUILayout.ObjectField("Configuration Host", host, typeof(PersistenceHost), true);
+            using (new EditorGUI.DisabledScope(host != null))
+            {
+                int maxSlots = Mathf.Max(1, EditorGUILayout.IntField("Max Slots", PersistenceSaveLoadSystem.MaxSaveSlots));
+                if (host == null) PersistenceSaveLoadSystem.MaxSaveSlots = maxSlots;
+            }
+            _slotIndex = EditorGUILayout.IntSlider("Slot", PersistenceSaveLoadSystem.CurrentSlotIndex, 0, PersistenceSaveLoadSystem.MaxSaveSlots - 1);
             PersistenceSaveLoadSystem.CurrentSlotIndex = _slotIndex;
+            string directory = Path.GetFullPath(PersistenceFileStore.ResolveSaveDirectory());
+            PersistenceHostEditor.DrawPath("Resolved Directory", directory);
+            PersistenceHostEditor.DrawPath("Current Slot File", Path.Combine(directory, PersistenceFileStore.GetSaveFileName(_slotIndex)));
 
             EditorGUILayout.Space();
             if (GUILayout.Button("Save Slot"))
@@ -36,16 +45,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
                 PersistenceSaveLoadSystem.LoadGame(_slotIndex);
             }
 
-            if (GUILayout.Button("Open Save Folder"))
-            {
-                string directory = PersistenceFileStore.GetSaveDirectory();
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                EditorUtility.RevealInFinder(directory);
-            }
+            PersistenceHostEditor.DrawFolderButtons(directory);
 
             GUI.backgroundColor = Color.red;
             if (GUILayout.Button("Clear Save Files"))

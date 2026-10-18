@@ -1,9 +1,9 @@
 # Module: Persistence
 
-> **Maturity: Mature** · Documentation baseline: `0.4.0` · Updated 2026-08-29
+> **Maturity: Mature** · Documentation baseline: `0.4.4` · Updated 2026-10-18
 >
 > The module originated in 0.3.9. The current Runtime API is stable and supports
-> schema v2, Containers, and StateGraph ContextFrame persistence. The older
+> schema v2, typed data Containers, and StateGraph ContextFrame persistence. The older
 > `ICoCoContext` adapter path remains supported for compatibility.
 
 Persistence writes local JSON save slots. A save document contains slot
@@ -12,7 +12,7 @@ metadata, per-entity Context records, and the active Container section.
 ```text
 PersistenceSession.Capture(slot)
         ├─ PersistenceContextRegistry.CaptureSection()
-        └─ PersistenceContainerStore.CaptureActiveSection()
+        └─ PersistenceContainerHost.CaptureActiveSection()
                          ↓
 PersistenceSaveDocument (schema v2)
                          ↓
@@ -28,7 +28,7 @@ temporary JSON → replace target → recovery backup on replacement failure
 | `schemaVersion` | Save schema version. Versions newer than the package supports are rejected. |
 | `metadata` | Slot index and save metadata/timestamps. |
 | `contextSection` | Records keyed by stable entity ID. |
-| `containerSection` | Inventory, quest, event-log, fact, reward, and related Container records. |
+| `containerSection` | Versioned business-struct records keyed by data type and ID. |
 
 Reading an older document runs `MigrateToCurrentSchema`. The supported v1 to v2
 normalization preserves existing metadata and Context records, creates a
@@ -116,16 +116,220 @@ must be replaced.
 
 ## Containers
 
-`PersistenceContainerStore` owns the active `PersistenceContainerSection` and
-an optional `PersistenceContainerCatalog`. Its current APIs cover materialized
-templates, item stacks and transfers, quests/objectives, rewards, event states,
-and facts. `PersistenceContainerBridge` publishes typed Container commands
-through the CoCoFlow event boundary instead of directly mutating a remote
-actor.
+`PersistenceContainerHost` owns one table per business struct. A row is keyed
+by **data type + ID**. Matching types and IDs share the same row; different types
+may use the same ID. The module stores data; gameplay remains in business scripts.
 
-Container data is captured and restored with the same save document. Catalogs
-define authored content; the serialized section holds the materialized runtime
-records.
+The scene arrangement is:
+
+```text
+Global persistent object
+├─ PersistenceHost                    optional component save/load entry
+└─ PersistenceContainerHost           authoritative Container tables
+   └─ ChestData["chest-01"]
+
+Chest GameObject
+├─ PersistenceContainer               locked ChestData type + chest-01 ID
+└─ Chest                              same-object business script, holds a handle
+```
+
+The module has four runtime Mono types: `PersistenceHost`,
+`PersistenceContainerHost`, `PersistenceContext`, and `PersistenceContainer`.
+Existing Graph-only projects keep their current components and static API.
+They do not need any new Mono. A scene-facing `PersistenceHost` delegates its
+`SaveGame(int slotIndex = -1)` and `LoadGame(int slotIndex = -1)` calls to the
+same existing static flow, slots, and Session.
+
+### Host Inspector configuration
+
+`PersistenceHost` stores the scene/prefab configuration: **Container Host**,
+**Max Save Slots** (default 3), **Initial Slot** (default 0), and **Save Directory**.
+The directory may be empty for `Application.persistentDataPath`, a relative
+folder under that location, or an absolute path. Its Inspector shows the resolved
+absolute directory and slot-file path, with **Open Folder** and **Copy Path**.
+Previewing paths does not create directories. Configuration fields are locked
+during Play; runtime values and the connected ContainerHost remain visible.
+
+Enable **Debug Mode** before Play to save and load under the host project's
+`Assets/DebugSaves/`. The Inspector previews this directory and disables the
+retained **Save Directory** setting. Saving refreshes the Project window so the
+JSON files can be inspected directly. Enabling or previewing the mode does not
+create save files, move existing saves, or trigger automatic saving. Disable it
+to use **Save Directory** again. Debug Mode only affects the Unity Editor;
+Player builds always use the normal directory configuration.
+
+Enable one global PersistenceHost before business scripts. It applies its saved
+configuration to the shared static API; component and static save/load calls use
+the same settings. Disabling it restores the previous static configuration.
+The optional dragged ContainerHost must be the enabled global ContainerHost;
+leaving it empty retains global registration, including Graph-only scenes.
+Without a PersistenceHost, existing static configuration and Graph assembly stay
+supported. The Save Editor reads Host-owned slot limits while a Host is active.
+
+`PersistenceContainerHost` shows its active status, bound component count, table
+count, total rows, and per-type row counts. It owns data tables; save paths and
+slot configuration belong to PersistenceHost.
+
+### Declare data and configure a Container
+
+Root and custom nested structs require both `[Serializable, PersistenceData]`.
+Public writable instance fields are stored. Properties, static, readonly and
+`[NonSerialized]` fields are not stored. Private `[SerializeField]` data fields
+are not supported on these business structs.
+
+Supported values are booleans, ordinary integer types, float/double, char,
+strings, enums, marked structs, and one-dimensional arrays or `List<T>` of
+supported leaf/struct elements. Null strings and collections stay distinct
+from empty values. Classes, Unity object references, delegates, pointers,
+Dictionary, multidimensional/jagged arrays and collections of collections are
+not supported. Nested structs belong to the root row; they are not separate
+Containers or links to another Container.
+
+Add one `PersistenceContainer` to the business GameObject. In its Inspector,
+select the data type, enter a nonempty ID and edit the initial fields. Types
+are explicitly locked; a generic API call does not choose or change the type.
+The component serializes its type ID and initial JSON while the Inspector
+draws the actual fields, including nested structs and collections. Undo and
+prefab overrides use normal serialized properties.
+
+```csharp
+using System;
+using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Container;
+using UnityEngine;
+
+[Serializable, PersistenceData]
+public struct ItemStackData
+{
+    public string Key;
+    public int Count;
+}
+
+[Serializable, PersistenceData]
+public struct ChestData
+{
+    public int Coins;
+    public ItemStackData[] Items;
+}
+
+[RequireComponent(typeof(PersistenceContainer))]
+public sealed class Chest : MonoBehaviour
+{
+    private PersistenceContainer _container;
+    private PersistenceContainerHandle<ChestData> _data;
+
+    private void Awake()
+    {
+        _container = GetComponent<PersistenceContainer>();
+        _container.SetInitialData(new ChestData
+        {
+            Coins = UnityEngine.Random.Range(1, 6),
+            Items = Array.Empty<ItemStackData>()
+        });
+    }
+
+    private void Start()
+    {
+        _data = _container.GetHandle<ChestData>();
+    }
+
+    public int TakeCoins(int requested)
+    {
+        if (requested <= 0)
+            return 0;
+
+        ref ChestData data = ref _data.Value;
+        int taken = Mathf.Min(requested, data.Coins);
+        data.Coins -= taken;
+        return taken;
+    }
+}
+```
+
+The Inspector can supply initial data instead of `SetInitialData`. Existing
+rows, including loaded saves, always win over a new candidate. Randomness and
+coin removal in the example belong entirely to `Chest`.
+
+### Initialization and lifetime
+
+Bootstrap the single ContainerHost on the first global persistent object,
+before any business Container can enable. The framework does not create a
+Host, wait, retry or choose a fallback. Its default execution order is -10000;
+the bootstrap must still establish the global lifetime.
+
+`PersistenceContainer` uses execution order 10000. Business initialization
+must run earlier: business `Awake` prepares ID/initial data, Container
+`OnEnable` registers, and business `Start` gets a handle. Project Settings
+execution-order overrides must retain that relative order. Do not first get
+the handle from an ordinary business `OnEnable`.
+
+OnDisable unbinds the component but retains the Host row. Re-enabling binds
+the existing row without resetting it or rerunning Awake/Start. Two enabled
+Containers with matching type and ID share the row; later initial values are
+ignored. Initial arrays/lists are copied, so changing a candidate does not
+mutate the live row.
+
+### API and references
+
+`PersistenceContainer` exposes `Id`, `DataType`, `IsBound`,
+`SetId(string)`, `SetInitialData<T>(in T)`, `GetHandle<T>()`, and
+`TryGetHandle<T>(out PersistenceContainerHandle<T>)` (`T : struct`).
+Configuration setters require an unbound component. Illegal types, mismatched
+T and empty IDs are argument errors; requesting a handle before binding is
+an InvalidOperationException. TryGetHandle returns false for an unbound
+component, while invalid types remain errors.
+
+A handle has `Id`, `IsValid`, and `ref T Value`. It resolves the Host's current
+row on each access. Use `ref` to modify scalar fields:
+
+```csharp
+int coins = handle.Value.Coins;
+ref ChestData data = ref handle.Value;
+data.Coins += 1;
+```
+
+`var copy = handle.Value` copies the struct; scalar changes to that copy do not
+write back. Arrays/lists retain ordinary C# shallow-reference semantics. Modify
+struct elements of a List by reading, changing and assigning them back.
+Keep a ref only for one synchronous operation, never across load/await/yield.
+Keep handles rather than refs or collection references across loads.
+
+Disabling a component does not invalidate a cached row handle. Changing its ID
+while disabled does not retarget the old handle or move/delete the old row;
+get a new handle after the new registration. A default handle, a destroyed Host,
+or an absent row makes IsValid false; Value throws instead of creating data.
+
+Pure-code access can explicitly reference the ready ContainerHost and call
+`GetOrCreate<T>(string id, in T initialData)` or
+`TryGet<T>(string id, out PersistenceContainerHandle<T> handle)`.
+GetOrCreate only adopts the initial value when the row is missing. TryGet
+does not create a row. Writes need no Commit, MarkDirty or event command.
+
+### Saving and loading tables
+
+The overall save remains schema v2. Only `containerSection` adds its own
+`formatVersion: 1`, with records `{ typeId, id, data }`. Type IDs use
+`AssemblySimpleName:Namespace.TypeName`, without assembly versions. Renaming
+a business type/assembly has no automatic data migration. Missing business
+fields use default values; obsolete fields are ignored.
+
+Loading prepares validated tables before replacing the live tables. A cached
+handle reads the restored row on its next access. A missing key with an active
+Container is recreated from that component's candidate, in binding-registration
+order; Awake and gameplay initialization are not rerun. Missing keys without
+active bindings are removed, so old handles become invalid. Enabling such a
+Container later follows normal registration.
+
+Old Graph saves with absent, null or empty Container sections still load.
+Nonempty legacy Container gameplay data is discarded with a warning; Graph
+data is preserved. Unknown new versions/types, duplicate composite keys and
+malformed data are rejected. File replacement, Graph payloads, pending tokens
+and Graph apply timing use the existing flow.
+
+Player builds include Container-specific linker metadata for marked Player
+types and their field dependencies. Verify the actual target backend and
+stripping settings with a Player save/load round trip; Editor tests do not
+replace that check.
 
 ## Boundaries
 
