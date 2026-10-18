@@ -107,8 +107,9 @@ when the project no longer wants late registrants to consume the loaded save.
 
 If no `CoCoStateGraphHost` is present, `PersistenceContext` tries the registered
 `IPersistenceContextAdapter` implementations against an `ICoCoContext` on the
-same object. The package registers Character and Item adapters, and projects may
-register additional adapters through `PersistenceContextAdapterRegistry`.
+same object. The package supplies no built-in Character or Item adapter.
+Projects implement `IPersistenceContextAdapter` and register their adapters
+through `PersistenceContextAdapterRegistry.Register`.
 
 This path remains supported. It captures selected typed facts into
 `PersistenceContextRecord`; it is not treated as deprecated or as an API that
@@ -333,7 +334,8 @@ and Graph apply timing use the existing flow.
 Player builds include Container-specific linker metadata for marked Player
 types and their field dependencies. Verify the actual target backend and
 stripping settings with a Player save/load round trip; Editor tests do not
-replace that check.
+replace that check. Actual Player save/load and stripping compatibility have
+not been validated for the 0.4.4 release.
 
 ## Boundaries
 

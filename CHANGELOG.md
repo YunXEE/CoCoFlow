@@ -6,6 +6,40 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.4] - 2026-10-18
+
+### Added and changed
+
+- Persistence Containers now store marked business structs in typed tables.
+  A row is identified by data type and ID; matching Containers share the row,
+  while business scripts own gameplay and modify data through typed handles.
+- `PersistenceHost` exposes save slots, the initial slot, save directory and
+  optional Container Host wiring in the Inspector, with resolved paths and
+  folder actions. `PersistenceContainerHost` shows runtime tables and bindings.
+- Container Inspectors provide searchable short type names, nested initial-data
+  editing, and normal Player assembly filtering shared with linker metadata.
+- Editor Debug Mode reads and writes `Assets/DebugSaves/`; Player uses the normal
+  save-directory configuration.
+
+### Fixed
+
+- Re-enabling the same Container Host no longer reapplies an already consumed
+  pending load, preserving subsequent row changes.
+- The Container type picker excludes Editor-only and test assemblies that are
+  absent from a normal Player.
+
+### Removed and boundaries
+
+- Removed Container gameplay templates, Catalogs, quest/reward/drop commands,
+  Store and Bridge APIs. Existing gameplay Container data is not migrated.
+- StateGraph persistence keeps its existing APIs and lifecycle. The save
+  document remains schema v2; typed Container data uses section format v1.
+- Actual Player save/load and stripping compatibility have not been validated
+  for this release. Editor verification does not establish Player support.
+
+See [Persistence](Docs/Module-Persistence.md) for the current data contract,
+scene setup and business-script API.
+
 ## [0.4.3] - 2026-10-15
 
 ### Added

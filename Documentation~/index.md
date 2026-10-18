@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.3`.
+`0.4.4`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -42,6 +42,20 @@ maturity statement.
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
 - [Animation](../Docs/Module-Animation.md)
+
+## Typed Persistence Containers
+
+Declare pure business structs with `[Serializable, PersistenceData]`.
+`PersistenceContainerHost` stores one table per type, while a
+`PersistenceContainer` locks the type, ID and initial values on a business
+GameObject. Its business script reads and writes a typed handle; matching type
+and ID share data. `PersistenceHost` provides Inspector save configuration and
+Editor Debug Mode without changing the existing Graph path.
+
+See [Persistence](../Docs/Module-Persistence.md) for the four Mono roles, lifecycle,
+nested data and save format. Old Container gameplay APIs are removed without
+data migration. Actual Player save/load and stripping compatibility remain
+unverified for this release.
 
 ## State mailboxes and automatic binding
 
