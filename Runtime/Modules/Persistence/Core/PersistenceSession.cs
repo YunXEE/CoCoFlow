@@ -17,7 +17,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
         public static PersistenceSaveDocument Capture(int slotIndex)
         {
             var contextSection = PersistenceContextRegistry.CaptureSection();
-            var containerSection = PersistenceContainerStore.CaptureActiveSection();
+            var containerSection = PersistenceContainerHost.CaptureActiveSection();
             return PersistenceSaveDocument.Create(slotIndex, contextSection, containerSection);
         }
 
@@ -31,7 +31,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
         {
             if (_pendingDocument == null) return;
 
-            PersistenceContainerStore.ApplyActiveSection(_pendingDocument.containerSection);
+            PersistenceContainerHost.ApplyActiveSection(_pendingDocument.containerSection);
             PersistenceContextRegistry.ApplySection(
                 _pendingDocument.contextSection,
                 _pendingDocumentApplyToken);
