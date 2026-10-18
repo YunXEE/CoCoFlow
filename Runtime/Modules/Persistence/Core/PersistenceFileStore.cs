@@ -25,8 +25,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
 
         public static string GetSaveFilePath(int slotIndex)
         {
-            return Path.Combine(GetSaveDirectory(), $"savegame_slot_{slotIndex}.json");
+            return Path.Combine(GetSaveDirectory(), GetSaveFileName(slotIndex));
         }
+
+        internal static string GetSaveFileName(int slotIndex) => $"savegame_slot_{slotIndex}.json";
 
         public static void WriteDocument(int slotIndex, PersistenceSaveDocument document)
         {
@@ -38,6 +40,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
 
             File.WriteAllText(tempPath, json);
             ReplaceSaveFile(tempPath, targetPath);
+#if UNITY_EDITOR
+            if (PersistenceHost.ActiveHost != null && PersistenceHost.ActiveHost.UsesDebugDirectory)
+                UnityEditor.AssetDatabase.Refresh();
+#endif
         }
 
         public static bool TryReadDocument(int slotIndex, out PersistenceSaveDocument document)
@@ -124,7 +130,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Core
         }
 #endif
 
-        private static string ResolveSaveDirectory() =>
+        internal static string ResolveSaveDirectory() =>
             !string.IsNullOrEmpty(SaveDirectoryOverride)
                 ? SaveDirectoryOverride
                 : Application.persistentDataPath;
