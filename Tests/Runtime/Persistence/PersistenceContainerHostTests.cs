@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using CoCoFlow.Runtime.Modules.Persistence;
 using CoCoFlow.Runtime.Modules.Persistence.Container;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
@@ -112,6 +114,64 @@ namespace CoCoFlow.Tests.Runtime.Persistence
             Host = NewObject("Replacement host").AddComponent<PersistenceContainerHost>();
             var handle = Host.GetOrCreate("loaded", new ContainerTestChest { Coins = 99 });
             Assert.AreEqual(7, handle.Value.Coins);
+        }
+
+        [Test]
+        public void ReenablingAfterLoadDoesNotReplayOldSaveOverLaterMutationsOrSaves()
+        {
+            string previousDirectory = PersistenceFileStore.SaveDirectoryOverride;
+            string directory = Path.Combine(Application.temporaryCachePath, "bug109-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                PersistenceFileStore.SaveDirectoryOverride = directory;
+                var handle = Host.GetOrCreate("loaded", new ContainerTestChest { Coins = 10 });
+                PersistenceSaveLoadSystem.SaveGame(0);
+                handle.Value.Coins = 99;
+                Assert.IsTrue(PersistenceSaveLoadSystem.LoadGame(0));
+                Assert.AreEqual(10, handle.Value.Coins);
+                handle.Value.Coins = 8;
+                PersistenceSaveLoadSystem.SaveGame(0);
+                Host.enabled = false;
+                Host.enabled = true;
+                Assert.AreEqual(8, handle.Value.Coins, "Re-enabling must retain mutations made after loading, including later saves.");
+                handle.Value.Coins = 5;
+                Assert.IsTrue(PersistenceSaveLoadSystem.LoadGame(0));
+                Assert.AreEqual(8, handle.Value.Coins, "A new explicit load must still restore saved data.");
+                handle.Value.Coins = 6;
+                Host.enabled = false;
+                Host.enabled = true;
+                Assert.AreEqual(6, handle.Value.Coins);
+            }
+            finally
+            {
+                PersistenceFileStore.SaveDirectoryOverride = previousDirectory;
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        [Test]
+        public void HostInitializedWhileDisabledConsumesEachPendingLoadOnce()
+        {
+            var handle = Host.GetOrCreate("loaded", new ContainerTestChest { Coins = 3 });
+            var document = PersistenceSaveDocument.Create(0, new PersistenceContextSection(), Host.CaptureSection());
+            Host.enabled = false;
+            PersistenceSession.SetPendingDocument(document);
+            PersistenceSession.ApplyPendingDocument();
+            Host.enabled = true;
+            Assert.AreEqual(3, handle.Value.Coins);
+            handle.Value.Coins = 8;
+            Host.enabled = false;
+            Host.enabled = true;
+            Assert.AreEqual(8, handle.Value.Coins, "A pending document applied during initialization must not replay.");
+            Host.enabled = false;
+            document.containerSection.Records[0].Data["Coins"] = 11;
+            PersistenceSession.SetPendingDocument(document);
+            Host.enabled = true;
+            Assert.AreEqual(11, handle.Value.Coins, "A new pending load must apply even when it reuses the document object.");
+            handle.Value.Coins = 12;
+            Host.enabled = false;
+            Host.enabled = true;
+            Assert.AreEqual(12, handle.Value.Coins);
         }
 
         [Test]

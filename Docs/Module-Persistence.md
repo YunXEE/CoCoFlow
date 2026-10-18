@@ -169,6 +169,8 @@ supported. The Save Editor reads Host-owned slot limits while a Host is active.
 `PersistenceContainerHost` shows its active status, bound component count, table
 count, total rows, and per-type row counts. It owns data tables; save paths and
 slot configuration belong to PersistenceHost.
+Re-enabling the same ContainerHost retains changes made since its last load;
+only a new pending load is applied during initialization.
 
 ### Declare data and configure a Container
 
@@ -188,6 +190,8 @@ Containers or links to another Container.
 Add one `PersistenceContainer` to the business GameObject. In its Inspector,
 select the data type, enter a nonempty ID and edit the initial fields. Types
 are explicitly locked; a generic API call does not choose or change the type.
+The type picker and Player metadata use normal Player assemblies, excluding
+Editor-only and test assemblies from selectable business data types.
 The component serializes its type ID and initial JSON while the Inspector
 draws the actual fields, including nested structs and collections. Undo and
 prefab overrides use normal serialized properties.

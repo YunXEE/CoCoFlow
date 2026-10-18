@@ -18,6 +18,17 @@ namespace CoCoFlow.Editor.Modules.Persistence
     /// <summary>Preserves only the marked Player data types and their field dependencies.</summary>
     internal static class PersistenceContainerPlayerMetadata
     {
+        internal static HashSet<string> GetPlayerAssemblyNames() => new HashSet<string>(
+            CompilationPipeline.GetAssemblies(AssembliesType.PlayerWithoutTestAssemblies).Select(assembly => assembly.name),
+            StringComparer.Ordinal);
+
+        internal static Type[] GetPlayerDataTypes()
+        {
+            HashSet<string> assemblies = GetPlayerAssemblyNames();
+            return PersistenceDataTypeRegistry.GetValidTypes()
+                .Where(type => assemblies.Contains(type.Assembly.GetName().Name)).ToArray();
+        }
+
         internal static Type[] CollectTypes(IEnumerable<Type> roots, ISet<string> playerAssemblies)
         {
             var types = new HashSet<Type>();
@@ -73,8 +84,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
         public string GenerateAdditionalLinkXmlFile(BuildReport report, UnityLinkerBuildPipelineData data)
         {
-            var playerAssemblies = new HashSet<string>(
-                CompilationPipeline.GetAssemblies(AssembliesType.Player).Select(assembly => assembly.name), StringComparer.Ordinal);
+            HashSet<string> playerAssemblies = PersistenceContainerPlayerMetadata.GetPlayerAssemblyNames();
             Type[] types = PersistenceContainerPlayerMetadata.CollectTypes(
                 PersistenceDataTypeRegistry.GetValidTypes(), playerAssemblies);
             if (types.Length == 0) return null;

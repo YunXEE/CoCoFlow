@@ -13,7 +13,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
 
         private void OnEnable()
         {
-            _typeEntries = PersistenceContainerTypePicker.CreateEntries(PersistenceDataTypeRegistry.GetValidTypes());
+            _typeEntries = PersistenceContainerTypePicker.CreateEntries(PersistenceContainerPlayerMetadata.GetPlayerDataTypes());
         }
 
         public override void OnInspectorGUI()

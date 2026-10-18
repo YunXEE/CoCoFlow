@@ -10,6 +10,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
     {
         private Dictionary<Type, PersistenceContainerTable> _tables = new Dictionary<Type, PersistenceContainerTable>();
         private readonly List<PersistenceContainer> _bindings = new List<PersistenceContainer>();
+        private object _appliedPendingDocumentToken;
         internal static PersistenceContainerHost ActiveHost { get; private set; }
         internal int TableCount => _tables.Count;
         internal int BoundContainerCount => _bindings.Count;
@@ -46,7 +47,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
         internal static void ApplyActiveSection(PersistenceContainerSection section)
         {
             PersistenceContainerHost host = ResolveSaveHost();
-            if (host != null) host.ApplySection(section ?? new PersistenceContainerSection());
+            if (host != null) host.ApplyPendingSection(section);
         }
 
         private static PersistenceContainerHost ResolveSaveHost() =>
@@ -80,6 +81,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
             var section = new PersistenceContainerSection();
             foreach (PersistenceContainerTable table in _tables.Values) table.Capture(section.Records);
             return section;
+        }
+
+        private void ApplyPendingSection(PersistenceContainerSection section)
+        {
+            ApplySection(section ?? new PersistenceContainerSection());
+            _appliedPendingDocumentToken = PersistenceSession.PendingDocumentApplyToken;
         }
 
         internal void ApplySection(PersistenceContainerSection section)
@@ -136,8 +143,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
             try
             {
                 PersistenceDataTypeRegistry.GetValidTypes();
-                if (PersistenceSession.PendingDocument?.containerSection != null)
-                    ApplySection(PersistenceSession.PendingDocument.containerSection);
+                // Re-enabling the same Host must retain mutations made after its last load.
+                if (PersistenceSession.PendingDocument?.containerSection != null &&
+                    !ReferenceEquals(_appliedPendingDocumentToken, PersistenceSession.PendingDocumentApplyToken))
+                    ApplyPendingSection(PersistenceSession.PendingDocument.containerSection);
             }
             catch (Exception exception)
             {

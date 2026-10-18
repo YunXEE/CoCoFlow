@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Xml.Linq;
 using CoCoFlow.Editor.Modules.Persistence;
 using CoCoFlow.Runtime.Modules.Persistence;
@@ -9,6 +10,7 @@ using CoCoFlow.Runtime.Modules.Persistence.Container;
 using CoCoFlow.Tests.Runtime.Persistence;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -35,6 +37,39 @@ namespace CoCoFlow.Tests.Editor.Persistence
             CollectionAssert.DoesNotContain(types, typeof(ContainerMissingSerializable));
             CollectionAssert.DoesNotContain(types, typeof(ContainerBadObject));
             Assert.AreEqual(typeof(ContainerTestChest), PersistenceDataTypeRegistry.Resolve(PersistenceDataTypeRegistry.GetTypeId(typeof(ContainerTestChest))));
+        }
+
+        [Test]
+        public void InspectorOnlyOffersNormalPlayerDataTypes()
+        {
+            var root = new GameObject("Player type choices");
+            root.SetActive(false);
+            var container = root.AddComponent<PersistenceContainer>();
+            UnityEditor.Editor inspector = null;
+            try
+            {
+                inspector = UnityEditor.Editor.CreateEditor(container);
+                FieldInfo field = typeof(PersistenceContainerEditor).GetField("_typeEntries", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.IsNotNull(field);
+                var entries = (PersistenceContainerTypePicker.Entry[])field.GetValue(inspector);
+                string[] ids = entries.Where(entry => !string.IsNullOrEmpty(entry.Id)).Select(entry => entry.Id).ToArray();
+                CollectionAssert.DoesNotContain(ids, PersistenceDataTypeRegistry.GetTypeId(typeof(ContainerEditorOnlyData)));
+                CollectionAssert.DoesNotContain(ids, PersistenceDataTypeRegistry.GetTypeId(typeof(ContainerTestChest)));
+                var assemblies = new HashSet<string>(CompilationPipeline.GetAssemblies(AssembliesType.PlayerWithoutTestAssemblies)
+                    .Select(assembly => assembly.name), StringComparer.Ordinal);
+                CollectionAssert.AreEquivalent(assemblies, PersistenceContainerPlayerMetadata.GetPlayerAssemblyNames(),
+                    "The linker and Inspector must use the same normal Player assembly scope.");
+                string[] expected = PersistenceDataTypeRegistry.GetValidTypes()
+                    .Where(type => assemblies.Contains(type.Assembly.GetName().Name))
+                    .Select(PersistenceDataTypeRegistry.GetTypeId).ToArray();
+                CollectionAssert.AreEquivalent(expected, ids, "Keep all valid business types from normal Player assemblies.");
+                TestContext.WriteLine("Normal Player data choices: " + string.Join(", ", ids));
+            }
+            finally
+            {
+                if (inspector != null) Object.DestroyImmediate(inspector);
+                Object.DestroyImmediate(root);
+            }
         }
 
         [Test]
