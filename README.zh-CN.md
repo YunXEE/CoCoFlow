@@ -1,26 +1,25 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.3 · **Unity**：6000+
+> **版本**：0.4.4 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
 
-## 0.4.3 新内容
+## 0.4.4 新内容
 
-- Host 上挂载 Adapter 接收外部结构体事件，Logic 通过
-  `context.Inbox.TryGetBatch<TEvent>` 读取当前 Tick 冻结的邮件批次。
-  一个 Host 支持多个 Adapter 和事件类型，事件与业务 Intent 分别进入 Logic。
-- 用 `context.Outbox.Publish(in payload)` 发送结构体事件；Tick 成功提交后，
-  Host 才调用普通 EventBus 发布。
-- 在 `[CoCoState]` 上声明 `ProvidesActionProgress = true`，普通与 Config/Memory
-  两条注册路径都可使用进度窗口。独立 `[Condition]` 类自动发现并绑定工厂，
-  无需项目手写 Binding。
+- `PersistenceContainerHost` 持有标记为 `[Serializable, PersistenceData]` 的
+  业务结构体表，以“数据类型＋ID”定位记录；相同键共享数据，同对象业务脚本通过
+  类型化句柄读写，玩法由业务负责。
+- `PersistenceHost` Inspector 提供存档槽位、目录、完整路径和可选 Container Host
+  拖拽配置。`PersistenceContainer` 支持短类型名搜索及嵌套初值编辑。
+- Editor Debug Mode 将 JSON 存档放在 `Assets/DebugSaves/`，方便开发时查看；
+  Player 使用正常存档目录配置。
 
-直接邮件仅在 Running 时接收；每类型队列满后丢弃新邮件，不触发 Host Fault。
-被拒绝的 Temporal 调用保留待处理邮件。完整 API 与生命周期见
-[State 邮箱与绑定](Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)。
+StateGraph 持久化 API 保持不变。旧 Container 模板与玩法命令移除，旧玩法数据
+不迁移。本版尚未验证实际 Player 的保存、加载及裁剪兼容性。
+装配和业务接入见 [Persistence](Docs/Module-Persistence.md)。
 
 ## “成熟”的定义
 
@@ -74,7 +73,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.3
+https://github.com/YunXEE/CoCoFlow.git#v0.4.4
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -82,7 +81,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.3
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.3"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.4"
   }
 }
 ```

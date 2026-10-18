@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.3 · **Unity**: 6000+
+> **Version**: 0.4.4 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -8,21 +8,21 @@ CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
 
-## New in 0.4.3
+## New in 0.4.4
 
-- Receive external struct events through Host-local Adapters and read the frozen
-  Tick batch with `context.Inbox.TryGetBatch<TEvent>`. Multiple Adapters and event
-  types share one Host inbox; events remain separate from business Intent data.
-- Send struct events with `context.Outbox.Publish(in payload)`. The Host publishes
-  them through the EventBus only after the Tick commits successfully.
-- Declare `ProvidesActionProgress = true` on `[CoCoState]` for both ordinary and
-  Config/Memory states. Independent `[Condition]` classes are discovered and
-  factory-bound automatically, without project Binding code.
+- Store `[Serializable, PersistenceData]` structs in `PersistenceContainerHost`.
+  Data type plus ID identifies a row; matching Containers share data, and
+  same-object business scripts modify it through typed handles.
+- Configure save slots, paths and the optional Container Host in the
+  `PersistenceHost` Inspector. Search short data type names and edit nested
+  initial values directly on each `PersistenceContainer`.
+- Enable Editor Debug Mode to inspect JSON saves in `Assets/DebugSaves/`.
+  Player keeps the normal save-directory configuration.
 
-Direct mail is accepted only while Running; full per-type queues drop new mail
-without faulting the Host. Rejected Temporal calls keep pending mail. See
-[State mailboxes and binding](Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
-for the APIs and lifecycle rules.
+StateGraph persistence keeps its existing API. Container gameplay templates and
+commands are removed; old Container gameplay data is not migrated. Actual
+Player save/load and stripping compatibility remain unverified for this release.
+See [Persistence](Docs/Module-Persistence.md) for scene setup and usage.
 
 ## What “mature” means
 
@@ -81,7 +81,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.3
+https://github.com/YunXEE/CoCoFlow.git#v0.4.4
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -89,7 +89,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.3"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.4"
   }
 }
 ```
