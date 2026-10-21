@@ -596,6 +596,12 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
+            if ((invalidation & CoCoStateGraphEditorInvalidation.StateDraft) != 0)
+            {
+                // Name / Logic edits and bound Config inputs share the same
+                // draft: do not let a stale SerializedObject overwrite either.
+                serializedAsset?.Update();
+            }
             RefreshStateDraftStatus();
             if ((invalidation & CoCoStateGraphEditorInvalidation.Toolbar) != 0)
             {
