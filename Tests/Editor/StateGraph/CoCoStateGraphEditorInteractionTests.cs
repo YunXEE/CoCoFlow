@@ -107,6 +107,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             VisualElement root = CreateWindowPanelHost(window).contentRoot;
             var controller = WindowController(window);
             yield return null;
+            Assert.IsFalse(controller.HasStateDraftChanges, "Binding the initial Config must stay clean.");
             controller.Analyze();
             Assert.IsTrue(controller.AnalysisResult.Succeeded);
             VisualElement input = root.Q<VisualElement>("state-graph-state-config");
@@ -114,12 +115,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             int before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
             int rebuilds = 0;
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            var draftConfig = (TestStateAuthoringConfig)controller.BeginStateDraft().Config;
+            IntegerField configInput = input.Q<IntegerField>();
+            Assert.NotNull(configInput);
             root.Q<TextField>("state-graph-state-name").value = "Idle renamed";
             for (int index = 1; index <= 8; index++)
             {
-                draftConfig.Value = index;
-                controller.NotifyConfigChanged();
+                configInput.value = index;
                 if (root.Q<VisualElement>("state-graph-state-config") != input) rebuilds++;
             }
 
@@ -135,7 +136,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Foldout configFoldout = input.Q<Foldout>();
             Assert.NotNull(configFoldout);
             Assert.IsTrue(configFoldout.value);
-            Assert.AreEqual(DisplayStyle.None, configFoldout.Q<Toggle>().style.display.value);
+            Assert.AreEqual(DisplayStyle.None, configFoldout.Q<Toggle>().resolvedStyle.display);
 
             Click(root.Q<Button>("state-graph-save-state"));
             timer.Stop();

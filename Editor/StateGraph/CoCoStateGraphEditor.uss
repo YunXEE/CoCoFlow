@@ -72,6 +72,10 @@
     margin-bottom: 4px;
 }
 
+#state-graph-state-config > .unity-foldout > .unity-foldout__toggle {
+    display: none;
+}
+
 .sg-details-foldout {
     margin-top: 4px;
     margin-bottom: 6px;

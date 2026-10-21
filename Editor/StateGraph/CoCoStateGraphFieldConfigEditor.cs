@@ -30,8 +30,9 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     if (GUILayout.Button(state.Config is CoCoFieldConfig ? "Reset Config" : "Initialize Config"))
                     {
-                        SaveFieldConfig(state, new CoCoFieldConfig());
-                        _stateConfigHost?.schedule.Execute(RefreshStateConfig);
+                        config = new CoCoFieldConfig();
+                        SaveFieldConfig(state, config);
+                        logic = (CoCoStateLogic)Activator.CreateInstance(descriptor.LogicType);
                         return;
                     }
                     if (error != null) { EditorGUILayout.HelpBox(error, MessageType.Error); return; }
@@ -48,7 +49,8 @@ namespace CoCoFlow.Editor.StateGraph
                         if (reset) config.Values = config.Values.Where(entry => !entry.StartsWith(path + "=", StringComparison.Ordinal)).ToArray();
                         else config.Set(path, value);
                         SaveFieldConfig(state, config);
-                        _stateConfigHost?.schedule.Execute(RefreshStateConfig);
+                        logic = (CoCoStateLogic)Activator.CreateInstance(descriptor.LogicType);
+                        config.Apply(logic);
                     }
                 }
             }));

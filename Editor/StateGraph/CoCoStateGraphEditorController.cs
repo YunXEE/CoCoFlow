@@ -30,6 +30,7 @@ namespace CoCoFlow.Editor.StateGraph
         private CoCoStateGraphAsset _stateDraftAsset;
         private CoCoLayerId _stateDraftLayerId;
         private CoCoStateId _stateDraftStateId;
+        private string _stateDraftConfigSnapshot;
 
         internal CoCoStateGraphEditorController(CoCoStateGraphAsset asset)
         {
@@ -84,6 +85,7 @@ namespace CoCoFlow.Editor.StateGraph
                 _stateDraftAsset.hideFlags = HideFlags.HideAndDontSave;
                 _stateDraftLayerId = Session.SelectedLayerId;
                 _stateDraftStateId = Session.SelectedStateId;
+                _stateDraftConfigSnapshot = JsonUtility.ToJson(state.Config);
             }
 
             foreach (CoCoStateGraphLayerRecord layer in _stateDraftAsset.Layers)
@@ -120,6 +122,7 @@ namespace CoCoFlow.Editor.StateGraph
             Undo.RecordObject(_stateDraftAsset, "Edit State Logic Draft");
             state.StateDescriptorId = new CoCoSerializedId128(descriptor.DescriptorId.High, descriptor.DescriptorId.Low);
             state.Config = config;
+            _stateDraftConfigSnapshot = JsonUtility.ToJson(config);
             MarkStateDraftChanged();
             return true;
         }
@@ -176,6 +179,7 @@ namespace CoCoFlow.Editor.StateGraph
             Undo.ClearUndo(_stateDraftAsset);
             UnityEngine.Object.DestroyImmediate(_stateDraftAsset);
             _stateDraftAsset = null;
+            _stateDraftConfigSnapshot = null;
         }
 
         private bool ResolveStateDraft() => !HasStateDraftChanges ||
@@ -782,7 +786,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (_stateDraftAsset != null && !Session.SelectedTransitionId.IsValid)
             {
-                MarkStateDraftChanged();
+                // Bound PropertyFields also report their initial value: only a
+                // changed Config is an edit, so merely selecting a State stays clean.
+                string snapshot = JsonUtility.ToJson(BeginStateDraft()?.Config);
+                if (snapshot != _stateDraftConfigSnapshot)
+                {
+                    _stateDraftConfigSnapshot = snapshot;
+                    MarkStateDraftChanged();
+                }
                 return;
             }
 
