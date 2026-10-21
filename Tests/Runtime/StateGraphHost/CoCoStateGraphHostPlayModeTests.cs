@@ -41,6 +41,105 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             DualHostTestEventAdapterComponent.Reset();
         }
 
+        [TestCase(true)]
+        [TestCase(false)]
+        public void StartupExceptionPreservesCauseAndAllowsCleanRetry(bool duringCompilation)
+        {
+            HostTestIds ids = HostTestIds.Create();
+            var provider = new StartupExceptionBindingProvider(
+                new HostTestBindingProvider(ids, withEvent: true), duringCompilation);
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            CoCoStateGraphHost host = CreateHost(CreateAsset(ids, withEvent: true), CoCoStateGraphDriver.Manual, 4);
+            provider.Fail = true;
+            string exceptionLog = null;
+            Application.LogCallback capture = (message, stack, type) =>
+            {
+                if (type == LogType.Exception) exceptionLog = message + "\n" + stack;
+            };
+            ILogHandler originalLogHandler = Debug.unityLogger.logHandler;
+            var logHandler = new StartupExceptionLogHandler(originalLogHandler);
+            Debug.unityLogger.logHandler = logHandler;
+            Application.logMessageReceived += capture;
+            try
+            {
+                LogAssert.Expect(LogType.Exception,
+                    new System.Text.RegularExpressions.Regex("ArgumentException: BUG-115 root"));
+                Assert.That(host.TryStart(out CoCoDiagnostic diagnostic), Is.False);
+                Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
+                Assert.That(diagnostic.Message, Is.EqualTo(duringCompilation
+                    ? "StateGraph Asset compilation threw during Host setup."
+                    : "Host setup failed before the StateGraph instance became observable."));
+                Assert.That(host.LastDiagnostic, Is.EqualTo(diagnostic));
+            }
+            finally
+            {
+                Application.logMessageReceived -= capture;
+                Debug.unityLogger.logHandler = originalLogHandler;
+            }
+
+            Assert.That(logHandler.LoggedException, Is.SameAs(provider.StartupException));
+            Assert.That(logHandler.LoggedException, Is.TypeOf<InvalidOperationException>());
+            Assert.That(logHandler.LoggedException.InnerException, Is.TypeOf<ArgumentException>());
+            Assert.That(logHandler.LoggedContext, Is.SameAs(host));
+            Assert.That(logHandler.ExceptionCount, Is.EqualTo(1));
+            StringAssert.Contains("ArgumentException: BUG-115 root", exceptionLog);
+            StringAssert.Contains("InvalidOperationException: BUG-115 wrapper", exceptionLog);
+            StringAssert.Contains("ThrowStartupException", exceptionLog);
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Created));
+            Assert.That(host.HasLiveRuntime, Is.False);
+            Assert.That(host.GraphInstanceId.IsValid, Is.False);
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+            if (!duringCompilation)
+            {
+                Assert.That(provider.IntentRuntime, Is.Not.Null);
+                Assert.That(provider.IntentRuntime.IsDisposed, Is.True);
+            }
+
+            provider.Fail = false;
+            Require(host.TryStart(out CoCoDiagnostic retry), retry);
+            Assert.That(host.LastDiagnostic.IsNone, Is.True);
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.EqualTo(1));
+            Require(host.TryStop(out CoCoDiagnostic stop), stop);
+            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void StandardFactoryReportsMissingUpdateAndStartsAfterCorrection(bool missingUpdate)
+        {
+            Type logicType = missingUpdate ? typeof(HostTestMissingUpdateLogic) : typeof(HostTestStartupLogic);
+            var provider = CoCoStandardBindingProvider.Build(new[] { logicType.Assembly });
+            Require(CoCoStateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            CoCoStateGraphAsset asset = CreateAsset(HostTestIds.Create(), withEvent: false);
+            CoCoStateGraphStateRecord state = asset.Layers[0].States[0];
+            Require(StandardDescriptors.TryCreate(logicType, logicType.Name, out CoCoStateDescriptorId descriptor));
+            state.StateDescriptorId = new CoCoSerializedId128(descriptor.High, descriptor.Low);
+            state.Config = new EmptyStateConfig();
+            CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
+            if (missingUpdate)
+            {
+                LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex(
+                    "(?s)ArgumentException:.*(Invalid generic arguments|[Cc]onstraint)"));
+                Assert.That(host.TryStart(out CoCoDiagnostic failure), Is.False);
+                Assert.That(failure.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
+                Assert.That(host.LastDiagnostic, Is.EqualTo(failure));
+                Assert.That(host.HasLiveRuntime, Is.False);
+                Assert.That(host.GraphInstanceId.IsValid, Is.False);
+                Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
+                logicType = typeof(HostTestStartupLogic);
+                Require(StandardDescriptors.TryCreate(logicType, logicType.Name, out descriptor));
+                state.StateDescriptorId = new CoCoSerializedId128(descriptor.High, descriptor.Low);
+            }
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Assert.That(host.Lifecycle, Is.EqualTo(CoCoRuntimeLifecycleState.Running));
+            Assert.That(host.LastDiagnostic.IsNone, Is.True);
+            Require(host.TryStep(0.1, out CoCoDiagnostic step), step);
+            Require(host.TryStop(out CoCoDiagnostic stop), stop);
+            LogAssert.NoUnexpectedReceived();
+        }
+
         [Test]
         public void MissingAssetLeavesHostCreatedWithoutRouterRegistration()
         {
@@ -1530,6 +1629,77 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private static void Require(bool succeeded, CoCoDiagnostic diagnostic = default)
         {
             Assert.That(succeeded, Is.True, diagnostic.Message);
+        }
+
+        private sealed class StartupExceptionLogHandler : ILogHandler
+        {
+            private readonly ILogHandler _inner;
+
+            public StartupExceptionLogHandler(ILogHandler inner)
+            {
+                _inner = inner;
+            }
+
+            public Exception LoggedException { get; private set; }
+            public UnityEngine.Object LoggedContext { get; private set; }
+            public int ExceptionCount { get; private set; }
+
+            public void LogException(Exception exception, UnityEngine.Object context)
+            {
+                LoggedException = exception;
+                LoggedContext = context;
+                ExceptionCount++;
+                _inner.LogException(exception, context);
+            }
+
+            public void LogFormat(LogType logType, UnityEngine.Object context, string format, params object[] args) =>
+                _inner.LogFormat(logType, context, format, args);
+        }
+
+        private sealed class StartupExceptionBindingProvider : ICoCoStateGraphProjectBindingProvider
+        {
+            private readonly HostTestBindingProvider _inner;
+            private readonly bool _duringCompilation;
+
+            public StartupExceptionBindingProvider(HostTestBindingProvider inner, bool duringCompilation)
+            {
+                _inner = inner;
+                _duringCompilation = duringCompilation;
+            }
+
+            public bool Fail { get; set; }
+            public Exception StartupException { get; private set; }
+            public CoCoIntentFrameRuntime IntentRuntime { get; private set; }
+            public CoCoGraphDescriptorCatalog Catalog
+            {
+                get
+                {
+                    if (Fail && _duringCompilation) ThrowStartupException();
+                    return _inner.Catalog;
+                }
+            }
+
+            public bool TryConfigure(CoCoStateGraphHostBindingBuilder builder, out CoCoDiagnostic diagnostic)
+            {
+                if (!_inner.TryConfigure(builder, out diagnostic)) return false;
+                IntentRuntime = (CoCoIntentFrameRuntime)typeof(CoCoStateGraphHostBindingBuilder)
+                    .GetField("_intentRuntime", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(builder);
+                if (Fail) ThrowStartupException();
+                return true;
+            }
+
+            private void ThrowStartupException()
+            {
+                try
+                {
+                    throw new ArgumentException("BUG-115 root");
+                }
+                catch (ArgumentException exception)
+                {
+                    StartupException = new InvalidOperationException("BUG-115 wrapper", exception);
+                    throw StartupException;
+                }
+            }
         }
 
         private sealed class StartCallbackBindingProvider :
