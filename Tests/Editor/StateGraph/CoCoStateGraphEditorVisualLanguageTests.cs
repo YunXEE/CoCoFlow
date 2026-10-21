@@ -207,6 +207,17 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(management);
             Assert.IsNull(root.Q<Foldout>("state-graph-layer-management"));
             Assert.IsTrue(management.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            VisualElement addState = root.Q<VisualElement>("state-graph-add-state");
+            VisualElement addLogic = root.Q<VisualElement>("state-graph-add-logic");
+            Assert.NotNull(addState);
+            Assert.NotNull(addLogic);
+            Assert.AreSame(management, addState.parent);
+            Assert.AreSame(management, addLogic.parent);
+            Assert.IsTrue(addState.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.IsFalse(addState.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<Button>("state-graph-create-logic")));
+            Assert.IsFalse(addLogic.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
             Assert.NotNull(root.Q<VisualElement>("state-graph-transition-list"));
             Assert.IsNull(root.Q<Foldout>("state-graph-transition-list"));
             Assert.IsTrue(root.Q<VisualElement>("state-graph-feedback").Contains(

@@ -77,6 +77,7 @@ namespace CoCoFlow.Editor.StateGraph
             var management = new VisualElement { name = "state-graph-layer-management" };
             CollectDetailsSection(management, () => DrawLayerCard(layer));
             CollectDetailsSection(management, DrawAddStateCard);
+            CollectDetailsSection(management, DrawAddLogicCard);
             details.Add(management);
             ApplyPlayModeReadOnly();
         }
@@ -148,6 +149,7 @@ namespace CoCoFlow.Editor.StateGraph
         private void DrawAddStateCard()
         {
             var card = CoCoEditorElements.CreateCard(L("Add State", "添加 State"));
+            card.name = "state-graph-add-state";
             card.AddToClassList("sg-card");
             texts.Register(card[0], "Add State", "添加 State");
 
@@ -161,11 +163,38 @@ namespace CoCoFlow.Editor.StateGraph
             var stateName = new TextField(L("Name", "名称")) { value = L("State", "State") };
             card.Add(stateName);
 
-            // Create-new-logic lane: graph-driven authoring. Entering a new
-            // state name and clicking Create generates the attributed state
-            // script; after compilation and standard-catalog rescan, this
-            // panel reopens with the fresh descriptor preselected.
-            var createNewScriptName = new TextField(L("New Logic Name", "新逻辑名称"));
+            var addHere = new Button(() =>
+            {
+                controller.AddState(default, addDescriptor.Value, stateName.value, NextPosition());
+            })
+            {
+                text = "Add State Here"
+            };
+            card.Add(addHere);
+
+            var pasteHere = new Button(() => controller.PasteState(
+                default,
+                NextPosition()))
+            {
+                text = L("Paste Subtree Here", "粘贴子树到此处")
+            };
+            texts.Register(pasteHere, "Paste Subtree Here", "粘贴子树到此处");
+            card.Add(pasteHere);
+
+            details.Add(card);
+        }
+
+        private void DrawAddLogicCard()
+        {
+            var card = CoCoEditorElements.CreateCard(L("Add Logic", "添加 Logic"));
+            card.name = "state-graph-add-logic";
+            card.AddToClassList("sg-card");
+            texts.Register(card[0], "Add Logic", "添加 Logic");
+
+            var createNewScriptName = new TextField(L("New Logic Name", "新逻辑名称"))
+            {
+                name = "state-graph-new-logic-name"
+            };
             texts.Register(createNewScriptName, "New Logic Name", "新逻辑名称");
             card.Add(createNewScriptName);
             var createStatus = new Label(string.Empty);
@@ -187,29 +216,11 @@ namespace CoCoFlow.Editor.StateGraph
                 awaitingCompilation = true;
             })
             {
+                name = "state-graph-create-logic",
                 text = L("Create New Logic Script", "生成新逻辑脚本")
             };
             texts.Register(createScript, "Create New Logic Script", "生成新逻辑脚本");
             card.Add(createScript);
-
-            var addHere = new Button(() =>
-            {
-                controller.AddState(default, addDescriptor.Value, stateName.value, NextPosition());
-            })
-            {
-                text = "Add State Here"
-            };
-            card.Add(addHere);
-
-            var pasteHere = new Button(() => controller.PasteState(
-                default,
-                NextPosition()))
-            {
-                text = L("Paste Subtree Here", "粘贴子树到此处")
-            };
-            texts.Register(pasteHere, "Paste Subtree Here", "粘贴子树到此处");
-            card.Add(pasteHere);
-
             details.Add(card);
         }
 
@@ -918,7 +929,7 @@ namespace CoCoFlow.Editor.StateGraph
                 addStateDescriptorId = choice.Value.DescriptorId;
             }
 
-            var popup = new PopupField<string>(popupName == "selected-state-descriptor" ? "Logic" : L("Descriptor", "描述符"), labels, selectedIndex)
+            var popup = new PopupField<string>("Logic", labels, selectedIndex)
             {
                 name = popupName
             };
