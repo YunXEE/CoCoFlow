@@ -24,6 +24,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         private CoCoGraphDescriptorCatalog catalog;
         private CoCoStateGraphAssetCompileResult analysisResult;
+        private bool _analysisPending;
+        private bool _disposed;
 
         internal CoCoStateGraphEditorController(CoCoStateGraphAsset asset)
         {
@@ -157,6 +159,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         public void Dispose()
         {
+            _disposed = true;
+            CancelPendingAnalysis();
             Undo.undoRedoPerformed -= OnUndoRedo;
             CoCoStateGraphEditorCatalogProvider.CatalogChanged -= OnCatalogChanged;
             Session.Save();
@@ -578,6 +582,12 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void Analyze(CoCoStateGraphEditorInvalidation invalidation)
         {
+            CancelPendingAnalysis();
+            if (_disposed)
+            {
+                return;
+            }
+
             Session.AnalysisRequested = true;
             analysisResult = null;
             if (catalog == null)
@@ -604,16 +614,36 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void NotifyConfigChanged()
         {
-            analysisResult = null;
-            CommandFailure = string.Empty;
-            EditorUtility.SetDirty(Asset);
-            if (Session.AnalysisRequested && catalog != null)
+            if (_disposed)
             {
-                Analyze(CoCoStateGraphEditorInvalidation.Feedback);
                 return;
             }
 
+            analysisResult = null;
+            CommandFailure = string.Empty;
+            EditorUtility.SetDirty(Asset);
+            if (Session.AnalysisRequested && catalog != null && !_analysisPending)
+            {
+                _analysisPending = true;
+                EditorApplication.delayCall += RunPendingAnalysis;
+            }
+
             Changed?.Invoke(CoCoStateGraphEditorInvalidation.Feedback);
+        }
+
+        private void RunPendingAnalysis()
+        {
+            _analysisPending = false;
+            if (!_disposed && Asset != null)
+            {
+                Analyze();
+            }
+        }
+
+        private void CancelPendingAnalysis()
+        {
+            EditorApplication.delayCall -= RunPendingAnalysis;
+            _analysisPending = false;
         }
 
         internal string StateDescriptorLabel(CoCoStateGraphStateRecord state)
@@ -668,6 +698,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void ReloadCatalog()
         {
+            CancelPendingAnalysis();
             catalog = null;
             analysisResult = null;
             CatalogStatus = string.Empty;
@@ -716,6 +747,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnUndoRedo()
         {
+            CancelPendingAnalysis();
+            analysisResult = null;
             Session.Validate(Asset);
             if (Session.AnalysisRequested && catalog != null)
             {

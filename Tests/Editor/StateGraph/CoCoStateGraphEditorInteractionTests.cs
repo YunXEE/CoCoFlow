@@ -94,6 +94,123 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
+        public IEnumerator ConfigCommitsCoalesceAndPreserveControls()
+        {
+            CoCoStateGraphEditorCatalogProvider.Provider = () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            var config = new TestStateAuthoringConfig();
+            CoCoStateId state = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId, config, "Idle");
+            SelectState(asset, layer, state);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            VisualElement root = CreateWindowPanelHost(window).contentRoot;
+            var controller = WindowController(window);
+            yield return null;
+            controller.Analyze();
+            Assert.IsTrue(controller.AnalysisResult.Succeeded);
+            VisualElement input = root.Q<VisualElement>("state-graph-state-config");
+            Assert.NotNull(input);
+            int before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
+            int rebuilds = 0;
+            bool staleCleared = true;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            for (int index = 1; index <= 8; index++)
+            {
+                config.Value = index;
+                controller.NotifyConfigChanged();
+                staleCleared &= controller.AnalysisResult == null;
+                VisualElement current = root.Q<VisualElement>("state-graph-state-config");
+                if (current != input)
+                {
+                    rebuilds++;
+                    input = current;
+                }
+            }
+
+            double commitMs = timer.Elapsed.TotalMilliseconds;
+            yield return null;
+            for (int frame = 0; controller.AnalysisResult == null && frame < 10; frame++)
+            {
+                yield return null;
+            }
+
+            timer.Stop();
+            int analyses = CoCoStateGraphFixtureCounters.StateFreezeCalls - before;
+            TestContext.WriteLine($"003 commits=8 analyses={analyses} detailsRebuilds={rebuilds} commitMs={commitMs:F3} elapsedMs={timer.Elapsed.TotalMilliseconds:F3}");
+            Assert.IsTrue(staleCleared, "Old success must disappear immediately after each commit.");
+            Assert.AreEqual(1, analyses);
+            Assert.AreEqual(0, rebuilds);
+            Assert.IsTrue(EditorUtility.IsDirty(asset));
+            Assert.IsTrue(controller.AnalysisResult.Graph.Layers[0].States[0].Config.TryRead(
+                TestFrozenConfigSchemas.StateValue, out int latest));
+            Assert.AreEqual(8, latest);
+            Assert.IsTrue(ContainsLabel(root.Q<VisualElement>("state-graph-feedback"), "Compilation succeeded."));
+            controller.SelectState(state);
+            Assert.AreNotSame(input, root.Q<VisualElement>("state-graph-state-config"), "Selection still refreshes details.");
+        }
+
+        [UnityTest]
+        public IEnumerator ExplicitAnalysisAndWindowLifecycleCancelPendingWork()
+        {
+            CoCoStateGraphEditorCatalogProvider.Provider = () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            var config = new TestStateAuthoringConfig();
+            CoCoStateId state = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId, config, "Idle");
+            SelectState(asset, layer, state);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            var controller = WindowController(window);
+            int before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
+            controller.NotifyConfigChanged();
+            yield return null;
+            yield return null;
+            Assert.IsNull(controller.AnalysisResult, "Unrequested analysis must stay off.");
+            Assert.AreEqual(before, CoCoStateGraphFixtureCounters.StateFreezeCalls);
+            controller.Analyze();
+            config.Value = 31;
+            controller.NotifyConfigChanged();
+            controller.Analyze();
+            Assert.IsTrue(controller.AnalysisResult.Graph.Layers[0].States[0].Config.TryRead(
+                TestFrozenConfigSchemas.StateValue, out int latest));
+            Assert.AreEqual(31, latest);
+            before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
+            yield return null;
+            yield return null;
+            Assert.AreEqual(before, CoCoStateGraphFixtureCounters.StateFreezeCalls, "Explicit Analyze cancels the queued call.");
+
+            config.Value = 32;
+            controller.NotifyConfigChanged();
+            CoCoStateGraphAsset nextAsset = CreateAsset();
+            CoCoLayerId nextLayer = CoCoStateGraphAuthoringOperations.AddLayer(nextAsset, "Next");
+            AddState(nextAsset, nextLayer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "Next");
+            var serializedWindow = new SerializedObject(window);
+            serializedWindow.FindProperty("asset").objectReferenceValue = nextAsset;
+            serializedWindow.ApplyModifiedPropertiesWithoutUndo();
+            window.CreateGUI();
+            var next = WindowController(window);
+            Assert.AreNotSame(controller, next);
+            before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
+            yield return null;
+            yield return null;
+            Assert.IsNull(controller.AnalysisResult, "Switched-away asset must not receive a result.");
+            Assert.IsNull(next.AnalysisResult);
+            Assert.AreEqual(before, CoCoStateGraphFixtureCounters.StateFreezeCalls);
+            next.Analyze();
+            next.NotifyConfigChanged();
+            UnityEngine.Object.DestroyImmediate(window);
+            before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
+            yield return null;
+            yield return null;
+            Assert.IsNull(next.AnalysisResult, "Closed window must not receive a result.");
+            Assert.AreEqual(before, CoCoStateGraphFixtureCounters.StateFreezeCalls);
+        }
+
+        private static CoCoStateGraphEditorController WindowController(CoCoStateGraphEditorWindow window) =>
+            (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+
+        [UnityTest]
         public IEnumerator SearchAndConfigChangesPreserveLiveControls()
         {
             CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();

@@ -44,18 +44,56 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            DrawLayerCard(layer);
-            DrawAddStateCard();
-            DrawSelectedStateCard();
-            DrawTransitionsCard(layer);
-            DrawRequirementsCard();
+            var selected = new VisualElement { name = "state-graph-selected-details" };
+            bool hasSelectedTransition = FindTransition(layer, controller.Session.SelectedTransitionId) != null;
+            if (hasSelectedTransition)
+            {
+                CollectDetailsSection(selected, () => DrawTransitionsCard(layer));
+            }
+            else
+            {
+                CollectDetailsSection(selected, DrawSelectedStateCard);
+            }
+
+            details.Add(selected);
 
             feedbackHost = CoCoEditorElements.CreateFeedbackHost();
             feedbackHost.name = "state-graph-feedback";
             details.Add(feedbackHost);
             RefreshFeedback();
 
+            if (!hasSelectedTransition)
+            {
+                var transitions = CreateDetailsFoldout("state-graph-transitions", "Transitions / Add Transition",
+                    "Transition / 添加 Transition");
+                CollectDetailsSection(transitions, () => DrawTransitionsCard(layer));
+                details.Add(transitions);
+            }
+
+            var management = CreateDetailsFoldout("state-graph-layer-management", "Layer / Add State",
+                "Layer / 添加 State");
+            CollectDetailsSection(management, () => DrawLayerCard(layer));
+            CollectDetailsSection(management, DrawAddStateCard);
+            details.Add(management);
             ApplyPlayModeReadOnly();
+        }
+
+        private Foldout CreateDetailsFoldout(string name, string english, string chinese)
+        {
+            var foldout = new Foldout { name = name, text = L(english, chinese), value = false };
+            foldout.AddToClassList("sg-details-foldout");
+            texts.Register(foldout.Q<Toggle>().Q<Label>(), english, chinese);
+            return foldout;
+        }
+
+        private void CollectDetailsSection(VisualElement parent, Action draw)
+        {
+            int first = details.childCount;
+            draw();
+            while (details.childCount > first)
+            {
+                parent.Add(details[first]);
+            }
         }
 
         private void DrawLayerCard(CoCoStateGraphLayerRecord layer)
@@ -116,7 +154,7 @@ namespace CoCoFlow.Editor.StateGraph
                 stateDescriptors,
                 addStateDescriptorId,
                 persistAsAddDefault: true,
-                "add-state-descriptor");
+                "add-state-descriptor", card);
             var stateName = new TextField(L("Name", "名称")) { value = L("State", "State") };
             card.Add(stateName);
 
@@ -215,7 +253,7 @@ namespace CoCoFlow.Editor.StateGraph
                 stateDescriptors,
                 ToStateDescriptorId(state.StateDescriptorId),
                 persistAsAddDefault: false,
-                "selected-state-descriptor");
+                "selected-state-descriptor", card);
             var setDescriptor = new Button(() => controller.SetSelectedStateDescriptor(
                     selectedDescriptor.Value))
             {
@@ -259,7 +297,7 @@ namespace CoCoFlow.Editor.StateGraph
             card.Add(addChild);
 
             List<CoCoStateId> siblingIds = SiblingIds(controller.SelectedLayer, state);
-            StateIdChoice replacement = AddExplicitStateIdPopup("Initial replacement", siblingIds);
+            StateIdChoice replacement = AddExplicitStateIdPopup("Initial replacement", siblingIds, card);
 
             var parentChoices = new List<CoCoStateId> { default };
             foreach (CoCoStateGraphStateRecord candidate in controller.SelectedLayer.States)
@@ -271,7 +309,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             CoCoStateId currentParent = ToStateId(state.ParentStateId);
-            StateIdChoice targetParent = AddStateIdPopup("Reparent under", parentChoices, currentParent);
+            StateIdChoice targetParent = AddStateIdPopup("Reparent under", parentChoices, currentParent, card);
             var reparent = new Button(() =>
             {
                 if (targetParent.Value != currentParent &&
@@ -310,6 +348,8 @@ namespace CoCoFlow.Editor.StateGraph
             card.AddToClassList("sg-card");
             texts.Register(card[0], "Transitions", "Transition");
 
+            var transitionList = CreateDetailsFoldout("state-graph-transition-list", "Transitions in this Layer",
+                "当前 Layer 的 Transition");
             foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
             {
                 if (transition == null ||
@@ -330,7 +370,7 @@ namespace CoCoFlow.Editor.StateGraph
                     row.AddToClassList("sg-transition-row--selected");
                 }
 
-                card.Add(row);
+                transitionList.Add(row);
             }
 
             var leafIds = new List<CoCoStateId>();
@@ -408,6 +448,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (selected == null)
             {
+                card.Add(transitionList);
                 details.Add(card);
                 return;
             }
@@ -459,6 +500,7 @@ namespace CoCoFlow.Editor.StateGraph
             };
             texts.Register(addCondition, "Add Condition", "添加条件");
             card.Add(addCondition);
+            card.Add(transitionList);
 
             details.Add(card);
         }
@@ -472,7 +514,7 @@ namespace CoCoFlow.Editor.StateGraph
                 card,
                 controller.BuildRequirementSections(),
                 controller.AnalysisResult?.Succeeded == true);
-            details.Add(card);
+            feedbackHost.Add(card);
         }
 
         private void RefreshFeedback()
@@ -493,6 +535,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 feedbackHost.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
             }
+
+            DrawRequirementsCard();
         }
 
         private void DrawDiagnostics(VisualElement parent)
@@ -705,12 +749,13 @@ namespace CoCoFlow.Editor.StateGraph
             IReadOnlyList<CoCoStateDescriptor> descriptors,
             CoCoStateDescriptorId preferred,
             bool persistAsAddDefault,
-            string popupName)
+            string popupName,
+            VisualElement parent)
         {
             var choice = new StateDescriptorChoice();
             if (descriptors.Count == 0)
             {
-                details.Add(new HelpBox(
+                parent.Add(new HelpBox(
                     L("No State descriptors are available.", "没有可用的 State 描述符。"),
                     HelpBoxMessageType.Warning));
                 return choice;
@@ -751,7 +796,7 @@ namespace CoCoFlow.Editor.StateGraph
                     }
                 }
             });
-            details.Add(popup);
+            parent.Add(popup);
             return choice;
         }
 
@@ -840,7 +885,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         private StateIdChoice AddExplicitStateIdPopup(
             string label,
-            IReadOnlyList<CoCoStateId> ids)
+            IReadOnlyList<CoCoStateId> ids,
+            VisualElement parent)
         {
             var choice = new StateIdChoice();
             if (ids.Count == 0)
@@ -865,7 +911,7 @@ namespace CoCoFlow.Editor.StateGraph
                 choice.Value = index >= 0 ? ids[index] : default;
             });
 
-            details.Add(popup);
+            parent.Add(popup);
             return choice;
         }
     }

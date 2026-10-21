@@ -79,6 +79,20 @@ read-only while Unity is entering or running Play Mode; navigation, search,
 Analyze, and diagnostic location remain available without mutating serialized
 data.
 
+The details sidebar starts with the selected State or Transition and its
+Config / Conditions. Layer management and Add State live in a collapsed
+`Layer / Add State` section. The Transition list and creation controls use
+secondary foldouts; their asset order, priorities, and Condition order keep
+their existing meaning. Diagnostics and Host requirements stay together below
+the selected editor and refresh without replacing its input controls.
+
+Config commits immediately mark the asset dirty and invalidate old analysis.
+After Analyze has been requested, commits before the next Editor delayed call
+share one analysis of the latest data on the Unity main thread. Explicit Analyze
+runs immediately and cancels that pending call. Switching assets or closing the
+window cancels pending work; sessions that have not requested Analyze do not
+start it automatically.
+
 ## Commands, Undo, and identity
 
 Every topology mutation and explicit layout movement goes through the Editor

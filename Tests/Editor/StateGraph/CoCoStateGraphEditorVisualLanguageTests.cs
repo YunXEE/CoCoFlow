@@ -195,6 +195,27 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(root.Q<VisualElement>("state-graph-tree"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-details"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-condition-config"));
+            var details = root.Q<ScrollView>("state-graph-details");
+            VisualElement selected = root.Q<VisualElement>("state-graph-selected-details");
+            Assert.AreSame(selected, details[0]);
+            Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
+            var management = root.Q<Foldout>("state-graph-layer-management");
+            Assert.IsFalse(management.value);
+            Assert.IsTrue(management.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.IsFalse(root.Q<Foldout>("state-graph-transition-list").value);
+            Assert.IsTrue(root.Q<VisualElement>("state-graph-feedback").Contains(
+                root.Query<Label>().ToList().First(label => label.text == "Requirements / Host Suggestions")));
+            var controller = (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+            CoCoSerializedId128[] stateOrder = asset.Layers[0].States.Select(state => state.StateId).ToArray();
+            controller.SelectState(first);
+            selected = root.Q<VisualElement>("state-graph-selected-details");
+            Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-state-config")));
+            Assert.IsFalse(root.Q<Foldout>("state-graph-transitions").value);
+            CollectionAssert.AreEqual(stateOrder, asset.Layers[0].States.Select(state => state.StateId).ToArray());
+            Assert.AreEqual(transitionId.High, asset.Layers[0].Transitions[0].TransitionId.High);
+            Assert.AreEqual(transitionId.Low, asset.Layers[0].Transitions[0].TransitionId.Low);
+
         }
 
         [Test]

@@ -52,6 +52,16 @@
     margin-bottom: 8px;
 }
 
+.sg-details-foldout {
+    margin-top: 4px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.sg-details-foldout > .unity-foldout__toggle {
+    white-space: normal;
+}
+
 .sg-card-row {
     flex-direction: row;
     align-items: center;
