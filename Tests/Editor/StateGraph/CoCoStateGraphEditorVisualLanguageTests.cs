@@ -128,7 +128,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsNull(header.Q(className: "ccflow-badge"));
             Assert.AreEqual("+", root.Q<Button>("state-graph-header-add-layer").text);
             Assert.AreEqual("2 States · 1 Transition", root.Q<Label>("state-graph-header-counts").text);
-            root.Q<PopupField<string>>("state-graph-header-layer-field").value = "Other";
+            var controller = (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+            controller.SelectLayer(other);
             Assert.AreEqual("1 State · 0 Transitions", root.Q<Label>("state-graph-header-counts").text);
             Assert.That(root.Q<ObjectField>("state-graph-header-asset-field").tooltip,
                 Does.Contain($"Schema {asset.SchemaVersion}"));

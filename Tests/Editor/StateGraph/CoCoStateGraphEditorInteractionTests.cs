@@ -100,13 +100,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
-            CoCoStateGraphAuthoringOperations.AddLayer(asset, "Other");
+            CoCoLayerId other = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Other");
             CoCoStateId state = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
                 new TestStateAuthoringConfig(), "Idle");
-            SelectState(asset, layer, state);
+            SelectState(asset, layer, default);
             CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
             VisualElement root = CreateWindowPanelHost(window).contentRoot;
             var controller = WindowController(window);
+            controller.SelectState(state);
             yield return null;
             controller.SetStateDraftName("Idle draft");
             int confirmations = 0;
@@ -128,6 +129,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(3, asset.Layers[0].States.Count);
             Assert.AreEqual("Composite", asset.Layers[0].States[1].DisplayName);
             Assert.AreEqual(asset.Layers[0].States[1].StateId, Serialize(controller.Session.SelectedStateId));
+            root.Q<PopupField<string>>("state-graph-header-layer-field").value = "Other";
+            Assert.AreEqual(other, controller.Session.SelectedLayerId);
         }
 
         [UnityTest]
@@ -1175,6 +1178,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             };
             using (WheelEvent evt = WheelEvent.GetPooled(systemEvent))
             {
+                evt.target = target;
                 target.SendEvent(evt);
             }
         }
