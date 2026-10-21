@@ -77,6 +77,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Debug.unityLogger.logHandler = originalLogHandler;
             }
 
+            Assert.That(logHandler.LoggedException, Is.SameAs(provider.StartupException));
             Assert.That(logHandler.LoggedException, Is.TypeOf<InvalidOperationException>());
             Assert.That(logHandler.LoggedException.InnerException, Is.TypeOf<ArgumentException>());
             Assert.That(logHandler.LoggedContext, Is.SameAs(host));
@@ -1667,6 +1668,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             public bool Fail { get; set; }
+            public Exception StartupException { get; private set; }
             public CoCoIntentFrameRuntime IntentRuntime { get; private set; }
             public CoCoGraphDescriptorCatalog Catalog
             {
@@ -1686,7 +1688,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            private static void ThrowStartupException()
+            private void ThrowStartupException()
             {
                 try
                 {
@@ -1694,7 +1696,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
                 catch (ArgumentException exception)
                 {
-                    throw new InvalidOperationException("BUG-115 wrapper", exception);
+                    StartupException = new InvalidOperationException("BUG-115 wrapper", exception);
+                    throw StartupException;
                 }
             }
         }
