@@ -106,12 +106,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphStateRecord state = asset.Layers[0].States[0];
             Require(StandardDescriptors.TryCreate(logicType, logicType.Name, out CoCoStateDescriptorId descriptor));
             state.StateDescriptorId = new CoCoSerializedId128(descriptor.High, descriptor.Low);
-            state.Config = null;
+            state.Config = new EmptyStateConfig();
             CoCoStateGraphHost host = CreateHost(asset, CoCoStateGraphDriver.Manual, 4);
             if (missingUpdate)
             {
                 LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex(
-                    "(?s)ArgumentException:.*HostTestMissingUpdateLogic.*(constraint|Constraint)"));
+                    "(?s)ArgumentException:.*(Invalid generic arguments|[Cc]onstraint)"));
                 Assert.That(host.TryStart(out CoCoDiagnostic failure), Is.False);
                 Assert.That(failure.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
                 Assert.That(host.LastDiagnostic, Is.EqualTo(failure));
