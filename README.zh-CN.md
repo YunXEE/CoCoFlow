@@ -1,25 +1,24 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.4 · **Unity**：6000+
+> **版本**：0.4.5 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
 
-## 0.4.4 新内容
+## 0.4.5 新内容
 
-- `PersistenceContainerHost` 持有标记为 `[Serializable, PersistenceData]` 的
-  业务结构体表，以“数据类型＋ID”定位记录；相同键共享数据，同对象业务脚本通过
-  类型化句柄读写，玩法由业务负责。
-- `PersistenceHost` Inspector 提供存档槽位、目录、完整路径和可选 Container Host
-  拖拽配置。`PersistenceContainer` 支持短类型名搜索及嵌套初值编辑。
-- Editor Debug Mode 将 JSON 存档放在 `Assets/DebugSaves/`，方便开发时查看；
-  Player 使用正常存档目录配置。
+- 标准 `[Config]` 支持数组和 `List<T>`，包括纯数据 struct 元素，提供增删、
+  排序和元素编辑。数值输入保留 `2.` 等中间文本，在确认或失焦时提交。
+- State 名称、Logic 和 Config 统一使用草稿，通过 Save 或 Discard 处理。
+  侧栏重新排版，Transition 列表按选择范围展示，局部刷新保留编辑控件；
+  Save 统一应用草稿并分析一次。
+- Host 启动链的异常输出到 Console，保留原始堆栈和内部异常并关联 Host 组件。
 
-StateGraph 持久化 API 保持不变。旧 Container 模板与玩法命令移除，旧玩法数据
-不迁移。本版尚未验证实际 Player 的保存、加载及裁剪兼容性。
-装配和业务接入见 [Persistence](Docs/Module-Persistence.md)。
+`[Memory]` 仍遵循 unmanaged 契约。StateLogic 仍需实现 `ICoCoStateUpdate`，
+本版不自动补空 Update。Player 与 IL2CPP 兼容性仍未验证。
+使用方式见 [Editor 指南](Docs/StateGraphEditor.md) 和 [Changelog](CHANGELOG.md)。
 
 ## “成熟”的定义
 
@@ -73,7 +72,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.4
+https://github.com/YunXEE/CoCoFlow.git#v0.4.5
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -81,7 +80,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.4
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.4"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.5"
   }
 }
 ```

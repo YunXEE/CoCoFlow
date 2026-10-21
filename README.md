@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.4 · **Unity**: 6000+
+> **Version**: 0.4.5 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -8,21 +8,21 @@ CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
 
-## New in 0.4.4
+## New in 0.4.5
 
-- Store `[Serializable, PersistenceData]` structs in `PersistenceContainerHost`.
-  Data type plus ID identifies a row; matching Containers share data, and
-  same-object business scripts modify it through typed handles.
-- Configure save slots, paths and the optional Container Host in the
-  `PersistenceHost` Inspector. Search short data type names and edit nested
-  initial values directly on each `PersistenceContainer`.
-- Enable Editor Debug Mode to inspect JSON saves in `Assets/DebugSaves/`.
-  Player keeps the normal save-directory configuration.
+- Edit standard `[Config]` arrays and `List<T>`, including pure data struct
+  elements, with add/remove and ordering controls. Numeric input keeps partial
+  text such as `2.` until confirmation or focus loss.
+- Edit State name, Logic and Config together as a draft, then Save or Discard.
+  Reorganized sidebars, scoped Transition lists and targeted refreshes keep
+  editing controls in place; Save applies and analyzes the draft once.
+- Host setup exceptions now reach the Console with their original stack and
+  inner exceptions, associated with the Host component.
 
-StateGraph persistence keeps its existing API. Container gameplay templates and
-commands are removed; old Container gameplay data is not migrated. Actual
-Player save/load and stripping compatibility remain unverified for this release.
-See [Persistence](Docs/Module-Persistence.md) for scene setup and usage.
+`[Memory]` keeps its unmanaged contract. StateLogic still requires
+`ICoCoStateUpdate`; this release does not add an empty Update implementation.
+Player and IL2CPP compatibility remain unverified. See the
+[Editor guide](Docs/StateGraphEditor.md) and [changelog](CHANGELOG.md).
 
 ## What “mature” means
 
@@ -81,7 +81,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.4
+https://github.com/YunXEE/CoCoFlow.git#v0.4.5
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -89,7 +89,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.4"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.5"
   }
 }
 ```

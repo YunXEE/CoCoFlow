@@ -1,11 +1,44 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using CoCoFlow.Editor.StateGraph;
 using NUnit.Framework;
+using UnityEditor.Compilation;
 
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
     public sealed class CoCoStateGraphDependencyClosureValidationTests
     {
+        [Test]
+        public void UnityAnimationContractSystemReferencesAreAccepted()
+        {
+            var assembly = CompilationPipeline.GetAssemblies(AssembliesType.Player)
+                .Single(item => item.name == "CoCoFlow.Runtime.Animation.Contracts");
+            var nodes = Capture(assembly);
+            Assert.IsEmpty(nodes[0].PrecompiledReferences,
+                "Unity's own BCL reference packs must not be treated as custom DLLs.");
+        }
+
+        [TestCase("Microsoft.Bcl.AsyncInterfaces")]
+        [TestCase("Microsoft.Extensions.DependencyInjection.Abstractions")]
+        public void ProjectDllWithBundledBclNameStillFailsClosed(string name)
+        {
+            var assembly = new UnityEditor.Compilation.Assembly(
+                "CoCoFlow.Runtime.Animation.Contracts", string.Empty,
+                Array.Empty<string>(), Array.Empty<string>(), Array.Empty<UnityEditor.Compilation.Assembly>(),
+                new[] { Path.Combine(Path.GetTempPath(), "CoCoFlow-ProjectDll", name + ".dll") }, default);
+            var nodes = Capture(assembly);
+            CollectionAssert.AreEqual(new[] { name }, nodes[0].PrecompiledReferences);
+            Assert.AreEqual(1, CoCoStateGraphAuthoringDependencyClosureValidator.Validate(
+                new[] { assembly.name }, nodes).Length);
+        }
+
+        private static CoCoStateGraphAssemblyGraphNode[] Capture(UnityEditor.Compilation.Assembly assembly) =>
+            (CoCoStateGraphAssemblyGraphNode[])typeof(CoCoStateGraphAuthoringDependencyClosureValidator)
+                .GetMethod("Capture", BindingFlags.NonPublic | BindingFlags.Static)
+                .Invoke(null, new object[] { new[] { assembly } });
+
         [Test]
         public void DirectForbiddenDependencyReportsTheCompletePath()
         {

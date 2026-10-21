@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.4`.
+`0.4.5`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -135,8 +135,13 @@ On the standard binding path, declare public instance fields on StateLogic:
 [Memory] public bool ImpulseSent;
 ```
 
-Config values belong to each Graph State and are edited in the Graph Editor.
-Missing overrides use the field initializer; zero and false are valid overrides.
-Memory is captured with Context and restored with the saved activation state.
-Both kinds of fields must be unmanaged. The runtime generic binding path has
-not been verified in an IL2CPP Player.
+Config values belong to each Graph State. The Graph Editor edits State name,
+Logic and Config as a draft; Save applies them together and Discard restores
+the saved values. Numeric text commits on confirmation or focus loss.
+Standard Config supports one-dimensional arrays and `List<T>` of editable
+numeric, boolean, enum or pure data struct elements, with add/remove and ordering.
+Missing overrides use the field initializer; zero, false and empty collections
+are valid overrides. See [Config collections](../Docs/StateGraphCompiler.md#standard-config-collections).
+Memory must remain unmanaged; it is captured with Context and restored with
+the saved activation state. StateLogic still requires `ICoCoStateUpdate`.
+The runtime generic binding path has not been verified in an IL2CPP Player.

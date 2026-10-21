@@ -26,10 +26,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             new System.Collections.Generic.List<CoCoStateGraphAsset>();
         private readonly System.Collections.Generic.List<EditorWindow> windows =
             new System.Collections.Generic.List<EditorWindow>();
-        private readonly System.Collections.Generic.List<GameObject> panelObjects =
-            new System.Collections.Generic.List<GameObject>();
-        private readonly System.Collections.Generic.List<PanelSettings> panelSettings =
-            new System.Collections.Generic.List<PanelSettings>();
         private readonly System.Collections.Generic.List<CoCoStateGraphEditorCanvas> canvases =
             new System.Collections.Generic.List<CoCoStateGraphEditorCanvas>();
         private readonly System.Collections.Generic.List<CoCoStateGraphEditorController> controllers =
@@ -69,21 +65,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
 
             controllers.Clear();
-            foreach (GameObject panelObject in panelObjects)
-            {
-                if (panelObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(panelObject);
-                }
-            }
-
-            panelObjects.Clear();
-            foreach (PanelSettings settings in panelSettings)
-            {
-                UnityEngine.Object.DestroyImmediate(settings);
-            }
-
-            panelSettings.Clear();
             Undo.ClearAll();
             foreach (CoCoStateGraphAsset asset in assets)
             {
@@ -708,20 +689,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         private VisualElement Host(VisualElement content)
         {
-            var settings = ScriptableObject.CreateInstance<PanelSettings>();
-            settings.scaleMode = PanelScaleMode.ConstantPixelSize;
-            settings.scale = 1f;
-            panelSettings.Add(settings);
-
-            var panelObject = new GameObject("CoCoFlow StateGraph Visual Test Panel");
-            panelObject.SetActive(false);
-            UIDocument document = panelObject.AddComponent<UIDocument>();
-            document.panelSettings = settings;
-            panelObject.SetActive(true);
-            panelObjects.Add(panelObject);
-            document.rootVisualElement.style.width = 900f;
-            document.rootVisualElement.style.height = 600f;
-            document.rootVisualElement.Add(content);
+            var window = ScriptableObject.CreateInstance<CoCoStateGraphTestPanelWindow>();
+            windows.Add(window);
+            window.position = new Rect(80f, 80f, 900f, 600f);
+            window.Show();
+            window.rootVisualElement.Add(content);
+            window.Repaint();
             return content;
         }
 
