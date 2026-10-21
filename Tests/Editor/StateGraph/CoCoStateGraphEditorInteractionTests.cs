@@ -178,11 +178,23 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     float scale = EditorGUIUtility.pixelsPerPoint;
                     int width = Mathf.RoundToInt(bounds.width * scale);
                     int height = Mathf.RoundToInt(bounds.height * scale);
-                    Color[] pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
-                        bounds.position * scale, width, height);
+                    object view = typeof(EditorWindow).GetField("m_Parent",
+                        BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+                    Type viewType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GUIView");
+                    viewType.GetMethod("RepaintImmediately", BindingFlags.Instance | BindingFlags.Public)
+                        .Invoke(view, null);
+                    var buffer = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+                    buffer.Create();
+                    viewType.GetMethod("GrabPixels", BindingFlags.Instance | BindingFlags.NonPublic)
+                        .Invoke(view, new object[] { buffer, new Rect(0f, 0f, width, height) });
+                    RenderTexture previous = RenderTexture.active;
+                    RenderTexture.active = buffer;
                     var image = new Texture2D(width, height, TextureFormat.RGB24, false);
-                    image.SetPixels(pixels);
+                    image.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
                     image.Apply();
+                    RenderTexture.active = previous;
+                    buffer.Release();
+                    UnityEngine.Object.DestroyImmediate(buffer);
                     string path = args[screenshotIndex + 1];
                     if (preview > 0) path = path.Replace(".png", preview == 1 ? "-unsaved.png" : "-structure.png");
                     System.IO.File.WriteAllBytes(path, image.EncodeToPNG());
