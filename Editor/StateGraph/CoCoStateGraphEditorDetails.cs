@@ -68,8 +68,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (!hasSelectedTransition)
             {
-                var transitions = CreateDetailsFoldout("state-graph-transitions", "Outgoing Transitions / Add Transition",
-                    "出边 / 添加 Transition");
+                var transitions = new VisualElement { name = "state-graph-transitions" };
                 CollectDetailsSection(transitions, () => DrawTransitionsCard(layer));
                 details.Add(transitions);
             }
@@ -444,8 +443,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            var transitionList = CreateDetailsFoldout("state-graph-transition-list", "Outgoing Transitions",
-                "出边列表");
+            var transitionList = new VisualElement { name = "state-graph-transition-list" };
             var outgoing = new ScrollView { name = "state-graph-outgoing-transitions" };
             int outgoingCount = 0;
             foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)

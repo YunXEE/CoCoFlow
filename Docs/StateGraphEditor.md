@@ -52,6 +52,10 @@ border (offset from the card body) is reserved for dynamic states. The first
 outer-border type is the ancestry highlight: selecting a State lights the
 selected State, all of its ancestors, and the genealogy segments between them,
 visualizing how much Logic the State inherits and runs.
+The selected State's direct Transition targets have purple outer frames, and
+its outgoing edges and arrows turn purple. Incoming and indirect connections
+keep their normal colors; ancestry stays yellow, including alongside a self-loop.
+Outgoing Transition controls remain expanded, with a bounded scrolling list.
 
 Leaf flow states are computed from the Layer default leaf by following all
 Transitions: reachable leaves with outgoing edges (and the default leaf when

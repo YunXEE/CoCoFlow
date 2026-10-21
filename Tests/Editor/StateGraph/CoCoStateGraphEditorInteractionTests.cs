@@ -289,6 +289,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             VisualElement root = CreateWindowPanelHost(window).contentRoot;
             var controller = WindowController(window);
             var outgoing = root.Q<ScrollView>("state-graph-outgoing-transitions");
+            Assert.IsNull(outgoing.GetFirstAncestorOfType<Foldout>(), "Outgoing controls and list stay expanded.");
             var rows = outgoing.Query<Button>(className: "sg-transition-row").ToList();
             Assert.AreEqual(2, rows.Count, "Incoming and unrelated edges must be hidden.");
             Assert.AreEqual("First → Second  Priority 7", rows[0].text);

@@ -36,6 +36,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
         private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
+        private static Color OutgoingEdgeColor => new Color(184f / 255f, 122f / 255f, 1f, 1f);
         private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
         // D9：谱系线（父子结构）默认白；血统链点亮时变黄（与 Transition 选中色一致）。
         private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.55f);
@@ -59,6 +60,8 @@ namespace CoCoFlow.Editor.StateGraph
         private readonly HashSet<CoCoSerializedId128> chainStates =
             new HashSet<CoCoSerializedId128>();
         private readonly HashSet<CoCoSerializedId128> chainGenealogyChildren =
+            new HashSet<CoCoSerializedId128>();
+        private readonly HashSet<CoCoSerializedId128> _outgoingTargets =
             new HashSet<CoCoSerializedId128>();
         private readonly Dictionary<CoCoSerializedId128, LeafFlowState> leafFlowStates =
             new Dictionary<CoCoSerializedId128, LeafFlowState>();
@@ -219,6 +222,7 @@ namespace CoCoFlow.Editor.StateGraph
             edgeHits.Clear();
             leafFlowStates.Clear();
             BuildChainHighlight();
+            BuildOutgoingHighlight();
             BuildLeafFlowStates();
 
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
@@ -253,6 +257,7 @@ namespace CoCoFlow.Editor.StateGraph
                     state,
                     position,
                     inAncestryChain: chainStates.Contains(state.StateId),
+                    isOutgoingTarget: _outgoingTargets.Contains(state.StateId),
                     OnCardMoved,
                     BeginTransitionDrag,
                     stateId => CardContextRequested?.Invoke(stateId),
@@ -471,6 +476,27 @@ namespace CoCoFlow.Editor.StateGraph
                 chainGenealogyChildren.Add(current); // 谱系段：current ← 其父
                 current = record.ParentStateId;
             }
+        }
+
+        private void BuildOutgoingHighlight()
+        {
+            _outgoingTargets.Clear();
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            CoCoStateId selected = controller.Session.SelectedStateId;
+            if (layer == null || !selected.IsValid) return;
+            foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+            {
+                if (transition != null && Matches(transition.SourceStateId, selected))
+                    _outgoingTargets.Add(transition.TargetStateId);
+            }
+        }
+
+        internal Color GetTransitionColor(CoCoStateGraphTransitionRecord transition)
+        {
+            if (Matches(transition.TransitionId, controller.Session.SelectedTransitionId))
+                return SelectedEdgeColor;
+            return Matches(transition.SourceStateId, controller.Session.SelectedStateId)
+                ? OutgoingEdgeColor : EdgeColor;
         }
 
         /// <summary>
@@ -949,9 +975,10 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             bool selected = Matches(transition.TransitionId, controller.Session.SelectedTransitionId);
-            painter.strokeColor = selected ? SelectedEdgeColor : EdgeColor;
-            painter.fillColor = selected ? SelectedEdgeColor : EdgeColor;
-            painter.lineWidth = selected ? 3f : 2f;
+            bool outgoing = Matches(transition.SourceStateId, controller.Session.SelectedStateId);
+            painter.strokeColor = GetTransitionColor(transition);
+            painter.fillColor = painter.strokeColor;
+            painter.lineWidth = selected || outgoing ? 3f : 2f;
 
             if (transition.SourceStateId == transition.TargetStateId)
             {
@@ -1558,6 +1585,7 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoStateGraphStateRecord state,
                 Vector2 position,
                 bool inAncestryChain,
+                bool isOutgoingTarget,
                 Action<CoCoSerializedId128, Vector2, bool> moved,
                 Action<CoCoSerializedId128, int, Vector2> beginTransitionDrag,
                 Action<CoCoSerializedId128> cardContextRequested,
@@ -1582,6 +1610,14 @@ namespace CoCoFlow.Editor.StateGraph
                 if (inAncestryChain)
                 {
                     AddToClassList("state-card--ancestry");
+                }
+
+                if (isOutgoingTarget)
+                {
+                    AddToClassList("state-card--transition-target");
+                    var ring = new VisualElement { pickingMode = PickingMode.Ignore };
+                    ring.AddToClassList("state-card__transition-target-ring");
+                    Add(ring);
                 }
 
                 // 卡体：内描边承载节点状态（Initial/Default 分级）。
