@@ -398,16 +398,25 @@ namespace CoCoFlow.Editor.StateGraph
             _stateConfigHost.Add(title);
             SerializedProperty property = FindStateConfigProperty(controller.Session.SelectedLayerId,
                 ToStateId(draft.StateId));
-            if (property != null) property.isExpanded = true;
-            DrawConfigProperty(_stateConfigHost, property, "StateConfig", "state-graph-state-config");
-            var field = _stateConfigHost.Q<PropertyField>("state-graph-state-config");
-            field?.schedule.Execute(() =>
+            if (property == null) return;
+            // Draw the Config's fields directly: no root foldout or delayed
+            // attempt to reopen Unity's generated managed-reference foldout.
+            var field = new PropertyField { name = "state-graph-state-config" };
+            SerializedProperty child = property.Copy();
+            SerializedProperty end = property.GetEndProperty();
+            if (child.NextVisible(true))
             {
-                Foldout foldout = field.Q<Foldout>();
-                if (foldout == null) return;
-                foldout.value = true;
-                foldout.Q<Toggle>().style.display = DisplayStyle.None;
-            });
+                do
+                {
+                    if (SerializedProperty.EqualContents(child, end)) break;
+                    child.isExpanded = true;
+                    field.Add(new PropertyField(child.Copy()));
+                } while (child.NextVisible(false));
+            }
+
+            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => controller.NotifyConfigChanged());
+            field.Bind(serializedAsset);
+            _stateConfigHost.Add(field);
         }
 
         private void RefreshStateDraftStatus()
