@@ -913,8 +913,14 @@ namespace CoCoFlow.Editor.StateGraph
                 return choice;
             }
 
+            bool unresolved = !persistAsAddDefault && preferred.IsValid &&
+                !descriptors.Any(descriptor => descriptor.DescriptorId == preferred);
+            int choiceOffset = unresolved ? 1 : 0;
             int selectedIndex = 0;
-            var labels = new List<string>(descriptors.Count);
+            var labels = new List<string>(descriptors.Count + choiceOffset);
+            if (unresolved)
+                labels.Add(L($"Unresolved Logic [{ShortId(preferred.ToString())}]",
+                    $"未找到 Logic [{ShortId(preferred.ToString())}]"));
             for (int index = 0; index < descriptors.Count; index++)
             {
                 CoCoStateDescriptor descriptor = descriptors[index];
@@ -922,11 +928,11 @@ namespace CoCoFlow.Editor.StateGraph
                 if ((preferred.IsValid && descriptor.DescriptorId == preferred) ||
                     (!preferred.IsValid && descriptor.DescriptorId == addStateDescriptorId))
                 {
-                    selectedIndex = index;
+                    selectedIndex = index + choiceOffset;
                 }
             }
 
-            choice.Value = descriptors[selectedIndex];
+            choice.Value = unresolved ? null : descriptors[selectedIndex];
             if (persistAsAddDefault)
             {
                 addStateDescriptorId = choice.Value.DescriptorId;
@@ -938,7 +944,12 @@ namespace CoCoFlow.Editor.StateGraph
             };
             popup.RegisterValueChangedCallback(evt =>
             {
-                int index = labels.IndexOf(evt.newValue);
+                int index = labels.IndexOf(evt.newValue) - choiceOffset;
+                if (index < 0)
+                {
+                    popup.SetValueWithoutNotify(evt.previousValue);
+                    return;
+                }
                 if (index >= 0)
                 {
                     choice.Value = descriptors[index];

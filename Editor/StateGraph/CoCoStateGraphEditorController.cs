@@ -189,7 +189,7 @@ namespace CoCoFlow.Editor.StateGraph
             _stateDraftConfigSnapshot = null;
         }
 
-        private bool ResolveStateDraft() => !HasStateDraftChanges ||
+        internal bool ResolveStateDraft() => !HasStateDraftChanges ||
             (ConfirmStateDraftChanges != null && ConfirmStateDraftChanges());
 
         internal CoCoStateGraphLayerRecord SelectedLayer
@@ -657,6 +657,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Session.SelectedTransitionId = transitionId;
+            Session.SelectedStateId = default;
             return Succeed();
         }
 

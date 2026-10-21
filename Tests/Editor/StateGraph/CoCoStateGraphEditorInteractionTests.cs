@@ -94,6 +94,80 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
+        public IEnumerator CancelledDraftNavigationKeepsLayerAndCompositeUnchanged()
+        {
+            CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateGraphAuthoringOperations.AddLayer(asset, "Other");
+            CoCoStateId state = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "Idle");
+            SelectState(asset, layer, state);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            VisualElement root = CreateWindowPanelHost(window).contentRoot;
+            var controller = WindowController(window);
+            yield return null;
+            controller.SetStateDraftName("Idle draft");
+            int confirmations = 0;
+            controller.ConfirmStateDraftChanges = () => { confirmations++; return false; };
+            string original = EditorJsonUtility.ToJson(asset);
+            var picker = root.Q<PopupField<string>>("state-graph-header-layer-field");
+            picker.value = "Other";
+            Assert.AreEqual("Gameplay", picker.value);
+            Assert.AreEqual(layer, controller.Session.SelectedLayerId);
+            Assert.IsFalse(window.TryAddCompositeAtCanvasPosition(new Vector2(350f, 100f)));
+            Assert.AreEqual(2, confirmations);
+            Assert.AreEqual(original, EditorJsonUtility.ToJson(asset), "Cancel must not write the asset.");
+            Assert.AreEqual(state, controller.Session.SelectedStateId);
+            Assert.AreEqual("Idle draft", controller.BeginStateDraft().DisplayName);
+            Assert.IsTrue(controller.HasStateDraftChanges);
+
+            controller.ConfirmStateDraftChanges = () => { controller.DiscardStateDraft(); return true; };
+            Assert.IsTrue(window.TryAddCompositeAtCanvasPosition(new Vector2(350f, 100f)));
+            Assert.AreEqual(3, asset.Layers[0].States.Count);
+            Assert.AreEqual("Composite", asset.Layers[0].States[1].DisplayName);
+            Assert.AreEqual(asset.Layers[0].States[1].StateId, Serialize(controller.Session.SelectedStateId));
+        }
+
+        [UnityTest]
+        public IEnumerator UnresolvedLogicStaysExplicitUntilTheUserSelectsAReplacement()
+        {
+            CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateDescriptorId missing = CoCoStateGraphTestFactory.CreateStateDescriptorId(999UL);
+            CoCoStateId state = AddState(asset, layer, missing,
+                new TestStateAuthoringConfig { Value = 7 }, "Idle");
+            SelectState(asset, layer, state);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            VisualElement root = CreateWindowPanelHost(window).contentRoot;
+            var controller = WindowController(window);
+            yield return null;
+            var picker = root.Q<PopupField<string>>("selected-state-descriptor");
+            Assert.That(picker.value, Does.StartWith("Unresolved Logic ["));
+            Assert.AreEqual(catalog.StateDescriptors.Count + 1, picker.choices.Count);
+            controller.SetStateDraftName("Renamed");
+            Assert.IsTrue(controller.SaveStateDraft());
+            Assert.AreEqual(Serialize(missing), asset.Layers[0].States[0].StateDescriptorId);
+            Assert.AreEqual(7, ((TestStateAuthoringConfig)asset.Layers[0].States[0].Config).Value);
+            Assert.AreEqual("Renamed", asset.Layers[0].States[0].DisplayName);
+
+            picker = root.Q<PopupField<string>>("selected-state-descriptor");
+            string unresolved = picker.value;
+            string replacement = picker.choices[1];
+            picker.value = replacement;
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.AreEqual(Serialize(missing), asset.Layers[0].States[0].StateDescriptorId);
+            picker.value = unresolved;
+            Assert.AreEqual(replacement, picker.value, "The unresolved entry is a read-only placeholder.");
+            Assert.IsTrue(controller.SaveStateDraft());
+            Assert.AreEqual(Serialize(catalog.StateDescriptors[0].DescriptorId),
+                asset.Layers[0].States[0].StateDescriptorId);
+        }
+
+        [UnityTest]
         public IEnumerator StateDraftEditsWaitForSaveAndPreserveControls()
         {
             CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
@@ -199,13 +273,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                             out CoCoConditionDescriptor condition));
                         Assert.IsTrue(previewController.AddCondition(condition));
                         previewController.Analyze();
-                        window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
                     }
                     if (preview >= 4)
                     {
                         WindowController(window).SelectState(preview == 4 ? state : movePreviewState);
-                        window.rootVisualElement.Q<Foldout>("state-graph-transitions").value = true;
-                        window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
                     }
                     window.Repaint();
                     yield return null;
@@ -213,7 +284,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     if (preview >= 4)
                     {
                         window.rootVisualElement.Q<ScrollView>("state-graph-details").ScrollTo(
-                            window.rootVisualElement.Q<Foldout>("state-graph-transitions"));
+                            window.rootVisualElement.Q<VisualElement>("state-graph-transitions"));
                         yield return null;
                     }
                     Rect bounds = window.position;

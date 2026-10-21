@@ -442,6 +442,8 @@ namespace CoCoFlow.Editor.StateGraph
                 if (index >= 0)
                 {
                     controller.SelectLayer(layerIds[index]);
+                    if (controller.Session.SelectedLayerId != layerIds[index])
+                        layerPopup.SetValueWithoutNotify(evt.previousValue);
                 }
             });
             slot.Add(layerPopup);
@@ -750,6 +752,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 return false;
             }
+
+            if (!controller.ResolveStateDraft()) return false;
 
             CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
             if (descriptor == null)

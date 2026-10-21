@@ -459,6 +459,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [UnityTest]
         public IEnumerator StateSelectionLightsAncestryAndDirectOutgoingTargets()
         {
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             CoCoStateId rootLeaf = AddState(asset, layerId, "RootLeaf", new Vector2(40f, 60f));
@@ -548,6 +551,15 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "transition selection must not light genealogy segments");
             Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
             Assert.AreEqual(new Color(1f, 0.72f, 0.2f, 1f), canvas.GetTransitionColor(layer.Transitions[0]));
+            controller.SelectState(rootLeaf);
+            Assert.IsTrue(controller.AddTransition(rootLeaf, rootLeaf, 2, CoCoTransitionWindow.Always));
+            yield return null;
+            Assert.IsFalse(controller.Session.SelectedStateId.IsValid);
+            Assert.IsTrue(controller.Session.SelectedTransitionId.IsValid);
+            Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
+            Assert.IsFalse(canvas.Query(className: "state-card--ancestry").ToList().Any());
+            Assert.AreEqual(new Color(1f, 0.72f, 0.2f, 1f), canvas.GetTransitionColor(layer.Transitions.Last()));
+            Assert.IsTrue(layer.Transitions.Take(4).All(edge => canvas.GetTransitionColor(edge) == normal));
             controller.SelectState(default);
             yield return null;
             Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
