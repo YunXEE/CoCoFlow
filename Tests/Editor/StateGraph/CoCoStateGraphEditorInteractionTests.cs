@@ -664,6 +664,64 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
+        public IEnumerator WheelZoomKeepsThePointUnderThePointerFixed()
+        {
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId stateId = AddState(asset, layerId,
+                CoCoStateGraphTestFactory.StateDescriptorId, new TestStateAuthoringConfig(), "Idle");
+            Vector2 statePosition = new Vector2(200f, 140f);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TrySetStatePosition(
+                asset, layerId, stateId, statePosition, out _));
+            var controller = new CoCoStateGraphEditorController(asset);
+            controllers.Add(controller);
+            controller.Session.SetCanvasView(layerId, default,
+                new CoCoStateGraphCanvasView(new Vector2(75f, -25f), 1.4f));
+            var canvas = new CoCoStateGraphEditorCanvas(controller);
+            canvases.Add(canvas);
+            canvas.style.marginLeft = 67f;
+            canvas.style.marginTop = 43f;
+            CreatePanelHost(canvas);
+            yield return null;
+
+            Assert.That(canvas.worldBound.x, Is.GreaterThan(0f));
+            Assert.That(canvas.worldBound.y, Is.GreaterThan(0f));
+            VisualElement card = canvas.Q<VisualElement>("state-card");
+            VisualElement content = canvas.Q<VisualElement>("state-graph-canvas-content");
+            var cardPoint = new Vector2(45f, 30f);
+            var blankPoint = new Vector2(480f, 260f);
+            foreach (bool overCard in new[] { true, false })
+            {
+                foreach (float delta in new[] { -1f, 1f })
+                {
+                    Vector2 pointer = overCard ? card.LocalToWorld(cardPoint) : content.LocalToWorld(blankPoint);
+                    float previousZoom = controller.Session.GetCanvasView(layerId, default).Zoom;
+                    SendWheel(overCard ? card : canvas, pointer, delta);
+                    yield return null;
+                    Vector2 actual = overCard ? card.LocalToWorld(cardPoint) : content.LocalToWorld(blankPoint);
+                    Assert.That(Vector2.Distance(pointer, actual), Is.LessThan(0.01f),
+                        $"The graph point moved while zooming {(overCard ? "over a State" : "over empty canvas")}.");
+                    float zoom = controller.Session.GetCanvasView(layerId, default).Zoom;
+                    Assert.That(delta < 0f ? zoom > previousZoom : zoom < previousZoom, Is.True);
+                }
+            }
+
+            foreach (float limit in new[] { 0.25f, 2f })
+            {
+                Vector2 pan = new Vector2(55f, -35f);
+                controller.Session.SetCanvasView(layerId, default, new CoCoStateGraphCanvasView(pan, limit));
+                canvas.Refresh();
+                yield return null;
+                SendWheel(canvas, canvas.worldBound.center, limit == 2f ? -1f : 1f);
+                CoCoStateGraphCanvasView view = controller.Session.GetCanvasView(layerId, default);
+                Assert.AreEqual(limit, view.Zoom);
+                Assert.AreEqual(pan, view.Pan, "Clamped wheel zoom must not drift the canvas.");
+            }
+
+            AssertPosition(asset, stateId, statePosition);
+        }
+
+        [UnityTest]
         public IEnumerator TransitionAndPanCaptureCancelWithoutCommittingAndCompleteOnce()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);

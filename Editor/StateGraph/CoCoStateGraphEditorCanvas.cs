@@ -1406,11 +1406,15 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnWheel(WheelEvent evt)
         {
+            CoCoStateGraphCanvasView view = CurrentView;
             float zoom = Mathf.Clamp(
-                CurrentView.Zoom * (evt.delta.y > 0f ? WheelZoomOutFactor : WheelZoomInFactor),
+                view.Zoom * (evt.delta.y > 0f ? WheelZoomOutFactor : WheelZoomInFactor),
                 0.25f,
                 2f);
-            SetView(new CoCoStateGraphCanvasView(CurrentView.Pan, zoom), save: true);
+            Vector2 pointer = PanelToLocal(evt.mousePosition);
+            Vector2 anchor = (pointer - view.Pan) / view.Zoom;
+            Vector2 pan = view.Pan + anchor * (view.Zoom - zoom);
+            SetView(new CoCoStateGraphCanvasView(pan, zoom), save: true);
             evt.StopPropagation();
         }
 

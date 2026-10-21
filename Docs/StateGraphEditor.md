@@ -182,6 +182,9 @@ It survives Domain Reload only. It is not Asset content and is not promised to
 survive an Editor restart. Diagnostics are recomputed after reload; only a still
 valid selected location is restored.
 
+Mouse-wheel zoom keeps the graph point under the pointer fixed, including when
+the pointer is over a State card. The zoom range is 25% to 200%.
+
 ## Catalog, manifests, and presets
 
 The Editor consumes the explicitly installed frozen descriptor Catalog. Its
