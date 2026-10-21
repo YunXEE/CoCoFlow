@@ -191,6 +191,17 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     RenderTexture.active = buffer;
                     var image = new Texture2D(width, height, TextureFormat.RGB24, false);
                     image.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
+                    // Metal's Editor back buffer has a top-origin pixel layout.
+                    Color[] pixels = image.GetPixels();
+                    for (int row = 0; row < height / 2; row++)
+                    {
+                        int top = row * width;
+                        int bottom = (height - row - 1) * width;
+                        for (int column = 0; column < width; column++)
+                            (pixels[top + column], pixels[bottom + column]) =
+                                (pixels[bottom + column], pixels[top + column]);
+                    }
+                    image.SetPixels(pixels);
                     image.Apply();
                     RenderTexture.active = previous;
                     buffer.Release();
