@@ -82,7 +82,7 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 ClearStateDraft();
                 _stateDraftAsset = UnityEngine.Object.Instantiate(Asset);
-                _stateDraftAsset.hideFlags = HideFlags.HideAndDontSave;
+                _stateDraftAsset.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
                 _stateDraftLayerId = Session.SelectedLayerId;
                 _stateDraftStateId = Session.SelectedStateId;
                 _stateDraftConfigSnapshot = JsonUtility.ToJson(state.Config);
