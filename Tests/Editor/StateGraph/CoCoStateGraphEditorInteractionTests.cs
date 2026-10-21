@@ -22,8 +22,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         private readonly List<CoCoStateGraphAsset> assets = new List<CoCoStateGraphAsset>();
         private readonly List<EditorWindow> windows = new List<EditorWindow>();
-        private readonly List<GameObject> panelObjects = new List<GameObject>();
-        private readonly List<PanelSettings> panelSettings = new List<PanelSettings>();
         private readonly List<CoCoStateGraphEditorCanvas> canvases =
             new List<CoCoStateGraphEditorCanvas>();
         private readonly List<CoCoStateGraphEditorController> controllers =
@@ -63,24 +61,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
 
             controllers.Clear();
-            foreach (GameObject panelObject in panelObjects)
-            {
-                if (panelObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(panelObject);
-                }
-            }
-
-            panelObjects.Clear();
-            foreach (PanelSettings settings in panelSettings)
-            {
-                if (settings != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(settings);
-                }
-            }
-
-            panelSettings.Clear();
             Undo.ClearAll();
             foreach (CoCoStateGraphAsset asset in assets)
             {
@@ -980,21 +960,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         private InteractionPanelHost CreatePanelHost(VisualElement content)
         {
-            var settings = ScriptableObject.CreateInstance<PanelSettings>();
-            settings.scaleMode = PanelScaleMode.ConstantPixelSize;
-            settings.scale = 1f;
-            panelSettings.Add(settings);
-
-            var panelObject = new GameObject("CoCoFlow StateGraph Interaction Panel");
-            panelObject.SetActive(false);
-            UIDocument document = panelObject.AddComponent<UIDocument>();
-            document.panelSettings = settings;
-            panelObject.SetActive(true);
-            panelObjects.Add(panelObject);
-            document.rootVisualElement.style.width = 900f;
-            document.rootVisualElement.style.height = 600f;
-            document.rootVisualElement.Add(content);
-            return new InteractionPanelHost(document.rootVisualElement, content);
+            // Editor binding and pointer capture need an Editor panel, not a runtime UIDocument.
+            var window = ScriptableObject.CreateInstance<CoCoStateGraphTestPanelWindow>();
+            windows.Add(window);
+            window.position = new Rect(80f, 80f, 900f, 600f);
+            window.Show();
+            window.rootVisualElement.Add(content);
+            window.Repaint();
+            return new InteractionPanelHost(window.rootVisualElement, content);
         }
 
         private InteractionPanelHost CreateWindowPanelHost(CoCoStateGraphEditorWindow window)
@@ -1436,4 +1409,5 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
     }
 
+    internal sealed class CoCoStateGraphTestPanelWindow : EditorWindow { }
 }
