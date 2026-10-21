@@ -163,9 +163,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 window.Repaint();
                 yield return null;
                 Rect bounds = window.position;
+                float scale = EditorGUIUtility.pixelsPerPoint;
+                int width = Mathf.RoundToInt(bounds.width * scale);
+                int height = Mathf.RoundToInt(bounds.height * scale);
                 Color[] pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
-                    bounds.position, (int)bounds.width, (int)bounds.height);
-                var image = new Texture2D((int)bounds.width, (int)bounds.height, TextureFormat.RGB24, false);
+                    bounds.position * scale, width, height);
+                var image = new Texture2D(width, height, TextureFormat.RGB24, false);
                 image.SetPixels(pixels);
                 image.Apply();
                 System.IO.File.WriteAllBytes(args[screenshotIndex + 1], image.EncodeToPNG());
