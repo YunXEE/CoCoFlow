@@ -56,6 +56,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 if (type == LogType.Exception) exceptionLog = message + "\n" + stack;
             };
+            ILogHandler originalLogHandler = Debug.unityLogger.logHandler;
+            var logHandler = new StartupExceptionLogHandler(originalLogHandler);
+            Debug.unityLogger.logHandler = logHandler;
             Application.logMessageReceived += capture;
             try
             {
@@ -71,8 +74,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             finally
             {
                 Application.logMessageReceived -= capture;
+                Debug.unityLogger.logHandler = originalLogHandler;
             }
 
+            Assert.That(logHandler.LoggedException, Is.TypeOf<InvalidOperationException>());
+            Assert.That(logHandler.LoggedException.InnerException, Is.TypeOf<ArgumentException>());
+            Assert.That(logHandler.LoggedContext, Is.SameAs(host));
+            Assert.That(logHandler.ExceptionCount, Is.EqualTo(1));
             StringAssert.Contains("ArgumentException: BUG-115 root", exceptionLog);
             StringAssert.Contains("InvalidOperationException: BUG-115 wrapper", exceptionLog);
             StringAssert.Contains("ThrowStartupException", exceptionLog);
@@ -1620,6 +1628,31 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private static void Require(bool succeeded, CoCoDiagnostic diagnostic = default)
         {
             Assert.That(succeeded, Is.True, diagnostic.Message);
+        }
+
+        private sealed class StartupExceptionLogHandler : ILogHandler
+        {
+            private readonly ILogHandler _inner;
+
+            public StartupExceptionLogHandler(ILogHandler inner)
+            {
+                _inner = inner;
+            }
+
+            public Exception LoggedException { get; private set; }
+            public UnityEngine.Object LoggedContext { get; private set; }
+            public int ExceptionCount { get; private set; }
+
+            public void LogException(Exception exception, UnityEngine.Object context)
+            {
+                LoggedException = exception;
+                LoggedContext = context;
+                ExceptionCount++;
+                _inner.LogException(exception, context);
+            }
+
+            public void LogFormat(LogType logType, UnityEngine.Object context, string format, params object[] args) =>
+                _inner.LogFormat(logType, context, format, args);
         }
 
         private sealed class StartupExceptionBindingProvider : ICoCoStateGraphProjectBindingProvider
