@@ -116,6 +116,69 @@ namespace CoCoFlow.Tests.Editor.Persistence
             Assert.AreEqual(copyId, FindContext("copy").StableEntityId);
         }
 
+        [TestCase("component")]
+        [TestCase("object")]
+        [TestCase("clear")]
+        public void MaintenanceRestoresActualRegistrationAfterRemoval(string removal)
+        {
+            PersistenceContext context = CreateContext("registration");
+            SaveScene();
+            string id = context.StableEntityId;
+            var registry = (System.Collections.IDictionary)typeof(PersistenceContextRegistry)
+                .GetField("Contexts", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            Assert.AreSame(context, registry[id]);
+            if (removal == "component")
+            {
+                context.enabled = false;
+                context.enabled = true;
+            }
+            else if (removal == "object")
+            {
+                context.gameObject.SetActive(false);
+                context.gameObject.SetActive(true);
+            }
+            else PersistenceContextRegistry.Clear();
+            Assert.IsFalse(registry.Contains(id));
+            SaveScene();
+            Assert.AreSame(context, registry[id], "Saving must restore the actual Registry entry.");
+            Assert.AreEqual(id, context.StableEntityId);
+        }
+
+        [TestCase(false, false)]
+        [TestCase(true, false)]
+        [TestCase(false, true)]
+        [TestCase(true, true)]
+        public void ColdOwnershipCopySavedFirstKeepsDeserializedSourceId(bool inactive, bool prefab)
+        {
+            if (prefab)
+            {
+                string path = CreatePrefab("cold-template", "cold.template");
+                var instance = (GameObject)PrefabUtility.InstantiatePrefab(
+                    AssetDatabase.LoadAssetAtPath<GameObject>(path), _scene);
+                instance.name = "source";
+                instance.SetActive(!inactive);
+            }
+            else CreateContext("source", inactive);
+            SaveScene();
+            ReopenScene();
+            // Domain reload loses Editor static ownership. Load the source through
+            // Unity deserialization, then copy/save in the same tick, without update.
+            ((System.Collections.IDictionary)typeof(PersistenceContextStableIdEditor)
+                .GetField("_owners", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null)).Clear();
+            PersistenceContext source = FindContext("source");
+            string originalId = source.StableEntityId;
+            GameObject copy = Object.Instantiate(source.gameObject);
+            copy.name = "copy";
+            copy.transform.SetAsFirstSibling();
+            SaveScene();
+            string copyId = copy.GetComponent<PersistenceContext>().StableEntityId;
+            Assert.AreEqual(originalId, source.StableEntityId, "A cold ownership table must preserve the source ID.");
+            Assert.AreNotEqual(originalId, copyId);
+            ReopenScene();
+            Assert.AreEqual(originalId, FindContext("source").StableEntityId);
+            Assert.AreEqual(copyId, FindContext("copy").StableEntityId);
+        }
+
         [Test]
         public void PrefabInstancesKeepUniqueOverridesAfterReloadWithoutChangingAsset()
         {

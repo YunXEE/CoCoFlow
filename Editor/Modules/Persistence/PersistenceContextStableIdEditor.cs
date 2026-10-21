@@ -13,8 +13,6 @@ namespace CoCoFlow.Editor.Modules.Persistence
     {
         private static readonly Dictionary<string, PersistenceContext> _owners =
             new Dictionary<string, PersistenceContext>(StringComparer.Ordinal);
-        private static readonly HashSet<PersistenceContext> _registered =
-            new HashSet<PersistenceContext>();
         private static int _processedRevision = -1;
         private static bool _synchronizing;
 
@@ -44,7 +42,6 @@ namespace CoCoFlow.Editor.Modules.Persistence
             if (state == PlayModeStateChange.ExitingEditMode) Synchronize();
             if (state == PlayModeStateChange.EnteredEditMode)
             {
-                _registered.Clear();
                 PersistenceContext.RequestEditorIdentityValidation();
             }
         }
@@ -64,6 +61,9 @@ namespace CoCoFlow.Editor.Modules.Persistence
             {
                 int revision = PersistenceContext.EditorIdentityRevision;
                 var contexts = CollectSceneContexts();
+                // Establish ownership in lifecycle order even on the first pass
+                // after reload, before hierarchy order can give a clone priority.
+                contexts.Sort((left, right) => left.EditorIdentityOrder.CompareTo(right.EditorIdentityOrder));
                 var live = new HashSet<PersistenceContext>(contexts);
                 var staleIds = new List<string>();
                 foreach (var pair in _owners)
@@ -72,9 +72,6 @@ namespace CoCoFlow.Editor.Modules.Persistence
                         pair.Value.StableEntityId != pair.Key) staleIds.Add(pair.Key);
                 }
                 foreach (string id in staleIds) _owners.Remove(id);
-                _registered.RemoveWhere(context => context == null || !live.Contains(context) ||
-                                                   !context.isActiveAndEnabled);
-
                 foreach (PersistenceContext context in contexts)
                 {
                     string id = context.StableEntityId;
@@ -83,7 +80,6 @@ namespace CoCoFlow.Editor.Modules.Persistence
                     if (string.IsNullOrEmpty(id) || duplicate)
                     {
                         PersistenceContextRegistry.Unregister(context);
-                        _registered.Remove(context);
                         do { id = Guid.NewGuid().ToString("N"); }
                         while (_owners.ContainsKey(id));
                         var serialized = new SerializedObject(context);
@@ -98,7 +94,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
                     // Keep known owners across passes so a new copy cannot take its
                     // source's ID even if hierarchy traversal visits the copy first.
                     _owners[id] = context;
-                    if (context.isActiveAndEnabled && _registered.Add(context))
+                    if (context.isActiveAndEnabled && !PersistenceContextRegistry.IsRegistered(context))
                         PersistenceContextRegistry.Register(context);
                 }
 

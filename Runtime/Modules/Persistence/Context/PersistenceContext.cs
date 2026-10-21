@@ -35,7 +35,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
 #if UNITY_EDITOR
         private static int _editorIdentityRevision;
+        private static long _nextEditorIdentityOrder;
+        [NonSerialized] private long _editorIdentityOrder;
         internal static int EditorIdentityRevision => Volatile.Read(ref _editorIdentityRevision);
+        internal long EditorIdentityOrder => Volatile.Read(ref _editorIdentityOrder);
 #endif
 
         public string StableEntityId => stableEntityId;
@@ -76,7 +79,12 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             // Editor identity maintenance runs before scene saves, not in this callback.
         }
 
-        public void OnAfterDeserialize() { }
+        public void OnAfterDeserialize()
+        {
+#if UNITY_EDITOR
+            NotifyEditorIdentity();
+#endif
+        }
 
         #endregion
 
@@ -95,7 +103,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
-                RequestEditorIdentityValidation();
+                NotifyEditorIdentity();
                 return;
             }
 #endif
@@ -443,6 +451,19 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         private void OnValidate()
         {
             // OnValidate can run on the loading thread. Only signal managed state.
+            NotifyEditorIdentity();
+        }
+
+        private void NotifyEditorIdentity()
+        {
+            // A loaded source is notified before a later clone, including when
+            // inactive. Nonserialized order is rebuilt after domain reload and
+            // is not copied to clones; callbacks must not access Unity objects.
+            if (Volatile.Read(ref _editorIdentityOrder) == 0)
+            {
+                long order = Interlocked.Increment(ref _nextEditorIdentityOrder);
+                Interlocked.CompareExchange(ref _editorIdentityOrder, order, 0);
+            }
             RequestEditorIdentityValidation();
         }
 

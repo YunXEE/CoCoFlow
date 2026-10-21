@@ -114,6 +114,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         #region Internal Logic
 
+        internal static bool IsRegistered(PersistenceContext context)
+        {
+            return context != null && !string.IsNullOrEmpty(context.StableEntityId) &&
+                   Contexts.TryGetValue(context.StableEntityId, out var current) &&
+                   ReferenceEquals(current, context);
+        }
+
         private static void ApplyRecord(
             PersistenceContext context,
             PersistenceContextRecord record,
