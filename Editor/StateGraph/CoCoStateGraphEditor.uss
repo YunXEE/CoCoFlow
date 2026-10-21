@@ -47,6 +47,10 @@
     max-height: 180px;
 }
 
+#state-graph-diagnostics-panel Label {
+    white-space: normal;
+}
+
 #state-graph-details {
     padding-left: 8px;
     padding-right: 8px;
