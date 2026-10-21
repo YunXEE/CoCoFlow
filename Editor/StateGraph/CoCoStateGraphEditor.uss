@@ -33,6 +33,20 @@
     padding-bottom: 12px;
 }
 
+#state-graph-diagnostics-panel {
+    height: 260px;
+    max-height: 45%;
+    min-height: 120px;
+    flex-shrink: 1;
+    margin-top: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+#state-graph-outgoing-transitions {
+    max-height: 180px;
+}
+
 #state-graph-details {
     padding-left: 8px;
     padding-right: 8px;

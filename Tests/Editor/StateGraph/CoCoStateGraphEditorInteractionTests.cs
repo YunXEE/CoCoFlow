@@ -170,7 +170,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 yield return null;
                 window.Repaint();
                 yield return null;
-                for (int preview = transitionPreview ? 3 : 0; preview < (transitionPreview ? 5 : 3); preview++)
+                CoCoStateId movePreviewState = default;
+                for (int preview = transitionPreview ? 3 : 0; preview < (transitionPreview ? 6 : 3); preview++)
                 {
                     if (preview == 1)
                         window.rootVisualElement.Q<TextField>("state-graph-state-name").value = "Idle draft";
@@ -185,24 +186,31 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                         Assert.IsTrue(catalog.TryGetStateDescriptor(CoCoStateGraphTestFactory.StateDescriptorId,
                             out CoCoStateDescriptor descriptor));
                         Assert.IsTrue(previewController.AddState(default, descriptor, "Move", new Vector2(350f, 60f)));
-                        CoCoStateId targetState = previewController.Session.SelectedStateId;
-                        Assert.IsTrue(previewController.AddTransition(state, targetState, 0, CoCoTransitionWindow.Always));
+                        movePreviewState = previewController.Session.SelectedStateId;
+                        Assert.IsTrue(previewController.AddState(default, descriptor, "Jump", new Vector2(350f, 280f)));
+                        CoCoStateId jumpState = previewController.Session.SelectedStateId;
+                        Assert.IsTrue(previewController.AddTransition(state, movePreviewState, 0, CoCoTransitionWindow.Always));
+                        CoCoTransitionId focusedTransition = previewController.Session.SelectedTransitionId;
+                        Assert.IsTrue(previewController.AddTransition(state, jumpState, 1, CoCoTransitionWindow.Always));
+                        for (int index = 0; index < 30; index++)
+                            Assert.IsTrue(previewController.AddTransition(movePreviewState, state, index, CoCoTransitionWindow.Always));
+                        previewController.SelectTransition(focusedTransition);
                         Assert.IsTrue(catalog.TryGetConditionDescriptor(CoCoStateGraphTestFactory.ConditionDescriptorId,
                             out CoCoConditionDescriptor condition));
                         Assert.IsTrue(previewController.AddCondition(condition));
                         previewController.Analyze();
                         window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
                     }
-                    if (preview == 4)
+                    if (preview >= 4)
                     {
-                        WindowController(window).SelectState(state);
+                        WindowController(window).SelectState(preview == 4 ? state : movePreviewState);
                         window.rootVisualElement.Q<Foldout>("state-graph-transitions").value = true;
                         window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
                     }
                     window.Repaint();
                     yield return null;
                     yield return null;
-                    if (preview == 4)
+                    if (preview >= 4)
                     {
                         window.rootVisualElement.Q<ScrollView>("state-graph-details").ScrollTo(
                             window.rootVisualElement.Q<Foldout>("state-graph-transitions"));
@@ -245,10 +253,68 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     if (preview == 2) path = path.Replace(".png", "-structure.png");
                     if (preview == 3) path = path.Replace(".png", "-transition-selected.png");
                     if (preview == 4) path = path.Replace(".png", "-transition-create.png");
+                    if (preview == 5) path = path.Replace(".png", "-transition-many.png");
                     System.IO.File.WriteAllBytes(path, image.EncodeToPNG());
                     UnityEngine.Object.DestroyImmediate(image);
                 }
             }
+        }
+
+        [Test]
+        public void StateDetailsShowOnlyOutgoingTransitionsAndKeepDiagnosticsOnLeft()
+        {
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId first = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "First");
+            CoCoStateId second = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "Second");
+            CoCoStateId third = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "Third");
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(asset, layer, first, second,
+                7, CoCoTransitionWindow.Always, catalog, out _, out string failure), failure);
+            for (int index = 0; index < 24; index++)
+                Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(asset, layer, second, first,
+                    index, CoCoTransitionWindow.Always, catalog, out _, out failure), failure);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(asset, layer, third, second,
+                0, CoCoTransitionWindow.Always, catalog, out _, out failure), failure);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(asset, layer, first, third,
+                2, CoCoTransitionWindow.Always, catalog, out CoCoTransitionId selected, out failure), failure);
+            CoCoSerializedId128[] order = asset.Layers[0].Transitions.Select(edge => edge.TransitionId).ToArray();
+            SelectState(asset, layer, first);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            VisualElement root = CreateWindowPanelHost(window).contentRoot;
+            var controller = WindowController(window);
+            var outgoing = root.Q<ScrollView>("state-graph-outgoing-transitions");
+            var rows = outgoing.Query<Button>(className: "sg-transition-row").ToList();
+            Assert.AreEqual(2, rows.Count, "Incoming and unrelated edges must be hidden.");
+            Assert.AreEqual("First → Second  Priority 7", rows[0].text);
+            Assert.AreEqual("First → Third  Priority 2", rows[1].text);
+            var source = root.Query<PopupField<string>>().ToList().Single(field => field.label == "Source State");
+            Assert.AreEqual(1, source.choices.Count);
+            Assert.IsFalse(source.enabledSelf, "Adding an edge stays scoped to the selected State.");
+            VisualElement feedback = root.Q<VisualElement>("state-graph-feedback");
+            Assert.IsTrue(root.Q<VisualElement>("state-graph-left-pane").Contains(feedback));
+            Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(feedback));
+            Assert.IsFalse(root.Q<ScrollView>("state-graph-details").Contains(feedback));
+            controller.SelectState(second);
+            rows = root.Q<ScrollView>("state-graph-outgoing-transitions")
+                .Query<Button>(className: "sg-transition-row").ToList();
+            Assert.AreEqual(24, rows.Count);
+            Assert.IsTrue(rows.All(row => row.text.StartsWith("Second → First", StringComparison.Ordinal)));
+            controller.SelectTransition(selected);
+            rows = root.Q<ScrollView>("state-graph-outgoing-transitions")
+                .Query<Button>(className: "sg-transition-row").ToList();
+            Assert.AreEqual(2, rows.Count, "An edge editor keeps its source State's scope.");
+            Assert.IsTrue(rows.All(row => row.text.StartsWith("First →", StringComparison.Ordinal)));
+            Assert.IsFalse(controller.Session.SelectedStateId.IsValid);
+            Assert.AreSame(feedback, root.Q<VisualElement>("state-graph-feedback"));
+            controller.SelectState(default);
+            Assert.IsNull(root.Q<ScrollView>("state-graph-outgoing-transitions"));
+            CollectionAssert.AreEqual(order, asset.Layers[0].Transitions.Select(edge => edge.TransitionId).ToArray());
         }
 
         [UnityTest]

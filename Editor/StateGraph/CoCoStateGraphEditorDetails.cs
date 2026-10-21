@@ -34,7 +34,6 @@ namespace CoCoFlow.Editor.StateGraph
             _stateDraftStatus = null;
             _stateConfigHost = null;
             _stateStructureActions = null;
-            feedbackHost = null;
             UseStateEditingAsset();
             serializedAsset?.UpdateIfRequiredOrScript();
 
@@ -47,9 +46,6 @@ namespace CoCoFlow.Editor.StateGraph
                     L("Use “+ Layer” in the toolbar to create the first Layer.",
                         "使用工具栏的「+ 层」创建第一个 Layer。"));
                 details.Add(empty);
-                feedbackHost = CoCoEditorElements.CreateFeedbackHost();
-                feedbackHost.name = "state-graph-feedback";
-                details.Add(feedbackHost);
                 RefreshFeedback();
                 ApplyPlayModeReadOnly();
                 return;
@@ -68,15 +64,12 @@ namespace CoCoFlow.Editor.StateGraph
 
             details.Add(selected);
 
-            feedbackHost = CoCoEditorElements.CreateFeedbackHost();
-            feedbackHost.name = "state-graph-feedback";
-            details.Add(feedbackHost);
             RefreshFeedback();
 
             if (!hasSelectedTransition)
             {
-                var transitions = CreateDetailsFoldout("state-graph-transitions", "Transitions / Add Transition",
-                    "Transition / 添加 Transition");
+                var transitions = CreateDetailsFoldout("state-graph-transitions", "Outgoing Transitions / Add Transition",
+                    "出边 / 添加 Transition");
                 CollectDetailsSection(transitions, () => DrawTransitionsCard(layer));
                 details.Add(transitions);
             }
@@ -439,21 +432,34 @@ namespace CoCoFlow.Editor.StateGraph
             card.AddToClassList("sg-card");
             texts.Register(card[0], "Transitions", "Transition");
 
-            var transitionList = CreateDetailsFoldout("state-graph-transition-list", "Transitions in this Layer",
-                "当前 Layer 的 Transition");
+            CoCoStateGraphTransitionRecord selected = FindTransition(layer, controller.Session.SelectedTransitionId);
+            CoCoStateId sourceScope = selected != null
+                ? ToStateId(selected.SourceStateId) : controller.Session.SelectedStateId;
+            CoCoStateGraphStateRecord sourceState = FindState(layer, sourceScope);
+            if (sourceState == null)
+            {
+                card.Add(new HelpBox(L("Select a State to view its outgoing Transitions.",
+                    "选中 State 后查看它的出边。"), HelpBoxMessageType.Info));
+                details.Add(card);
+                return;
+            }
+
+            var transitionList = CreateDetailsFoldout("state-graph-transition-list", "Outgoing Transitions",
+                "出边列表");
+            var outgoing = new ScrollView { name = "state-graph-outgoing-transitions" };
+            int outgoingCount = 0;
             foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
             {
-                if (transition == null ||
+                if (transition == null || ToStateId(transition.SourceStateId) != sourceScope ||
                     !TryTransitionId(transition.TransitionId, out CoCoTransitionId transitionId))
                 {
                     continue;
                 }
 
                 bool selectedTransition = transitionId == controller.Session.SelectedTransitionId;
-                string label = TransitionLabel(layer, transition);
                 var row = new Button(() => controller.SelectTransition(transitionId))
                 {
-                    text = label
+                    text = TransitionLabel(layer, transition)
                 };
                 row.AddToClassList("sg-transition-row");
                 if (selectedTransition)
@@ -461,8 +467,14 @@ namespace CoCoFlow.Editor.StateGraph
                     row.AddToClassList("sg-transition-row--selected");
                 }
 
-                transitionList.Add(row);
+                outgoing.Add(row);
+                outgoingCount++;
             }
+            transitionList.Add(new Label(L($"From {sourceState.DisplayName} · {outgoingCount} outgoing",
+                $"来自 {sourceState.DisplayName} · {outgoingCount} 条出边")));
+            transitionList.Add(outgoing);
+            if (outgoingCount == 0)
+                outgoing.Add(new Label(L("No outgoing Transitions.", "暂无出边。")));
 
             var leafIds = new List<CoCoStateId>();
             foreach (CoCoStateGraphStateRecord state in layer.States)
@@ -473,16 +485,22 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
-            CoCoStateGraphTransitionRecord selected = FindTransition(
-                layer,
-                controller.Session.SelectedTransitionId);
-            CoCoStateId sourceId = selected == null
-                ? leafIds.Count > 0 ? leafIds[0] : default
-                : ToStateId(selected.SourceStateId);
+            if (selected == null && !leafIds.Contains(sourceScope))
+            {
+                card.Add(new HelpBox(L("Only leaf States can have outgoing Transitions.",
+                    "只有叶子 State 可以创建出边。"), HelpBoxMessageType.Info));
+                card.Add(transitionList);
+                details.Add(card);
+                return;
+            }
+            CoCoStateId sourceId = sourceScope;
             CoCoStateId targetId = selected == null
-                ? leafIds.Count > 1 ? leafIds[1] : sourceId
+                ? leafIds.Find(id => id != sourceId)
                 : ToStateId(selected.TargetStateId);
-            StateIdChoice source = AddStateIdPopup("Source State", leafIds, sourceId, card);
+            if (!targetId.IsValid) targetId = sourceId;
+            StateIdChoice source = AddStateIdPopup("Source State",
+                selected == null ? new List<CoCoStateId> { sourceId } : leafIds, sourceId, card);
+            if (selected == null) card.Q<PopupField<string>>().SetEnabled(false);
             StateIdChoice target = AddStateIdPopup("Target State", leafIds, targetId, card);
             var priority = new IntegerField(L("Priority", "优先级")) { value = selected?.Priority ?? 0 };
             texts.Register(priority, "Priority", "优先级");

@@ -170,6 +170,12 @@ namespace CoCoFlow.Editor.StateGraph
             tree.style.minWidth = 180f;
             leftPane.Add(tree);
 
+            var diagnostics = new ScrollView { name = "state-graph-diagnostics-panel" };
+            feedbackHost = CoCoEditorElements.CreateFeedbackHost();
+            feedbackHost.name = "state-graph-feedback";
+            diagnostics.Add(feedbackHost);
+            leftPane.Add(diagnostics);
+
             var workspace = new TwoPaneSplitView(1, 350f, TwoPaneSplitViewOrientation.Horizontal);
             workspace.style.flexGrow = 1f;
             body.Add(workspace);

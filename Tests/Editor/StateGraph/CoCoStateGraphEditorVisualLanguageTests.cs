@@ -199,6 +199,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             var details = root.Q<ScrollView>("state-graph-details");
             VisualElement selected = root.Q<VisualElement>("state-graph-selected-details");
             Assert.AreSame(selected, details[0]);
+            Assert.IsFalse(details.Contains(root.Q<VisualElement>("state-graph-feedback")));
+            Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(
+                root.Q<VisualElement>("state-graph-feedback")));
             Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
             var management = root.Q<Foldout>("state-graph-layer-management");
             Assert.IsFalse(management.value);

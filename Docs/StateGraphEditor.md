@@ -83,8 +83,11 @@ The details sidebar starts with the selected State or Transition and its
 Config / Conditions. Layer management and Add State live in a collapsed
 `Layer / Add State` section. The Transition list and creation controls use
 secondary foldouts; their asset order, priorities, and Condition order keep
-their existing meaning. Diagnostics and Host requirements stay together below
-the selected editor and refresh without replacing its input controls.
+their existing meaning. Selecting a State shows only its outgoing Transitions;
+creating a Transition fixes the source to that State. Selecting an edge keeps
+the list scoped to that edge's source. The outgoing list scrolls independently.
+Diagnostics and Host requirements live in a separate panel at the bottom of the
+left sidebar and refresh without replacing the selected editor's input controls.
 
 The selected State edits its name, Logic and StateConfig as one draft. StateConfig
 is expanded. Changing Logic creates a fresh draft Config for that Logic; the
