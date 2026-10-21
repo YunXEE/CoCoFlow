@@ -84,8 +84,8 @@ Analyze, and diagnostic location remain available without mutating serialized
 data.
 
 The details sidebar starts with the selected State or Transition and its
-Config / Conditions. Layer management and Add State live in a collapsed
-`Layer / Add State` section. The Transition list and creation controls stay
+Config / Conditions. Layer management and Add State are directly visible below
+the selected details and Transitions. The Transition list and creation controls stay
 expanded; their asset order, priorities, and Condition order keep their existing
 meaning. Selecting a State shows only its outgoing Transitions;
 creating a Transition fixes the source to that State. Selecting an edge keeps

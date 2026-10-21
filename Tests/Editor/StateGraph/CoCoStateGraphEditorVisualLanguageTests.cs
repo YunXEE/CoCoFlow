@@ -203,8 +203,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(
                 root.Q<VisualElement>("state-graph-feedback")));
             Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
-            var management = root.Q<Foldout>("state-graph-layer-management");
-            Assert.IsFalse(management.value);
+            var management = root.Q<VisualElement>("state-graph-layer-management");
+            Assert.NotNull(management);
+            Assert.IsNull(root.Q<Foldout>("state-graph-layer-management"));
             Assert.IsTrue(management.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
             Assert.NotNull(root.Q<VisualElement>("state-graph-transition-list"));
             Assert.IsNull(root.Q<Foldout>("state-graph-transition-list"));

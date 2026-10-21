@@ -74,8 +74,7 @@ namespace CoCoFlow.Editor.StateGraph
                 details.Add(transitions);
             }
 
-            var management = CreateDetailsFoldout("state-graph-layer-management", "Layer / Add State",
-                "Layer / 添加 State");
+            var management = new VisualElement { name = "state-graph-layer-management" };
             CollectDetailsSection(management, () => DrawLayerCard(layer));
             CollectDetailsSection(management, DrawAddStateCard);
             details.Add(management);
