@@ -26,7 +26,7 @@
 
 - 分支格式：新任务 `pre/NN-topic`；Bug 修复 `fix/<版本>-<来源任务>-bug<编号>-<主题>`
 - rc 阶段分支：`rc/<stage>-<topic>`（stage 0-4 对应 v0.4.0-rc.N tag；final = flip 正式版 v0.4.0）
-- 合并目标：dev 分支（当前 dev/0.4.0），从不直接 master
+- 合并目标：`dev/X.X.X`，`X.X.X` 为任务所属版本号（例如 0.4.5 对应 `dev/0.4.5`），从不直接 master
 - 规模红线：单任务新增 ≤4500 行预警 / ≤6000 行红线（方案可显式豁免）
 - 审计渠道示例：机器人 @codex review（PR 评论触发）+ CodeRabbit（自动）
 - Unity 验证：batchmode / Unity CLI，结果 XML 归档 .ci-artifacts/<SHA>/<宿主>/<版本>/
