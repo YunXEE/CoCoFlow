@@ -117,6 +117,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             var timer = System.Diagnostics.Stopwatch.StartNew();
             IntegerField configInput = input.Q<IntegerField>();
             Assert.NotNull(configInput);
+            Assert.IsTrue(configInput.enabledInHierarchy, "Config must be editable by the user, not just writable by tests.");
             root.Q<TextField>("state-graph-state-name").value = "Idle renamed";
             for (int index = 1; index <= 8; index++)
             {
@@ -354,7 +355,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             VisualElement root = CreateWindowPanelHost(window).contentRoot;
             Assert.NotNull(root.panel);
             ToolbarSearchField search = root.Q<ToolbarSearchField>("state-graph-search");
-            PropertyField config = root.Q<PropertyField>("state-graph-state-config");
+            VisualElement config = root.Q<VisualElement>("state-graph-state-config");
             VisualElement feedback = root.Q<VisualElement>("state-graph-feedback");
             Assert.NotNull(search);
             Assert.NotNull(config);
@@ -379,7 +380,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(4, searchInput.textSelection.selectIndex);
             Assert.AreEqual("Idle pasted", controller.Session.SearchText);
             Assert.AreSame(search, root.Q<ToolbarSearchField>("state-graph-search"));
-            Assert.AreSame(config, root.Q<PropertyField>("state-graph-state-config"));
+            Assert.AreSame(config, root.Q<VisualElement>("state-graph-state-config"));
             Assert.AreEqual("Idle", search.value);
             search.value = "Idle pasted";
             search.value = "Idle";
@@ -392,11 +393,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 config.SendEvent(evt);
             }
 
-            Assert.AreSame(config, root.Q<PropertyField>("state-graph-state-config"));
+            Assert.AreSame(config, root.Q<VisualElement>("state-graph-state-config"));
             Assert.AreSame(feedback, root.Q<VisualElement>("state-graph-feedback"));
 
             Click(FindButton(root, "Analyze"));
-            Assert.AreSame(config, root.Q<PropertyField>("state-graph-state-config"));
+            Assert.AreSame(config, root.Q<VisualElement>("state-graph-state-config"));
             Assert.AreSame(feedback, root.Q<VisualElement>("state-graph-feedback"));
             Assert.IsTrue(ContainsLabel(feedback, "Compilation succeeded."));
         }

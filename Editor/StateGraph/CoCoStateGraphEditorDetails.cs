@@ -401,7 +401,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (property == null) return;
             // Draw the Config's fields directly: no root foldout or delayed
             // attempt to reopen Unity's generated managed-reference foldout.
-            var field = new PropertyField { name = "state-graph-state-config" };
+            var field = new VisualElement { name = "state-graph-state-config" };
             SerializedProperty child = property.Copy();
             SerializedProperty end = property.GetEndProperty();
             if (child.NextVisible(true))
