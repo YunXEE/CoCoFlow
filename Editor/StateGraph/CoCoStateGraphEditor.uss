@@ -20,16 +20,56 @@
 
 #state-graph-header-card {
     margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.sg-header-label {
+    -unity-font-style: bold;
+    margin-top: 4px;
+    margin-bottom: 2px;
 }
 
 #state-graph-header-asset-field {
     margin-bottom: 4px;
 }
 
-#state-graph-header-badges {
+#state-graph-header-layer-row {
     flex-direction: row;
-    flex-wrap: wrap;
     align-items: center;
+}
+
+#state-graph-header-add-layer {
+    width: 24px;
+    min-width: 24px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    margin-right: 0;
+}
+
+.sg-header-counts {
+    margin-top: 6px;
+    white-space: normal;
+}
+
+.sg-header-status {
+    margin-top: 2px;
+    white-space: normal;
+}
+
+.sg-header-status--neutral {
+    opacity: 0.7;
+}
+
+.sg-header-status--success {
+    color: rgb(89, 219, 122);
+}
+
+.sg-header-status--warning {
+    color: rgb(255, 190, 90);
+}
+
+.sg-header-status--error {
+    color: rgb(240, 105, 105);
 }
 
 #state-graph-toolbar-host {

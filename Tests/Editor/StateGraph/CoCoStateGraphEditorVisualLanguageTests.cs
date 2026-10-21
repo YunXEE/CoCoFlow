@@ -97,9 +97,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void WindowAppliesCcflowThemeAndSharedStyleSheet()
+        public void WindowAppliesThemeAndHeaderShowsCurrentLayerCounts()
         {
-            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(CreateAsset());
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId gameplay = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId first = AddState(asset, gameplay, "Idle", new Vector2(40f, 60f));
+            CoCoStateId second = AddState(asset, gameplay, "Move", new Vector2(300f, 60f));
+            CoCoStateGraphAuthoringOperations.AddTransition(asset, gameplay, first, second, 0);
+            CoCoLayerId other = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Other");
+            AddState(asset, other, "Other State", new Vector2(40f, 60f));
+            CoCoStateGraphEditorSessionState session = CoCoStateGraphEditorSessionState.Load(asset);
+            session.SelectedLayerId = gameplay;
+            session.Save();
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
             // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
             StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
@@ -112,6 +122,22 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "shared ccflow sheet must be attached");
             Assert.IsTrue(window.rootVisualElement.styleSheets.Contains(own),
                 "sg sheet must be attached");
+            VisualElement root = window.rootVisualElement;
+            VisualElement header = root.Q<VisualElement>("state-graph-header-card");
+            Assert.IsFalse(header.ClassListContains("ccflow-card"));
+            Assert.IsNull(header.Q(className: "ccflow-badge"));
+            Assert.AreEqual("+", root.Q<Button>("state-graph-header-add-layer").text);
+            Assert.AreEqual("2 States · 1 Transition", root.Q<Label>("state-graph-header-counts").text);
+            root.Q<PopupField<string>>("state-graph-header-layer-field").value = "Other";
+            Assert.AreEqual("1 State · 0 Transitions", root.Q<Label>("state-graph-header-counts").text);
+            Assert.That(root.Q<ObjectField>("state-graph-header-asset-field").tooltip,
+                Does.Contain($"Schema {asset.SchemaVersion}"));
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            Assert.IsNull(root.Q<Label>("state-graph-header-catalog-warning"));
+            CoCoStateGraphEditorCatalogProvider.Provider = null;
+            Assert.AreEqual("No Logic available", root.Q<Label>("state-graph-header-catalog-warning").text);
         }
 
         [Test]

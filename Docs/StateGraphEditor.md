@@ -27,6 +27,11 @@ Graph Asset
       -> leaf States and same-Layer Transitions
 ```
 
+The left header labels Graph and Layer on separate full-width rows, with a compact
+`+` action to add a Layer. Plain text below shows the selected Layer's State and
+Transition counts and the graph analysis status. Schema and normal catalog details
+are available in the asset-field tooltip; unavailable Logic remains a visible warning.
+
 The canvas shows the whole selected Layer as one flattened genealogy view:
 every State, at any nesting depth, is placed on the same canvas (positions are
 composed from the per-scope local EditorLayout coordinates), and parent-child
