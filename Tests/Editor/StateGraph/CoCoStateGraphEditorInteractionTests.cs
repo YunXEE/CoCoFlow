@@ -133,7 +133,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual("Unsaved changes", root.Q<Label>("state-graph-state-save-status").text);
             Assert.IsFalse(root.Q<Foldout>("state-graph-state-structure").enabledSelf);
             Assert.AreEqual(0, rebuilds);
-            Assert.IsNull(input.Q<Foldout>(), "StateConfig fields have no enclosing foldout.");
+            Assert.IsTrue(input.Children().All(child => child is PropertyField),
+                "StateConfig fields are direct children, without an enclosing foldout.");
             Assert.IsTrue(configInput.visible);
 
             Click(root.Q<Button>("state-graph-save-state"));
