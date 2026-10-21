@@ -57,6 +57,15 @@ with [Config]/[Memory] and with legacy class-level consume declarations. Operato
 registrars still own their Operation and Context bindings. Custom project
 providers and event adapter bindings retain their existing explicit APIs.
 
+Standard Config arrays and `List<T>` are restored from the frozen Values by the
+existing standard Factory. Omitted fields retain Logic constructor defaults;
+explicit empty collections override those defaults. Configured collections are
+independent for each node and runtime Logic instance. Struct element edits are
+written back through their containing collection. Invalid paths, lengths,
+indices, or leaf values reject freezing through the existing diagnostic path;
+failed Apply does not publish partial field changes. Authoring edits after
+freezing cannot mutate the frozen snapshot.
+
 The Host exposes lifecycle control, Manual Step, read-only authority inspection,
 and the Temporal Begin/Preview/Confirm/Cancel/Correction surface. Driver mode,
 AutoStart, Actor TimeScale, history capacity, and diagnostic capacity are

@@ -312,6 +312,53 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 reloaded.Layers[0].States[1].Config);
         }
 
+        [System.Serializable]
+        public struct ConfigCollectionSerializationWindow
+        {
+            public float startSeconds;
+            public double endSeconds;
+        }
+
+        [TestCase(0, false)]
+        [TestCase(1, false)]
+        [TestCase(3, false)]
+        [TestCase(0, true)]
+        [TestCase(1, true)]
+        [TestCase(3, true)]
+        public void StandardConfigCollectionsSaveReloadAndUndoReset(int count, bool list)
+        {
+            CoCoStateGraphAsset asset = CreateSavedAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Collections");
+            var windows = Enumerable.Range(0, count).Select(i => new ConfigCollectionSerializationWindow
+                { startSeconds = i + 0.25f, endSeconds = i + 0.75d }).Reverse().Take(2).ToArray();
+            var config = new CoCoFieldConfig();
+            config.Set("Windows", list ? windows.ToList() : windows);
+            config.Set("Numbers", list ? new List<float> { 2.5f } : new[] { 2.5f });
+            string[] expected = config.Values.ToArray();
+            CoCoStateGraphAuthoringOperations.AddState(asset, layerId, default, StateDescriptorId(31UL), config);
+            Undo.ClearAll();
+            var serialized = new SerializedObject(asset);
+            var property = serialized.FindProperty("layers").GetArrayElementAtIndex(0)
+                .FindPropertyRelative("states").GetArrayElementAtIndex(0).FindPropertyRelative("config");
+            property.managedReferenceValue = new CoCoFieldConfig();
+            Assert.IsTrue(serialized.ApplyModifiedProperties());
+            Assert.IsEmpty(((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Undo.PerformUndo();
+            CollectionAssert.AreEqual(expected, ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Undo.PerformRedo();
+            Assert.IsEmpty(((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Undo.PerformUndo();
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            Resources.UnloadAsset(asset);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceUpdate);
+            var reloaded = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath);
+            var restored = (CoCoFieldConfig)reloaded.Layers[0].States[0].Config;
+            CollectionAssert.AreEqual(expected, restored.Values);
+            Assert.Contains("Windows.$count=" + windows.Length, restored.Values);
+            Assert.IsFalse(restored.Values.Any(entry => entry.StartsWith("Windows[2]")));
+        }
+
         private static CoCoStateGraphAsset CreateSavedAsset()
         {
             var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
