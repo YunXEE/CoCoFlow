@@ -11,7 +11,7 @@
 - 交付任务走四阶段工作流：方案 → 实施 → 分诊 → 验收（delivery-workflow skill）。
 - 方案文书是实施的唯一依据；每个阶段以文书交接，不依赖会话记忆。
 - 缺陷一律登记台账（BUG-NNN 编号）后修复，修复分支命名
-  fix/<版本>-<来源任务>-bug<编号>-<主题>。
+  fix/<版本>-P<三位任务序号>-bug<编号>-<主题>。
 - 新任务编号格式：<项目>-<版本>-<序号>。
 
 ## 工具链
@@ -24,9 +24,10 @@
 
 ## 交付工作流配置（项目级；库坐标等私有配置见维护者全局层，不进仓库）
 
-- 分支格式：新任务 `pre/NN-topic`；Bug 修复 `fix/<版本>-<来源任务>-bug<编号>-<主题>`
+- 分支格式：`<类型>/<版本>-P<三位任务序号>-<具体内容>`；类型使用 `feat` / `fix` / `refactor`，例如 `feat/0.4.5-P001-config-collections-decimal-input`；Bug 修复在具体内容中保留 `bug<编号>`
+- PR 名称：`【X.X.X】<类型>：<具体修改内容>`，例如 `【0.4.5】feat：支持 Config 集合与小数输入`
 - rc 阶段分支：`rc/<stage>-<topic>`（stage 0-4 对应 v0.4.0-rc.N tag；final = flip 正式版 v0.4.0）
-- 合并目标：dev 分支（当前 dev/0.4.0），从不直接 master
+- 合并目标：`dev/X.X.X`，`X.X.X` 为任务所属版本号（例如 0.4.5 对应 `dev/0.4.5`），从不直接 master
 - 规模红线：单任务新增 ≤4500 行预警 / ≤6000 行红线（方案可显式豁免）
 - 审计渠道示例：机器人 @codex review（PR 评论触发）+ CodeRabbit（自动）
 - Unity 验证：batchmode / Unity CLI，结果 XML 归档 .ci-artifacts/<SHA>/<宿主>/<版本>/

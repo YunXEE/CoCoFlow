@@ -261,6 +261,18 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
+            // Unity 6.5 adds BCL reference packs that its system-directory API omits.
+            string bclPacks = Path.Combine(EditorApplication.applicationContentsPath,
+#if UNITY_EDITOR_OSX
+                "Resources", "Scripting",
+#endif
+                "BCLExtensions", "TargetingPacks");
+            if (Directory.Exists(bclPacks))
+            {
+                foreach (string directory in Directory.GetDirectories(bclPacks, "ref", SearchOption.AllDirectories))
+                    systemAssemblyDirectories.Add(Path.GetFullPath(directory) + Path.DirectorySeparatorChar);
+            }
+
             var trustedDirectories = new string[systemAssemblyDirectories.Count];
             systemAssemblyDirectories.CopyTo(trustedDirectories);
             Array.Sort(trustedDirectories, pathComparer);

@@ -26,10 +26,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             new System.Collections.Generic.List<CoCoStateGraphAsset>();
         private readonly System.Collections.Generic.List<EditorWindow> windows =
             new System.Collections.Generic.List<EditorWindow>();
-        private readonly System.Collections.Generic.List<GameObject> panelObjects =
-            new System.Collections.Generic.List<GameObject>();
-        private readonly System.Collections.Generic.List<PanelSettings> panelSettings =
-            new System.Collections.Generic.List<PanelSettings>();
         private readonly System.Collections.Generic.List<CoCoStateGraphEditorCanvas> canvases =
             new System.Collections.Generic.List<CoCoStateGraphEditorCanvas>();
         private readonly System.Collections.Generic.List<CoCoStateGraphEditorController> controllers =
@@ -69,21 +65,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
 
             controllers.Clear();
-            foreach (GameObject panelObject in panelObjects)
-            {
-                if (panelObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(panelObject);
-                }
-            }
-
-            panelObjects.Clear();
-            foreach (PanelSettings settings in panelSettings)
-            {
-                UnityEngine.Object.DestroyImmediate(settings);
-            }
-
-            panelSettings.Clear();
             Undo.ClearAll();
             foreach (CoCoStateGraphAsset asset in assets)
             {
@@ -97,9 +78,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void WindowAppliesCcflowThemeAndSharedStyleSheet()
+        public void WindowAppliesThemeAndHeaderShowsCurrentLayerCounts()
         {
-            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(CreateAsset());
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId gameplay = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId first = AddState(asset, gameplay, "Idle", new Vector2(40f, 60f));
+            CoCoStateId second = AddState(asset, gameplay, "Move", new Vector2(300f, 60f));
+            CoCoStateGraphAuthoringOperations.AddTransition(asset, gameplay, first, second, 0);
+            CoCoLayerId other = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Other");
+            AddState(asset, other, "Other State", new Vector2(40f, 60f));
+            CoCoStateGraphEditorSessionState session = CoCoStateGraphEditorSessionState.Load(asset);
+            session.SelectedLayerId = gameplay;
+            session.Save();
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
             // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
             StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
@@ -112,6 +103,24 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "shared ccflow sheet must be attached");
             Assert.IsTrue(window.rootVisualElement.styleSheets.Contains(own),
                 "sg sheet must be attached");
+            VisualElement root = window.rootVisualElement;
+            VisualElement header = root.Q<VisualElement>("state-graph-header-card");
+            Assert.IsFalse(header.ClassListContains("ccflow-card"));
+            Assert.IsNull(header.Q(className: "ccflow-badge"));
+            Assert.AreEqual("+", root.Q<Button>("state-graph-header-add-layer").text);
+            Assert.AreEqual("2 States · 1 Transition", root.Q<Label>("state-graph-header-counts").text);
+            var controller = (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+            controller.SelectLayer(other);
+            Assert.AreEqual("1 State · 0 Transitions", root.Q<Label>("state-graph-header-counts").text);
+            Assert.That(root.Q<ObjectField>("state-graph-header-asset-field").tooltip,
+                Does.Contain($"Schema {asset.SchemaVersion}"));
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            Assert.IsNull(root.Q<Label>("state-graph-header-catalog-warning"));
+            CoCoStateGraphEditorCatalogProvider.Provider = null;
+            Assert.AreEqual("No Logic available", root.Q<Label>("state-graph-header-catalog-warning").text);
         }
 
         [Test]
@@ -175,8 +184,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [Test]
         public void DetailsExposeStableElementNamesIncludingConditionConfig()
         {
-            CoCoStateGraphEditorCatalogProvider.Provider =
-                () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             CoCoStateId first = AddState(asset, layerId, "First", new Vector2(40f, 60f));
@@ -195,6 +205,49 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(root.Q<VisualElement>("state-graph-tree"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-details"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-condition-config"));
+            var details = root.Q<ScrollView>("state-graph-details");
+            VisualElement selected = root.Q<VisualElement>("state-graph-selected-details");
+            Assert.AreSame(selected, details[0]);
+            Assert.IsFalse(details.Contains(root.Q<VisualElement>("state-graph-feedback")));
+            Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(
+                root.Q<VisualElement>("state-graph-feedback")));
+            Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-add-state"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-add-logic"));
+            Assert.NotNull(root.Q<VisualElement>("state-graph-transition-list"));
+            Assert.IsNull(root.Q<Foldout>("state-graph-transition-list"));
+            Assert.IsTrue(root.Q<VisualElement>("state-graph-feedback").Contains(
+                root.Query<Label>().ToList().First(label => label.text == "Requirements / Host Suggestions")));
+            var controller = (CoCoStateGraphEditorController)typeof(CoCoStateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+            CoCoSerializedId128[] stateOrder = asset.Layers[0].States.Select(state => state.StateId).ToArray();
+            controller.SelectState(first);
+            selected = root.Q<VisualElement>("state-graph-selected-details");
+            Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-state-config")));
+            Assert.NotNull(root.Q<VisualElement>("state-graph-transitions"));
+            Assert.IsNull(root.Q<Foldout>("state-graph-transitions"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
+            controller.SelectState(default);
+            var management = root.Q<VisualElement>("state-graph-layer-management");
+            Assert.AreSame(management, details[0]);
+            Assert.AreEqual("Layer", management[0].Q<Label>("ccflow-card-title").text);
+            VisualElement addState = root.Q<VisualElement>("state-graph-add-state");
+            VisualElement addLogic = root.Q<VisualElement>("state-graph-add-logic");
+            Assert.AreSame(addState, management[1]);
+            Assert.AreSame(addLogic, management[2]);
+            Assert.AreSame(root.Q<VisualElement>("state-graph-transitions"), details[1]);
+            Assert.IsNull(root.Q<Foldout>("state-graph-layer-management"));
+            Assert.IsTrue(addState.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.IsFalse(addState.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<Button>("state-graph-create-logic")));
+            Assert.IsFalse(addLogic.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.AreEqual(layerId, controller.Session.SelectedLayerId);
+            CollectionAssert.AreEqual(stateOrder, asset.Layers[0].States.Select(state => state.StateId).ToArray());
+            Assert.AreEqual(transitionId.High, asset.Layers[0].Transitions[0].TransitionId.High);
+            Assert.AreEqual(transitionId.Low, asset.Layers[0].Transitions[0].TransitionId.Low);
+
         }
 
         [Test]
@@ -387,8 +440,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
-        public IEnumerator SelectingStateLightsAncestryChainAndTransitionLightsOnlyItself()
+        public IEnumerator StateSelectionLightsAncestryAndDirectOutgoingTargets()
         {
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             CoCoStateId rootLeaf = AddState(asset, layerId, "RootLeaf", new Vector2(40f, 60f));
@@ -401,11 +457,23 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
                 asset, layerId, rootLeaf, child, 0, CoCoTransitionWindow.Always, null,
                 out CoCoTransitionId transitionId, out failure), failure);
+            CoCoStateId indirect = AddState(asset, layerId, "Indirect", new Vector2(600f, 60f));
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, child, rootLeaf, 0, CoCoTransitionWindow.Always, null,
+                out _, out failure), failure);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, child, child, 1, CoCoTransitionWindow.Always, null,
+                out _, out failure), failure);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddTransition(
+                asset, layerId, rootLeaf, indirect, 1, CoCoTransitionWindow.Always, null,
+                out _, out failure), failure);
 
             var controller = new CoCoStateGraphEditorController(asset);
             controllers.Add(controller);
             var canvas = new CoCoStateGraphEditorCanvas(controller);
             canvases.Add(canvas);
+            canvas.styleSheets.Add(AssetDatabase.LoadAssetAtPath<StyleSheet>(
+                "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss"));
             Host(canvas);
             yield return null;
 
@@ -428,6 +496,33 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 new CoCoSerializedId128(composite.High, composite.Low)),
                 "root composite has no genealogy segment");
 
+            // 紫色只跟随直接出边；自环同时保留自身黄色祖先框。
+            Assert.IsTrue(rootLeafCard.ClassListContains("state-card--transition-target"));
+            Assert.IsTrue(childCard.ClassListContains("state-card--transition-target"));
+            Assert.IsFalse(compositeCard.ClassListContains("state-card--transition-target"));
+            Assert.IsFalse(CardWithTitle(canvas, "Indirect").ClassListContains("state-card--transition-target"));
+            Color purple = new Color(184f / 255f, 122f / 255f, 1f, 1f);
+            Assert.IsNull(rootLeafCard.Q(className: "state-card__transition-target-ring"));
+            Assert.AreEqual(childCard.layout.size, rootLeafCard.layout.size);
+            Assert.AreEqual(2f, rootLeafCard.resolvedStyle.borderLeftWidth);
+            Assert.AreEqual(childCard.resolvedStyle.borderLeftWidth, rootLeafCard.resolvedStyle.borderLeftWidth);
+            Assert.AreEqual(childCard.resolvedStyle.borderTopWidth, rootLeafCard.resolvedStyle.borderTopWidth);
+            Assert.AreEqual(purple, rootLeafCard.resolvedStyle.borderLeftColor);
+            Assert.AreEqual(new Color(1f, 184f / 255f, 51f / 255f, 1f), childCard.resolvedStyle.borderLeftColor);
+            CoCoStateGraphLayerRecord layer = asset.Layers[0];
+            Color normal = canvas.GetTransitionColor(layer.Transitions[0]);
+            Assert.AreNotEqual(purple, normal, "Incoming edge must keep its normal color.");
+            Assert.AreEqual(purple, canvas.GetTransitionColor(layer.Transitions[1]));
+            Assert.AreEqual(purple, canvas.GetTransitionColor(layer.Transitions[2]), "Self-loop is outgoing too.");
+            Assert.AreEqual(normal, canvas.GetTransitionColor(layer.Transitions[3]));
+
+            controller.SelectState(rootLeaf);
+            yield return null;
+            Assert.IsFalse(CardWithTitle(canvas, "RootLeaf").ClassListContains("state-card--transition-target"));
+            Assert.IsTrue(CardWithTitle(canvas, "Child").ClassListContains("state-card--transition-target"));
+            Assert.IsTrue(CardWithTitle(canvas, "Indirect").ClassListContains("state-card--transition-target"));
+            Assert.AreEqual(normal, canvas.GetTransitionColor(layer.Transitions[1]));
+
             // Transition 选中只亮线本身：两端卡片不得点亮。
             controller.SelectTransition(transitionId);
             yield return null;
@@ -437,6 +532,21 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 "transition selection must not light the target card");
             Assert.AreEqual(0, canvas.ChainGenealogyChildren.Count,
                 "transition selection must not light genealogy segments");
+            Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
+            Assert.AreEqual(new Color(1f, 0.72f, 0.2f, 1f), canvas.GetTransitionColor(layer.Transitions[0]));
+            controller.SelectState(rootLeaf);
+            Assert.IsTrue(controller.AddTransition(rootLeaf, rootLeaf, 2, CoCoTransitionWindow.Always));
+            yield return null;
+            Assert.IsFalse(controller.Session.SelectedStateId.IsValid);
+            Assert.IsTrue(controller.Session.SelectedTransitionId.IsValid);
+            Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
+            Assert.IsFalse(canvas.Query(className: "state-card--ancestry").ToList().Any());
+            Assert.AreEqual(new Color(1f, 0.72f, 0.2f, 1f), canvas.GetTransitionColor(layer.Transitions.Last()));
+            Assert.IsTrue(layer.Transitions.Take(4).All(edge => canvas.GetTransitionColor(edge) == normal));
+            controller.SelectState(default);
+            yield return null;
+            Assert.IsFalse(canvas.Query(className: "state-card--transition-target").ToList().Any());
+            Assert.IsTrue(layer.Transitions.All(edge => canvas.GetTransitionColor(edge) == normal));
         }
 
         [Test]
@@ -579,20 +689,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         private VisualElement Host(VisualElement content)
         {
-            var settings = ScriptableObject.CreateInstance<PanelSettings>();
-            settings.scaleMode = PanelScaleMode.ConstantPixelSize;
-            settings.scale = 1f;
-            panelSettings.Add(settings);
-
-            var panelObject = new GameObject("CoCoFlow StateGraph Visual Test Panel");
-            panelObject.SetActive(false);
-            UIDocument document = panelObject.AddComponent<UIDocument>();
-            document.panelSettings = settings;
-            panelObject.SetActive(true);
-            panelObjects.Add(panelObject);
-            document.rootVisualElement.style.width = 900f;
-            document.rootVisualElement.style.height = 600f;
-            document.rootVisualElement.Add(content);
+            var window = ScriptableObject.CreateInstance<CoCoStateGraphTestPanelWindow>();
+            windows.Add(window);
+            window.position = new Rect(80f, 80f, 900f, 600f);
+            window.Show();
+            window.rootVisualElement.Add(content);
+            window.Repaint();
             return content;
         }
 

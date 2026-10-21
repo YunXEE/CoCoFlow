@@ -21,6 +21,8 @@ namespace CoCoFlow.Editor.StateGraph
             "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss";
 
         [SerializeField] private CoCoStateGraphAsset asset;
+        [SerializeField] private CoCoStateGraphAsset stateDraftSource;
+        [SerializeField] private string stateDraftJson;
 
         private CoCoStateGraphEditorController controller;
         private CoCoStateGraphEditorCanvas canvas;
@@ -59,6 +61,7 @@ namespace CoCoFlow.Editor.StateGraph
             window.minSize = new Vector2(840f, 520f);
             if (target != null)
             {
+                if (window.asset != target && !window.ConfirmStateDraftChanges()) return;
                 window.asset = target;
             }
 
@@ -107,6 +110,7 @@ namespace CoCoFlow.Editor.StateGraph
             // 只刷新静态文案，不重建结构（方案 §3.2）；
             // 反馈区内容在下次 RefreshFeedback 时按当前语言重绘。
             texts.ApplyCurrentLanguage();
+            RefreshStateDraftStatus();
             RefreshFeedback();
         }
 
@@ -122,6 +126,7 @@ namespace CoCoFlow.Editor.StateGraph
             texts.Clear();
 
             CoCoEditorElements.ApplyTheme(rootVisualElement);
+            rootVisualElement.AddToClassList("sg-editor");
             StyleSheet styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(StyleSheetPath);
             if (styleSheet == null)
             {
@@ -145,6 +150,10 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller = new CoCoStateGraphEditorController(asset);
+            controller.ConfirmStateDraftChanges = ConfirmStateDraftChanges;
+            if (stateDraftSource == asset) controller.RestoreStateDraft(stateDraftJson);
+            stateDraftJson = string.Empty;
+            stateDraftSource = null;
             serializedAsset = new SerializedObject(asset);
             controller.Changed += OnControllerChanged;
             var body = new TwoPaneSplitView(0, 230f, TwoPaneSplitViewOrientation.Horizontal);
@@ -162,6 +171,11 @@ namespace CoCoFlow.Editor.StateGraph
             tree.style.minWidth = 180f;
             leftPane.Add(tree);
 
+            var diagnostics = new ScrollView { name = "state-graph-diagnostics-panel" };
+            feedbackHost = new VisualElement { name = "state-graph-feedback" };
+            diagnostics.Add(feedbackHost);
+            leftPane.Add(diagnostics);
+
             var workspace = new TwoPaneSplitView(1, 350f, TwoPaneSplitViewOrientation.Horizontal);
             workspace.style.flexGrow = 1f;
             body.Add(workspace);
@@ -174,6 +188,7 @@ namespace CoCoFlow.Editor.StateGraph
             details = new ScrollView { name = "state-graph-details" };
             details.style.width = 350f;
             details.style.minWidth = 290f;
+            details.contentViewport.RegisterCallback<GeometryChangedEvent>(_ => UpdateAllTransitionsHeight());
             workspace.Add(details);
 
             RefreshHeader();
@@ -195,9 +210,10 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            // 紧凑页头（左栏顶部）：资产字段 + 徽章两行，无标题条。
-            var card = CoCoEditorElements.CreateCard(string.Empty);
-            card.name = "state-graph-header-card";
+            var header = new VisualElement { name = "state-graph-header-card" };
+            var graphLabel = new Label("Graph");
+            graphLabel.AddToClassList("sg-header-label");
+            header.Add(graphLabel);
 
             var assetField = new ObjectField
             {
@@ -206,80 +222,58 @@ namespace CoCoFlow.Editor.StateGraph
                 tooltip = L("State Graph Asset", "StateGraph 资产")
             };
             assetField.name = "state-graph-header-asset-field";
+            assetField.tooltip += $"\n{AssetDatabase.GetAssetPath(asset)}\nSchema {asset.SchemaVersion}\n" +
+                (!string.IsNullOrEmpty(controller.CatalogStatus) ? controller.CatalogStatus
+                    : L("Logic catalog ready", "Logic 目录已加载"));
             assetField.SetValueWithoutNotify(asset);
             assetField.RegisterValueChangedCallback(evt =>
             {
+                if (!ConfirmStateDraftChanges())
+                {
+                    assetField.SetValueWithoutNotify(asset);
+                    return;
+                }
                 asset = evt.newValue as CoCoStateGraphAsset;
                 Rebuild();
             });
-            card.Add(assetField);
+            header.Add(assetField);
 
-            // 维护者反馈：Layer 选择/新建移入左栏页头（工具栏左上解拥）。
-            var layerRow = new VisualElement();
-            layerRow.AddToClassList("sg-card-row");
+            var layerLabel = new Label("Layer");
+            layerLabel.AddToClassList("sg-header-label");
+            header.Add(layerLabel);
+            var layerRow = new VisualElement { name = "state-graph-header-layer-row" };
             AddLayerPopup(layerRow, compact: true);
             var addLayer = new Button(() => controller.AddLayer())
             {
-                text = L("+ New Layer", "+ 新建 Layer"),
+                name = "state-graph-header-add-layer",
+                text = "+",
                 tooltip = L("Append a new Layer", "追加一个新 Layer")
             };
-            texts.Register(addLayer, "+ New Layer", "+ 新建 Layer");
-            addLayer.AddToClassList("sg-header-add-layer");
             addLayer.SetEnabled(CoCoStateGraphAuthoringOperations.CanEdit(out _));
             layerRow.Add(addLayer);
-            card.Add(layerRow);
+            header.Add(layerRow);
 
-            card.Add(BuildHeaderBadges());
-            headerHost.Add(card);
+            header.Add(BuildHeaderStatus());
+            headerHost.Add(header);
         }
 
-        private VisualElement BuildHeaderBadges()
+        private VisualElement BuildHeaderStatus()
         {
-            var badges = new VisualElement { name = "state-graph-header-badges" };
-
-            badges.Add(CoCoEditorElements.CreateBadge(
-                $"Schema {asset.SchemaVersion}",
-                CoCoEditorBadgeKind.Neutral));
-
-            int stateCount = 0;
-            int transitionCount = 0;
-            foreach (CoCoStateGraphLayerRecord layer in asset.Layers)
+            var status = new VisualElement { name = "state-graph-header-status" };
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            int stateCount = layer?.States.Count ?? 0;
+            int transitionCount = layer?.Transitions.Count ?? 0;
+            string stateText = stateCount == 1 ? "1 State" : $"{stateCount} States";
+            string transitionText = transitionCount == 1 ? "1 Transition" : $"{transitionCount} Transitions";
+            var counts = new Label(layer == null ? L("No Layer selected.", "未选择 Layer。")
+                : L($"{stateText} · {transitionText}",
+                    $"{stateCount} 个 State · {transitionCount} 条 Transition"))
             {
-                if (layer == null)
-                {
-                    continue;
-                }
-
-                stateCount += layer.States.Count;
-                transitionCount += layer.Transitions.Count;
-            }
-
-            badges.Add(CoCoEditorElements.CreateBadge(
-                L($"{asset.Layers.Count} Layer(s)", $"{asset.Layers.Count} 层") +
-                " · " +
-                L($"{stateCount} State(s)", $"{stateCount} 个 State") +
-                " · " +
-                L($"{transitionCount} Transition(s)", $"{transitionCount} 个 Transition"),
-                CoCoEditorBadgeKind.Info));
-
-            if (!string.IsNullOrEmpty(controller.CatalogStatus))
-            {
-                badges.Add(CoCoEditorElements.CreateBadge(
-                    L("Catalog degraded", "目录降级"),
-                    CoCoEditorBadgeKind.Warning));
-            }
-            else if (controller.Catalog != null)
-            {
-                badges.Add(CoCoEditorElements.CreateBadge(
-                    L("Catalog ready", "目录就绪"),
-                    CoCoEditorBadgeKind.Success));
-            }
-            else
-            {
-                badges.Add(CoCoEditorElements.CreateBadge(
-                    L("No catalog", "无目录"),
-                    CoCoEditorBadgeKind.Neutral));
-            }
+                name = "state-graph-header-counts",
+                tooltip = L("Counts for the current Layer", "当前 Layer 的统计")
+            };
+            counts.AddToClassList("sg-header-counts");
+            status.Add(counts);
 
             CoCoStateGraphAssetCompileResult analysis = controller.AnalysisResult;
             CoCoEditorBadgeKind analysisKind = CoCoEditorBadgeKind.Neutral;
@@ -289,13 +283,13 @@ namespace CoCoFlow.Editor.StateGraph
                 if (analysis.Succeeded && analysis.Diagnostics.Count == 0)
                 {
                     analysisKind = CoCoEditorBadgeKind.Success;
-                    analysisText = L("Compiled", "编译通过");
+                    analysisText = L("Analysis passed", "分析通过");
                 }
                 else if (analysis.Succeeded)
                 {
                     analysisKind = CoCoEditorBadgeKind.Warning;
-                    analysisText = L($"Compiled · {analysis.Diagnostics.Count} diagnostic(s)",
-                        $"编译通过 · {analysis.Diagnostics.Count} 条诊断");
+                    analysisText = L($"Analysis passed · {analysis.Diagnostics.Count} diagnostic(s)",
+                        $"分析通过 · {analysis.Diagnostics.Count} 条诊断");
                 }
                 else
                 {
@@ -305,8 +299,26 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
-            badges.Add(CoCoEditorElements.CreateBadge(analysisText, analysisKind));
-            return badges;
+            var analysisLabel = new Label(analysisText)
+            {
+                name = "state-graph-header-analysis",
+                tooltip = L("Analysis of the saved Graph asset", "已保存 Graph 资产的分析结果")
+            };
+            analysisLabel.AddToClassList("sg-header-status");
+            analysisLabel.AddToClassList("sg-header-status--" + analysisKind.ToString().ToLowerInvariant());
+            status.Add(analysisLabel);
+            if (!string.IsNullOrEmpty(controller.CatalogStatus) || controller.Catalog == null)
+            {
+                var warning = new Label(L("No Logic available", "没有可用的 Logic"))
+                {
+                    name = "state-graph-header-catalog-warning",
+                    tooltip = controller.CatalogStatus
+                };
+                warning.AddToClassList("sg-header-status");
+                warning.AddToClassList("sg-header-status--warning");
+                status.Add(warning);
+            }
+            return status;
         }
 
         private void BuildEmptyState()
@@ -411,12 +423,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             var layerPopup = new PopupField<string>(layerLabels, selectedIndex)
             {
-                tooltip = L("Layer", "Layer")
+                name = "state-graph-header-layer-field",
+                tooltip = L("Layer", "Layer") + ": " + layerLabels[selectedIndex]
             };
             if (compact)
             {
                 layerPopup.style.flexGrow = 1f;
-                layerPopup.style.minWidth = 60f;
+                layerPopup.style.minWidth = 0f;
+                layerPopup.style.flexShrink = 1f;
             }
             else
             {
@@ -428,6 +442,8 @@ namespace CoCoFlow.Editor.StateGraph
                 if (index >= 0)
                 {
                     controller.SelectLayer(layerIds[index]);
+                    if (controller.Session.SelectedLayerId != layerIds[index])
+                        layerPopup.SetValueWithoutNotify(evt.previousValue);
                 }
             });
             slot.Add(layerPopup);
@@ -472,8 +488,8 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             tree.Clear();
-            var heading = CoCoEditorElements.CreateHeading(L("State Tree", "State 树"));
-            texts.Register(heading, "State Tree", "State 树");
+            var heading = CoCoEditorElements.CreateHeading(L("States", "State 列表"));
+            texts.Register(heading, "States", "State 列表");
             tree.Add(heading);
 
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
@@ -583,6 +599,14 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
+            if ((invalidation & CoCoStateGraphEditorInvalidation.StateDraft) != 0 &&
+                serializedAsset != null && serializedAsset.targetObject != null)
+            {
+                // Name / Logic edits and bound Config inputs share the same
+                // draft: do not let a stale SerializedObject overwrite either.
+                serializedAsset?.Update();
+            }
+            RefreshStateDraftStatus();
             if ((invalidation & CoCoStateGraphEditorInvalidation.Toolbar) != 0)
             {
                 RefreshHeader();
@@ -600,11 +624,40 @@ namespace CoCoFlow.Editor.StateGraph
             }
             else if ((invalidation & CoCoStateGraphEditorInvalidation.Feedback) != 0)
             {
-                RefreshHeader(); // 分析状态徽章随 Feedback 失效更新
+                RefreshHeader(); // 分析状态随 Feedback 失效更新
                 RefreshFeedback();
             }
 
             Repaint();
+        }
+
+        private bool ConfirmStateDraftChanges()
+        {
+            if (controller == null || !controller.HasStateDraftChanges) return true;
+            int choice = EditorUtility.DisplayDialogComplex(
+                L("Unsaved State changes", "State 有未保存的修改"),
+                L("Save the name, Logic and StateConfig before continuing?", "是否先保存名称、Logic 和 StateConfig？"),
+                L("Save", "保存"), L("Cancel", "取消"), L("Discard", "放弃修改"));
+            if (choice == 0) return controller.SaveStateDraft();
+            if (choice == 2)
+            {
+                controller.DiscardStateDraft();
+                return true;
+            }
+
+            return false;
+        }
+
+        public override void SaveChanges()
+        {
+            rootVisualElement.focusController?.focusedElement?.Blur();
+            if (controller == null || controller.SaveStateDraft()) base.SaveChanges();
+        }
+
+        public override void DiscardChanges()
+        {
+            controller?.DiscardStateDraft();
+            base.DiscardChanges();
         }
 
         private void OnPlayModeStateChanged(PlayModeStateChange change)
@@ -699,6 +752,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 return false;
             }
+
+            if (!controller.ResolveStateDraft()) return false;
 
             CoCoStateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
             if (descriptor == null)
@@ -1032,6 +1087,10 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void DisposeController()
         {
+            // Tests and rebuilt windows can have their old tree attached to a
+            // different panel. Release its bindings before disposing the draft.
+            details?.Unbind();
+            details?.Clear();
             if (canvas != null)
             {
                 canvas.ContextRequested -= OnCanvasContextRequested;
@@ -1042,11 +1101,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (controller != null)
             {
+                stateDraftJson = controller.CaptureStateDraft();
+                stateDraftSource = string.IsNullOrEmpty(stateDraftJson) ? null : controller.Asset;
                 controller.Changed -= OnControllerChanged;
                 controller.Dispose();
                 controller = null;
             }
 
+            serializedAsset?.Dispose();
             serializedAsset = null;
         }
 

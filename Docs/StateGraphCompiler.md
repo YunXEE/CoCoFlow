@@ -108,6 +108,30 @@ Catalog freeze failures. The Editor catalog bootstrap and Add State wizard use
 the same attributed State surface; Runtime binding is described in
 [StateGraph Runtime and Host](StateGraphRuntime.md).
 
+### Standard Config collections
+
+Standard `[Config]` fields support one-dimensional arrays and `List<T>` of
+editable numeric, boolean, or enum values, and pure data structs made from
+these public fields. Nested collections, multidimensional arrays, arbitrary
+classes, and Unity object collections are unsupported. `[Memory]` retains its
+unmanaged layout and transfer rules.
+
+The Config editor provides initialization, add/remove, ordering, and element
+editing. An uninitialized collection stays null until explicitly initialized;
+an empty collection is saved as an explicit override. Reset removes the field's
+overrides and restores its Logic constructor default. Each node saves its own
+configuration and participates in Undo/Redo.
+
+Numeric text is committed on confirmation or focus loss. Intermediate text such
+as `2.` or `-` is kept in the active control; invalid submissions show an error
+and preserve the last saved value. Value commits keep the active Config controls.
+
+`CoCoFieldConfig.Values`, `Set(string, object)`, and `Apply(CoCoStateLogic)` retain
+their signatures. Old scalar entries such as `Speed=2.5` remain readable.
+Collections use a length entry (`Windows.$count=2`) and indexed leaves
+(`Windows[0].StartSeconds=0.25`). `Set` replaces the entire supplied path,
+including old descendants, and Apply restores lengths before indexed values.
+
 ## Stable identity
 
 Graph, Layer, State, and Transition identities are serialized as two unsigned

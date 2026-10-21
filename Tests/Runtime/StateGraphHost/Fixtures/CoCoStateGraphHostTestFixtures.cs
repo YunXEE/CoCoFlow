@@ -285,6 +285,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
+    [CoCoState(nameof(HostTestMissingUpdateLogic))]
+    public sealed class HostTestMissingUpdateLogic : CoCoStateLogic
+    {
+    }
+
+    [CoCoState(nameof(HostTestStartupLogic))]
+    public sealed class HostTestStartupLogic : CoCoStateLogic, ICoCoStateUpdate
+    {
+        public void Update(CoCoStateExecutionContext context)
+        {
+        }
+    }
+
     public sealed class HostTestMismatchedLogic : CoCoStateLogic, ICoCoStateUpdate
     {
         public void Update(CoCoStateExecutionContext context)

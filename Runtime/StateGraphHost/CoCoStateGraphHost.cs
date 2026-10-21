@@ -233,8 +233,9 @@ namespace CoCoFlow.Runtime.Core
                     configuredGraph,
                     provider.Catalog);
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                Debug.LogException(exception, this);
                 diagnostic = RegistryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "StateGraph Asset compilation threw during Host setup.");
@@ -500,8 +501,9 @@ namespace CoCoFlow.Runtime.Core
                 _lastDiagnostic = diagnostic;
                 return true;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                Debug.LogException(exception, this);
                 if (runtime != null && !ReferenceEquals(_runtime, runtime))
                 {
                     runtime.Dispose();
