@@ -148,6 +148,28 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(ContainsLabel(root.Q<VisualElement>("state-graph-feedback"), "Compilation succeeded."));
             controller.SelectState(state);
             Assert.AreNotSame(input, root.Q<VisualElement>("state-graph-state-config"), "Selection still refreshes details.");
+
+            string[] args = Environment.GetCommandLineArgs();
+            int screenshotIndex = Array.IndexOf(args, "-cocoflow003Screenshot");
+            if (!Application.isBatchMode && screenshotIndex >= 0)
+            {
+                window.CreateGUI();
+                window.titleContent = new GUIContent("003 Layout Preview");
+                window.Show();
+                window.position = new Rect(40f, 60f, 1360f, 800f);
+                window.Focus();
+                yield return null;
+                window.Repaint();
+                yield return null;
+                Rect bounds = window.position;
+                Color[] pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
+                    bounds.position, (int)bounds.width, (int)bounds.height);
+                var image = new Texture2D((int)bounds.width, (int)bounds.height, TextureFormat.RGB24, false);
+                image.SetPixels(pixels);
+                image.Apply();
+                System.IO.File.WriteAllBytes(args[screenshotIndex + 1], image.EncodeToPNG());
+                UnityEngine.Object.DestroyImmediate(image);
+            }
         }
 
         [UnityTest]
