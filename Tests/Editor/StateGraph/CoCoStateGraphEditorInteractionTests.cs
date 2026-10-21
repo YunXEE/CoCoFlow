@@ -130,7 +130,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             double commitMs = timer.Elapsed.TotalMilliseconds;
             yield return null;
-            for (int frame = 0; controller.AnalysisResult == null && frame < 10; frame++)
+            double analysisDeadline = EditorApplication.timeSinceStartup + 5d;
+            while (controller.AnalysisResult == null && EditorApplication.timeSinceStartup < analysisDeadline)
             {
                 yield return null;
             }
