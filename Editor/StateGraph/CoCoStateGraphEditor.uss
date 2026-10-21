@@ -142,6 +142,17 @@
     margin-bottom: 8px;
 }
 
+#state-graph-save-state,
+#state-graph-discard-state {
+    width: 82px;
+    min-width: 82px;
+    height: 26px;
+    min-height: 26px;
+    flex-shrink: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
 #state-graph-state-save-status {
     flex-grow: 1;
 }
