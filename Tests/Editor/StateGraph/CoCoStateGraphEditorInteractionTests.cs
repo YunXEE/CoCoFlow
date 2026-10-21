@@ -94,7 +94,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
-        public IEnumerator ConfigCommitsCoalesceAndPreserveControls()
+        public IEnumerator StateDraftEditsWaitForSaveAndPreserveControls()
         {
             CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
             CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
@@ -113,42 +113,42 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(input);
             int before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
             int rebuilds = 0;
-            bool staleCleared = true;
             var timer = System.Diagnostics.Stopwatch.StartNew();
+            var draftConfig = (TestStateAuthoringConfig)controller.BeginStateDraft().Config;
+            root.Q<TextField>("state-graph-state-name").value = "Idle renamed";
             for (int index = 1; index <= 8; index++)
             {
-                config.Value = index;
+                draftConfig.Value = index;
                 controller.NotifyConfigChanged();
-                staleCleared &= controller.AnalysisResult == null;
-                VisualElement current = root.Q<VisualElement>("state-graph-state-config");
-                if (current != input)
-                {
-                    rebuilds++;
-                    input = current;
-                }
+                if (root.Q<VisualElement>("state-graph-state-config") != input) rebuilds++;
             }
 
-            double commitMs = timer.Elapsed.TotalMilliseconds;
             yield return null;
-            double analysisDeadline = EditorApplication.timeSinceStartup + 5d;
-            while (controller.AnalysisResult == null && EditorApplication.timeSinceStartup < analysisDeadline)
-            {
-                yield return null;
-            }
+            Assert.AreEqual(0, CoCoStateGraphFixtureCounters.StateFreezeCalls - before,
+                "Typing must not analyze the draft.");
+            Assert.AreEqual(0, config.Value, "Unsaved Config must not touch the asset.");
+            Assert.AreEqual("Idle", asset.Layers[0].States[0].DisplayName);
+            Assert.IsTrue(window.hasUnsavedChanges);
+            Assert.AreEqual("Unsaved changes", root.Q<Label>("state-graph-state-save-status").text);
+            Assert.IsFalse(root.Q<Foldout>("state-graph-state-structure").enabledSelf);
+            Assert.AreEqual(0, rebuilds);
+            Foldout configFoldout = input.Q<Foldout>();
+            Assert.NotNull(configFoldout);
+            Assert.IsTrue(configFoldout.value);
+            Assert.AreEqual(DisplayStyle.None, configFoldout.Q<Toggle>().style.display.value);
 
+            Click(root.Q<Button>("state-graph-save-state"));
             timer.Stop();
             int analyses = CoCoStateGraphFixtureCounters.StateFreezeCalls - before;
-            TestContext.WriteLine($"003 commits=8 analyses={analyses} detailsRebuilds={rebuilds} commitMs={commitMs:F3} elapsedMs={timer.Elapsed.TotalMilliseconds:F3}");
-            Assert.IsTrue(staleCleared, "Old success must disappear immediately after each commit.");
+            TestContext.WriteLine($"003 draftEdits=9 analysesBeforeSave=0 analysesOnSave={analyses} detailsRebuildsWhileTyping={rebuilds} elapsedMs={timer.Elapsed.TotalMilliseconds:F3}");
             Assert.AreEqual(1, analyses);
-            Assert.AreEqual(0, rebuilds);
-            Assert.IsTrue(EditorUtility.IsDirty(asset));
+            Assert.IsFalse(window.hasUnsavedChanges);
+            Assert.AreEqual("Idle renamed", asset.Layers[0].States[0].DisplayName);
             Assert.IsTrue(controller.AnalysisResult.Graph.Layers[0].States[0].Config.TryRead(
                 TestFrozenConfigSchemas.StateValue, out int latest));
             Assert.AreEqual(8, latest);
+            Assert.AreEqual(8, ((TestStateAuthoringConfig)asset.Layers[0].States[0].Config).Value);
             Assert.IsTrue(ContainsLabel(root.Q<VisualElement>("state-graph-feedback"), "Compilation succeeded."));
-            controller.SelectState(state);
-            Assert.AreNotSame(input, root.Q<VisualElement>("state-graph-state-config"), "Selection still refreshes details.");
 
             string[] args = Environment.GetCommandLineArgs();
             int screenshotIndex = Array.IndexOf(args, "-cocoflow003Screenshot");
@@ -162,17 +162,32 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 yield return null;
                 window.Repaint();
                 yield return null;
-                Rect bounds = window.position;
-                float scale = EditorGUIUtility.pixelsPerPoint;
-                int width = Mathf.RoundToInt(bounds.width * scale);
-                int height = Mathf.RoundToInt(bounds.height * scale);
-                Color[] pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
-                    bounds.position * scale, width, height);
-                var image = new Texture2D(width, height, TextureFormat.RGB24, false);
-                image.SetPixels(pixels);
-                image.Apply();
-                System.IO.File.WriteAllBytes(args[screenshotIndex + 1], image.EncodeToPNG());
-                UnityEngine.Object.DestroyImmediate(image);
+                for (int preview = 0; preview < 3; preview++)
+                {
+                    if (preview == 1)
+                        window.rootVisualElement.Q<TextField>("state-graph-state-name").value = "Idle draft";
+                    if (preview == 2)
+                    {
+                        window.DiscardChanges();
+                        window.rootVisualElement.Q<Foldout>("state-graph-state-structure").value = true;
+                    }
+                    window.Repaint();
+                    yield return null;
+                    yield return null;
+                    Rect bounds = window.position;
+                    float scale = EditorGUIUtility.pixelsPerPoint;
+                    int width = Mathf.RoundToInt(bounds.width * scale);
+                    int height = Mathf.RoundToInt(bounds.height * scale);
+                    Color[] pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
+                        bounds.position * scale, width, height);
+                    var image = new Texture2D(width, height, TextureFormat.RGB24, false);
+                    image.SetPixels(pixels);
+                    image.Apply();
+                    string path = args[screenshotIndex + 1];
+                    if (preview > 0) path = path.Replace(".png", preview == 1 ? "-unsaved.png" : "-structure.png");
+                    System.IO.File.WriteAllBytes(path, image.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(image);
+                }
             }
         }
 
@@ -188,6 +203,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             SelectState(asset, layer, state);
             CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
             var controller = WindowController(window);
+            controller.SelectState(default);
             int before = CoCoStateGraphFixtureCounters.StateFreezeCalls;
             controller.NotifyConfigChanged();
             yield return null;
@@ -232,6 +248,60 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             yield return null;
             Assert.IsNull(next.AnalysisResult, "Closed window must not receive a result.");
             Assert.AreEqual(before, CoCoStateGraphFixtureCounters.StateFreezeCalls);
+        }
+
+        [UnityTest]
+        public IEnumerator StateDraftSaveDiscardUndoAndSelectionAreAtomic()
+        {
+            CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId first = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig { Value = 3 }, "First");
+            CoCoStateId second = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "Second");
+            SelectState(asset, layer, first);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            var controller = WindowController(window);
+            CoCoStateGraphStateRecord original = asset.Layers[0].States[0];
+            CoCoSerializedId128[] order = asset.Layers[0].States.Select(state => state.StateId).ToArray();
+            controller.SetStateDraftName("Renamed");
+            Assert.IsTrue(controller.SetStateDraftDescriptor(catalog.StateDescriptors.Single(
+                descriptor => descriptor.DescriptorId == AlternateDescriptorId)));
+            Assert.IsInstanceOf<RuntimeFixtureStateAuthoringConfig>(controller.BeginStateDraft().Config);
+            Assert.AreEqual("First", original.DisplayName);
+            Assert.IsInstanceOf<TestStateAuthoringConfig>(original.Config);
+            controller.ConfirmStateDraftChanges = () => false;
+            controller.SelectState(second);
+            Assert.AreEqual(first, controller.Session.SelectedStateId, "Cancel keeps the selected draft.");
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.IsTrue(controller.SaveStateDraft());
+            Assert.AreEqual("Renamed", original.DisplayName);
+            Assert.AreEqual(Serialize(AlternateDescriptorId), original.StateDescriptorId);
+            Assert.IsInstanceOf<RuntimeFixtureStateAuthoringConfig>(original.Config);
+            yield return null;
+            Undo.PerformUndo();
+            Assert.AreEqual("First", asset.Layers[0].States[0].DisplayName);
+            Assert.AreEqual(Serialize(CoCoStateGraphTestFactory.StateDescriptorId), asset.Layers[0].States[0].StateDescriptorId);
+            Assert.AreEqual(3, ((TestStateAuthoringConfig)asset.Layers[0].States[0].Config).Value);
+            Undo.PerformRedo();
+            Assert.AreEqual("Renamed", asset.Layers[0].States[0].DisplayName);
+            Assert.IsInstanceOf<RuntimeFixtureStateAuthoringConfig>(asset.Layers[0].States[0].Config);
+            controller.SetStateDraftName("Discard me");
+            window.DiscardChanges();
+            Assert.AreEqual("Renamed", controller.BeginStateDraft().DisplayName);
+            Assert.IsFalse(window.hasUnsavedChanges);
+            controller.SetStateDraftName("Survives rebuild");
+            window.CreateGUI();
+            controller = WindowController(window);
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.AreEqual("Survives rebuild", controller.BeginStateDraft().DisplayName);
+            controller.ConfirmStateDraftChanges = () => { controller.DiscardStateDraft(); return true; };
+            controller.SelectState(second);
+            Assert.AreEqual(second, controller.Session.SelectedStateId);
+            Assert.AreEqual("Renamed", asset.Layers[0].States[0].DisplayName);
+            CollectionAssert.AreEqual(order, asset.Layers[0].States.Select(state => state.StateId).ToArray());
         }
 
         private static CoCoStateGraphEditorController WindowController(CoCoStateGraphEditorWindow window) =>
@@ -348,14 +418,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             selectedPopup = root.Q<PopupField<string>>("selected-state-descriptor");
             selectedPopup.value = originalLabel;
-            Click(FindButton(root, "Set Descriptor"));
+            Click(root.Q<Button>("state-graph-save-state"));
             added = asset.Layers[0].States.Single(state => state.StateId == added.StateId);
             Assert.AreEqual(Serialize(CoCoStateGraphTestFactory.StateDescriptorId), added.StateDescriptorId);
             Assert.IsInstanceOf<TestStateAuthoringConfig>(added.Config);
 
             selectedPopup = root.Q<PopupField<string>>("selected-state-descriptor");
             selectedPopup.value = originalLabel;
-            Click(FindButton(root, "Add Child State"));
+            Click(FindButton(root, "Create child State"));
             CoCoStateGraphStateRecord child = asset.Layers[0].States.Single(state =>
                 state.ParentStateId == added.StateId);
             Assert.AreEqual(Serialize(CoCoStateGraphTestFactory.StateDescriptorId), child.StateDescriptorId);

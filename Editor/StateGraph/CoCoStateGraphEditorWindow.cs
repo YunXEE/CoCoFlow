@@ -21,6 +21,8 @@ namespace CoCoFlow.Editor.StateGraph
             "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss";
 
         [SerializeField] private CoCoStateGraphAsset asset;
+        [SerializeField] private CoCoStateGraphAsset stateDraftSource;
+        [SerializeField] private string stateDraftJson;
 
         private CoCoStateGraphEditorController controller;
         private CoCoStateGraphEditorCanvas canvas;
@@ -59,6 +61,7 @@ namespace CoCoFlow.Editor.StateGraph
             window.minSize = new Vector2(840f, 520f);
             if (target != null)
             {
+                if (window.asset != target && !window.ConfirmStateDraftChanges()) return;
                 window.asset = target;
             }
 
@@ -107,6 +110,7 @@ namespace CoCoFlow.Editor.StateGraph
             // 只刷新静态文案，不重建结构（方案 §3.2）；
             // 反馈区内容在下次 RefreshFeedback 时按当前语言重绘。
             texts.ApplyCurrentLanguage();
+            RefreshStateDraftStatus();
             RefreshFeedback();
         }
 
@@ -145,6 +149,10 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller = new CoCoStateGraphEditorController(asset);
+            controller.ConfirmStateDraftChanges = ConfirmStateDraftChanges;
+            if (stateDraftSource == asset) controller.RestoreStateDraft(stateDraftJson);
+            stateDraftJson = string.Empty;
+            stateDraftSource = null;
             serializedAsset = new SerializedObject(asset);
             controller.Changed += OnControllerChanged;
             var body = new TwoPaneSplitView(0, 230f, TwoPaneSplitViewOrientation.Horizontal);
@@ -209,6 +217,11 @@ namespace CoCoFlow.Editor.StateGraph
             assetField.SetValueWithoutNotify(asset);
             assetField.RegisterValueChangedCallback(evt =>
             {
+                if (!ConfirmStateDraftChanges())
+                {
+                    assetField.SetValueWithoutNotify(asset);
+                    return;
+                }
                 asset = evt.newValue as CoCoStateGraphAsset;
                 Rebuild();
             });
@@ -583,6 +596,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
+            RefreshStateDraftStatus();
             if ((invalidation & CoCoStateGraphEditorInvalidation.Toolbar) != 0)
             {
                 RefreshHeader();
@@ -605,6 +619,35 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Repaint();
+        }
+
+        private bool ConfirmStateDraftChanges()
+        {
+            if (controller == null || !controller.HasStateDraftChanges) return true;
+            int choice = EditorUtility.DisplayDialogComplex(
+                L("Unsaved State changes", "State 有未保存的修改"),
+                L("Save the name, Logic and StateConfig before continuing?", "是否先保存名称、Logic 和 StateConfig？"),
+                L("Save", "保存"), L("Cancel", "取消"), L("Discard", "放弃修改"));
+            if (choice == 0) return controller.SaveStateDraft();
+            if (choice == 2)
+            {
+                controller.DiscardStateDraft();
+                return true;
+            }
+
+            return false;
+        }
+
+        public override void SaveChanges()
+        {
+            rootVisualElement.focusController?.focusedElement?.Blur();
+            if (controller == null || controller.SaveStateDraft()) base.SaveChanges();
+        }
+
+        public override void DiscardChanges()
+        {
+            controller?.DiscardStateDraft();
+            base.DiscardChanges();
         }
 
         private void OnPlayModeStateChanged(PlayModeStateChange change)
@@ -1042,11 +1085,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (controller != null)
             {
+                stateDraftJson = controller.CaptureStateDraft();
+                stateDraftSource = string.IsNullOrEmpty(stateDraftJson) ? null : controller.Asset;
                 controller.Changed -= OnControllerChanged;
                 controller.Dispose();
                 controller = null;
             }
 
+            serializedAsset?.Dispose();
             serializedAsset = null;
         }
 

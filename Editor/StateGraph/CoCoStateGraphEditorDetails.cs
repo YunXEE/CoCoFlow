@@ -16,6 +16,12 @@ namespace CoCoFlow.Editor.StateGraph
     /// </summary>
     internal sealed partial class CoCoStateGraphEditorWindow
     {
+        private Label _stateDraftStatus;
+        private Button _stateSaveButton;
+        private Button _stateDiscardButton;
+        private VisualElement _stateConfigHost;
+        private Foldout _stateStructureActions;
+
         private void RefreshDetails()
         {
             if (details == null || controller == null)
@@ -23,8 +29,13 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            details.Unbind();
             details.Clear();
+            _stateDraftStatus = null;
+            _stateConfigHost = null;
+            _stateStructureActions = null;
             feedbackHost = null;
+            UseStateEditingAsset();
             serializedAsset?.UpdateIfRequiredOrScript();
 
             CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
@@ -226,64 +237,85 @@ namespace CoCoFlow.Editor.StateGraph
             card.AddToClassList("sg-card");
             texts.Register(card[0], "Selected State", "选中的 State");
 
-            var idLabel = new Label(StableStateId(state));
-            idLabel.AddToClassList("sg-id-label");
-            card.Add(idLabel);
-
-            var stateName = new TextField(L("Name", "名称")) { value = state.DisplayName };
-            card.Add(stateName);
-            var rename = new Button(() => controller.RenameSelectedState(stateName.value))
+            CoCoStateGraphStateRecord draft = controller.BeginStateDraft();
+            UseStateEditingAsset();
+            var stateName = new TextField(L("Name", "名称"))
             {
-                text = L("Rename State", "重命名 State")
+                name = "state-graph-state-name", value = draft.DisplayName
             };
-            texts.Register(rename, "Rename State", "重命名 State");
-            card.Add(rename);
-
-            var order = new VisualElement();
-            order.style.flexDirection = FlexDirection.Row;
-            var moveUp = new Button(() => controller.MoveSelectedState(-1)) { text = L("Move Up", "上移") };
-            texts.Register(moveUp, "Move Up", "上移");
-            var moveDown = new Button(() => controller.MoveSelectedState(1)) { text = L("Move Down", "下移") };
-            texts.Register(moveDown, "Move Down", "下移");
-            order.Add(moveUp);
-            order.Add(moveDown);
-            card.Add(order);
+            stateName.RegisterValueChangedCallback(evt => controller.SetStateDraftName(evt.newValue));
+            card.Add(stateName);
 
             StateDescriptorChoice selectedDescriptor = AddStateDescriptorPopup(
                 stateDescriptors,
-                ToStateDescriptorId(state.StateDescriptorId),
+                ToStateDescriptorId(draft.StateDescriptorId),
                 persistAsAddDefault: false,
-                "selected-state-descriptor", card);
-            var setDescriptor = new Button(() => controller.SetSelectedStateDescriptor(
-                    selectedDescriptor.Value))
-            {
-                text = "Set Descriptor"
-            };
-            card.Add(setDescriptor);
+                "selected-state-descriptor", card,
+                descriptor =>
+                {
+                    if (controller.SetStateDraftDescriptor(descriptor))
+                        RefreshStateConfig();
+                });
+            var hint = new Label(L("Changing Logic resets its draft StateConfig. Save to apply all changes.",
+                "更换 Logic 会重置草稿配置；名称、Logic 和 StateConfig 一起保存。"));
+            hint.AddToClassList("sg-muted");
+            card.Add(hint);
 
-            if (!DrawFieldConfig(card, state))
+            var saveRow = new VisualElement();
+            saveRow.AddToClassList("sg-state-save-row");
+            _stateDraftStatus = new Label { name = "state-graph-state-save-status" };
+            saveRow.Add(_stateDraftStatus);
+            _stateSaveButton = new Button(SaveChanges)
             {
-                DrawConfigProperty(
-                    card,
-                    FindStateConfigProperty(
-                        controller.Session.SelectedLayerId,
-                        ToStateId(state.StateId)),
-                    "State Config",
-                    "state-graph-state-config");
-            }
+                name = "state-graph-save-state", text = L("Save", "保存")
+            };
+            texts.Register(_stateSaveButton, "Save", "保存");
+            _stateSaveButton.AddToClassList("ccflow-button--primary");
+            saveRow.Add(_stateSaveButton);
+            _stateDiscardButton = new Button(DiscardChanges)
+            {
+                name = "state-graph-discard-state", text = L("Discard", "放弃修改")
+            };
+            texts.Register(_stateDiscardButton, "Discard", "放弃修改");
+            saveRow.Add(_stateDiscardButton);
+            card.Add(saveRow);
+
+            _stateConfigHost = new VisualElement { name = "state-graph-state-config-host" };
+            card.Add(_stateConfigHost);
+            RefreshStateConfig();
+
+            _stateStructureActions = CreateDetailsFoldout("state-graph-state-structure", "Structure actions", "结构操作");
+            card.Add(_stateStructureActions);
+            var actions = _stateStructureActions;
+            var idLabel = new Label("State ID: " + StableStateId(state));
+            idLabel.AddToClassList("sg-id-label");
+            actions.Add(idLabel);
+            var structureHint = new Label(L("These actions apply immediately. Save or discard your draft first.",
+                "以下操作立即生效；请先保存或放弃当前草稿。"));
+            structureHint.AddToClassList("sg-muted");
+            actions.Add(structureHint);
+            var order = new VisualElement();
+            order.AddToClassList("sg-card-row");
+            var moveUp = new Button(() => controller.MoveSelectedState(-1)) { text = L("Earlier in State order", "State 顺序提前") };
+            texts.Register(moveUp, "Earlier in State order", "State 顺序提前");
+            var moveDown = new Button(() => controller.MoveSelectedState(1)) { text = L("Later in State order", "State 顺序延后") };
+            texts.Register(moveDown, "Later in State order", "State 顺序延后");
+            order.Add(moveUp);
+            order.Add(moveDown);
+            actions.Add(order);
 
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             var setInitial = new Button(() => controller.SetSelectedStateInitial())
             {
-                text = L("Set Initial", "设为初始")
+                text = L("Use as default entry", "设为默认进入状态")
             };
-            texts.Register(setInitial, "Set Initial", "设为初始");
-            var copy = new Button(() => controller.CopySelectedState()) { text = L("Copy", "复制") };
-            texts.Register(copy, "Copy", "复制");
+            texts.Register(setInitial, "Use as default entry", "设为默认进入状态");
+            var copy = new Button(() => controller.CopySelectedState()) { text = L("Copy State and children", "复制状态及子状态") };
+            texts.Register(copy, "Copy State and children", "复制状态及子状态");
             row.Add(setInitial);
             row.Add(copy);
-            card.Add(row);
+            actions.Add(row);
 
             CoCoStateId selectedId = ToStateId(state.StateId);
             var addChild = new Button(() => controller.AddState(
@@ -292,12 +324,13 @@ namespace CoCoFlow.Editor.StateGraph
                     "Child State",
                     new Vector2(80f, 80f)))
             {
-                text = "Add Child State"
+                text = L("Create child State", "新建子状态")
             };
-            card.Add(addChild);
+            texts.Register(addChild, "Create child State", "新建子状态");
+            actions.Add(addChild);
 
             List<CoCoStateId> siblingIds = SiblingIds(controller.SelectedLayer, state);
-            StateIdChoice replacement = AddExplicitStateIdPopup("Initial replacement", siblingIds, card);
+            StateIdChoice replacement = AddExplicitStateIdPopup(L("Replacement default entry", "替代的默认进入状态"), siblingIds, actions);
 
             var parentChoices = new List<CoCoStateId> { default };
             foreach (CoCoStateGraphStateRecord candidate in controller.SelectedLayer.States)
@@ -309,7 +342,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             CoCoStateId currentParent = ToStateId(state.ParentStateId);
-            StateIdChoice targetParent = AddStateIdPopup("Reparent under", parentChoices, currentParent, card);
+            StateIdChoice targetParent = AddStateIdPopup(L("New parent", "新的父状态"), parentChoices, currentParent, actions);
             var reparent = new Button(() =>
             {
                 if (targetParent.Value != currentParent &&
@@ -328,18 +361,67 @@ namespace CoCoFlow.Editor.StateGraph
                     new Vector2(80f, 80f));
             })
             {
-                text = L("Reparent Subtree", "移动子树（改父级）")
+                text = L("Change parent of State and children", "更改状态及子状态的父级")
             };
-            texts.Register(reparent, "Reparent Subtree", "移动子树（改父级）");
-            card.Add(reparent);
+            texts.Register(reparent, "Change parent of State and children", "更改状态及子状态的父级");
+            actions.Add(reparent);
 
             var delete = CoCoEditorElements.CreateDangerButton(
-                L("Delete Subtree", "删除子树"),
+                L("Delete State and children", "删除状态及子状态"),
                 () => DeleteState(replacement));
-            texts.Register(delete, "Delete Subtree", "删除子树");
-            card.Add(delete);
+            texts.Register(delete, "Delete State and children", "删除状态及子状态");
+            actions.Add(delete);
 
             details.Add(card);
+            RefreshStateDraftStatus();
+        }
+
+        private void UseStateEditingAsset()
+        {
+            if (serializedAsset != null && serializedAsset.targetObject == controller.StateEditingAsset) return;
+            serializedAsset?.Dispose();
+            serializedAsset = new SerializedObject(controller.StateEditingAsset);
+        }
+
+        private void RefreshStateConfig()
+        {
+            if (_stateConfigHost == null) return;
+            _stateConfigHost.Unbind();
+            _stateConfigHost.Clear();
+            CoCoStateGraphStateRecord draft = controller.BeginStateDraft();
+            if (draft == null) return;
+            UseStateEditingAsset();
+            serializedAsset.Update();
+            if (DrawFieldConfig(_stateConfigHost, draft)) return;
+            var title = new Label("StateConfig");
+            title.AddToClassList("sg-state-config-title");
+            _stateConfigHost.Add(title);
+            SerializedProperty property = FindStateConfigProperty(controller.Session.SelectedLayerId,
+                ToStateId(draft.StateId));
+            if (property != null) property.isExpanded = true;
+            DrawConfigProperty(_stateConfigHost, property, "StateConfig", "state-graph-state-config");
+            var field = _stateConfigHost.Q<PropertyField>("state-graph-state-config");
+            field?.schedule.Execute(() =>
+            {
+                Foldout foldout = field.Q<Foldout>();
+                if (foldout == null) return;
+                foldout.value = true;
+                foldout.Q<Toggle>().style.display = DisplayStyle.None;
+            });
+        }
+
+        private void RefreshStateDraftStatus()
+        {
+            bool pending = controller != null && controller.HasStateDraftChanges;
+            hasUnsavedChanges = pending;
+            saveChangesMessage = L("Save the State name, Logic and StateConfig?", "是否保存 State 的名称、Logic 和 StateConfig？");
+            if (_stateDraftStatus == null) return;
+            _stateDraftStatus.text = pending ? L("Unsaved changes", "未保存") : L("Saved", "已保存");
+            _stateDraftStatus.EnableInClassList("sg-state-draft-pending", pending);
+            bool editable = CoCoStateGraphAuthoringOperations.CanEdit(out _);
+            _stateSaveButton?.SetEnabled(pending && editable);
+            _stateDiscardButton?.SetEnabled(pending && editable);
+            _stateStructureActions?.SetEnabled(!pending && editable);
         }
 
         private void DrawTransitionsCard(CoCoStateGraphLayerRecord layer)
@@ -750,7 +832,8 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateDescriptorId preferred,
             bool persistAsAddDefault,
             string popupName,
-            VisualElement parent)
+            VisualElement parent,
+            Action<CoCoStateDescriptor> onChanged = null)
         {
             var choice = new StateDescriptorChoice();
             if (descriptors.Count == 0)
@@ -780,7 +863,7 @@ namespace CoCoFlow.Editor.StateGraph
                 addStateDescriptorId = choice.Value.DescriptorId;
             }
 
-            var popup = new PopupField<string>(L("Descriptor", "描述符"), labels, selectedIndex)
+            var popup = new PopupField<string>(popupName == "selected-state-descriptor" ? "Logic" : L("Descriptor", "描述符"), labels, selectedIndex)
             {
                 name = popupName
             };
@@ -794,6 +877,7 @@ namespace CoCoFlow.Editor.StateGraph
                     {
                         addStateDescriptorId = choice.Value.DescriptorId;
                     }
+                    onChanged?.Invoke(choice.Value);
                 }
             });
             parent.Add(popup);

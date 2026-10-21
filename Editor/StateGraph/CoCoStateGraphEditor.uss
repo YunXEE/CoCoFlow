@@ -52,6 +52,26 @@
     margin-bottom: 8px;
 }
 
+.sg-state-save-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+#state-graph-state-save-status {
+    flex-grow: 1;
+}
+
+.sg-state-draft-pending {
+    color: rgb(255, 190, 90);
+}
+
+.sg-state-config-title {
+    -unity-font-style: bold;
+    margin-bottom: 4px;
+}
+
 .sg-details-foldout {
     margin-top: 4px;
     margin-bottom: 6px;

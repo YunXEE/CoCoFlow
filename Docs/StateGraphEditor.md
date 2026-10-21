@@ -86,7 +86,21 @@ secondary foldouts; their asset order, priorities, and Condition order keep
 their existing meaning. Diagnostics and Host requirements stay together below
 the selected editor and refresh without replacing its input controls.
 
-Config commits immediately mark the asset dirty and invalidate old analysis.
+The selected State edits its name, Logic and StateConfig as one draft. StateConfig
+is expanded. Changing Logic creates a fresh draft Config for that Logic; the
+saved asset and canvas remain unchanged until Save. The sidebar shows Saved or
+Unsaved changes, with Save and Discard actions. Save applies all three values in
+one Undo transaction, persists the asset and immediately analyzes and refreshes
+it. Switching selection or assets asks to save, discard or cancel; closing the
+window uses Unity's unsaved-changes prompt. UI rebuilds preserve an unsaved draft.
+Analyze always analyzes the saved asset, including while a draft is pending.
+
+Structure actions live in a collapsed section and explain their scope: default
+entry, copy/create child States, change parent, delete, and State order. They
+apply immediately after saving or discarding the draft. Reordering still changes
+the existing State order; layout never substitutes a different execution order.
+
+Other Config commits immediately mark the asset dirty and invalidate old analysis.
 After Analyze has been requested, commits before the next Editor delayed call
 share one analysis of the latest data on the Unity main thread. Explicit Analyze
 runs immediately and cancels that pending call. Switching assets or closing the

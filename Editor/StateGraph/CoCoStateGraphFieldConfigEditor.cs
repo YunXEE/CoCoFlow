@@ -31,6 +31,7 @@ namespace CoCoFlow.Editor.StateGraph
                     if (GUILayout.Button(state.Config is CoCoFieldConfig ? "Reset Config" : "Initialize Config"))
                     {
                         SaveFieldConfig(state, new CoCoFieldConfig());
+                        _stateConfigHost?.schedule.Execute(RefreshStateConfig);
                         return;
                     }
                     if (error != null) { EditorGUILayout.HelpBox(error, MessageType.Error); return; }
@@ -47,6 +48,7 @@ namespace CoCoFlow.Editor.StateGraph
                         if (reset) config.Values = config.Values.Where(entry => !entry.StartsWith(path + "=", StringComparison.Ordinal)).ToArray();
                         else config.Set(path, value);
                         SaveFieldConfig(state, config);
+                        _stateConfigHost?.schedule.Execute(RefreshStateConfig);
                     }
                 }
             }));
@@ -59,7 +61,6 @@ namespace CoCoFlow.Editor.StateGraph
             FindStateConfigProperty(controller.Session.SelectedLayerId, ToStateId(state.StateId)).managedReferenceValue = config;
             serializedAsset.ApplyModifiedProperties();
             controller.NotifyConfigChanged();
-            details.schedule.Execute(RefreshDetails);
         }
 
         private static object DrawConfigValue(string label, object value)
