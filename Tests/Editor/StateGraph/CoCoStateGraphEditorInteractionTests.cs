@@ -155,6 +155,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             int screenshotIndex = Array.IndexOf(args, "-cocoflow003Screenshot");
             if (!Application.isBatchMode && screenshotIndex >= 0)
             {
+                bool transitionPreview = args.Contains("-cocoflow003TransitionPreview");
+                if (transitionPreview)
+                {
+                    catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+                    ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+                    CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+                }
                 window.CreateGUI();
                 window.titleContent = new GUIContent("003 Layout Preview");
                 window.Show();
@@ -163,7 +170,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 yield return null;
                 window.Repaint();
                 yield return null;
-                for (int preview = 0; preview < 3; preview++)
+                for (int preview = transitionPreview ? 3 : 0; preview < (transitionPreview ? 5 : 3); preview++)
                 {
                     if (preview == 1)
                         window.rootVisualElement.Q<TextField>("state-graph-state-name").value = "Idle draft";
@@ -172,9 +179,35 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                         window.DiscardChanges();
                         window.rootVisualElement.Q<Foldout>("state-graph-state-structure").value = true;
                     }
+                    if (preview == 3)
+                    {
+                        var previewController = WindowController(window);
+                        Assert.IsTrue(catalog.TryGetStateDescriptor(CoCoStateGraphTestFactory.StateDescriptorId,
+                            out CoCoStateDescriptor descriptor));
+                        Assert.IsTrue(previewController.AddState(default, descriptor, "Move", new Vector2(350f, 60f)));
+                        CoCoStateId targetState = previewController.Session.SelectedStateId;
+                        Assert.IsTrue(previewController.AddTransition(state, targetState, 0, CoCoTransitionWindow.Always));
+                        Assert.IsTrue(catalog.TryGetConditionDescriptor(CoCoStateGraphTestFactory.ConditionDescriptorId,
+                            out CoCoConditionDescriptor condition));
+                        Assert.IsTrue(previewController.AddCondition(condition));
+                        previewController.Analyze();
+                        window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
+                    }
+                    if (preview == 4)
+                    {
+                        WindowController(window).SelectState(state);
+                        window.rootVisualElement.Q<Foldout>("state-graph-transitions").value = true;
+                        window.rootVisualElement.Q<Foldout>("state-graph-transition-list").value = true;
+                    }
                     window.Repaint();
                     yield return null;
                     yield return null;
+                    if (preview == 4)
+                    {
+                        window.rootVisualElement.Q<ScrollView>("state-graph-details").ScrollTo(
+                            window.rootVisualElement.Q<Foldout>("state-graph-transitions"));
+                        yield return null;
+                    }
                     Rect bounds = window.position;
                     float scale = EditorGUIUtility.pixelsPerPoint;
                     int width = Mathf.RoundToInt(bounds.width * scale);
@@ -208,7 +241,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     buffer.Release();
                     UnityEngine.Object.DestroyImmediate(buffer);
                     string path = args[screenshotIndex + 1];
-                    if (preview > 0) path = path.Replace(".png", preview == 1 ? "-unsaved.png" : "-structure.png");
+                    if (preview == 1) path = path.Replace(".png", "-unsaved.png");
+                    if (preview == 2) path = path.Replace(".png", "-structure.png");
+                    if (preview == 3) path = path.Replace(".png", "-transition-selected.png");
+                    if (preview == 4) path = path.Replace(".png", "-transition-create.png");
                     System.IO.File.WriteAllBytes(path, image.EncodeToPNG());
                     UnityEngine.Object.DestroyImmediate(image);
                 }
