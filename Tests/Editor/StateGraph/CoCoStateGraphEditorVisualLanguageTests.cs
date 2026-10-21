@@ -203,21 +203,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(
                 root.Q<VisualElement>("state-graph-feedback")));
             Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
-            var management = root.Q<VisualElement>("state-graph-layer-management");
-            Assert.NotNull(management);
-            Assert.IsNull(root.Q<Foldout>("state-graph-layer-management"));
-            Assert.IsTrue(management.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
-            VisualElement addState = root.Q<VisualElement>("state-graph-add-state");
-            VisualElement addLogic = root.Q<VisualElement>("state-graph-add-logic");
-            Assert.NotNull(addState);
-            Assert.NotNull(addLogic);
-            Assert.AreSame(management, addState.parent);
-            Assert.AreSame(management, addLogic.parent);
-            Assert.IsTrue(addState.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
-            Assert.IsFalse(addState.Contains(root.Q<TextField>("state-graph-new-logic-name")));
-            Assert.IsTrue(addLogic.Contains(root.Q<TextField>("state-graph-new-logic-name")));
-            Assert.IsTrue(addLogic.Contains(root.Q<Button>("state-graph-create-logic")));
-            Assert.IsFalse(addLogic.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-add-state"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-add-logic"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-transition-list"));
             Assert.IsNull(root.Q<Foldout>("state-graph-transition-list"));
             Assert.IsTrue(root.Q<VisualElement>("state-graph-feedback").Contains(
@@ -230,6 +218,23 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-state-config")));
             Assert.NotNull(root.Q<VisualElement>("state-graph-transitions"));
             Assert.IsNull(root.Q<Foldout>("state-graph-transitions"));
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
+            controller.SelectState(default);
+            var management = root.Q<VisualElement>("state-graph-layer-management");
+            Assert.AreSame(management, details[0]);
+            Assert.AreEqual("Layer", management[0].Q<Label>("ccflow-card-title").text);
+            VisualElement addState = root.Q<VisualElement>("state-graph-add-state");
+            VisualElement addLogic = root.Q<VisualElement>("state-graph-add-logic");
+            Assert.AreSame(addState, management[1]);
+            Assert.AreSame(addLogic, management[2]);
+            Assert.AreSame(root.Q<VisualElement>("state-graph-transitions"), details[1]);
+            Assert.IsNull(root.Q<Foldout>("state-graph-layer-management"));
+            Assert.IsTrue(addState.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.IsFalse(addState.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<TextField>("state-graph-new-logic-name")));
+            Assert.IsTrue(addLogic.Contains(root.Q<Button>("state-graph-create-logic")));
+            Assert.IsFalse(addLogic.Contains(root.Q<PopupField<string>>("add-state-descriptor")));
+            Assert.AreEqual(layerId, controller.Session.SelectedLayerId);
             CollectionAssert.AreEqual(stateOrder, asset.Layers[0].States.Select(state => state.StateId).ToArray());
             Assert.AreEqual(transitionId.High, asset.Layers[0].Transitions[0].TransitionId.High);
             Assert.AreEqual(transitionId.Low, asset.Layers[0].Transitions[0].TransitionId.Low);

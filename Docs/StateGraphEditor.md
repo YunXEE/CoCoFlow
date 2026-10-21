@@ -83,10 +83,13 @@ read-only while Unity is entering or running Play Mode; navigation, search,
 Analyze, and diagnostic location remain available without mutating serialized
 data.
 
-The details sidebar starts with the selected State or Transition and its
-Config / Conditions. Layer management, Add State and Add Logic are directly visible
-as separate panels below the selected details and Transitions. Add State selects
-an existing Logic and creates a named State; Add Logic generates a Logic script.
+With nothing selected, the details sidebar shows Layer management, Add State,
+Add Logic, then all Transitions in the current Layer. These three operation
+panels stay expanded and appear only while neither a State nor a Transition is
+selected. Selecting a State or Transition shows its editor and scoped outgoing
+Transitions instead. Clicking empty canvas clears selection and keeps the current
+Layer. Add State selects an existing Logic and creates a named State; Add Logic
+generates a reusable project Logic script.
 The Transition list and creation controls stay
 expanded; their asset order, priorities, and Condition order keep their existing
 meaning. Selecting a State shows only its outgoing Transitions;

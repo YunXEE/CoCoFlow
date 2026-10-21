@@ -294,6 +294,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(2, rows.Count, "Incoming and unrelated edges must be hidden.");
             Assert.AreEqual("First → Second  Priority 7", rows[0].text);
             Assert.AreEqual("First → Third  Priority 2", rows[1].text);
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
             var source = root.Query<PopupField<string>>().ToList().Single(field => field.label == "Source State");
             Assert.AreEqual(1, source.choices.Count);
             Assert.IsFalse(source.enabledSelf, "Adding an edge stays scoped to the selected State.");
@@ -314,6 +315,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(2, rows.Count, "An edge editor keeps its source State's scope.");
             Assert.IsTrue(rows.All(row => row.text.StartsWith("First →", StringComparison.Ordinal)));
             Assert.IsFalse(controller.Session.SelectedStateId.IsValid);
+            Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"), "Selecting an edge is not empty selection.");
             Assert.AreSame(feedback, root.Q<VisualElement>("state-graph-feedback"));
             controller.SelectState(default);
             yield return null;
@@ -327,6 +329,10 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual("Third → Second  Priority 0", rows[26].text);
             Assert.IsFalse(root.Query<PopupField<string>>().ToList().Any(field => field.label == "Source State"));
             var allCard = root.Q<VisualElement>("state-graph-all-transitions");
+            var sidebar = root.Q<ScrollView>("state-graph-details");
+            Assert.AreSame(root.Q<VisualElement>("state-graph-layer-management"), sidebar[0]);
+            Assert.IsTrue(sidebar[1].Contains(allCard));
+            Assert.AreEqual(layer, controller.Session.SelectedLayerId);
             var viewport = root.Q<ScrollView>("state-graph-details").contentViewport;
             Assert.That(allCard.layout.height, Is.LessThanOrEqualTo(viewport.layout.height * 0.5f + 1f));
             Assert.Greater(outgoing.verticalScroller.highValue, 0f, "Large global lists must scroll.");
@@ -521,7 +527,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
-        public IEnumerator AddAndSelectedDescriptorControlsDoNotOverwriteEachOther()
+        public IEnumerator AddDescriptorChoiceSurvivesSelectionAndSelectedLogicChanges()
         {
             CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
             CoCoStateGraphAsset asset = CreateAsset();
@@ -540,18 +546,23 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.NotNull(root.panel);
             Click(FindButton(root, "Original"));
 
+            var controller = WindowController(window);
+            controller.SelectState(default);
             PopupField<string> addPopup =
                 root.Q<PopupField<string>>("add-state-descriptor");
-            PopupField<string> selectedPopup =
-                root.Q<PopupField<string>>("selected-state-descriptor");
             Assert.NotNull(addPopup);
-            Assert.NotNull(selectedPopup);
+            Assert.IsNull(root.Q<PopupField<string>>("selected-state-descriptor"));
             string alternateLabel = addPopup.choices.Single(label =>
                 label.Contains(nameof(RuntimeFixtureStateLogic)));
             string originalLabel = addPopup.choices.Single(label => label.Contains(nameof(TestStateLogic)));
             addPopup.value = alternateLabel;
+            controller.SelectState(original);
+            PopupField<string> selectedPopup = root.Q<PopupField<string>>("selected-state-descriptor");
+            Assert.NotNull(selectedPopup);
+            Assert.IsNull(root.Q<PopupField<string>>("add-state-descriptor"));
             Assert.AreEqual(originalLabel, selectedPopup.value);
 
+            controller.SelectState(default);
             Click(FindButton(root, "Add State Here"));
             CoCoStateGraphStateRecord added = asset.Layers[0].States.Single(state =>
                 state.DisplayName == "State");
@@ -573,6 +584,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(Serialize(CoCoStateGraphTestFactory.StateDescriptorId), child.StateDescriptorId);
             Assert.IsInstanceOf<TestStateAuthoringConfig>(child.Config);
 
+            controller.SelectState(default);
             Click(FindButton(root, "Add State Here"));
             CoCoStateGraphStateRecord secondAdded = asset.Layers[0].States.Last(state =>
                 !state.ParentStateId.IsValid && state.StateId != Serialize(original));

@@ -52,20 +52,28 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            var selected = new VisualElement { name = "state-graph-selected-details" };
             bool hasSelectedTransition = FindTransition(layer, controller.Session.SelectedTransitionId) != null;
-            if (hasSelectedTransition)
+            bool hasSelectedState = FindState(layer, controller.Session.SelectedStateId) != null;
+            if (hasSelectedState || hasSelectedTransition)
             {
-                CollectDetailsSection(selected, () => DrawTransitionsCard(layer));
+                var selected = new VisualElement { name = "state-graph-selected-details" };
+                if (hasSelectedTransition)
+                    CollectDetailsSection(selected, () => DrawTransitionsCard(layer));
+                else
+                    CollectDetailsSection(selected, DrawSelectedStateCard);
+                details.Add(selected);
             }
-            else
-            {
-                CollectDetailsSection(selected, DrawSelectedStateCard);
-            }
-
-            details.Add(selected);
 
             RefreshFeedback();
+
+            if (!hasSelectedState && !hasSelectedTransition)
+            {
+                var management = new VisualElement { name = "state-graph-layer-management" };
+                CollectDetailsSection(management, () => DrawLayerCard(layer));
+                CollectDetailsSection(management, DrawAddStateCard);
+                CollectDetailsSection(management, DrawAddLogicCard);
+                details.Add(management);
+            }
 
             if (!hasSelectedTransition)
             {
@@ -74,11 +82,6 @@ namespace CoCoFlow.Editor.StateGraph
                 details.Add(transitions);
             }
 
-            var management = new VisualElement { name = "state-graph-layer-management" };
-            CollectDetailsSection(management, () => DrawLayerCard(layer));
-            CollectDetailsSection(management, DrawAddStateCard);
-            CollectDetailsSection(management, DrawAddLogicCard);
-            details.Add(management);
             ApplyPlayModeReadOnly();
         }
 
