@@ -460,6 +460,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             controllers.Add(controller);
             var canvas = new CoCoStateGraphEditorCanvas(controller);
             canvases.Add(canvas);
+            canvas.styleSheets.Add(AssetDatabase.LoadAssetAtPath<StyleSheet>(
+                "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss"));
             Host(canvas);
             yield return null;
 
@@ -487,9 +489,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(childCard.ClassListContains("state-card--transition-target"));
             Assert.IsFalse(compositeCard.ClassListContains("state-card--transition-target"));
             Assert.IsFalse(CardWithTitle(canvas, "Indirect").ClassListContains("state-card--transition-target"));
-            Assert.AreEqual(PickingMode.Ignore,
-                rootLeafCard.Q(className: "state-card__transition-target-ring").pickingMode);
             Color purple = new Color(184f / 255f, 122f / 255f, 1f, 1f);
+            Assert.IsNull(rootLeafCard.Q(className: "state-card__transition-target-ring"));
+            Assert.AreEqual(childCard.layout.size, rootLeafCard.layout.size);
+            Assert.AreEqual(2f, rootLeafCard.resolvedStyle.borderLeftWidth);
+            Assert.AreEqual(childCard.resolvedStyle.borderLeftWidth, rootLeafCard.resolvedStyle.borderLeftWidth);
+            Assert.AreEqual(childCard.resolvedStyle.borderTopWidth, rootLeafCard.resolvedStyle.borderTopWidth);
+            Assert.AreEqual(purple, rootLeafCard.resolvedStyle.borderLeftColor);
+            Assert.AreEqual(new Color(1f, 184f / 255f, 51f / 255f, 1f), childCard.resolvedStyle.borderLeftColor);
             CoCoStateGraphLayerRecord layer = asset.Layers[0];
             Color normal = canvas.GetTransitionColor(layer.Transitions[0]);
             Assert.AreNotEqual(purple, normal, "Incoming edge must keep its normal color.");

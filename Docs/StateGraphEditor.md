@@ -54,7 +54,8 @@ selected State, all of its ancestors, and the genealogy segments between them,
 visualizing how much Logic the State inherits and runs.
 The selected State's direct Transition targets have purple outer frames, and
 its outgoing edges and arrows turn purple. Incoming and indirect connections
-keep their normal colors; ancestry stays yellow, including alongside a self-loop.
+keep their normal colors. Purple and yellow use the same 2px card border;
+ancestry takes precedence when roles overlap, including on a self-loop.
 Outgoing Transition controls remain expanded, with a bounded scrolling list.
 
 Leaf flow states are computed from the Layer default leaf by following all

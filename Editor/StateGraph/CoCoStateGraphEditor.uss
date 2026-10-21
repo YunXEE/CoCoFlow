@@ -221,28 +221,19 @@
     padding-bottom: 2px;
 }
 
-/* 外描边类型 1：血统链选中（自己+全部祖先；最高优先级） */
+.state-card--transition-target {
+    border-left-color: rgb(184, 122, 255);
+    border-right-color: rgb(184, 122, 255);
+    border-top-color: rgb(184, 122, 255);
+    border-bottom-color: rgb(184, 122, 255);
+}
+
+/* 同一层 2px 外框；自身/祖先与目标重合时优先显示黄色。 */
 .state-card--ancestry {
     border-left-color: rgb(255, 184, 51);
     border-right-color: rgb(255, 184, 51);
     border-top-color: rgb(255, 184, 51);
     border-bottom-color: rgb(255, 184, 51);
-}
-
-.state-card__transition-target-ring {
-    position: absolute;
-    left: -6px;
-    right: -6px;
-    top: -6px;
-    bottom: -6px;
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgb(184, 122, 255);
-    border-right-color: rgb(184, 122, 255);
-    border-top-color: rgb(184, 122, 255);
-    border-bottom-color: rgb(184, 122, 255);
 }
 
 .state-card__body {

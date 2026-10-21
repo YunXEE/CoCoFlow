@@ -1618,9 +1618,6 @@ namespace CoCoFlow.Editor.StateGraph
                 if (isOutgoingTarget)
                 {
                     AddToClassList("state-card--transition-target");
-                    var ring = new VisualElement { pickingMode = PickingMode.Ignore };
-                    ring.AddToClassList("state-card__transition-target-ring");
-                    Add(ring);
                 }
 
                 // 卡体：内描边承载节点状态（Initial/Default 分级）。
