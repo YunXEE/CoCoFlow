@@ -175,8 +175,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [Test]
         public void DetailsExposeStableElementNamesIncludingConditionConfig()
         {
-            CoCoStateGraphEditorCatalogProvider.Provider =
-                () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoStateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             CoCoStateId first = AddState(asset, layerId, "First", new Vector2(40f, 60f));

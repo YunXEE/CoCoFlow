@@ -96,7 +96,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [UnityTest]
         public IEnumerator ConfigCommitsCoalesceAndPreserveControls()
         {
-            CoCoStateGraphEditorCatalogProvider.Provider = () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             var config = new TestStateAuthoringConfig();
@@ -152,7 +153,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         [UnityTest]
         public IEnumerator ExplicitAnalysisAndWindowLifecycleCancelPendingWork()
         {
-            CoCoStateGraphEditorCatalogProvider.Provider = () => CoCoStateGraphTestFactory.CreateCatalog(false);
+            CoCoGraphDescriptorCatalog catalog = CreateTwoStateCatalog();
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
             CoCoStateGraphAsset asset = CreateAsset();
             CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             var config = new TestStateAuthoringConfig();
@@ -844,7 +846,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             return catalog;
         }
 
-        private static void ClearAuthorAssemblyRootsForInjectedUiCatalog(
+        internal static void ClearAuthorAssemblyRootsForInjectedUiCatalog(
             CoCoGraphDescriptorCatalog catalog)
         {
             FieldInfo field = typeof(CoCoGraphDescriptorCatalog).GetField(
