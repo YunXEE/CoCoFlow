@@ -5,9 +5,7 @@ using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
 #if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-using UnityEngine.SceneManagement;
+using System.Threading;
 #endif
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
@@ -34,6 +32,11 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         private PersistenceContextRecord _deferredApplyRecord;
         private object _deferredApplyToken;
         private object _consumedStateGraphApplyToken;
+
+#if UNITY_EDITOR
+        private static int _editorIdentityRevision;
+        internal static int EditorIdentityRevision => Volatile.Read(ref _editorIdentityRevision);
+#endif
 
         public string StableEntityId => stableEntityId;
         public string PrefabKey => prefabKey;
@@ -69,17 +72,8 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public void OnBeforeSerialize()
         {
-#if UNITY_EDITOR
-            if (Application.isPlaying || BuildPipeline.isBuildingPlayer) return;
-            if (PrefabUtility.IsPartOfPrefabAsset(this)) return;
-            if (PrefabStageUtility.GetCurrentPrefabStage() != null) return;
-
-            if (IsSceneObject())
-            {
-                EnsureStableEntityId();
-                EnsureUniqueSceneId();
-            }
-#endif
+            // Serialization can outlive the native object and run off the main thread.
+            // Editor identity maintenance runs before scene saves, not in this callback.
         }
 
         public void OnAfterDeserialize() { }
@@ -99,8 +93,9 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         private void OnEnable()
         {
 #if UNITY_EDITOR
-            if (!Application.isPlaying && !ShouldGenerateEditorId())
+            if (!Application.isPlaying)
             {
+                RequestEditorIdentityValidation();
                 return;
             }
 #endif
@@ -447,49 +442,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 #if UNITY_EDITOR
         private void OnValidate()
         {
-            if (Application.isPlaying) return;
-
-            if (ShouldGenerateEditorId())
-            {
-                EnsureStableEntityId();
-                EditorUtility.SetDirty(this);
-            }
+            // OnValidate can run on the loading thread. Only signal managed state.
+            RequestEditorIdentityValidation();
         }
 
-        private bool IsSceneObject()
+        internal static void RequestEditorIdentityValidation()
         {
-            Scene scene = gameObject.scene;
-            return scene.IsValid() && !string.IsNullOrEmpty(scene.path);
-        }
-
-        private bool ShouldGenerateEditorId()
-        {
-            if (Application.isPlaying) return false;
-            if (PrefabUtility.IsPartOfPrefabAsset(this)) return false;
-            if (PrefabStageUtility.GetCurrentPrefabStage() != null) return false;
-            return IsSceneObject();
-        }
-
-        private void EnsureUniqueSceneId()
-        {
-            if (string.IsNullOrEmpty(stableEntityId)) return;
-
-            var allContexts = FindObjectsByType<PersistenceContext>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
-            foreach (var context in allContexts)
-            {
-                if (context == null || context == this) continue;
-                if (context.stableEntityId != stableEntityId) continue;
-
-                stableEntityId = Guid.NewGuid().ToString("N");
-                EditorUtility.SetDirty(this);
-                if (!string.IsNullOrEmpty(gameObject.scene.path))
-                {
-                    EditorSceneManager.MarkSceneDirty(gameObject.scene);
-                }
-                break;
-            }
+            Interlocked.Increment(ref _editorIdentityRevision);
         }
 #endif
 
