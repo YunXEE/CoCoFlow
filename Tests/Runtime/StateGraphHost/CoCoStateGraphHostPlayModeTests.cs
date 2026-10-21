@@ -60,7 +60,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             try
             {
                 LogAssert.Expect(LogType.Exception,
-                    new System.Text.RegularExpressions.Regex("InvalidOperationException: BUG-115 wrapper"));
+                    new System.Text.RegularExpressions.Regex("ArgumentException: BUG-115 root"));
                 Assert.That(host.TryStart(out CoCoDiagnostic diagnostic), Is.False);
                 Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.CommitPreparationFailed));
                 Assert.That(diagnostic.Message, Is.EqualTo(duringCompilation
