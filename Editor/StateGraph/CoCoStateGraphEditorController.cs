@@ -142,13 +142,20 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
             if (draft == null || state == null || string.IsNullOrWhiteSpace(draft.DisplayName))
                 return SetFailure("A non-empty State name is required.", CoCoStateGraphEditorInvalidation.Feedback);
+            if (!CoCoStateDescriptorId.TryCreate(draft.StateDescriptorId.High, draft.StateDescriptorId.Low,
+                    out CoCoStateDescriptorId descriptorId))
+                return SetFailure("Select a valid Logic before saving.", CoCoStateGraphEditorInvalidation.Feedback);
 
             // One asset transaction: the draft never changes topology or execution order.
             Undo.IncrementCurrentGroup();
-            Undo.RegisterCompleteObjectUndo(Asset, "Save State Changes");
-            state.DisplayName = draft.DisplayName.Trim();
-            state.StateDescriptorId = draft.StateDescriptorId;
-            state.Config = draft.Config;
+            int undoGroup = Undo.GetCurrentGroup();
+            if (!CoCoStateGraphAuthoringOperations.TryRenameState(Asset, Session.SelectedLayerId,
+                    Session.SelectedStateId, draft.DisplayName, out failure) ||
+                !CoCoStateGraphAuthoringOperations.TrySetStateDescriptor(Asset, Session.SelectedLayerId,
+                    Session.SelectedStateId, descriptorId, draft.Config, out failure))
+                return SetFailure(failure, CoCoStateGraphEditorInvalidation.Feedback);
+            Undo.SetCurrentGroupName("Save State Changes");
+            Undo.CollapseUndoOperations(undoGroup);
             EditorUtility.SetDirty(Asset);
             ClearStateDraft();
             if (AssetDatabase.Contains(Asset)) AssetDatabase.SaveAssetIfDirty(Asset);
