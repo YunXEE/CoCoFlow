@@ -1560,6 +1560,9 @@ namespace CoCoFlow.Editor.StateGraph
         private static bool Matches(CoCoSerializedId128 id, CoCoTransitionId value) =>
             value.IsValid && id.High == value.High && id.Low == value.Low;
 
+        private static bool Matches(CoCoSerializedId128 id, CoCoStateId value) =>
+            value.IsValid && id.High == value.High && id.Low == value.Low;
+
         /// <summary>
         /// 画布 State 卡（D9 谱系图）：双层描边——外描边=动态状态（首个类型：血统链
         /// 选中高亮，与卡体 2px 偏移，可扩展更多外描边类型）；内描边=节点状态
