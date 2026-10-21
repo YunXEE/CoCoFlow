@@ -596,7 +596,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnControllerChanged(CoCoStateGraphEditorInvalidation invalidation)
         {
-            if ((invalidation & CoCoStateGraphEditorInvalidation.StateDraft) != 0)
+            if ((invalidation & CoCoStateGraphEditorInvalidation.StateDraft) != 0 &&
+                serializedAsset != null && serializedAsset.targetObject != null)
             {
                 // Name / Logic edits and bound Config inputs share the same
                 // draft: do not let a stale SerializedObject overwrite either.
@@ -1081,6 +1082,10 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void DisposeController()
         {
+            // Tests and rebuilt windows can have their old tree attached to a
+            // different panel. Release its bindings before disposing the draft.
+            details?.Unbind();
+            details?.Clear();
             if (canvas != null)
             {
                 canvas.ContextRequested -= OnCanvasContextRequested;
