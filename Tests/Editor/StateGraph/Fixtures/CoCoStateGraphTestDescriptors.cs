@@ -3,6 +3,20 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
 {
+    [Serializable]
+    public struct StandardConfigWindow
+    {
+        public float start;
+    }
+
+    public sealed class StandardConfigDraftLogic : CoCoStateLogic, ICoCoStateUpdate
+    {
+        [Config] public float speed;
+        [Config] public StandardConfigWindow[] windows = Array.Empty<StandardConfigWindow>();
+        [Config] public List<float> samples = new List<float>();
+        public void Update(CoCoStateExecutionContext context) { }
+    }
+
     public static class CoCoStateGraphFixtureCounters
     {
         public static int LogicConstructed { get; set; }

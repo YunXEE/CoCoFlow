@@ -1195,6 +1195,125 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         private static Vector2 OutsidePanel(VisualElement root) =>
             root.worldBound.max + new Vector2(100f, 100f);
 
+        [UnityTest]
+        public IEnumerator StandardConfigDraftCommitsWithoutRebuildingAndAnalyzesOnceOnSave()
+        {
+            var original = new CoCoFieldConfig();
+            original.Set("speed", 1f);
+            CoCoStateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out var root);
+            var controller = WindowController(window);
+            yield return null;
+            controller.Analyze();
+            Assert.IsTrue(controller.AnalysisResult.Succeeded);
+            ulong before = controller.AnalysisResult.ContentFingerprint;
+            VisualElement configHost = root.Q<VisualElement>("state-graph-state-config-host");
+            IMGUIContainer input = configHost.Q<IMGUIContainer>();
+            Assert.NotNull(input, "The standard Config must use the real field editor.");
+            Assert.AreNotSame(original, controller.BeginStateDraft().Config);
+            Assert.AreNotSame(original.Values, ((CoCoFieldConfig)controller.BeginStateDraft().Config).Values);
+            input.Focus();
+            yield return null;
+            Assert.AreSame(input, root.focusController.focusedElement);
+            int analyses = 0;
+            controller.Changed += invalidation =>
+            {
+                if (invalidation == CoCoStateGraphEditorInvalidation.All) analyses++;
+            };
+
+            var edited = new CoCoFieldConfig { Values = original.Values.ToArray() };
+            edited.Set("speed", 2.5f);
+            CommitStandardConfig(window, edited);
+            yield return null;
+            Assert.AreEqual(0, analyses, "Committing an input must only update the draft.");
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.AreEqual(1f, ReadStandardConfig(asset).speed);
+            Assert.AreSame(input, configHost.Q<IMGUIContainer>());
+            Assert.AreSame(configHost, root.Q<VisualElement>("state-graph-state-config-host"));
+            Assert.AreSame(input, root.focusController.focusedElement);
+
+            window.SaveChanges();
+            Assert.AreEqual(2.5f, ReadStandardConfig(asset).speed);
+            Assert.AreEqual(1, analyses);
+            Assert.IsFalse(controller.HasStateDraftChanges);
+            Assert.IsTrue(controller.AnalysisResult.Succeeded);
+            Assert.AreNotEqual(before, controller.AnalysisResult.ContentFingerprint);
+        }
+
+        [UnityTest]
+        public IEnumerator StandardCollectionDraftDiscardSaveAndUndoKeepTheAssetIsolated()
+        {
+            var original = new CoCoFieldConfig();
+            original.Set("windows", new[] { new StandardConfigWindow { start = 1f }, new StandardConfigWindow { start = 2f } });
+            original.Set("samples", new List<float> { 3f, 4f });
+            string[] saved = original.Values.ToArray();
+            CoCoStateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out _);
+            var controller = WindowController(window);
+            yield return null;
+
+            var edited = new CoCoFieldConfig { Values = saved.ToArray() };
+            edited.Set("windows", new[] { new StandardConfigWindow { start = 2f }, new StandardConfigWindow { start = 0.25f } });
+            edited.Set("samples", new List<float> { 4f, 5f, 3f });
+            CommitStandardConfig(window, edited);
+            CollectionAssert.AreEqual(saved, ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Assert.AreEqual(0.25f, ReadStandardConfig(controller.StateEditingAsset).windows[1].start);
+            Assert.AreNotSame(((CoCoFieldConfig)controller.StateEditingAsset.Layers[0].States[0].Config).Values,
+                ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            window.DiscardChanges();
+            CollectionAssert.AreEqual(saved, ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Assert.AreEqual(1f, ReadStandardConfig(controller.StateEditingAsset).windows[0].start);
+            Assert.IsFalse(controller.HasStateDraftChanges);
+
+            CommitStandardConfig(window, edited);
+            window.SaveChanges();
+            Assert.AreEqual(2f, ReadStandardConfig(asset).windows[0].start);
+            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
+            yield return null;
+            Undo.FlushUndoRecordObjects();
+            Undo.PerformUndo();
+            CollectionAssert.AreEqual(saved, ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Values);
+            Undo.PerformRedo();
+            Assert.AreEqual(0.25f, ReadStandardConfig(asset).windows[1].start);
+            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
+        }
+
+        private CoCoStateGraphEditorWindow CreateStandardConfigWindow(CoCoFieldConfig config,
+            out CoCoStateGraphAsset asset, out VisualElement root)
+        {
+            var builder = new CoCoGraphDescriptorCatalogBuilder();
+            Assert.IsTrue(builder.TryRegisterState(CoCoStateGraphTestFactory.StateDescriptorId, 1U,
+                new CoCoFieldConfig.Freezer(typeof(StandardConfigDraftLogic)),
+                new CoCoStateRuntimeRegistration<StandardConfigDraftLogic, CoCoFieldConfigSchema,
+                    TestActivationMemory>(CoCoFieldConfigSchema.Schema), null, null, null,
+                out CoCoDiagnostic diagnostic), diagnostic.Message);
+            Assert.IsTrue(builder.TryFreeze(out CoCoGraphDescriptorCatalog catalog, out diagnostic), diagnostic.Message);
+            ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
+            CoCoStateGraphEditorCatalogProvider.Provider = () => catalog;
+            asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId state = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId, config, "Standard");
+            SelectState(asset, layer, state);
+            CoCoStateGraphEditorWindow window = CreateStateGraphWindow(asset);
+            window.position = new Rect(80f, 80f, 1200f, 900f);
+            window.Show();
+            root = window.rootVisualElement;
+            return window;
+        }
+
+        private static void CommitStandardConfig(CoCoStateGraphEditorWindow window, CoCoFieldConfig config)
+        {
+            var method = typeof(CoCoStateGraphEditorWindow).GetMethod("SaveFieldConfig",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            method.Invoke(window, new object[] { WindowController(window).BeginStateDraft(), config });
+        }
+
+        private static StandardConfigDraftLogic ReadStandardConfig(CoCoStateGraphAsset asset)
+        {
+            var logic = new StandardConfigDraftLogic();
+            ((CoCoFieldConfig)asset.Layers[0].States[0].Config).Apply(logic);
+            return logic;
+        }
+
         private static CoCoGraphDescriptorCatalog CreateTwoStateCatalog()
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
