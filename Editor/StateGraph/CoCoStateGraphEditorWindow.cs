@@ -126,6 +126,7 @@ namespace CoCoFlow.Editor.StateGraph
             texts.Clear();
 
             CoCoEditorElements.ApplyTheme(rootVisualElement);
+            rootVisualElement.AddToClassList("sg-editor");
             StyleSheet styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(StyleSheetPath);
             if (styleSheet == null)
             {
@@ -171,8 +172,7 @@ namespace CoCoFlow.Editor.StateGraph
             leftPane.Add(tree);
 
             var diagnostics = new ScrollView { name = "state-graph-diagnostics-panel" };
-            feedbackHost = CoCoEditorElements.CreateFeedbackHost();
-            feedbackHost.name = "state-graph-feedback";
+            feedbackHost = new VisualElement { name = "state-graph-feedback" };
             diagnostics.Add(feedbackHost);
             leftPane.Add(diagnostics);
 
@@ -188,6 +188,7 @@ namespace CoCoFlow.Editor.StateGraph
             details = new ScrollView { name = "state-graph-details" };
             details.style.width = 350f;
             details.style.minWidth = 290f;
+            details.contentViewport.RegisterCallback<GeometryChangedEvent>(_ => UpdateAllTransitionsHeight());
             workspace.Add(details);
 
             RefreshHeader();

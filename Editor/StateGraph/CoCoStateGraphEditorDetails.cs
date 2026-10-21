@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using CoCoFlow.Editor.Common;
 using CoCoFlow.Runtime.Core;
 using UnityEditor;
@@ -427,28 +428,35 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void DrawTransitionsCard(CoCoStateGraphLayerRecord layer)
         {
-            var card = CoCoEditorElements.CreateCard(L("Transitions", "Transition"));
-            card.AddToClassList("sg-card");
-            texts.Register(card[0], "Transitions", "Transition");
-
             CoCoStateGraphTransitionRecord selected = FindTransition(layer, controller.Session.SelectedTransitionId);
             CoCoStateId sourceScope = selected != null
                 ? ToStateId(selected.SourceStateId) : controller.Session.SelectedStateId;
             CoCoStateGraphStateRecord sourceState = FindState(layer, sourceScope);
-            if (sourceState == null)
-            {
-                card.Add(new HelpBox(L("Select a State to view its outgoing Transitions.",
-                    "选中 State 后查看它的出边。"), HelpBoxMessageType.Info));
-                details.Add(card);
-                return;
-            }
+            bool showAll = sourceState == null;
+            string title = showAll ? "All Transitions" : "Transitions";
+            string chineseTitle = showAll ? "全部 Transition" : "Transition";
+            var card = CoCoEditorElements.CreateCard(L(title, chineseTitle));
+            card.AddToClassList("sg-card");
+            texts.Register(card[0], title, chineseTitle);
 
             var transitionList = new VisualElement { name = "state-graph-transition-list" };
-            var outgoing = new ScrollView { name = "state-graph-outgoing-transitions" };
-            int outgoingCount = 0;
-            foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
+            var outgoing = new ScrollView
             {
-                if (transition == null || ToStateId(transition.SourceStateId) != sourceScope ||
+                name = "state-graph-outgoing-transitions",
+                verticalScrollerVisibility = ScrollerVisibility.Auto
+            };
+            IEnumerable<CoCoStateGraphTransitionRecord> transitions = layer.Transitions.Where(edge => edge != null);
+            if (showAll)
+            {
+                card.name = "state-graph-all-transitions";
+                outgoing.AddToClassList("sg-transition-list--all");
+                transitions = transitions.GroupBy(edge => edge.SourceStateId)
+                    .OrderByDescending(group => group.Count()).SelectMany(group => group);
+            }
+            int outgoingCount = 0;
+            foreach (CoCoStateGraphTransitionRecord transition in transitions)
+            {
+                if ((!showAll && ToStateId(transition.SourceStateId) != sourceScope) ||
                     !TryTransitionId(transition.TransitionId, out CoCoTransitionId transitionId))
                 {
                     continue;
@@ -468,11 +476,22 @@ namespace CoCoFlow.Editor.StateGraph
                 outgoing.Add(row);
                 outgoingCount++;
             }
-            transitionList.Add(new Label(L($"From {sourceState.DisplayName} · {outgoingCount} outgoing",
-                $"来自 {sourceState.DisplayName} · {outgoingCount} 条出边")));
+            transitionList.Add(new Label(showAll
+                ? L($"All States · {outgoingCount} Transitions", $"全部 State · {outgoingCount} 条 Transition")
+                : L($"From {sourceState.DisplayName} · {outgoingCount} outgoing",
+                    $"来自 {sourceState.DisplayName} · {outgoingCount} 条出边")));
             transitionList.Add(outgoing);
             if (outgoingCount == 0)
-                outgoing.Add(new Label(L("No outgoing Transitions.", "暂无出边。")));
+                outgoing.Add(new Label(showAll ? L("No Transitions in this Layer.", "此 Layer 暂无 Transition。")
+                    : L("No outgoing Transitions.", "暂无出边。")));
+
+            if (showAll)
+            {
+                card.Add(transitionList);
+                details.Add(card);
+                UpdateAllTransitionsHeight();
+                return;
+            }
 
             var leafIds = new List<CoCoStateId>();
             foreach (CoCoStateGraphStateRecord state in layer.States)
@@ -612,16 +631,28 @@ namespace CoCoFlow.Editor.StateGraph
             details.Add(card);
         }
 
-        private void DrawRequirementsCard()
+        private void UpdateAllTransitionsHeight()
         {
-            var card = CoCoEditorElements.CreateCard(L("Requirements / Host Suggestions", "需求 / Host 建议"));
-            card.AddToClassList("sg-card");
-            texts.Register(card[0], "Requirements / Host Suggestions", "需求 / Host 建议");
+            ScrollView list = details?.Q<ScrollView>("state-graph-outgoing-transitions");
+            float height = details?.contentViewport.layout.height ?? 0f;
+            if (list?.ClassListContains("sg-transition-list--all") == true && height > 0f)
+            {
+                details.Q<VisualElement>("state-graph-all-transitions").style.maxHeight = height * 0.5f;
+                list.style.maxHeight = height * 0.5f;
+            }
+        }
+
+        private void DrawRequirements()
+        {
+            var requirements = new VisualElement { name = "state-graph-requirements" };
+            var heading = CoCoEditorElements.CreateHeading(L("Requirements / Host Suggestions", "需求 / Host 建议"));
+            texts.Register(heading, "Requirements / Host Suggestions", "需求 / Host 建议");
+            requirements.Add(heading);
             CoCoStateGraphRequirementPresenter.FillCard(
-                card,
+                requirements,
                 controller.BuildRequirementSections(),
                 controller.AnalysisResult?.Succeeded == true);
-            feedbackHost.Add(card);
+            feedbackHost.Add(requirements);
         }
 
         private void RefreshFeedback()
@@ -643,7 +674,7 @@ namespace CoCoFlow.Editor.StateGraph
                 feedbackHost.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
             }
 
-            DrawRequirementsCard();
+            DrawRequirements();
         }
 
         private void DrawDiagnostics(VisualElement parent)

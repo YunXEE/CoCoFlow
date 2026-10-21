@@ -4,6 +4,15 @@
 
 /* ── 窗口骨架 ─────────────────────────────────────── */
 
+.sg-editor {
+    font-size: 12px;
+}
+
+.sg-editor .ccflow-heading,
+.sg-editor .ccflow-section-title {
+    font-size: 12px;
+}
+
 #state-graph-left-pane {
     flex-grow: 1;
     flex-shrink: 1;
@@ -47,8 +56,24 @@
     max-height: 180px;
 }
 
+#state-graph-all-transitions,
+#state-graph-all-transitions #state-graph-transition-list,
+#state-graph-all-transitions #state-graph-outgoing-transitions {
+    min-height: 0;
+    flex-shrink: 1;
+}
+
 #state-graph-diagnostics-panel Label {
     white-space: normal;
+    font-size: 11px;
+}
+
+#state-graph-diagnostics-panel .ccflow-heading {
+    font-size: 11px;
+    margin-top: 6px;
+    margin-bottom: 3px;
+    padding-bottom: 0;
+    border-bottom-width: 0;
 }
 
 #state-graph-details {
@@ -258,7 +283,7 @@
 
 .state-card__title {
     -unity-font-style: bold;
-    font-size: 13px;
+    font-size: 12px;
     color: rgb(232, 235, 238);
     white-space: normal;
 }

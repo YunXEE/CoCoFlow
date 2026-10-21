@@ -260,8 +260,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
         }
 
-        [Test]
-        public void StateDetailsShowOnlyOutgoingTransitionsAndKeepDiagnosticsOnLeft()
+        [UnityTest]
+        public IEnumerator StateDetailsShowOnlyOutgoingTransitionsAndKeepDiagnosticsOnLeft()
         {
             CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false);
             ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
@@ -301,6 +301,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(root.Q<VisualElement>("state-graph-left-pane").Contains(feedback));
             Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(feedback));
             Assert.IsFalse(root.Q<ScrollView>("state-graph-details").Contains(feedback));
+            Assert.IsFalse(feedback.ClassListContains("ccflow-feedback"));
+            Assert.IsNull(feedback.Q(className: "ccflow-card"), "Diagnostics use plain sections.");
             controller.SelectState(second);
             rows = root.Q<ScrollView>("state-graph-outgoing-transitions")
                 .Query<Button>(className: "sg-transition-row").ToList();
@@ -314,7 +316,20 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsFalse(controller.Session.SelectedStateId.IsValid);
             Assert.AreSame(feedback, root.Q<VisualElement>("state-graph-feedback"));
             controller.SelectState(default);
-            Assert.IsNull(root.Q<ScrollView>("state-graph-outgoing-transitions"));
+            yield return null;
+            yield return null;
+            outgoing = root.Q<ScrollView>("state-graph-outgoing-transitions");
+            rows = outgoing.Query<Button>(className: "sg-transition-row").ToList();
+            Assert.AreEqual(27, rows.Count);
+            Assert.IsTrue(rows.Take(24).All(row => row.text.StartsWith("Second → First", StringComparison.Ordinal)));
+            Assert.AreEqual("First → Second  Priority 7", rows[24].text);
+            Assert.AreEqual("First → Third  Priority 2", rows[25].text);
+            Assert.AreEqual("Third → Second  Priority 0", rows[26].text);
+            Assert.IsFalse(root.Query<PopupField<string>>().ToList().Any(field => field.label == "Source State"));
+            var allCard = root.Q<VisualElement>("state-graph-all-transitions");
+            var viewport = root.Q<ScrollView>("state-graph-details").contentViewport;
+            Assert.That(allCard.layout.height, Is.LessThanOrEqualTo(viewport.layout.height * 0.5f + 1f));
+            Assert.Greater(outgoing.verticalScroller.highValue, 0f, "Large global lists must scroll.");
             CollectionAssert.AreEqual(order, asset.Layers[0].Transitions.Select(edge => edge.TransitionId).ToArray());
         }
 
