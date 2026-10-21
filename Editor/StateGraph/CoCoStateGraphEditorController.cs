@@ -15,6 +15,7 @@ namespace CoCoFlow.Editor.StateGraph
         Details = 1 << 2,
         Canvas = 1 << 3,
         Feedback = 1 << 4,
+        StateDraft = 1 << 5,
         All = Toolbar | Tree | Details | Canvas | Feedback
     }
 
@@ -24,6 +25,12 @@ namespace CoCoFlow.Editor.StateGraph
 
         private CoCoGraphDescriptorCatalog catalog;
         private CoCoStateGraphAssetCompileResult analysisResult;
+        private bool _analysisPending;
+        private bool _disposed;
+        private CoCoStateGraphAsset _stateDraftAsset;
+        private CoCoLayerId _stateDraftLayerId;
+        private CoCoStateId _stateDraftStateId;
+        private string _stateDraftConfigSnapshot;
 
         internal CoCoStateGraphEditorController(CoCoStateGraphAsset asset)
         {
@@ -58,6 +65,132 @@ namespace CoCoFlow.Editor.StateGraph
         internal CoCoStateGraphAssetCompileResult AnalysisResult => analysisResult;
         internal string CatalogStatus { get; private set; } = string.Empty;
         internal string CommandFailure { get; private set; } = string.Empty;
+        internal Func<bool> ConfirmStateDraftChanges { get; set; }
+        internal bool HasStateDraftChanges { get; private set; }
+        internal CoCoStateGraphAsset StateEditingAsset => _stateDraftAsset != null ? _stateDraftAsset : Asset;
+
+        internal CoCoStateGraphStateRecord BeginStateDraft()
+        {
+            CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
+            if (state == null || Session.SelectedTransitionId.IsValid)
+            {
+                return null;
+            }
+
+            if (_stateDraftAsset == null || _stateDraftStateId != Session.SelectedStateId ||
+                _stateDraftLayerId != Session.SelectedLayerId)
+            {
+                ClearStateDraft();
+                _stateDraftAsset = UnityEngine.Object.Instantiate(Asset);
+                _stateDraftAsset.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+                _stateDraftLayerId = Session.SelectedLayerId;
+                _stateDraftStateId = Session.SelectedStateId;
+                _stateDraftConfigSnapshot = JsonUtility.ToJson(state.Config);
+            }
+
+            foreach (CoCoStateGraphLayerRecord layer in _stateDraftAsset.Layers)
+            {
+                if (layer != null && Matches(layer.LayerId, _stateDraftLayerId))
+                {
+                    return FindState(layer, _stateDraftStateId);
+                }
+            }
+
+            return null;
+        }
+
+        internal void SetStateDraftName(string value)
+        {
+            CoCoStateGraphStateRecord state = BeginStateDraft();
+            if (state == null || state.DisplayName == value) return;
+            Undo.RecordObject(_stateDraftAsset, "Edit State Name Draft");
+            state.DisplayName = value;
+            MarkStateDraftChanged();
+        }
+
+        internal bool SetStateDraftDescriptor(CoCoStateDescriptor descriptor)
+        {
+            CoCoStateGraphStateRecord state = BeginStateDraft();
+            if (state == null || descriptor == null) return false;
+            if (state.StateDescriptorId.High == descriptor.DescriptorId.High &&
+                state.StateDescriptorId.Low == descriptor.DescriptorId.Low) return true;
+            if (!TryCreateStateConfig(descriptor, out CoCoStateConfig config, out string failure))
+            {
+                return SetFailure(failure, CoCoStateGraphEditorInvalidation.Feedback);
+            }
+
+            Undo.RecordObject(_stateDraftAsset, "Edit State Logic Draft");
+            state.StateDescriptorId = new CoCoSerializedId128(descriptor.DescriptorId.High, descriptor.DescriptorId.Low);
+            state.Config = config;
+            _stateDraftConfigSnapshot = JsonUtility.ToJson(config);
+            MarkStateDraftChanged();
+            return true;
+        }
+
+        private void MarkStateDraftChanged()
+        {
+            HasStateDraftChanges = true;
+            Changed?.Invoke(CoCoStateGraphEditorInvalidation.StateDraft);
+        }
+
+        internal bool SaveStateDraft()
+        {
+            if (!HasStateDraftChanges) return true;
+            if (!CoCoStateGraphAuthoringOperations.CanEdit(out string failure))
+                return SetFailure(failure, CoCoStateGraphEditorInvalidation.Feedback);
+            CoCoStateGraphStateRecord draft = BeginStateDraft();
+            CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
+            if (draft == null || state == null || string.IsNullOrWhiteSpace(draft.DisplayName))
+                return SetFailure("A non-empty State name is required.", CoCoStateGraphEditorInvalidation.Feedback);
+            if (!CoCoStateDescriptorId.TryCreate(draft.StateDescriptorId.High, draft.StateDescriptorId.Low,
+                    out CoCoStateDescriptorId descriptorId))
+                return SetFailure("Select a valid Logic before saving.", CoCoStateGraphEditorInvalidation.Feedback);
+
+            // One asset transaction: the draft never changes topology or execution order.
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            if (!CoCoStateGraphAuthoringOperations.TryRenameState(Asset, Session.SelectedLayerId,
+                    Session.SelectedStateId, draft.DisplayName, out failure) ||
+                !CoCoStateGraphAuthoringOperations.TrySetStateDescriptor(Asset, Session.SelectedLayerId,
+                    Session.SelectedStateId, descriptorId, draft.Config, out failure))
+                return SetFailure(failure, CoCoStateGraphEditorInvalidation.Feedback);
+            Undo.SetCurrentGroupName("Save State Changes");
+            Undo.CollapseUndoOperations(undoGroup);
+            EditorUtility.SetDirty(Asset);
+            ClearStateDraft();
+            if (AssetDatabase.Contains(Asset)) AssetDatabase.SaveAssetIfDirty(Asset);
+            Analyze(CoCoStateGraphEditorInvalidation.All);
+            return true;
+        }
+
+        internal void DiscardStateDraft()
+        {
+            ClearStateDraft();
+            Changed?.Invoke(CoCoStateGraphEditorInvalidation.Details | CoCoStateGraphEditorInvalidation.StateDraft);
+        }
+
+        internal string CaptureStateDraft() => HasStateDraftChanges && _stateDraftAsset != null
+            ? EditorJsonUtility.ToJson(_stateDraftAsset) : string.Empty;
+
+        internal void RestoreStateDraft(string json)
+        {
+            if (string.IsNullOrEmpty(json) || BeginStateDraft() == null) return;
+            EditorJsonUtility.FromJsonOverwrite(json, _stateDraftAsset);
+            HasStateDraftChanges = true;
+        }
+
+        private void ClearStateDraft()
+        {
+            HasStateDraftChanges = false;
+            if (_stateDraftAsset == null) return;
+            Undo.ClearUndo(_stateDraftAsset);
+            UnityEngine.Object.DestroyImmediate(_stateDraftAsset);
+            _stateDraftAsset = null;
+            _stateDraftConfigSnapshot = null;
+        }
+
+        internal bool ResolveStateDraft() => !HasStateDraftChanges ||
+            (ConfirmStateDraftChanges != null && ConfirmStateDraftChanges());
 
         internal CoCoStateGraphLayerRecord SelectedLayer
         {
@@ -157,6 +290,9 @@ namespace CoCoFlow.Editor.StateGraph
 
         public void Dispose()
         {
+            _disposed = true;
+            CancelPendingAnalysis();
+            ClearStateDraft();
             Undo.undoRedoPerformed -= OnUndoRedo;
             CoCoStateGraphEditorCatalogProvider.CatalogChanged -= OnCatalogChanged;
             Session.Save();
@@ -164,6 +300,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void SelectLayer(CoCoLayerId layerId)
         {
+            if (!ResolveStateDraft()) return;
+            ClearStateDraft();
             Session.SelectedLayerId = layerId;
             Session.DrillRootStateId = default;
             Session.SelectedStateId = default;
@@ -173,6 +311,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void SelectState(CoCoStateId stateId)
         {
+            if (stateId != Session.SelectedStateId && !ResolveStateDraft()) return;
+            if (stateId != Session.SelectedStateId) ClearStateDraft();
             Session.SelectedStateId = stateId;
             Session.SelectedTransitionId = default;
             SaveAndNotify();
@@ -180,6 +320,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void NavigateToState(CoCoStateId stateId)
         {
+            if (stateId != Session.SelectedStateId && !ResolveStateDraft()) return;
+            if (stateId != Session.SelectedStateId) ClearStateDraft();
             CoCoStateGraphStateRecord state = FindState(SelectedLayer, stateId);
             if (state == null)
             {
@@ -194,6 +336,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void SelectTransition(CoCoTransitionId transitionId)
         {
+            if (!ResolveStateDraft()) return;
+            ClearStateDraft();
             Session.SelectedTransitionId = transitionId;
             Session.SelectedStateId = default;
             SaveAndNotify();
@@ -228,6 +372,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool AddLayer()
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(Asset);
             Session.SelectedLayerId = layerId;
             Session.DrillRootStateId = default;
@@ -236,6 +382,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool RenameLayer(string displayName)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             return Complete(CoCoStateGraphAuthoringOperations.TryRenameLayer(
                 Asset,
                 Session.SelectedLayerId,
@@ -245,6 +393,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool MoveSelectedLayer(int delta)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             CoCoStateGraphLayerRecord layer = SelectedLayer;
             if (layer == null)
             {
@@ -262,6 +412,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool DuplicateSelectedLayer()
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             if (!CoCoStateGraphAuthoringOperations.DuplicateLayer(
                     Asset,
                     Session.SelectedLayerId,
@@ -277,6 +429,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool DeleteLayer()
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             bool succeeded = CoCoStateGraphAuthoringOperations.TryDeleteLayer(
                 Asset,
                 Session.SelectedLayerId,
@@ -297,6 +451,8 @@ namespace CoCoFlow.Editor.StateGraph
             string displayName,
             Vector2 position)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             string failure = string.Empty;
             if (descriptor == null || !TryCreateStateConfig(descriptor, out CoCoStateConfig config, out failure))
             {
@@ -323,6 +479,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool RenameSelectedState(string displayName)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             return Complete(CoCoStateGraphAuthoringOperations.TryRenameState(
                 Asset,
                 Session.SelectedLayerId,
@@ -333,6 +491,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool MoveSelectedState(int delta)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             CoCoStateGraphLayerRecord layer = SelectedLayer;
             CoCoStateGraphStateRecord state = FindState(layer, Session.SelectedStateId);
             if (state == null)
@@ -352,6 +512,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool SetSelectedStateDescriptor(CoCoStateDescriptor descriptor)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             string failure = string.Empty;
             if (descriptor == null || !TryCreateStateConfig(descriptor, out CoCoStateConfig config, out failure))
             {
@@ -369,6 +531,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool SetSelectedStateInitial()
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             CoCoStateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
             if (state == null)
             {
@@ -398,6 +562,8 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateId replacementOldInitialStateId,
             Vector2 position)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             return Complete(CoCoStateGraphAuthoringOperations.TryReparentStateSubtree(
                 Asset,
                 Session.SelectedLayerId,
@@ -410,6 +576,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool DeleteSelectedState(CoCoStateId replacementInitialStateId)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             bool succeeded = CoCoStateGraphAuthoringOperations.TryDeleteStateSubtree(
                 Asset,
                 Session.SelectedLayerId,
@@ -429,6 +597,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool CopySelectedState()
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             if (!CoCoStateGraphAuthoringOperations.TryCaptureSubtree(
                     Asset,
                     Session.SelectedLayerId,
@@ -446,6 +616,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool PasteState(CoCoStateId parentStateId, Vector2 position)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             if (!CoCoStateGraphAuthoringOperations.TryPasteSubtree(
                     Asset,
                     clipboard,
@@ -468,6 +640,8 @@ namespace CoCoFlow.Editor.StateGraph
             int priority,
             CoCoTransitionWindow window)
         {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
             if (!CoCoStateGraphAuthoringOperations.TryAddTransition(
                     Asset,
                     Session.SelectedLayerId,
@@ -483,6 +657,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Session.SelectedTransitionId = transitionId;
+            Session.SelectedStateId = default;
             return Succeed();
         }
 
@@ -561,6 +736,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void Locate(CoCoGraphDiagnosticLocation location)
         {
+            if (!ResolveStateDraft()) return;
+            ClearStateDraft();
             if (location.LayerId.IsValid)
             {
                 Session.SelectedLayerId = location.LayerId;
@@ -578,6 +755,12 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void Analyze(CoCoStateGraphEditorInvalidation invalidation)
         {
+            CancelPendingAnalysis();
+            if (_disposed)
+            {
+                return;
+            }
+
             Session.AnalysisRequested = true;
             analysisResult = null;
             if (catalog == null)
@@ -604,16 +787,49 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal void NotifyConfigChanged()
         {
-            analysisResult = null;
-            CommandFailure = string.Empty;
-            EditorUtility.SetDirty(Asset);
-            if (Session.AnalysisRequested && catalog != null)
+            if (_disposed)
             {
-                Analyze(CoCoStateGraphEditorInvalidation.Feedback);
                 return;
             }
 
+            if (_stateDraftAsset != null && !Session.SelectedTransitionId.IsValid)
+            {
+                // Bound PropertyFields also report their initial value: only a
+                // changed Config is an edit, so merely selecting a State stays clean.
+                string snapshot = JsonUtility.ToJson(BeginStateDraft()?.Config);
+                if (snapshot != _stateDraftConfigSnapshot)
+                {
+                    _stateDraftConfigSnapshot = snapshot;
+                    MarkStateDraftChanged();
+                }
+                return;
+            }
+
+            analysisResult = null;
+            CommandFailure = string.Empty;
+            EditorUtility.SetDirty(Asset);
+            if (Session.AnalysisRequested && catalog != null && !_analysisPending)
+            {
+                _analysisPending = true;
+                EditorApplication.delayCall += RunPendingAnalysis;
+            }
+
             Changed?.Invoke(CoCoStateGraphEditorInvalidation.Feedback);
+        }
+
+        private void RunPendingAnalysis()
+        {
+            _analysisPending = false;
+            if (!_disposed && Asset != null)
+            {
+                Analyze();
+            }
+        }
+
+        private void CancelPendingAnalysis()
+        {
+            EditorApplication.delayCall -= RunPendingAnalysis;
+            _analysisPending = false;
         }
 
         internal string StateDescriptorLabel(CoCoStateGraphStateRecord state)
@@ -668,6 +884,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void ReloadCatalog()
         {
+            CancelPendingAnalysis();
             catalog = null;
             analysisResult = null;
             CatalogStatus = string.Empty;
@@ -716,6 +933,9 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void OnUndoRedo()
         {
+            if (!HasStateDraftChanges) ClearStateDraft();
+            CancelPendingAnalysis();
+            analysisResult = null;
             Session.Validate(Asset);
             if (Session.AnalysisRequested && catalog != null)
             {

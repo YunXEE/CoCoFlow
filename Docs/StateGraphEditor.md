@@ -27,6 +27,11 @@ Graph Asset
       -> leaf States and same-Layer Transitions
 ```
 
+The left header labels Graph and Layer on separate full-width rows, with a compact
+`+` action to add a Layer. Plain text below shows the selected Layer's State and
+Transition counts and the graph analysis status. Schema and normal catalog details
+are available in the asset-field tooltip; unavailable Logic remains a visible warning.
+
 The canvas shows the whole selected Layer as one flattened genealogy view:
 every State, at any nesting depth, is placed on the same canvas (positions are
 composed from the per-scope local EditorLayout coordinates), and parent-child
@@ -52,6 +57,11 @@ border (offset from the card body) is reserved for dynamic states. The first
 outer-border type is the ancestry highlight: selecting a State lights the
 selected State, all of its ancestors, and the genealogy segments between them,
 visualizing how much Logic the State inherits and runs.
+The selected State's direct Transition targets have purple outer frames, and
+its outgoing edges and arrows turn purple. Incoming and indirect connections
+keep their normal colors. Purple and yellow use the same 2px card border;
+ancestry takes precedence when roles overlap, including on a self-loop.
+Outgoing Transition controls remain expanded, with a bounded scrolling list.
 
 Leaf flow states are computed from the Layer default leaf by following all
 Transitions: reachable leaves with outgoing edges (and the default leaf when
@@ -78,6 +88,47 @@ editor that can bypass the command boundary. All Asset authoring becomes
 read-only while Unity is entering or running Play Mode; navigation, search,
 Analyze, and diagnostic location remain available without mutating serialized
 data.
+
+With nothing selected, the details sidebar shows Layer management, Add State,
+Add Logic, then all Transitions in the current Layer. These three operation
+panels stay expanded and appear only while neither a State nor a Transition is
+selected. Selecting a State or Transition shows its editor and scoped outgoing
+Transitions instead. Clicking empty canvas clears selection and keeps the current
+Layer. Add State selects an existing Logic and creates a named State; Add Logic
+generates a reusable project Logic script.
+The Transition list and creation controls stay
+expanded; their asset order, priorities, and Condition order keep their existing
+meaning. Selecting a State shows only its outgoing Transitions;
+creating a Transition fixes the source to that State. Selecting an edge keeps
+the list scoped to that edge's source. With nothing selected, all Transitions
+in the current Layer appear as source → target rows, grouped by source with the
+largest outgoing groups first. Ties and rows within each group retain their
+asset order. This overview takes at most half the sidebar height and scrolls.
+The outgoing list scrolls independently.
+Diagnostics and Host requirements live in a separate panel at the bottom of the
+left sidebar as compact text sections without cards, and refresh without
+replacing the selected editor's input controls.
+
+The selected State edits its name, Logic and StateConfig as one draft. StateConfig
+is expanded. Changing Logic creates a fresh draft Config for that Logic; the
+saved asset and canvas remain unchanged until Save. The sidebar shows Saved or
+Unsaved changes, with Save and Discard actions. Save applies all three values in
+one Undo transaction, persists the asset and immediately analyzes and refreshes
+it. Switching selection or assets asks to save, discard or cancel; closing the
+window uses Unity's unsaved-changes prompt. UI rebuilds preserve an unsaved draft.
+Analyze always analyzes the saved asset, including while a draft is pending.
+
+Structure actions live in a collapsed section and explain their scope: default
+entry, copy/create child States, change parent, delete, and State order. They
+apply immediately after saving or discarding the draft. Reordering still changes
+the existing State order; layout never substitutes a different execution order.
+
+Other Config commits immediately mark the asset dirty and invalidate old analysis.
+After Analyze has been requested, commits before the next Editor delayed call
+share one analysis of the latest data on the Unity main thread. Explicit Analyze
+runs immediately and cancels that pending call. Switching assets or closing the
+window cancels pending work; sessions that have not requested Analyze do not
+start it automatically.
 
 ## Commands, Undo, and identity
 
@@ -130,6 +181,9 @@ stable element identities:
 It survives Domain Reload only. It is not Asset content and is not promised to
 survive an Editor restart. Diagnostics are recomputed after reload; only a still
 valid selected location is restored.
+
+Mouse-wheel zoom keeps the graph point under the pointer fixed, including when
+the pointer is over a State card. The zoom range is 25% to 200%.
 
 ## Catalog, manifests, and presets
 
