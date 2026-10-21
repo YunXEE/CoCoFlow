@@ -6,6 +6,37 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.5] - 2026-10-21
+
+### Added and changed
+
+- Standard Config supports one-dimensional arrays and `List<T>` of editable
+  scalar values and pure data structs, with initialization, add/remove, ordering
+  and element editing. Overrides remain independent per State and Logic instance.
+- State name, Logic and Config share a draft with Save/Discard and unsaved-change
+  prompts. Save persists them in one Undo transaction and analyzes once.
+- The StateGraph Editor reorganizes Graph/Layer controls, State details,
+  Transition lists and diagnostic feedback. Selection scopes outgoing Transitions;
+  direct targets and outgoing edges receive a purple highlight.
+- Config edits retain their controls. Other Config commits coalesce pending
+  analysis on the Editor main thread; asset switches and window close cancel it.
+- Canvas wheel zoom anchors to the pointer across the 25%–200% range.
+
+### Fixed
+
+- Numeric Config input preserves intermediate text such as `2.` until
+  confirmation or focus loss instead of replacing controls while typing.
+- Host Asset compilation and setup catches log the original exception with
+  stack, inner exceptions and Host context, retaining failure and cleanup behavior.
+
+### Boundaries
+
+- Memory remains unmanaged. Nested collections, multidimensional arrays and
+  arbitrary reference-type Config collections are unsupported.
+- StateLogic still requires `ICoCoStateUpdate`; no automatic empty implementation
+  or additional registration contract check is introduced.
+- Player and IL2CPP compatibility remain unverified for this release.
+
 ## [0.4.4] - 2026-10-18
 
 ### Added and changed
