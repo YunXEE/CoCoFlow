@@ -28,6 +28,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
     {
         [Header("Persistence")]
         [SerializeField] private string stableEntityId = string.Empty;
+        [SerializeField] private bool idLocked;
         [SerializeField] private string prefabKey = string.Empty;
 
         private Coroutine _deferredApplyCoroutine;
@@ -42,7 +43,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public void EnsureStableEntityId()
         {
-            if (!string.IsNullOrEmpty(stableEntityId)) return;
+            if (idLocked || !string.IsNullOrEmpty(stableEntityId)) return;
 
             stableEntityId = Application.isPlaying
                 ? "RT_" + Guid.NewGuid().ToString("N").Substring(0, 12)
@@ -67,20 +68,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             return result == PersistenceContextOperationResult.Applied;
         }
 
-        public void OnBeforeSerialize()
-        {
-#if UNITY_EDITOR
-            if (Application.isPlaying || BuildPipeline.isBuildingPlayer) return;
-            if (PrefabUtility.IsPartOfPrefabAsset(this)) return;
-            if (PrefabStageUtility.GetCurrentPrefabStage() != null) return;
-
-            if (IsSceneObject())
-            {
-                EnsureStableEntityId();
-                EnsureUniqueSceneId();
-            }
-#endif
-        }
+        public void OnBeforeSerialize() { }
 
         public void OnAfterDeserialize() { }
 
@@ -88,24 +76,15 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         #region Internal Logic
 
-        private void Awake()
-        {
-            if (Application.isPlaying)
-            {
-                EnsureStableEntityId();
-            }
-        }
-
         private void OnEnable()
         {
 #if UNITY_EDITOR
-            if (!Application.isPlaying && !ShouldGenerateEditorId())
+            if (!Application.isPlaying && !IsEditorSceneContext())
             {
                 return;
             }
 #endif
 
-            EnsureStableEntityId();
             PersistenceContextRegistry.Register(this);
         }
 
@@ -445,24 +424,13 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         }
 
 #if UNITY_EDITOR
-        private void OnValidate()
-        {
-            if (Application.isPlaying) return;
-
-            if (ShouldGenerateEditorId())
-            {
-                EnsureStableEntityId();
-                EditorUtility.SetDirty(this);
-            }
-        }
-
         private bool IsSceneObject()
         {
             Scene scene = gameObject.scene;
             return scene.IsValid() && !string.IsNullOrEmpty(scene.path);
         }
 
-        private bool ShouldGenerateEditorId()
+        private bool IsEditorSceneContext()
         {
             if (Application.isPlaying) return false;
             if (PrefabUtility.IsPartOfPrefabAsset(this)) return false;
@@ -470,27 +438,6 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             return IsSceneObject();
         }
 
-        private void EnsureUniqueSceneId()
-        {
-            if (string.IsNullOrEmpty(stableEntityId)) return;
-
-            var allContexts = FindObjectsByType<PersistenceContext>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
-            foreach (var context in allContexts)
-            {
-                if (context == null || context == this) continue;
-                if (context.stableEntityId != stableEntityId) continue;
-
-                stableEntityId = Guid.NewGuid().ToString("N");
-                EditorUtility.SetDirty(this);
-                if (!string.IsNullOrEmpty(gameObject.scene.path))
-                {
-                    EditorSceneManager.MarkSceneDirty(gameObject.scene);
-                }
-                break;
-            }
-        }
 #endif
 
         #endregion

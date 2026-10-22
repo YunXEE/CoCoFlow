@@ -61,14 +61,35 @@ resolution, or multi-process locking.
 Add `PersistenceContext` to every entity whose Context should be saved. It owns
 a serialized `stableEntityId` and optional `prefabKey`.
 
-- scene instances receive persistent Editor-authored IDs;
-- runtime-only instances receive an `RT_...` ID when needed;
+- author IDs on Prefab assets, with a separate ID override for each variant;
+- scene instances and exported Chunks retain their configured identity;
 - the registry indexes live contexts by that stable ID;
 - a later registration can consume a matching record from the pending document.
 
-Copied prefabs and dynamically spawned objects still require the project to
-ensure the intended identity policy. Persistence does not spawn missing scene
-objects or resolve a prefab key by itself.
+The Inspector provides **Lock ID**, **Scan**, and **Regenerate ID**. Locking
+disables ID editing and regeneration; Prefab Key remains editable. Scan reads
+Prefab assets, including variants, and reports counts, blank IDs, and duplicate
+IDs to the Console. A duplicate affecting the inspected object also opens a
+dialog listing the conflicting assets. Scanning never repairs or saves assets.
+Nested Prefab references are counted at their owning asset, rather than once
+per reference. An open Prefab stage contributes its current unsaved values.
+
+Regenerate first scans and reports, then assigns the current unlocked Prefab
+a GUID absent from the scanned IDs. A variant stores its own override; inherited
+IDs otherwise follow changes to the base Prefab. Save edits in Prefab Mode as
+usual. Regeneration changes save identity and does not migrate existing saves.
+If dependent variants still inherit this ID, regenerate their IDs first; the
+button refuses to change them indirectly through the base Prefab.
+Lifecycle and serialization callbacks never generate or deduplicate IDs.
+`EnsureStableEntityId()` remains an explicit fill-if-empty API and respects the
+lock; the component does not call it automatically.
+Existing scene ID overrides are retained; explicitly revert those overrides
+when adopting the Prefab asset's identity.
+
+Use this asset-level policy when one Prefab identity represents at most one
+independently saved entity in a loaded world. Projects requiring several such
+instances must supply distinct identities. Persistence does not spawn missing
+objects or resolve the optional Prefab Key by itself.
 
 ## StateGraph ContextFrame path
 
