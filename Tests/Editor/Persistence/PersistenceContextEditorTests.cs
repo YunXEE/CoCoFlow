@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using CoCoFlow.Editor.Modules.Persistence;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -20,10 +22,13 @@ namespace CoCoFlow.Tests.Editor.Persistence
         private Scene _scene;
         private SceneSetup[] _previousSetup;
         private string _directory;
+        private IPersistenceContextAdapter[] _previousAdapters;
 
         [SetUp]
         public void SetUp()
         {
+            _previousAdapters = GetAdapters().ToArray();
+            PersistenceSession.ClearPendingDocument();
             _previousSetup = EditorSceneManager.GetSceneManagerSetup();
             _scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             SceneManager.SetActiveScene(_scene);
@@ -44,6 +49,9 @@ namespace CoCoFlow.Tests.Editor.Persistence
             if (!string.IsNullOrEmpty(_directory)) AssetDatabase.DeleteAsset(_directory);
             PersistenceContextStableIdEditor.Synchronize();
             PersistenceContextRegistry.Clear();
+            PersistenceSession.ClearPendingDocument();
+            GetAdapters().Clear();
+            GetAdapters().AddRange(_previousAdapters);
             LogAssert.NoUnexpectedReceived();
         }
 
@@ -142,6 +150,83 @@ namespace CoCoFlow.Tests.Editor.Persistence
             SaveScene();
             Assert.AreSame(context, registry[id], "Saving must restore the actual Registry entry.");
             Assert.AreEqual(id, context.StableEntityId);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ImmediateCaptureAfterReenableIncludesActualRecord(bool toggleObject)
+        {
+            PersistenceContext context = CreateContext("capture");
+            SaveScene();
+            string id = context.StableEntityId;
+            SetCaptureData(context.gameObject, 42);
+            if (toggleObject)
+            {
+                context.gameObject.SetActive(false);
+                context.gameObject.SetActive(true);
+            }
+            else
+            {
+                context.enabled = false;
+                context.enabled = true;
+            }
+            // No scene save, manual registration/sync, or Editor update after enable.
+            PersistenceSaveDocument document = PersistenceSession.Capture(0);
+            Assert.IsTrue(document.contextSection.TryGetRecord(id, out var record));
+            Assert.AreEqual(42, record.semanticStateId);
+            Assert.AreEqual(id, context.StableEntityId);
+        }
+
+        [Test]
+        public void ImmediateCaptureOfNewContextIncludesGeneratedIdAndData()
+        {
+            PersistenceContext context = CreateContext("new-capture");
+            SetCaptureData(context.gameObject, 42);
+            PersistenceSaveDocument document = PersistenceSession.Capture(0);
+            Assert.IsNotEmpty(context.StableEntityId);
+            Assert.IsTrue(document.contextSection.TryGetRecord(context.StableEntityId, out var record));
+            Assert.AreEqual(42, record.semanticStateId);
+        }
+
+        [Test]
+        public void ImmediateCaptureOfCopyKeepsBothEntitiesAndTheirData()
+        {
+            PersistenceContext source = CreateContext("capture-source");
+            SaveScene();
+            string originalId = source.StableEntityId;
+            SetCaptureData(source.gameObject, 42);
+            GameObject copy = Object.Instantiate(source.gameObject);
+            copy.transform.SetAsFirstSibling();
+            SetCaptureData(copy, 99);
+            PersistenceSaveDocument document = PersistenceSession.Capture(0);
+            string copyId = copy.GetComponent<PersistenceContext>().StableEntityId;
+            Assert.AreEqual(originalId, source.StableEntityId);
+            Assert.AreNotEqual(originalId, copyId);
+            Assert.AreEqual(2, document.contextSection.records.Count);
+            Assert.IsTrue(document.contextSection.TryGetRecord(originalId, out var original));
+            Assert.IsTrue(document.contextSection.TryGetRecord(copyId, out var duplicate));
+            Assert.AreEqual(42, original.semanticStateId);
+            Assert.AreEqual(99, duplicate.semanticStateId);
+        }
+
+        [Test]
+        public void CaptureMaintenanceDoesNotReplayPendingDataForRegisteredContext()
+        {
+            PersistenceContext context = CreateContext("pending-capture");
+            SaveScene();
+            SetCaptureData(context.gameObject, 42);
+            PersistenceSession.SetPendingDocument(PersistenceSession.Capture(0));
+            context.enabled = false;
+            context.enabled = true;
+            Assert.IsTrue(PersistenceSession.Capture(0).contextSection
+                .TryGetRecord(context.StableEntityId, out _));
+            SetCaptureData(context.gameObject, 99);
+            for (int index = 0; index < 2; index++)
+            {
+                Assert.IsTrue(PersistenceSession.Capture(0).contextSection
+                    .TryGetRecord(context.StableEntityId, out var record));
+                Assert.AreEqual(99, record.semanticStateId, "Capture must not reapply the pending value 42.");
+            }
         }
 
         [TestCase(false, false)]
@@ -275,6 +360,27 @@ namespace CoCoFlow.Tests.Editor.Persistence
             SceneManager.MoveGameObjectToScene(root, _scene);
             root.SetActive(!inactive);
             return root.AddComponent<PersistenceContext>();
+        }
+
+        private static List<IPersistenceContextAdapter> GetAdapters()
+        {
+            return (List<IPersistenceContextAdapter>)typeof(PersistenceContextAdapterRegistry)
+                .GetField("Adapters", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+        }
+
+        private static void SetCaptureData(GameObject root, int value)
+        {
+            // Reuse the legacy provider/adapter fixture without changing assembly
+            // dependencies or introducing a second test implementation of that contract.
+            Type fixture = Type.GetType("CoCoFlow.Tests.Runtime.ContextLifecycle.PersistenceModuleTests, " +
+                                        "CoCoFlow.Tests.Runtime.ContextLifecycle", true);
+            Type providerType = fixture.GetNestedType("TestContextProviderBehaviour", BindingFlags.NonPublic);
+            Component provider = root.GetComponent(providerType) ?? root.AddComponent(providerType);
+            object context = providerType.GetProperty("Context").GetValue(provider);
+            context.GetType().GetProperty("SemanticStateId").SetValue(context, value);
+            Type adapterType = fixture.GetNestedType("TestContextAdapter", BindingFlags.NonPublic);
+            PersistenceContextAdapterRegistry.Register((IPersistenceContextAdapter)
+                adapterType.GetField("Instance").GetValue(null));
         }
 
         private static void SetId(PersistenceContext context, string id)

@@ -22,6 +22,7 @@ namespace CoCoFlow.Editor.Modules.Persistence
             EditorApplication.hierarchyChanged += EditorApplicationOnHierarchyChanged;
             EditorApplication.playModeStateChanged += EditorApplicationOnPlayModeStateChanged;
             EditorSceneManager.sceneSaving += EditorSceneManagerOnSceneSaving;
+            PersistenceContextRegistry.BeforeEditorCapture += PersistenceContextRegistryOnBeforeEditorCapture;
         }
 
         private static void EditorApplicationOnUpdate()
@@ -50,6 +51,11 @@ namespace CoCoFlow.Editor.Modules.Persistence
         {
             // Do this synchronously: a new scene still has an empty path, and a copy
             // can be saved before the next hierarchyChanged/update notification.
+            Synchronize();
+        }
+
+        private static void PersistenceContextRegistryOnBeforeEditorCapture()
+        {
             Synchronize();
         }
 

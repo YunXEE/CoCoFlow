@@ -10,6 +10,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
         private static readonly Dictionary<string, PersistenceContext> Contexts =
             new Dictionary<string, PersistenceContext>();
 
+#if UNITY_EDITOR
+        internal static event Action BeforeEditorCapture;
+#endif
+
         #region Public API
 
         public static void Register(PersistenceContext context)
@@ -61,6 +65,11 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
 
         public static PersistenceContextSection CaptureSection()
         {
+#if UNITY_EDITOR
+            // Editor tools can capture in the same callback that enabled or
+            // cloned a context, before any update or scene-saving notification.
+            if (!Application.isPlaying) BeforeEditorCapture?.Invoke();
+#endif
             var section = new PersistenceContextSection();
             foreach (var context in Contexts.Values)
             {
