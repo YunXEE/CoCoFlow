@@ -11,6 +11,125 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
     {
         private static long _nextGraphInstance = 3000L;
 
+        [TestCase(true, false)]
+        [TestCase(false, false)]
+        [TestCase(false, true)]
+        public void AnyUpdatesAfterLeafAndWinsBeforeOrdinaryTransition(bool allowed, bool closedWindow)
+        {
+            ContractIds ids = ContractIds.Create();
+            var control = new RuntimeContractControl(ids);
+            RuntimeFixture fixture = RuntimeFixture.Create(
+                AnySource(ids, closedWindow: closedWindow), CreateCatalog(false, withAny: true), control, false);
+            CoCoCompiledStateLayer layer = fixture.Runtime.Graph.Layers[0];
+            Assert.AreEqual(4, layer.AnyStateIndex);
+            Assert.IsTrue(layer.HasAnyState);
+            Assert.IsFalse(layer.States[layer.AnyStateIndex].IsLeaf);
+            Assert.IsFalse(layer.States[layer.AnyStateIndex].IsRoot);
+            Assert.IsEmpty(layer.States[layer.AnyStateIndex].RootPathStateIndices);
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage(0.1d));
+            control.Callbacks.Clear();
+            control.RequestFirst = control.RequestSecond = true;
+            control.RejectedConditionTransition = allowed ? default : ids.SecondTransition;
+
+            fixture.Accept(fixture.Stage(0.1d));
+            AssertTrace(control.Callbacks.GetRange(0, 4),
+                (RuntimeContractCallbackPhase.Update, ids.Root),
+                (RuntimeContractCallbackPhase.Update, ids.Branch),
+                (RuntimeContractCallbackPhase.Update, ids.StateA),
+                (RuntimeContractCallbackPhase.Update, ids.StateC));
+            Assert.AreEqual(allowed ? 5 : 6, control.Callbacks.Count);
+            Assert.AreEqual(RuntimeContractCallbackPhase.Exit, control.Callbacks[4].Phase);
+            Assert.AreEqual(ids.StateA, control.Callbacks[4].StateId);
+            Assert.AreEqual(allowed ? ids.StateA : ids.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+            Assert.AreEqual(closedWindow ? default : ids.StateC, control.AnyConditionSource);
+            Assert.AreEqual(closedWindow ? default : ids.StateA, control.AnyConditionActiveLeaf);
+        }
+
+        [Test]
+        public void AnySelfReentryResetsLeafAndPreservesOwnMemory()
+        {
+            ContractIds ids = ContractIds.Create();
+            var control = new RuntimeContractControl(ids)
+            {
+                ActionProgressState = ids.StateA,
+                DesiredActionProgress = 0.7d
+            };
+            RuntimeFixture fixture = RuntimeFixture.Create(
+                AnySource(ids), CreateCatalog(false, withAny: true), control, false);
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage(0.1d));
+            var activations = new Dictionary<CoCoStateId, CoCoActivationId>(control.Activations);
+            control.RequestSecond = true;
+            fixture.Accept(fixture.Stage(0.1d));
+            Assert.AreEqual(0, ReadCommittedMemory(fixture.Runtime, 0, ids.StateA).UpdateCount);
+            Assert.AreEqual(2, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
+
+            control.RequestSecond = false;
+            control.DesiredActionProgress = 0d;
+            control.Callbacks.Clear();
+            fixture.Accept(fixture.Stage(0.1d));
+            AssertTrace(control.Callbacks,
+                (RuntimeContractCallbackPhase.Enter, ids.StateA),
+                (RuntimeContractCallbackPhase.Update, ids.Root),
+                (RuntimeContractCallbackPhase.Update, ids.Branch),
+                (RuntimeContractCallbackPhase.Update, ids.StateA),
+                (RuntimeContractCallbackPhase.Update, ids.StateC));
+            Assert.AreEqual(activations[ids.Root], control.Activations[ids.Root]);
+            Assert.AreEqual(activations[ids.Branch], control.Activations[ids.Branch]);
+            Assert.AreEqual(activations[ids.StateC], control.Activations[ids.StateC]);
+            Assert.AreNotEqual(activations[ids.StateA], control.Activations[ids.StateA]);
+            Assert.AreEqual(0d, control.Callbacks[3].PreviousLocalSeconds);
+            Assert.AreEqual(0d, control.Callbacks[3].PreviousActionProgress);
+            Assert.AreEqual(0.2d, control.Callbacks[4].PreviousLocalSeconds, 0.000001d);
+            Assert.AreEqual(1, ReadCommittedMemory(fixture.Runtime, 0, ids.StateA).UpdateCount);
+            Assert.AreEqual(3, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
+        }
+
+        [Test]
+        public void AnyOperationDepthAndRejectedTickPreserveContract()
+        {
+            ContractIds ids = ContractIds.Create();
+            var control = new RuntimeContractControl(ids) { WriteOperations = true, WriteOnExit = true };
+            control.ConfigureOperationStates(ids.Root, ids.Branch, ids.StateA, ids.StateC);
+            RuntimeFixture fixture = RuntimeFixture.Create(
+                AnySource(ids), CreateCatalog(true, withAny: true), control, true);
+            Assert.IsTrue(fixture.Runtime.TryStart(out _));
+            fixture.Accept(fixture.Stage(0.1d));
+            control.RequestSecond = true;
+            CoCoStagedGraphStep rejected = fixture.Stage(0.1d);
+            Assert.IsTrue(rejected.OperationFrame.TryGet(fixture.OperationHandle,
+                out CoCoOperationSectionEntry<IRuntimeContractOperationSection> entry));
+            Assert.AreEqual(40, entry.View.Value, "Later ordinary Exit writes cannot override AnyState depth.");
+            Assert.IsTrue(fixture.Runtime.TryRejectStagedStep(rejected, CoCoDiagnostic.None, false, out _));
+            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
+            Assert.AreEqual(1, ReadCommittedMemory(fixture.Runtime, 0, ids.StateA).UpdateCount);
+            Assert.AreEqual(1, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
+
+            control.RequestSecond = false;
+            control.RequestFirst = true;
+            fixture.Accept(fixture.Stage(0.1d));
+            Assert.AreEqual(ids.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
+            control.ConfigureOperationStates(ids.Root, ids.StateB, ids.StateA, ids.StateC);
+            CoCoStagedGraphStep shallower = fixture.Stage(0.1d);
+            Assert.IsTrue(shallower.OperationFrame.TryGet(fixture.OperationHandle, out entry));
+            Assert.AreEqual(40, entry.View.Value);
+            fixture.Accept(shallower);
+            Assert.AreEqual(3, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
+        }
+
+        [TestCase(1, CoCoDiagnosticCode.DescriptorTypeMismatch)]
+        [TestCase(2, CoCoDiagnosticCode.InvalidInitialState)]
+        [TestCase(3, CoCoDiagnosticCode.NonLeafTransitionEndpoint)]
+        public void AnyRejectsOrdinaryLogicHierarchyAndIncomingEdges(int invalidKind, CoCoDiagnosticCode code)
+        {
+            ContractIds ids = ContractIds.Create();
+            CoCoStateGraphCompileResult result = new CoCoStateGraphCompiler().Compile(
+                AnySource(ids, invalidKind), CreateCatalog(false, withAny: invalidKind != 1));
+            Assert.IsFalse(result.Succeeded);
+            Assert.That(result.Diagnostics, Has.Some.Property("Diagnostic").Property("Code").EqualTo(code));
+        }
+
         [Test]
         public void OptionalLifecyclePhasesPreserveEnterUpdateExitPathOrder()
         {
@@ -397,6 +516,34 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(1, ReadCommittedMemory(fixture.Runtime, 0, ids.StateA).UpdateCount);
         }
 
+        private static CoCoStateGraphSource AnySource(
+            ContractIds ids,
+            int invalidKind = 0,
+            bool closedWindow = false)
+        {
+            Assert.IsTrue(CoCoTransitionWindow.TryCreate(
+                CoCoTransitionWindowMode.LocalSeconds, 10d, 11d, out CoCoTransitionWindow laterWindow));
+            var layer = new CoCoStateLayerSource(
+                ids.LowLayer,
+                ids.Root,
+                new[]
+                {
+                    State(ids.Root, default, ids.Branch, ids.AllPhasesDescriptor),
+                    State(ids.Branch, ids.Root, ids.StateA, ids.AllPhasesDescriptor),
+                    State(ids.StateA, ids.Branch, default, ids.AllPhasesDescriptor),
+                    State(ids.StateB, ids.Root, default, ids.AllPhasesDescriptor)
+                },
+                new[]
+                {
+                    Transition(ids.FirstTransition, ids.StateA, ids.StateB, 100,
+                        CoCoTransitionWindow.Always, false, ids),
+                    Transition(ids.SecondTransition, ids.StateC, invalidKind == 3 ? ids.StateC : ids.StateA, 0,
+                        closedWindow ? laterWindow : CoCoTransitionWindow.Always, true, ids)
+                },
+                State(ids.StateC, invalidKind == 2 ? ids.Root : default, default, ids.UpdateOnlyDescriptor));
+            return Source(ids, 0xC0407UL, layer);
+        }
+
         private static CoCoStateGraphSource LifecycleSource(ContractIds ids)
         {
             var transition = Transition(
@@ -590,7 +737,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         private static CoCoGraphDescriptorCatalog CreateCatalog(
             bool withOperation,
-            CoCoOperationSectionMode operationMode = CoCoOperationSectionMode.Continuous)
+            CoCoOperationSectionMode operationMode = CoCoOperationSectionMode.Continuous,
+            bool withAny = false)
         {
             ContractIds ids = ContractIds.Create();
             var builder = new CoCoGraphDescriptorCatalogBuilder();
@@ -607,10 +755,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 operations = new[] { ids.OperationSection };
             }
 
-            RegisterState<RuntimeContractUpdateOnlyLogic>(
-                builder,
-                ids.UpdateOnlyDescriptor,
-                operations);
+            if (withAny)
+            {
+                RegisterState<RuntimeContractAnyLogic>(builder, ids.UpdateOnlyDescriptor, operations);
+            }
+            else
+            {
+                RegisterState<RuntimeContractUpdateOnlyLogic>(builder, ids.UpdateOnlyDescriptor, operations);
+            }
             RegisterState<RuntimeContractEnterUpdateLogic>(
                 builder,
                 ids.EnterUpdateDescriptor,
@@ -845,6 +997,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 RuntimeContractControl control)
             {
                 bool updateOnly = false;
+                bool anyState = false;
                 bool enterUpdate = false;
                 bool updateExit = false;
                 bool allPhases = false;
@@ -855,7 +1008,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
                     {
                         CoCoStateDescriptorId descriptorId = layer.States[stateIndex].Descriptor.DescriptorId;
-                        updateOnly |= descriptorId == control.Ids.UpdateOnlyDescriptor;
+                        anyState |= layer.States[stateIndex].IsAnyState;
+                        updateOnly |= !layer.States[stateIndex].IsAnyState &&
+                                      descriptorId == control.Ids.UpdateOnlyDescriptor;
                         enterUpdate |= descriptorId == control.Ids.EnterUpdateDescriptor;
                         updateExit |= descriptorId == control.Ids.UpdateExitDescriptor;
                         allPhases |= descriptorId == control.Ids.AllPhasesDescriptor;
@@ -870,6 +1025,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 }
 
                 var builder = new CoCoStateGraphLogicBindingsBuilder(graph);
+                if (anyState)
+                {
+                    BindState(
+                        builder,
+                        control.Ids.UpdateOnlyDescriptor,
+                        new CoCoStateRuntimeFactory<RuntimeContractAnyLogic, RuntimeContractMemory>(
+                            context => new RuntimeContractAnyLogic(context, control),
+                            CreateMemory,
+                            CopyMemory,
+                            ResetMemory,
+                            FingerprintMemory));
+                }
+
                 if (updateOnly)
                 {
                     BindState(
@@ -994,14 +1162,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             public ContractIds Ids { get; }
             public List<CallbackRecord> Callbacks { get; } = new List<CallbackRecord>();
+            public Dictionary<CoCoStateId, CoCoActivationId> Activations { get; } =
+                new Dictionary<CoCoStateId, CoCoActivationId>();
             public bool RecordCallbacks = true;
             public bool RequestFirst;
             public bool RequestSecond;
             public bool ThrowOnCondition;
             public bool WriteOperations;
+            public bool WriteOnExit;
             public bool EnableDiscreteOperation;
             public int TransitionRequestCheckCount;
             public int ConditionEvaluationCount;
+            public CoCoStateId AnyConditionSource;
+            public CoCoStateId AnyConditionActiveLeaf;
             public CoCoTransitionId RejectedConditionTransition;
             public CoCoStateId ActionProgressState;
             public double DesiredActionProgress;
@@ -1036,6 +1209,12 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 CoCoConditionEvaluationContext context)
             {
                 ConditionEvaluationCount++;
+                if (context.SourceStateId == Ids.StateC)
+                {
+                    AnyConditionSource = context.SourceStateId;
+                    AnyConditionActiveLeaf = context.ActiveLeafStateId;
+                }
+
                 if (ThrowOnCondition)
                 {
                     throw new InvalidOperationException("synthetic Condition failure");
@@ -1051,6 +1230,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             {
                 if (RecordCallbacks)
                 {
+                    Activations[stateId] = context.ActivationId;
                     Callbacks.Add(new CallbackRecord(
                         phase,
                         stateId,
@@ -1061,7 +1241,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 }
 
                 if (WriteOperations &&
-                    phase == RuntimeContractCallbackPhase.Update &&
+                    (phase == RuntimeContractCallbackPhase.Update ||
+                     WriteOnExit && phase == RuntimeContractCallbackPhase.Exit) &&
                     OperationField.IsValid)
                 {
                     int value = stateId == _lowRoot

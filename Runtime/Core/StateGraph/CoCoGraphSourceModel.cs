@@ -173,10 +173,22 @@ namespace CoCoFlow.Runtime.Core
             _transitions = CoCoGraphSourceCollections.Clone(transitions);
         }
 
+        public CoCoStateLayerSource(
+            CoCoLayerId layerId,
+            CoCoStateId initialStateId,
+            IReadOnlyList<CoCoStateSource> states,
+            IReadOnlyList<CoCoTransitionSource> transitions,
+            CoCoStateSource anyState)
+            : this(layerId, initialStateId, states, transitions)
+        {
+            AnyState = anyState;
+        }
+
         public CoCoLayerId LayerId { get; }
         public CoCoStateId InitialStateId { get; }
         public IReadOnlyList<CoCoStateSource> States => _states;
         public IReadOnlyList<CoCoTransitionSource> Transitions => _transitions;
+        public CoCoStateSource AnyState { get; }
     }
 
     public sealed class CoCoEventToIntentDeclarationSource

@@ -535,6 +535,15 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            if (layer.AnyState != null)
+            {
+                var anyRow = new Button(() => controller.NavigateToState(ToStateId(layer.AnyState.StateId)))
+                {
+                    text = $"AnyState · {layer.AnyState.DisplayName}"
+                };
+                anyRow.AddToClassList("sg-tree-row");
+                tree.Add(anyRow);
+            }
             AddTreeChildren(tree, layer, default, 0);
         }
 
@@ -712,6 +721,10 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller.SelectState(id);
+            if (ReferenceEquals(state, layer.AnyState))
+            {
+                return;
+            }
             bool hasIncidentTransition = HasIncidentTransition(layer, state.StateId);
             var menu = new GenericMenu();
             if (CoCoStateGraphAuthoringOperations.CanEdit(out _) && !hasIncidentTransition)
@@ -940,7 +953,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 foreach (CoCoStateDescriptor descriptor in controller.Catalog.StateDescriptors)
                 {
-                    if (descriptor.DescriptorId == descriptorId)
+                    if (descriptor.DescriptorId == descriptorId &&
+                        !CoCoStateGraphEditorController.IsAnyStateDescriptor(descriptor))
                     {
                         return descriptor;
                     }
@@ -1022,7 +1036,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return null;
             }
 
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state != null && state.StateId.High == stateId.High && state.StateId.Low == stateId.Low)
                 {

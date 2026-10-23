@@ -114,7 +114,7 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 validCanvasKeys.Add(CanvasKey(layerId, default));
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state != null && TryStateId(state.StateId, out CoCoStateId stateId))
                     {

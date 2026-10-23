@@ -91,7 +91,7 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 RegisterRemap(layer.LayerId, layerIds, currentAssetGuid, "layer");
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state != null)
                     {
@@ -121,7 +121,7 @@ namespace CoCoFlow.Runtime.Core
 
                 layer.LayerId = Remap(layer.LayerId, layerIds);
                 layer.InitialStateId = Remap(layer.InitialStateId, stateIds);
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state == null)
                     {

@@ -560,15 +560,13 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            // The trusted default must equal the runtime's initial graph
-            // authority for this state: the layer's initial state starts
-            // active (activation 1, enter pending), every other state
-            // starts inactive (no activation, zero clocks). A hardcoded
-            // active record only matches single-state graphs.
+            // AnyState owns a persistent Activation without joining the active
+            // path or receiving Enter. Ordinary initial-path defaults stay unchanged.
             ulong initialActivation = InitialActivation(bindingBuilder.Graph, state);
-            bool isInitialState = initialActivation != 0;
+            bool hasInitialActivation = initialActivation != 0;
+            bool isOnActivePath = hasInitialActivation && !state.IsAnyState;
             CoCoGraphStateRecord<int> defaultRecord;
-            if (isInitialState)
+            if (hasInitialActivation)
             {
                 if (!CoCoActivationId.TryCreate(
                         initialActivation,
@@ -576,11 +574,11 @@ namespace CoCoFlow.Runtime.Core
                     !CoCoGraphStateRecord<int>.TryCreate(
                         layer.LayerId,
                         state.StateId,
-                        true,
+                        isOnActivePath,
                         activationId,
                         0d,
                         0d,
-                        true,
+                        isOnActivePath,
                         StatelessMemory.Fingerprint,
                         0,
                         out defaultRecord))

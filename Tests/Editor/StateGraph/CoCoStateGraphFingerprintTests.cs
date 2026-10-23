@@ -31,6 +31,40 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void FixedLegacyGraphRetainsContentFingerprint()
+        {
+            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            try
+            {
+                asset.EnsureAssetIdentity("fixed-legacy-fingerprint");
+                var serialized = new SerializedObject(asset);
+                serialized.FindProperty("graphId").FindPropertyRelative("high").ulongValue = 1UL;
+                serialized.FindProperty("graphId").FindPropertyRelative("low").ulongValue = 1UL;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(2UL, 1UL), "Legacy");
+                layer.InitialStateId = new CoCoSerializedId128(3UL, 10UL);
+                layer.States.Add(new CoCoStateGraphStateRecord(layer.InitialStateId, default, "Idle",
+                    new CoCoSerializedId128(5UL, 1UL), new TestStateAuthoringConfig { Value = 10 }));
+                asset.Layers.Add(layer);
+                const ulong legacyFingerprint = 9279485480042731979UL;
+                Assert.AreEqual(legacyFingerprint, Snapshot(asset).ContentFingerprint);
+                catalog = CoCoStateGraphTestFactory.CreateCatalog(false, includeAnyState: true);
+                layer.AnyState = new CoCoStateGraphStateRecord(new CoCoSerializedId128(3UL, 40UL), default,
+                    "Any", new CoCoSerializedId128(5UL, 2UL), new TestStateAuthoringConfig { Value = 4 });
+                ulong configuredFingerprint = Snapshot(asset).ContentFingerprint;
+                Assert.AreNotEqual(legacyFingerprint, configuredFingerprint);
+                ((TestStateAuthoringConfig)layer.AnyState.Config).Value = 5;
+                Assert.AreNotEqual(configuredFingerprint, Snapshot(asset).ContentFingerprint);
+                layer.AnyState = null;
+                Assert.AreEqual(legacyFingerprint, Snapshot(asset).ContentFingerprint);
+            }
+            finally
+            {
+                Object.DestroyImmediate(asset);
+            }
+        }
+
+        [Test]
         public void DisplayNamesAssetPathAndGuidStampDoNotChangeContentFingerprint()
         {
             CoCoStateGraphAsset asset = CreateSavedAsset();

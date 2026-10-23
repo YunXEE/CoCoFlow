@@ -8,6 +8,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         internal static CoCoGraphId GraphId => CreateGraphId(1UL);
         internal static CoCoLayerId LayerId => CreateLayerId(1UL);
         internal static CoCoStateDescriptorId StateDescriptorId => CreateStateDescriptorId(1UL);
+        internal static CoCoStateDescriptorId AnyStateDescriptorId => CreateStateDescriptorId(2UL);
         internal static CoCoConditionDescriptorId ConditionDescriptorId => CreateConditionDescriptorId(1UL);
         internal static CoCoIntentId IntentId => CreateIntentId(1UL);
         internal static CoCoOperationSectionId OperationSectionId => CreateOperationSectionId(1UL);
@@ -25,7 +26,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             uint descriptorRevision = 1U,
             ulong intentFactorySemanticFingerprint = 101UL,
             ulong operationFactorySemanticFingerprint = 102UL,
-            bool providesActionProgress = false)
+            bool providesActionProgress = false,
+            bool includeAnyState = false)
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             CoCoIntentId[] intents = null;
@@ -91,6 +93,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 intents,
                 blocks,
                 out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic);
+            if (includeAnyState)
+            {
+                Require(builder.TryRegisterState(
+                    AnyStateDescriptorId,
+                    descriptorRevision,
+                    new TestStateConfigFreezer(),
+                    new CoCoStateRuntimeRegistration<TestAnyStateLogic, TestStateConfigSchema, TestActivationMemory>(
+                        TestFrozenConfigSchemas.StateSchema),
+                    intents,
+                    operations,
+                    blocks,
+                    out CoCoDiagnostic anyDiagnostic), anyDiagnostic);
+            }
             Require(builder.TryFreeze(
                 out CoCoGraphDescriptorCatalog catalog,
                 out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic);
@@ -287,4 +302,5 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             }
         }
     }
+
 }

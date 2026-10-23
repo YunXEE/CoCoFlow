@@ -50,6 +50,7 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField] private string displayName = string.Empty;
         [SerializeField, HideInInspector] private CoCoSerializedId128 initialStateId;
         [SerializeField] private List<CoCoStateGraphStateRecord> states = new List<CoCoStateGraphStateRecord>();
+        [SerializeReference] private CoCoStateGraphStateRecord anyState;
         [SerializeField] private List<CoCoStateGraphTransitionRecord> transitions =
             new List<CoCoStateGraphTransitionRecord>();
 
@@ -79,6 +80,28 @@ namespace CoCoFlow.Runtime.Core
 
         internal List<CoCoStateGraphStateRecord> States =>
             states ?? (states = new List<CoCoStateGraphStateRecord>());
+
+        internal CoCoStateGraphStateRecord AnyState
+        {
+            get => anyState;
+            set => anyState = value;
+        }
+
+        internal IEnumerable<CoCoStateGraphStateRecord> AllStates
+        {
+            get
+            {
+                foreach (CoCoStateGraphStateRecord state in States)
+                {
+                    yield return state;
+                }
+
+                if (anyState != null)
+                {
+                    yield return anyState;
+                }
+            }
+        }
 
         internal List<CoCoStateGraphTransitionRecord> Transitions =>
             transitions ?? (transitions = new List<CoCoStateGraphTransitionRecord>());

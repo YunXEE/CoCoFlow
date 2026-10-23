@@ -966,6 +966,14 @@ namespace CoCoFlow.Runtime.Core
                         return false;
                     }
 
+                    if (layer.States[stateIndex].IsAnyState &&
+                        (!header.ActivationId.IsValid || header.IsOnActivePath || header.EnterPending))
+                    {
+                        diagnostic = RestoreError(
+                            "Restored AnyState requires its own Activation without active-path or EnterPending markers.");
+                        return false;
+                    }
+
                     if (header.ActivationId.IsValid)
                     {
                         for (int priorIndex = 0; priorIndex < absoluteStateIndex; priorIndex++)
@@ -1092,6 +1100,24 @@ namespace CoCoFlow.Runtime.Core
                 {
                     return true;
                 }
+            }
+
+            // Only the Layer's declared AnyState may retain ownership outside
+            // the normal path. Exited ordinary States also retain Activation IDs.
+            int stateOffset = 0;
+            for (int layerIndex = 0; layerIndex < _graph.Layers.Count; layerIndex++)
+            {
+                CoCoCompiledStateLayer layer = _graph.Layers[layerIndex];
+                if (layer.AnyStateIndex >= 0 &&
+                    _states[stateOffset + layer.AnyStateIndex].TryReadRestoreHeader(
+                        source, out CoCoStateGraphRestoreState header) &&
+                    !header.IsOnActivePath && !header.EnterPending &&
+                    header.ActivationId == activationId)
+                {
+                    return true;
+                }
+
+                stateOffset += layer.States.Count;
             }
 
             return false;

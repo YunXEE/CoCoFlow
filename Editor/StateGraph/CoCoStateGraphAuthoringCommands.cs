@@ -154,9 +154,10 @@ namespace CoCoFlow.Editor.StateGraph
                     out failure);
             }
 
-            impact = new CoCoStateGraphDeleteImpact(layer.States.Count, layer.Transitions.Count);
+            impact = new CoCoStateGraphDeleteImpact(
+                layer.States.Count + (layer.AnyState == null ? 0 : 1), layer.Transitions.Count);
             var stateIds = new List<CoCoSerializedId128>(layer.States.Count);
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state != null)
                 {
@@ -250,6 +251,76 @@ namespace CoCoFlow.Editor.StateGraph
             return true;
         }
 
+        internal static bool TryAddAnyState(
+            CoCoStateGraphAsset asset,
+            CoCoLayerId layerId,
+            CoCoStateDescriptor descriptor,
+            CoCoStateConfig config,
+            Vector2 position,
+            out CoCoStateId stateId,
+            out string failure)
+        {
+            RequireAsset(asset);
+            stateId = default;
+            CoCoStateGraphLayerRecord layer = FindLayer(asset, layerId);
+            if (layer == null || layer.AnyState != null)
+            {
+                return Fail("Select a Layer without an AnyState binding.", out failure);
+            }
+
+            if (descriptor == null || !typeof(CoCoAnyStateLogic).IsAssignableFrom(descriptor.LogicType))
+            {
+                return Fail("AnyState requires a CoCoAnyStateLogic descriptor.", out failure);
+            }
+
+            if (!asset.EditorLayout.IsSupported || !IsFinite(position))
+            {
+                return Fail("AnyState requires a supported layout and finite position.", out failure);
+            }
+
+            CoCoSerializedId128 id = CoCoSerializedId128.NewId();
+            Record(asset, "Add State Graph AnyState");
+            layer.AnyState = new CoCoStateGraphStateRecord(
+                id, default, "AnyState", Serialize(descriptor.DescriptorId), config);
+            asset.EditorLayout.SetPosition(id, position);
+            Dirty(asset);
+            CoCoStateId.TryCreate(id.High, id.Low, out stateId);
+            failure = string.Empty;
+            return true;
+        }
+
+        internal static bool TryDeleteAnyState(
+            CoCoStateGraphAsset asset,
+            CoCoLayerId layerId,
+            out string failure)
+        {
+            RequireAsset(asset);
+            CoCoStateGraphLayerRecord layer = FindLayer(asset, layerId);
+            if (layer?.AnyState == null || !asset.EditorLayout.IsSupported)
+            {
+                return Fail("Select a configured AnyState with a supported layout.", out failure);
+            }
+
+            CoCoSerializedId128 id = layer.AnyState.StateId;
+            Record(asset, "Delete State Graph AnyState");
+            layer.Transitions.RemoveAll(edge => edge != null &&
+                (edge.SourceStateId == id || edge.TargetStateId == id));
+            layer.AnyState = null;
+            asset.EditorLayout.Remove(id);
+            Dirty(asset);
+            failure = string.Empty;
+            return true;
+        }
+
+        private static CoCoStateGraphStateRecord FindEditableState(
+            CoCoStateGraphLayerRecord layer,
+            CoCoStateId stateId)
+        {
+            return layer?.AnyState != null && layer.AnyState.StateId == Serialize(stateId)
+                ? layer.AnyState
+                : layer == null ? null : FindState(layer, stateId);
+        }
+
         internal static bool TryRenameState(
             CoCoStateGraphAsset asset,
             CoCoLayerId layerId,
@@ -259,7 +330,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             RequireAsset(asset);
             CoCoStateGraphLayerRecord layer = FindLayer(asset, layerId);
-            CoCoStateGraphStateRecord state = layer == null ? null : FindState(layer, stateId);
+            CoCoStateGraphStateRecord state = FindEditableState(layer, stateId);
             if (state == null)
             {
                 return Fail("The State ID does not belong to the target Layer.", out failure);
@@ -298,7 +369,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             CoCoStateGraphLayerRecord layer = FindLayer(asset, layerId);
-            CoCoStateGraphStateRecord state = layer == null ? null : FindState(layer, stateId);
+            CoCoStateGraphStateRecord state = FindEditableState(layer, stateId);
             if (state == null)
             {
                 return Fail("The State ID does not belong to the target Layer.", out failure);
@@ -657,7 +728,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             RequireAsset(asset);
             CoCoStateGraphLayerRecord layer = FindLayer(asset, layerId);
-            CoCoStateGraphStateRecord state = layer == null ? null : FindState(layer, stateId);
+            CoCoStateGraphStateRecord state = FindEditableState(layer, stateId);
             if (state == null)
             {
                 return Fail("The State ID does not belong to the target Layer.", out failure);
@@ -700,7 +771,7 @@ namespace CoCoFlow.Editor.StateGraph
                     continue;
                 }
 
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state != null && state.StateId.IsValid)
                     {
@@ -1160,7 +1231,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return Fail("The Layer ID does not belong to the supplied StateGraph Asset.", out failure);
             }
 
-            CoCoStateGraphStateRecord source = FindState(layer, sourceStateId);
+            CoCoStateGraphStateRecord source = FindEditableState(layer, sourceStateId);
             CoCoStateGraphStateRecord target = FindState(layer, targetStateId);
             if (source == null || target == null)
             {

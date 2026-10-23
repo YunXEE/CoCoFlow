@@ -229,9 +229,12 @@ namespace CoCoFlow.Runtime.Core
                         continue;
                     }
 
-                    for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
+                    int stateCount = layer.States.Count + (layer.AnyState == null ? 0 : 1);
+                    for (int stateIndex = 0; stateIndex < stateCount; stateIndex++)
                     {
-                        CoCoStateSource state = layer.States[stateIndex];
+                        CoCoStateSource state = stateIndex < layer.States.Count
+                            ? layer.States[stateIndex]
+                            : layer.AnyState;
                         if (state == null)
                         {
                             continue;
@@ -375,6 +378,16 @@ namespace CoCoFlow.Runtime.Core
 
                 ValidateLayerInitialState(layer, layerIndex, localStates);
                 ValidateHierarchy(layer, layerIndex, localStates);
+                if (layer.AnyState != null &&
+                    (layer.AnyState.ParentStateId.IsValid || layer.AnyState.InitialChildStateId.IsValid))
+                {
+                    AddError(
+                        CoCoDiagnosticDomain.Topology,
+                        CoCoDiagnosticCode.InvalidInitialState,
+                        "AnyState cannot have a parent or an initial child.",
+                        StateLocation(layerIndex, -1, layer, layer.AnyState, CoCoGraphField.ParentState));
+                }
+
                 ValidateTransitions(layer, layerIndex, localStates);
             }
 
@@ -400,9 +413,12 @@ namespace CoCoFlow.Runtime.Core
                     CoCoStateLayerSource layer = _source.Layers[layerIndex];
                     if (layer?.States != null)
                     {
-                        for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
+                        int stateCount = layer.States.Count + (layer.AnyState == null ? 0 : 1);
+                        for (int stateIndex = 0; stateIndex < stateCount; stateIndex++)
                         {
-                            CoCoStateSource state = layer.States[stateIndex];
+                            CoCoStateSource state = stateIndex < layer.States.Count
+                                ? layer.States[stateIndex]
+                                : layer.AnyState;
                             if (state != null)
                             {
                                 ValidateStateDescriptor(layer, layerIndex, state, stateIndex);
@@ -487,6 +503,22 @@ namespace CoCoFlow.Runtime.Core
                         }
 
                         var providedByState = new HashSet<CoCoOperationSectionId>(descriptor.OperationProvides);
+                        if (layer.AnyState != null && _catalog.TryGetStateDescriptor(
+                                layer.AnyState.DescriptorId, out CoCoStateDescriptor anyDescriptor))
+                        {
+                            foreach (CoCoOperationSectionId operationId in anyDescriptor.OperationProvides)
+                            {
+                                if (providedByState.Contains(operationId))
+                                {
+                                    AddWarning(
+                                        CoCoDiagnosticDomain.Operation,
+                                        CoCoDiagnosticCode.ActivePathOperationOverlap,
+                                        $"AnyState and State {state.StateId} both provide Operation Section {operationId}.",
+                                        StateLocation(layerIndex, -1, layer, layer.AnyState, CoCoGraphField.Descriptor));
+                                }
+                            }
+                        }
+
                         var reported = new HashSet<CoCoOperationSectionId>();
                         var visited = new HashSet<CoCoStateId>();
                         CoCoStateId ancestorId = state.ParentStateId;
@@ -544,6 +576,19 @@ namespace CoCoFlow.Runtime.Core
                         "State descriptor is not registered.",
                         StateLocation(layerIndex, stateIndex, layer, state, CoCoGraphField.Descriptor));
                     return;
+                }
+
+                bool isAnyState = ReferenceEquals(state, layer.AnyState);
+                bool isAnyLogic = typeof(CoCoAnyStateLogic).IsAssignableFrom(descriptor.LogicType);
+                if (isAnyState != isAnyLogic ||
+                    (isAnyState && (typeof(ICoCoStateEnter).IsAssignableFrom(descriptor.LogicType) ||
+                                    typeof(ICoCoStateExit).IsAssignableFrom(descriptor.LogicType))))
+                {
+                    AddError(
+                        CoCoDiagnosticDomain.State,
+                        CoCoDiagnosticCode.DescriptorTypeMismatch,
+                        "AnyState requires CoCoAnyStateLogic without Enter or Exit; ordinary States cannot use it.",
+                        StateLocation(layerIndex, stateIndex, layer, state, CoCoGraphField.Descriptor));
                 }
 
                 AddRequirements(descriptor);
@@ -920,6 +965,21 @@ namespace CoCoFlow.Runtime.Core
                 CoCoGraphField field,
                 Dictionary<CoCoStateId, int> localStates)
             {
+                if (stateId.IsValid && layer.AnyState?.StateId == stateId)
+                {
+                    if (field == CoCoGraphField.SourceState)
+                    {
+                        return true;
+                    }
+
+                    AddError(
+                        CoCoDiagnosticDomain.Topology,
+                        CoCoDiagnosticCode.NonLeafTransitionEndpoint,
+                        "AnyState can only be a Transition source, never a target.",
+                        TransitionLocation(layerIndex, transitionIndex, layer, transition, field));
+                    return false;
+                }
+
                 if (stateId.IsValid && localStates.ContainsKey(stateId))
                 {
                     if (!HasChildState(layer, stateId))
@@ -1107,6 +1167,11 @@ namespace CoCoFlow.Runtime.Core
                 var reachable = new HashSet<CoCoStateId>();
                 var pending = new Queue<CoCoStateId>();
                 MarkPathAndInitialChain(layer, localStates, layer.InitialStateId, reachable, pending);
+                if (layer.AnyState != null)
+                {
+                    pending.Enqueue(layer.AnyState.StateId);
+                }
+
                 while (pending.Count > 0)
                 {
                     CoCoStateId sourceId = pending.Dequeue();
@@ -1207,6 +1272,14 @@ namespace CoCoFlow.Runtime.Core
                 Array.Sort(stateSources, (left, right) => StringComparer.Ordinal.Compare(
                     left.StateId.ToString(),
                     right.StateId.ToString()));
+                int anyStateIndex = -1;
+                if (layer.AnyState != null)
+                {
+                    anyStateIndex = stateSources.Length;
+                    Array.Resize(ref stateSources, stateSources.Length + 1);
+                    stateSources[anyStateIndex] = layer.AnyState;
+                }
+
                 var stateIndices = new Dictionary<CoCoStateId, int>(stateSources.Length);
                 for (int index = 0; index < stateSources.Length; index++)
                 {
@@ -1265,13 +1338,14 @@ namespace CoCoFlow.Runtime.Core
                 for (int index = 0; index < stateSources.Length; index++)
                 {
                     CoCoStateSource source = stateSources[index];
+                    bool isAnyState = index == anyStateIndex;
                     _catalog.TryGetStateDescriptor(source.DescriptorId, out CoCoStateDescriptor descriptor);
                     int parentIndex = source.ParentStateId.IsValid ? stateIndices[source.ParentStateId] : -1;
                     int initialChildIndex = source.InitialChildStateId.IsValid
                         ? stateIndices[source.InitialChildStateId]
                         : -1;
                     int[] children = GetChildren(stateSources, stateIndices, source.StateId);
-                    int[] path = GetRootPath(stateSources, stateIndices, index);
+                    int[] path = isAnyState ? Array.Empty<int>() : GetRootPath(stateSources, stateIndices, index);
                     GetTransitionRange(transitions, index, out int firstTransition, out int transitionCount);
                     states[index] = new CoCoCompiledState(
                         source.StateId,
@@ -1283,7 +1357,8 @@ namespace CoCoFlow.Runtime.Core
                         children,
                         path,
                         firstTransition,
-                        transitionCount);
+                        transitionCount,
+                        isAnyState);
                 }
 
                 return new CoCoCompiledStateLayer(
@@ -1291,7 +1366,8 @@ namespace CoCoFlow.Runtime.Core
                     layerIndex,
                     stateIndices[layer.InitialStateId],
                     states,
-                    transitions);
+                    transitions,
+                    anyStateIndex);
             }
 
             private void AggregateManifests()
@@ -1522,7 +1598,7 @@ namespace CoCoFlow.Runtime.Core
                     state?.StateId ?? default,
                     default,
                     layerIndex,
-                    stateIndex,
+                    state != null && ReferenceEquals(state, layer?.AnyState) ? -1 : stateIndex,
                     -1,
                     -1);
 
@@ -1610,6 +1686,12 @@ namespace CoCoFlow.Runtime.Core
 
                 state = null;
                 stateIndex = -1;
+                if (layer?.AnyState != null && layer.AnyState.StateId == stateId)
+                {
+                    state = layer.AnyState;
+                    return true;
+                }
+
                 return false;
             }
 

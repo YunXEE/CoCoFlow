@@ -1666,6 +1666,63 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(secondarySections, Is.EqualTo(4));
         }
 
+        [Test]
+        public void AnyClaimSurvivesLeafChangeAndRestoresWithOwnActivation()
+        {
+            OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
+            Require(CoCoStateGraphProjectBindings.TryInstall(
+                new ClaimBindingProvider(ids, anyState: true), out CoCoDiagnostic install), install);
+            CoCoStateGraphAsset asset = CreateClaimGraphAsset(ids);
+            asset.Layers[0].AnyState = new CoCoStateGraphStateRecord(
+                Serialize(AnyClaimDefault(ids).StateId), default, "Any Claim",
+                Serialize(AnyClaimDescriptor), new HostTestStateConfig());
+            CoCoStateGraphHost host = CreateClaimHost(asset, out GameObject gameObject, 0);
+            var low = gameObject.AddComponent<LowClaimOperator>();
+            low.Configure(ids, CoCoOperatorClaimSuspendPolicy.Retain);
+            var high = gameObject.AddComponent<HighClaimOperator>();
+            high.Configure(ids);
+            SetOperators(host, low, high);
+
+            Require(host.TryStart(out CoCoDiagnostic start), start);
+            Require(host.TryStep(0.02d, out CoCoDiagnostic first), first);
+            CoCoContextFrame source = host.CurrentContext;
+            Require(source.Retain());
+            try
+            {
+                CoCoStateSlotId anySlot = StandardGraphState.SlotFor(AnyClaimDescriptor);
+                CoCoGraphStateRecord<byte> sourceAny = ReadClaimGraphState(source, anySlot);
+                CoCoOperatorClaimState sourceClaim = ReadClaim(source, ids.PrimaryClaimStateSlotId);
+                Assert.That(sourceAny.IsOnActivePath || sourceAny.EnterPending, Is.False);
+                Assert.That(sourceAny.ActivationId.Value, Is.EqualTo(2UL));
+                Assert.That(sourceAny.State, Is.EqualTo(1));
+                Assert.That(sourceClaim.ActivationId, Is.EqualTo(sourceAny.ActivationId));
+
+                OperatorCommitClaimLogic.EnableSecondary = true;
+                OperatorCommitClaimLogic.RequestTransition = true;
+                Require(host.TryStep(0.02d, out CoCoDiagnostic transition), transition);
+                OperatorCommitClaimLogic.RequestTransition = false;
+                Require(host.TryStep(0.02d, out CoCoDiagnostic changed), changed);
+                Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
+                Assert.That(ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId), Is.EqualTo(sourceClaim));
+                Assert.That(ReadClaimGraphState(host.CurrentContext, anySlot).State, Is.EqualTo(3));
+                Assert.That(low.ExecuteCount, Is.EqualTo(3));
+                Assert.That(high.ExecuteCount, Is.Zero);
+                Require(host.TryPrepareRestore(source, CreateResumedTick(host.CurrentContext.Header.TickFrame),
+                    out CoCoPreparedActorRestore prepared, out _, out CoCoDiagnostic restore), restore);
+                prepared.CommitNoFail();
+                Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.StateId));
+                Assert.That(ReadClaimGraphState(host.CurrentContext, anySlot), Is.EqualTo(sourceAny));
+                Assert.That(ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId), Is.EqualTo(sourceClaim));
+                Require(host.TryStep(0.02d, out CoCoDiagnostic resumed), resumed);
+                Assert.That(ReadClaimGraphState(host.CurrentContext, anySlot).State, Is.EqualTo(2));
+                Assert.That(ReadClaim(host.CurrentContext, ids.PrimaryClaimStateSlotId), Is.EqualTo(sourceClaim));
+            }
+            finally
+            {
+                source.Release();
+            }
+        }
+
         [TestCase(CoCoOperatorClaimSuspendPolicy.Retain, 2, 0)]
         [TestCase(CoCoOperatorClaimSuspendPolicy.Release, 1, 1)]
         public void SuspendPolicyPreservesOrReleasesCompleteClaimSet(
@@ -2556,12 +2613,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
+        private static CoCoStateDescriptorId AnyClaimDescriptor
+        {
+            get
+            {
+                StandardDescriptors.TryCreate(typeof(AnyClaimLogic), nameof(AnyClaimLogic), out var descriptor);
+                return descriptor;
+            }
+        }
+
+        private static CoCoGraphStateRecord<byte> AnyClaimDefault(OperatorCommitTestIds ids)
+        {
+            Require(CoCoStateId.TryCreate(ids.StateId.High, 999UL, out CoCoStateId stateId));
+            Require(CoCoActivationId.TryCreate(2UL, out CoCoActivationId activation));
+            Require(CoCoGraphStateRecord<byte>.TryCreate(ids.LayerId, stateId, false, activation,
+                0d, 0d, false, 0UL, 0, out CoCoGraphStateRecord<byte> record));
+            return record;
+        }
+
         private sealed class ClaimBindingProvider : ICoCoStateGraphProjectBindingProvider
         {
             private const ulong PrimaryFactoryFingerprint = 5091UL;
             private const ulong SecondaryFactoryFingerprint = 5092UL;
+            private const ulong AnyDefaultFingerprint = 50535UL;
             private readonly OperatorCommitTestIds _ids;
             private readonly bool _mismatchPrimaryClaimDefault;
+            private readonly bool _anyState;
             private readonly OperatorCommitPrimarySectionFactory _primary =
                 new OperatorCommitPrimarySectionFactory();
             private readonly OperatorCommitSecondarySectionFactory _secondary =
@@ -2575,15 +2652,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoContextRestorePolicy secondaryClaimRestorePolicy =
                     CoCoContextRestorePolicy.Stored,
                 CoCoContextProjection claimProjection =
-                    CoCoContextProjection.Temporal)
+                    CoCoContextProjection.Temporal,
+                bool anyState = false)
             {
                 _ids = ids;
                 _mismatchPrimaryClaimDefault = mismatchPrimaryClaimDefault;
+                _anyState = anyState;
                 Catalog = BuildCatalog(
                     ids,
                     primaryClaimRestorePolicy,
                     secondaryClaimRestorePolicy,
-                    claimProjection);
+                    claimProjection,
+                    anyState);
             }
 
             public CoCoGraphDescriptorCatalog Catalog { get; }
@@ -2655,6 +2735,25 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         OperatorCommitProjectFactoryProbe.RecordMemoryFingerprint();
                         return unchecked((ulong)(uint)memory.Value);
                     });
+                if (_anyState)
+                {
+                    var anyFactory = new CoCoStateRuntimeFactory<AnyClaimLogic, OperatorCommitClaimMemory>(
+                        context => new AnyClaimLogic(new OperatorCommitClaimLogic(context,
+                            _primary.Handle, _primary.ValueField, _secondary.Handle, _secondary.ValueField)),
+                        () => new OperatorCommitClaimMemory(),
+                        (source, destination) => destination.Value = source.Value,
+                        memory => memory.Value = 0,
+                        memory => unchecked((ulong)(uint)memory.Value));
+                    CoCoGraphStateRecord<byte> record = AnyClaimDefault(_ids);
+                    if (!builder.TryBindState(AnyClaimDescriptor, anyFactory, out diagnostic) ||
+                        !builder.TryBindGraphStateSlot<OperatorCommitClaimMemory, byte, OperatorCommitClaimMemoryBinding>(
+                            _ids.LayerId, record.StateId, _ids.GraphStateBlockId,
+                            StandardGraphState.SlotFor(AnyClaimDescriptor), record, AnyDefaultFingerprint,
+                            new OperatorCommitClaimMemoryBinding(), out diagnostic))
+                    {
+                        return false;
+                    }
+                }
                 return builder.TryBindState(_ids.StateDescriptorId, stateFactory, out diagnostic);
             }
 
@@ -2662,7 +2761,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 OperatorCommitTestIds ids,
                 CoCoContextRestorePolicy primaryClaimRestorePolicy,
                 CoCoContextRestorePolicy secondaryClaimRestorePolicy,
-                CoCoContextProjection claimProjection)
+                CoCoContextProjection claimProjection,
+                bool anyState)
             {
                 var builder = new CoCoGraphDescriptorCatalogBuilder();
                 Require(builder.TryRegisterOperationSection(
@@ -2712,6 +2812,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     new[] { ids.PrimarySectionId, ids.SecondarySectionId },
                     new[] { ids.StateBlockId, ids.GraphStateBlockId },
                     out CoCoDiagnostic state), state);
+                if (anyState)
+                {
+                    Require(builder.TryRegisterState(AnyClaimDescriptor, 1U, new HostTestStateConfigFreezer(),
+                        new CoCoStateRuntimeRegistration<AnyClaimLogic, HostTestStateConfigSchema,
+                            OperatorCommitClaimMemory>(HostTestSchemas.State, false), null,
+                        new[] { ids.PrimarySectionId, ids.SecondarySectionId },
+                        new[] { ids.StateBlockId, ids.GraphStateBlockId }, out CoCoDiagnostic any), any);
+                    Require(builder.TryRegisterStateSlot(ids.GraphStateBlockId,
+                        StandardGraphState.SlotFor(AnyClaimDescriptor), claimProjection, CoCoContextRestorePolicy.Stored,
+                        AnyClaimDefault(ids), AnyDefaultFingerprint, default, null, out any), any);
+                }
                 Require(builder.TryFreeze(
                     out CoCoGraphDescriptorCatalog catalog,
                     out CoCoDiagnostic freeze), freeze);

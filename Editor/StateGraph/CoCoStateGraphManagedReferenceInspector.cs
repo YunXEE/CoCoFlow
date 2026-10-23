@@ -90,11 +90,17 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoLayerId.TryCreate(layerHigh, layerLow, out CoCoLayerId layerId);
 
                 SerializedProperty states = layer.FindPropertyRelative("states");
-                for (int stateIndex = 0;
+                for (int stateIndex = -1;
                      states != null && stateIndex < states.arraySize;
                      stateIndex++)
                 {
-                    SerializedProperty state = states.GetArrayElementAtIndex(stateIndex);
+                    SerializedProperty state = stateIndex < 0
+                        ? layer.FindPropertyRelative("anyState")
+                        : states.GetArrayElementAtIndex(stateIndex);
+                    if (state == null || (stateIndex < 0 && state.managedReferenceValue == null))
+                    {
+                        continue;
+                    }
                     TryReadId(state.FindPropertyRelative("stateId"), out ulong stateHigh, out ulong stateLow);
                     CoCoStateId.TryCreate(stateHigh, stateLow, out CoCoStateId stateId);
                     SerializedProperty config = state.FindPropertyRelative("config");
