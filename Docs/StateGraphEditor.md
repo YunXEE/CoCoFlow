@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.1` · Updated 2026-09-02
+> Documentation baseline: `0.4.1` · AnyState increment: `0.4.6` (unreleased)
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
@@ -36,7 +36,7 @@ The canvas shows the whole selected Layer as one flattened genealogy view:
 every State, at any nesting depth, is placed on the same canvas (positions are
 composed from the per-scope local EditorLayout coordinates), and parent-child
 structure is drawn as white flowchart-style elbow lines (genealogy lines). A
-Transition can connect only two leaves of the Layer, at any depth. Its runtime
+Transition goes from an ordinary leaf or AnyState to an ordinary leaf of the Layer. Its runtime
 declaration consists of Conditions, one Window, and a Priority that is unique
 among the outgoing Transitions of its source. Completion and Interrupt are not
 authoring fields. The interaction rejects a cross-Layer or composite endpoint
@@ -64,7 +64,7 @@ ancestry takes precedence when roles overlap, including on a self-loop.
 Outgoing Transition controls remain expanded, with a bounded scrolling list.
 
 Leaf flow states are computed from the Layer default leaf by following all
-Transitions: reachable leaves with outgoing edges (and the default leaf when
+Transitions, also starting from configured AnyState: reachable leaves with outgoing edges (and the default leaf when
 it has outgoing edges) show no marker; reachable leaves without outgoing edges
 (dead ends) show an orange dashed outer ring; topologically unreachable leaves
 (including a default leaf without outgoing edges) show a red dashed ring.
@@ -90,7 +90,7 @@ Analyze, and diagnostic location remain available without mutating serialized
 data.
 
 With nothing selected, the details sidebar shows Layer management, Add State,
-Add Logic, then all Transitions in the current Layer. These three operation
+Add Logic, the optional AnyState creation card, then all Transitions in the current Layer. These operation
 panels stay expanded and appear only while neither a State nor a Transition is
 selected. Selecting a State or Transition shows its editor and scoped outgoing
 Transitions instead. Clicking empty canvas clears selection and keeps the current
@@ -117,6 +117,38 @@ one Undo transaction, persists the asset and immediately analyzes and refreshes
 it. Switching selection or assets asks to save, discard or cancel; closing the
 window uses Unity's unsaved-changes prompt. UI rebuilds preserve an unsaved draft.
 Analyze always analyzes the saved asset, including while a draft is pending.
+
+### Configuring AnyState
+
+Write an attributed project Logic deriving from `CoCoAnyStateLogic`, overriding
+`Update`. It uses the normal Config/Memory/Intent/Operation and mailbox binding
+paths. Do not implement Enter or Exit. The normal **Add Logic** script wizard
+still creates ordinary Logic; AnyState requires the explicit special base class.
+
+1. Select the Layer and click empty canvas to clear the current selection.
+2. In the **AnyState** card, select the special Logic and click **Add AnyState**
+   (`添加 AnyState`). This entry exists only while the Layer has no AnyState.
+3. Select its independent `AnyState · name` canvas card or directory row.
+   Edit Name, Logic and StateConfig through the same **Save / Discard** draft.
+4. Add outgoing transitions in **Transitions**, or right-drag its canvas card
+   to an ordinary leaf. Source choices include AnyState and ordinary leaves;
+   target choices include only ordinary leaves. Set unique source Priorities,
+   Conditions and a Window as usual.
+5. **Delete AnyState** (`删除 AnyState`) clears the binding and its associated
+   transitions in one Undo operation. Undo/Redo restores the same IDs and Config.
+
+AnyState has no parent/default-child controls, child creation or subtree copy.
+Its card is separate from genealogy; the current ordinary leaf remains a leaf.
+AnyState Config diagnostics locate `anyState.config`, with stable owner ID and
+`StateIndex = -1`. Layer/Asset copies include and remap AnyState, while ordinary
+subtree copies do not capture it. An old graph remains unconfigured, with its
+ordinary tree, layout and fingerprints unchanged; no migration is required.
+
+The existing Runtime Debugger continues to show the ordinary active path and
+real winning Transition ID. An AnyState-owned edge's declared source is AnyState;
+the Runtime exits the current ordinary leaf's path. See the
+[runtime contract and example](StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+for self-reentry, persistent Memory and output composition.
 
 Structure actions live in a collapsed section and explain their scope: default
 entry, copy/create child States, change parent, delete, and State order. They

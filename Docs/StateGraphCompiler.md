@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Runtime contract baseline: `0.4.0` · Updated 2026-08-29
+> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6` (unreleased)
 >
 > The Compiler and StateGraphAuthoring Runtime are included in the Core Engine
 > maturity statement. The StateGraph Editor is current tooling, but it is not
@@ -25,6 +25,7 @@ topology is:
 Graph
   -> Layer
     -> recursive State
+    -> optional AnyState Logic (separate from recursive States)
   -> Layer-owned Transition
 ```
 
@@ -49,8 +50,8 @@ ID-derived sort position.
 The Editor edits one Layer and one recursive State scope at a time. It supports Layer,
 State, and Transition creation, deletion, reordering, Condition/Window/Priority
 editing, breadcrumb navigation, validation, search, and layout. It is not an
-unrestricted visual-scripting surface: Transition endpoints must be leaves in
-the selected Layer, and there is no Machine, Node, Completion, Interrupt, or
+unrestricted visual-scripting surface: an ordinary leaf or AnyState can be the
+source; the target must be an ordinary leaf in the selected Layer. There is no Completion, Interrupt, or
 cross-Layer communication entry point.
 
 Every topology mutation passes through one Undo-aware authoring operation. A
@@ -101,6 +102,8 @@ fully custom binding provider:
 - `[Config]` and `[Memory]` public instance fields use the standard automatic
   binding path. States without these fields use `EmptyStateConfig` and
   `StatelessMemory`.
+- A concrete `CoCoAnyStateLogic` uses the same attributed registration and
+  bindings, but can only occupy the Layer's optional AnyState slot.
 
 The builder rejects abstract or non-State types, unsupported Intent types,
 unknown Operation Sections, duplicate descriptor IDs, missing registrars, and
@@ -131,6 +134,33 @@ their signatures. Old scalar entries such as `Speed=2.5` remain readable.
 Collections use a length entry (`Windows.$count=2`) and indexed leaves
 (`Windows[0].StartSeconds=0.25`). `Set` replaces the entire supplied path,
 including old descendants, and Apply restores lengths before indexed values.
+
+## Optional AnyState source
+
+`CoCoStateLayerSource` retains its four-argument constructor. A five-argument
+overload appends `CoCoStateSource anyState`; `AnyState == null` preserves the
+ordinary model. The Asset stores this optional record in a nullable
+`[SerializeReference]` slot. Existing `states`, constructors and field paths keep
+their meaning; opening an old Asset neither creates a binding nor migrates it.
+
+AnyState has its own valid stable State ID, descriptor and Config. It is not a
+member of the ordinary tree: it cannot have a parent/initial child or serve as
+a Layer initial State, transition target, subtree root or paste parent. Its
+descriptor must derive from `CoCoAnyStateLogic` without Enter/Exit interfaces;
+ordinary States cannot use that special Logic type.
+
+Compiled States expose `IsAnyState`; each compiled Layer exposes
+`HasAnyState` and `AnyStateIndex` (`-1` when absent). Ordinary State ordering
+is unchanged; configured AnyState follows the ordinary compiled States.
+Outgoing edges retain AnyState's ID as declaration owner; Runtime resolves the
+actual active leaf for exit/self-loop processing. AnyState reachability is
+included, so a Death leaf reached only through AnyState is still reachable.
+
+Asset and Layer copies remap AnyState's identity, layout key and edge sources,
+and deep-copy its Config. Subtree copies retain their ordinary-tree scope.
+Configured AnyState identity/Config/topology participates in fingerprints;
+without AnyState, no extra hash marker, Context slot or Activation is allocated.
+Schema remains v1 and old content/compiled fingerprints retain their values.
 
 ## Stable identity
 
@@ -334,15 +364,16 @@ timing, Samples, Machine/Node concepts, or cross-Layer references.
 
 ## Transition contract
 
-- Source and target must both be leaves in the same Layer. Composite States can
-  occur on an active path but cannot be transitioned to or from directly.
+- The source is an ordinary leaf or the Layer's AnyState; the target must be an
+  ordinary leaf in that Layer. Composite States remain invalid endpoints.
 - Every Transition carries an explicit Priority. Outgoing edges of the same
-  source leaf must use unique Priorities; another source or Layer may reuse the
+  declared source must use unique Priorities; another source or Layer may reuse the
   same value.
 - State Update requests zero or more predeclared outgoing Transition handles.
   It cannot invent an edge or target at runtime. Window and Condition evaluation
-  happens after Update, then the highest eligible Priority is the sole winner
-  for that Layer and Tick.
+  happens after ordinary path Update and AnyState.Update. AnyState's highest
+  eligible Priority wins first; otherwise the ordinary source may win. Each
+  Layer still has at most one winner per Tick.
 - `Always` has no timed interval. `LocalSeconds` and `ActionProgress` use
   `double` intervals with the exact form `[StartInclusive, EndExclusive)`.
 - A timed interval requires finite values, `StartInclusive >= 0`, and
@@ -352,7 +383,7 @@ timing, Samples, Machine/Node concepts, or cross-Layer references.
 - Timed evaluation sweeps the Tick's progress interval using
   `previous < end && current >= start`, so a large Delta cannot jump over an
   eligible window. ActionProgress must be finite and monotonically non-decreasing
-  within one leaf Activation; an equal value is a valid stall. Any decrease,
+  within the declared source's own Activation; an equal value is a valid stall. Any decrease,
   including below the last committed value, cancels the candidate and latches
   Fault. Transactional rollback restores the last committed authority but never
   permits progress to move backwards. Reaching `1` does not complete or exit the
@@ -389,6 +420,10 @@ Every graph diagnostic carries severity, code, and a location that can identify
 the Graph, Layer, State, Transition, Condition, Event Adapter declaration, and
 serialized field path involved. Editor navigation consumes this location; the
 pure compiler does not depend on `UnityEditor`.
+
+AnyState diagnostics carry its stable State ID with `StateIndex = -1`; Editor
+Locate resolves the independent `anyState.config` path where applicable.
+AnyState cannot be encoded by an invalid or missing source ID.
 
 ## Sharing, cache, and threads
 

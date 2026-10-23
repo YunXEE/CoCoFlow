@@ -97,6 +97,20 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
         }
     }
 
+    public sealed class RuntimeContractAnyLogic : CoCoAnyStateLogic
+    {
+        private readonly RuntimeContractUpdateOnlyLogic _update;
+
+        public RuntimeContractAnyLogic(
+            CoCoStateFactoryContext context,
+            IRuntimeContractObserver observer)
+        {
+            _update = new RuntimeContractUpdateOnlyLogic(context, observer);
+        }
+
+        public override void Update(CoCoStateExecutionContext context) => _update.Update(context);
+    }
+
     public sealed class RuntimeContractUpdateOnlyLogic :
         RuntimeContractStateLogicBase,
         ICoCoStateUpdate

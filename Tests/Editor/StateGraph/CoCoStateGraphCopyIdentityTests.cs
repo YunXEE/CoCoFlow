@@ -33,6 +33,36 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void AnyStateCopiesRemapOwnerAndKeepSubtreeIndependent()
+        {
+            CoCoStateGraphAsset asset = CreatePopulatedAsset();
+            CoCoStateGraphLayerRecord source = asset.Layers[0];
+            source.AnyState = new CoCoStateGraphStateRecord(CoCoSerializedId128.NewId(), default, "Any",
+                new CoCoSerializedId128(5UL, 2UL), new TestStateAuthoringConfig { Value = 9 });
+            CoCoSerializedId128 anyId = source.AnyState.StateId;
+            CoCoStateGraphAuthoringOperations.AddTransition(asset, ToLayerId(source.LayerId),
+                ToStateId(anyId), ToStateId(source.States[1].StateId), 0);
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            Assert.IsTrue(AssetDatabase.CopyAsset(SourcePath, CopyPath));
+            AssetDatabase.ImportAsset(CopyPath, ImportAssetOptions.ForceSynchronousImport);
+            CoCoStateGraphLayerRecord copied = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(CopyPath).Layers[0];
+            Assert.AreNotEqual(anyId, copied.AnyState.StateId);
+            Assert.AreEqual(copied.AnyState.StateId, copied.Transitions.Last().SourceStateId);
+            Assert.AreEqual(copied.States[1].StateId, copied.Transitions.Last().TargetStateId);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.DuplicateLayer(asset, ToLayerId(source.LayerId), out _));
+            CoCoStateGraphLayerRecord duplicate = asset.Layers[1];
+            Assert.AreNotEqual(anyId, duplicate.AnyState.StateId);
+            Assert.AreNotSame(source.AnyState.Config, duplicate.AnyState.Config);
+            Assert.AreEqual(duplicate.AnyState.StateId, duplicate.Transitions.Last().SourceStateId);
+            Assert.AreEqual(duplicate.States[1].StateId, duplicate.Transitions.Last().TargetStateId);
+            Assert.IsTrue(CoCoStateGraphAuthoringOperations.DuplicateStateSubtree(asset,
+                ToLayerId(source.LayerId), ToStateId(source.States[0].StateId), out _));
+            Assert.AreEqual(anyId, source.AnyState.StateId);
+            Assert.AreEqual(1, source.Transitions.Count(edge => edge.SourceStateId == anyId));
+        }
+
+        [Test]
         public void WholeAssetCopyRemapsEveryTopologyIdAndInternalReference()
         {
             CoCoStateGraphAsset source = CreatePopulatedAsset();

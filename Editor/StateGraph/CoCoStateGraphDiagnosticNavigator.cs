@@ -83,6 +83,16 @@ namespace CoCoFlow.Editor.StateGraph
             if (location.ElementKind == CoCoGraphElementKind.State)
             {
                 SerializedProperty state = FindState(layer.FindPropertyRelative("states"), location);
+                if (location.StateIndex == -1)
+                {
+                    SerializedProperty anyState = layer.FindPropertyRelative("anyState");
+                    if (anyState != null && anyState.managedReferenceValue != null &&
+                        Matches(anyState.FindPropertyRelative("stateId"),
+                            location.StateId.High, location.StateId.Low))
+                    {
+                        state = anyState;
+                    }
+                }
                 if (state == null)
                 {
                     return false;

@@ -1,5 +1,20 @@
 <!-- CoCoFlow 0.4 冻结契约清单。方案与 PR 按所属模块引用对应节核对，非全量。 -->
 
+## 0.4.6 AnyState 增量（未发布）
+
+- [ ] One optional `CoCoAnyStateLogic` per Layer; Update only, outside ordinary
+      parent/child topology. Ordinary States and transition targets exclude AnyState.
+- [ ] Ordinary path Update completes before AnyState.Update; eligible AnyState
+      requests arbitrate first, with one winner per Layer and Tick.
+- [ ] Any → current leaf uses real leaf self-reentry: reset that leaf's Activation,
+      Memory and progress; preserve common ancestors and AnyState's own authority.
+- [ ] AnyState rank is current leaf depth + 1; Exit cannot reverse it, higher
+      Layers still override it, and transition winners do not filter Outbox entries.
+- [ ] Memory survives ordinary transitions/Suspend and participates in failed-Tick
+      rollback and Context/Temporal restore. New Graph instances initialize it again.
+- [ ] Missing AnyState means no migration, ID/layout/hash/Context-slot/Activation
+      changes. Compare old-graph fingerprints against the actual 0.4.5 baseline.
+
 ## Pre3~Pre6 StateFlow / Runtime / Commit / Temporal 核心契约
 
 - [ ] The PR implements only the named Pre and does not pull later-Pre runtime or
@@ -74,15 +89,15 @@
 - [ ] D043-09/10: [Condition] classes are discovered and factory-bound by the
       standard Provider; ProvidesActionProgress reaches both State registration
       paths. Existing transition-request, progress and evaluation rules remain.
-- [ ] Start only selects initial leaves. Enter is parent-to-child, mandatory
+- [ ] Start selects ordinary leaves and initializes AnyState. Enter is parent-to-child, mandatory
       Update is root-to-leaf, Exit is leaf-to-parent, and a Transition keeps its
       source path effective until the target enters on the next accepted Tick.
 - [ ] `Created` cannot Stop; Host public `TryDispose` accepts only `Created` or
       `Stopped`; Runtime `Dispose()` and Unity destruction force live cleanup
       internally through `Stopped`. Startup/Tick lifecycle reentry is rejected,
       and destruction cannot publish or commit an unresolved candidate.
-- [ ] Transition endpoints are leaves, every outgoing Priority is explicit and
-      unique per source leaf, and Update can request only predeclared handles.
+- [ ] Transition sources are ordinary leaves or AnyState; targets are ordinary leaves.
+      Priority is explicit and source-unique; Update requests only predeclared handles.
       Completion and InterruptPolicy are not present.
 - [ ] Within one Activation, ActionProgress is finite and monotonically
       non-decreasing; equal values may stall, while a decrease cancels the
@@ -139,7 +154,8 @@
 ## Pre7 StateGraph Editor and debugger
 
 - [ ] New 0.4 Editor and public documentation use only Graph, Layer, State, and
-      Transition vocabulary. Transitions are same-Layer leaf-to-leaf and expose
+      Transition vocabulary. Sources are ordinary leaves or AnyState; targets
+      remain same-Layer ordinary leaves. Transitions expose
       Conditions, one Window, and a source-unique Priority; Interrupt is not an
       authoring field.
 - [ ] Every topology write uses the Editor authoring-operation boundary and one

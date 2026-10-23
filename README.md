@@ -8,6 +8,15 @@ CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
 
+The current development branch adds optional Layer AnyState for 0.4.6.
+A special `CoCoAnyStateLogic` runs after the ordinary active path, keeps the
+full Config/Memory/Intent/Operation and mailbox surface, and takes transition
+priority when an eligible edge is requested. Its independent Memory survives
+leaf changes; re-entering the current leaf resets that leaf while preserving
+its ancestors and AnyState. Old graphs require no migration.
+See the [runtime contract](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+and [Editor setup](Docs/StateGraphEditor.md#configuring-anystate). This is unreleased.
+
 ## New in 0.4.5
 
 - Edit standard `[Config]` arrays and `List<T>`, including pure data struct

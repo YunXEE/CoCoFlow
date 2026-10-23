@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Runtime contract baseline: `0.4.0` · Updated 2026-09-02 (0.4.1 editor tooling)
+> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6` (unreleased)
 >
 > StateGraph Runtime and StateGraphHost are included in the Core Engine maturity
 > statement. Editor inspection is described here only as current tooling.
@@ -163,9 +163,10 @@ For each Layer, one Tick has this order:
 
 1. Run the newly entered suffix's optional `OnEnter` callbacks, parent to child.
 2. Run the full active path's mandatory `Update` callbacks, root to leaf.
-3. Let the active leaf request zero or more predeclared Transition handles.
-4. After all Updates, evaluate windows and Conditions and arbitrate by Priority.
-5. When there is a winner, run the old exit suffix's optional `OnExit`
+3. Run the optional Layer AnyState's `Update` after the ordinary leaf.
+4. Evaluate requested edges: eligible AnyState edges win before ordinary edges;
+   within each source, arbitrate by Priority after Window and Condition checks.
+5. When there is a winner, run the old ordinary exit suffix's optional `OnExit`
    callbacks, leaf to parent.
 
 `Update` always runs. `OnEnter` and `OnExit` are independent optional phases,
@@ -182,17 +183,94 @@ A leaf self-loop is explicit reactivation. The leaf exits on the source Tick,
 receives a new Activation and reset Memory when that Tick commits, then enters
 on the next Tick. Its common ancestor path does not exit and re-enter.
 
+## AnyState: one persistent Logic per Layer
+
+Bind a concrete `CoCoAnyStateLogic` with the usual `[CoCoState]` attribute.
+Each Layer has at most one optional binding. It implements only `Update`;
+implementing `ICoCoStateEnter` or `ICoCoStateExit` is rejected. It retains the
+complete Logic binding surface:
+
+| Capability | AnyState contract |
+| --- | --- |
+| Config / Intent / previous Context | Existing frozen Config, current Intent and callback-scoped read rules |
+| Memory / Activation | Independent, persistent for this Graph instance; candidate writes remain transactional |
+| Operation | Existing declared Sections, field composition and callback-scoped writer |
+| Inbox / Outbox | Existing typed mailbox and commit-only publication; no extra permission restriction |
+| Transition requests | Predeclared AnyState outgoing edges to ordinary leaves in its own Layer |
+| LocalSeconds / ActionProgress | AnyState's own Activation clock/progress; progress requires the usual declaration |
+
+For `A → B → C`, the ordinary active path stays `A/B/C`, and C stays a leaf.
+Execution is `A.Update → B.Update → C.Update → AnyState.Update → arbitration
+→ ordinary Exit → commit`. AnyState runs at the next deeper execution position;
+it never changes `ParentStateId`, the initial child, or the ordinary active path.
+Its declared `StateId` and transition `SourceStateId` identify AnyState.
+`ActiveLeafStateId` on execution and condition contexts identifies the current
+ordinary leaf without replacing the owner's Config, Memory or clock identity.
+
+AnyState → C while C is active is the existing C → C self-loop: C exits, gets
+a new Activation and reset Memory/progress, then enters on the next successful
+Tick. A/B and AnyState retain their Activation, Memory and clocks. Ordinary
+leaf changes also preserve AnyState. Suspend preserves it; Stop ends execution,
+and a fresh Graph instance initializes it again. Failed Ticks roll it back;
+Context/Temporal capture and restore include its persistent state.
+
+The example assumes a registered project `LifeIntent` with `IsDead`, an ordinary
+`DeathAction` Logic, and one unconditional `Always` AnyState → DeathAction edge.
+The Host explicitly binds that Intent source and the Locomotion Operator.
+
+```csharp
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Locomotion.Contracts;
+
+[CoCoState("PlayerLifeAny")]
+public sealed class PlayerLifeAnyLogic : CoCoAnyStateLogic
+{
+    [Config] public bool EnableDeath = true;
+    [Memory] public bool DeathRequested;
+    [Memory] public int UpdateCount;
+    [Intent] public LifeIntent Life { get; set; }
+    [Operation] public ILocomotionSection Movement { get; set; }
+
+    public override void Update(CoCoStateExecutionContext context)
+    {
+        UpdateCount++;
+        if (!Life.IsDead) DeathRequested = false;
+        if (!EnableDeath || !Life.IsDead) return;
+        Movement.MoveX = 0f;
+        Movement.MoveZ = 0f;
+        if (!DeathRequested && context.TryRequestTransitionTo<DeathAction>())
+            DeathRequested = true;
+    }
+}
+```
+
+Select the Layer, choose this Logic in its **AnyState** card, click **Add AnyState**, then author its
+edge to DeathAction and an explicit DeathAction → Idle revival edge. Config
+uses the normal Save/Discard draft. `UpdateCount` survives Idle/Run/Death and
+self-reentry. The guard is a project choice for this unconditional single edge;
+request acceptance alone does not prove a conditional edge won. Projects with
+conditional requests should base acknowledgement on committed state as needed.
+Removing the guard permits a sustained request to re-enter Death every Tick;
+the framework deliberately does not deduplicate requests to the active leaf.
+
+Writing Movement alone does not exit C. AnyState's rank is current leaf depth
+plus one, so its MoveX/MoveZ override this Layer's ordinary writes, including
+later Exit writes; untouched fields retain lower-ranked contributions. A higher
+Layer still wins. Ordinary Update outputs and Outbox entries are not discarded
+because AnyState won the transition; all follow the same transaction rules.
+
 ## Declared Transition evaluation
 
-Every Transition is authored before runtime and connects two leaves in the same
-Layer. State Update cannot name an arbitrary target or call `ChangeState`; it
+Every Transition is authored before runtime, from an ordinary leaf or the
+Layer's AnyState to an ordinary leaf in that Layer. Update cannot call `ChangeState`; it
 can only request a compiled Transition handle that is already an outgoing edge
-of the active leaf. A leaf with no outgoing edge performs no Transition work.
+of its own source. A leaf with no outgoing edge performs no ordinary Transition work.
 
 One Update may request several handles. After Update completes, the Runtime
 evaluates their declared windows and Conditions and selects the single highest
-Priority eligible candidate. Priority is mandatory and must be unique among
-the outgoing edges of one source leaf. The same numeric Priority may be reused
+Priority eligible candidate. AnyState's eligible set takes precedence; only if
+it has no eligible request can an ordinary request win. Priority is unique among
+the outgoing edges of one declared source. The same numeric Priority may be reused
 by another source or Layer because those candidates never share an arbitration
 set.
 
@@ -203,7 +281,7 @@ reaching progress `1` never exits a State automatically.
 
 Timed windows are half-open `[StartInclusive, EndExclusive)`:
 
-- `LocalSeconds` is Actor-clock time within the current leaf Activation.
+- `LocalSeconds` is Actor-clock time within the source's own Activation.
 - `ActionProgress` is a normalized `0..1` progress supplied for that Activation,
   allowing animation speed-up, slow-down, and presentation-driven timing to
   preserve proportional windows.
@@ -696,3 +774,7 @@ consequences.
 The serialized StateGraph schema remains version `1`, uses ActionProgress for
 normalized transition windows, and exposes no automatic migration for
 non-v1 graph Assets.
+
+An absent AnyState requires no migration or reconnecting. Existing ordinary
+topology, four-argument Layer source construction, IDs, layout, fingerprints and
+Activation allocation remain unchanged; no absent-slot hash marker is added.

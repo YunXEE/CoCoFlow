@@ -234,7 +234,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             // D9 全展开：Layer 内全部 State 以合成绝对位置上画布（谱系图）。
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state == null)
                 {
@@ -244,7 +244,7 @@ namespace CoCoFlow.Editor.StateGraph
                 visibleStates[state.StateId] = state;
             }
 
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state == null)
                 {
@@ -294,7 +294,7 @@ namespace CoCoFlow.Editor.StateGraph
             Vector2 absolute = Vector2.zero;
             var visited = new HashSet<CoCoSerializedId128>();
             CoCoStateGraphStateRecord current = state;
-            int index = layer.States.IndexOf(current);
+            int index = ReferenceEquals(current, layer.AnyState) ? layer.States.Count : layer.States.IndexOf(current);
             while (current != null && visited.Add(current.StateId))
             {
                 absolute += controller.GetPosition(current, Mathf.Max(index, 0));
@@ -314,7 +314,7 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateGraphLayerRecord layer,
             CoCoSerializedId128 stateId)
         {
-            foreach (CoCoStateGraphStateRecord candidate in layer.States)
+            foreach (CoCoStateGraphStateRecord candidate in layer.AllStates)
             {
                 if (candidate != null && candidate.StateId == stateId)
                 {
@@ -529,6 +529,10 @@ namespace CoCoFlow.Editor.StateGraph
             // BFS 可达集（Transition 只连叶子）。
             var reachable = new HashSet<CoCoSerializedId128> { defaultLeaf.Value };
             var queue = new List<CoCoSerializedId128> { defaultLeaf.Value };
+            if (layer.AnyState != null)
+            {
+                queue.Add(layer.AnyState.StateId);
+            }
             while (queue.Count > 0)
             {
                 CoCoSerializedId128 current = queue[0];
@@ -1470,6 +1474,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (!targetStateId.IsValid ||
                 targetStateId == transitionSourceStateId ||
                 !visibleStates.TryGetValue(targetStateId, out CoCoStateGraphStateRecord target) ||
+                ReferenceEquals(target, controller.SelectedLayer.AnyState) ||
                 HasChildren(controller.SelectedLayer, target.StateId) ||
                 !CoCoStateId.TryCreate(
                     transitionSourceStateId.High,
@@ -1646,7 +1651,8 @@ namespace CoCoFlow.Editor.StateGraph
 
                 Add(body);
 
-                var title = new Label(state.DisplayName);
+                var title = new Label(ReferenceEquals(state, controller.SelectedLayer?.AnyState)
+                    ? $"AnyState · {state.DisplayName}" : state.DisplayName);
                 title.AddToClassList("state-card__title");
                 body.Add(title);
 

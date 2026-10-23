@@ -28,6 +28,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             MailboxProbeLogic.IgnoreDamage = false;
             MailboxReadyCondition.Calls = 0;
             MailboxReadyCondition.Allowed = true;
+            MailboxAnyLogic.Tick = null;
         }
 
         [TearDown]
@@ -41,7 +42,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private CoCoStateGraphHost CreateMailboxHost(bool plain = false, bool adapters = true,
-            bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0)
+            bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0,
+            bool any = false)
         {
             var provider = CoCoStateGraphProjectBindings.Provider;
             if (provider == null)
@@ -88,6 +90,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     "Observer", state.StateDescriptorId, new CoCoFieldConfig()));
                 asset.Layers.Add(sibling);
             }
+            if (any)
+                for (int index = 0; index < asset.Layers.Count; index++)
+                {
+                    var type = index == 0 ? typeof(MailboxAnyLogic) : typeof(MailboxStatelessAnyLogic);
+                    StandardDescriptors.TryCreate(type, type.Name, out var descriptor);
+                    CoCoStateConfig config = index == 0 ? new CoCoFieldConfig() : new EmptyStateConfig();
+                    if (config is CoCoFieldConfig fields) fields.Set(nameof(MailboxAnyLogic.Increment), 3);
+                    asset.Layers[index].AnyState = new CoCoStateGraphStateRecord(
+                        new CoCoSerializedId128(2, (ulong)index + 100), default, type.Name,
+                        new CoCoSerializedId128(descriptor.High, descriptor.Low), config);
+                }
             var gameObject = new GameObject("Mailbox E2E");
             _objects.Add(gameObject);
             var host = gameObject.AddComponent<CoCoStateGraphHost>();
@@ -154,12 +167,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CollectionAssert.AreEqual(new[] { 76f, 52f, 52f, 52f }, health);
         }
 
-        [TestCase(false, 1)]
-        [TestCase(true, 1)]
-        [TestCase(false, 0)]
-        public void MailboxPublishSnapshotsUnregisteredTypesAndOnlyPublishesAfterCommit(bool fail, int capacity)
+        [TestCase(false, 1, false)]
+        [TestCase(true, 1, false)]
+        [TestCase(false, 0, false)]
+        [TestCase(true, 2, true)]
+        public void MailboxPublishSnapshotsUnregisteredTypesAndOnlyPublishesAfterCommit(bool fail, int capacity, bool any)
         {
-            var host = CreateMailboxHost(adapters: false, outboxCapacity: capacity);
+            var host = CreateMailboxHost(adapters: false, outboxCapacity: capacity, any: any);
+            if (any) MailboxAnyLogic.Tick = () => throw new InvalidOperationException("Cancel AnyState Tick");
             var received = new List<int>();
             _mailboxAgent.Subscribe((ref MailboxNotice mail) =>
             {
@@ -174,11 +189,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 saved.Publish(in mail);
                 mail.Value = 99;
                 Assert.IsEmpty(received);
-                if (fail) throw new InvalidOperationException("Cancel candidate Tick");
+                if (fail && !any) throw new InvalidOperationException("Cancel candidate Tick");
             };
             Assert.AreEqual(!fail && capacity != 0, host.TryStep(0.1, out _));
             CollectionAssert.AreEqual(!fail && capacity != 0 ? new[] { 7 } : Array.Empty<int>(), received);
             Assert.Throws<InvalidOperationException>(() => saved.Publish(new MailboxNotice()));
+            if (any) Assert.IsFalse(host.CurrentContext.IsAlive);
             if (fail || capacity == 0) return;
             _mailboxAgent.UnsubscribeAll();
             MailboxProbeLogic.Tick = (_, context) => context.Outbox.Publish(new MailboxNotice());
@@ -189,6 +205,51 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
             Assert.IsTrue(stepped);
             Assert.AreEqual(0, allocated, "Warmed-up delayed Publish must not allocate per Tick.");
+        }
+
+        [Test]
+        public void AnyStateStandardBindingsKeepIndependentMemoryAndRestoreBothLayers()
+        {
+            var host = CreateMailboxHost(transition: true, twoLayers: true, history: 4, any: true);
+            var received = new List<int>();
+            _mailboxAgent.Subscribe((ref MailboxNotice mail) => received.Add(mail.Value));
+            var damage = new MailboxDamage(host.GraphInstanceId, 1f);
+            CoCoEventBus.Publish(ref damage);
+            Assert.IsTrue(host.TryStep(0.1, out var diagnostic), diagnostic.Message);
+            var first = ReadMailboxAnyRecord<ValueTuple<int, byte>>(host, typeof(MailboxAnyLogic), 100);
+            var second = ReadMailboxAnyRecord<int>(host, typeof(MailboxStatelessAnyLogic), 101);
+            Assert.AreEqual(2UL, first.ActivationId.Value);
+            Assert.AreEqual(4UL, second.ActivationId.Value);
+            Assert.IsFalse(first.IsOnActivePath || first.EnterPending || second.IsOnActivePath || second.EnterPending);
+            Assert.AreEqual(12, first.State.Item1);
+            var initialLeaf = host.ActivePaths[0].ActiveLeaf;
+            MailboxProbeLogic.Tick = (_, context) =>
+            {
+                if (context.StateId == initialLeaf) context.TryRequestTransitionTo<MailboxPlainLogic>();
+            };
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            Assert.AreNotEqual(initialLeaf, host.ActivePaths[0].ActiveLeaf);
+            Assert.AreEqual(first.ActivationId,
+                ReadMailboxAnyRecord<ValueTuple<int, byte>>(host, typeof(MailboxAnyLogic), 100).ActivationId);
+            Assert.IsTrue(host.TryBeginTemporalPreview(out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryPreviewTemporal(1, out diagnostic), diagnostic.Message);
+            Assert.IsTrue(host.TryConfirmTemporalRestore(out diagnostic), diagnostic.Message);
+            Assert.AreEqual(initialLeaf, host.ActivePaths[0].ActiveLeaf);
+            Assert.AreEqual(12,
+                ReadMailboxAnyRecord<ValueTuple<int, byte>>(host, typeof(MailboxAnyLogic), 100).State.Item1);
+            Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+            CollectionAssert.AreEqual(new[] { 12, 15, 15 }, received);
+            Assert.AreEqual(second.ActivationId,
+                ReadMailboxAnyRecord<int>(host, typeof(MailboxStatelessAnyLogic), 101).ActivationId);
+        }
+
+        private static CoCoGraphStateRecord<TState> ReadMailboxAnyRecord<TState>(
+            CoCoStateGraphHost host, Type logicType, ulong stateLow) where TState : unmanaged
+        {
+            StandardDescriptors.TryCreate(logicType, $"State:{2UL:x16}{stateLow:x16}", out var descriptor);
+            Assert.IsTrue(host.CurrentContext.Layout.TryResolveSlot(StandardGraphState.SlotFor(descriptor),
+                out CoCoStateSlot<CoCoGraphStateRecord<TState>> slot));
+            return host.CurrentContext.Read(slot);
         }
 
         [TestCase(false)]

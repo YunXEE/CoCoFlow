@@ -284,6 +284,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
         }
     }
 
+    public sealed class TestAnyStateLogic : CoCoAnyStateLogic
+    {
+        public override void Update(CoCoStateExecutionContext context) { }
+    }
+
     public sealed class TestStateLogic : CoCoStateLogic
     {
         public TestStateLogic()

@@ -560,9 +560,12 @@ namespace CoCoFlow.Runtime.Core
                     layer.CommittedLeafIndex = initialLeaf;
                     layer.CommittedEnterStartDepth = 0;
                     IReadOnlyList<int> path = layer.Compiled.States[initialLeaf].RootPathStateIndices;
-                    for (int depth = 0; depth < path.Count; depth++)
+                    // AnyState owns a persistent activation outside the ordinary path.
+                    int activationCount = path.Count + (layer.Compiled.HasAnyState ? 1 : 0);
+                    for (int depth = 0; depth < activationCount; depth++)
                     {
-                        StateRuntime state = layer.States[path[depth]];
+                        int stateIndex = depth < path.Count ? path[depth] : layer.Compiled.AnyStateIndex;
+                        StateRuntime state = layer.States[stateIndex];
                         if (!TryTakeActivation(out CoCoActivationId activationId))
                         {
                             diagnostic = StateError("State activation identity capacity is exhausted.");
@@ -840,7 +843,8 @@ namespace CoCoFlow.Runtime.Core
             }
 
             LayerRuntime layer = _layers[_executingLayerIndex];
-            if (_executingStateIndex != layer.CommittedLeafIndex ||
+            if ((_executingStateIndex != layer.CommittedLeafIndex &&
+                 _executingStateIndex != layer.Compiled.AnyStateIndex) ||
                 handle.TransitionIndex < 0 ||
                 handle.TransitionIndex >= layer.Compiled.Transitions.Count ||
                 layer.Compiled.Transitions[handle.TransitionIndex].SourceStateIndex != _executingStateIndex)
@@ -1787,6 +1791,26 @@ namespace CoCoFlow.Runtime.Core
                     }
                 }
 
+                if (layer.Compiled.HasAnyState)
+                {
+                    // The scheduling depth changes with the leaf; ownership stays with AnyState.
+                    StateRuntime anyState = layer.States[layer.Compiled.AnyStateIndex];
+                    anyState.CandidateLocalSeconds += tickFrame.DeltaTime;
+                    if (!InvokeState(
+                            StateCallbackPhase.Update,
+                            layerIndex,
+                            layer.Compiled.AnyStateIndex,
+                            sourcePath.Count,
+                            true,
+                            tickFrame,
+                            intents,
+                            previousContext,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+                }
+
                 if (!TryChooseWinner(
                         layerIndex,
                         tickFrame,
@@ -1809,7 +1833,7 @@ namespace CoCoFlow.Runtime.Core
                 IReadOnlyList<int> targetPath =
                     layer.Compiled.States[winner.TargetStateIndex].RootPathStateIndices;
                 int commonCount = CountCommonPrefix(sourcePath, targetPath);
-                if (winner.SourceStateIndex == winner.TargetStateIndex)
+                if (layer.CommittedLeafIndex == winner.TargetStateIndex)
                 {
                     commonCount = Math.Max(0, sourcePath.Count - 1);
                 }
@@ -1912,6 +1936,7 @@ namespace CoCoFlow.Runtime.Core
                     _stateCallbackOperationLease,
                     layer.Compiled.LayerId,
                     state.Compiled.StateId,
+                    layer.Compiled.States[layer.CommittedLeafIndex].StateId,
                     state.CandidateActivationId,
                     state.CommittedLocalSeconds,
                     state.CandidateLocalSeconds,
@@ -1988,7 +2013,47 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
         {
             LayerRuntime layer = _layers[layerIndex];
-            StateRuntime leaf = layer.States[layer.CommittedLeafIndex];
+            if (layer.Compiled.HasAnyState)
+            {
+                if (!TryChooseWinnerForState(
+                        layerIndex,
+                        layer.Compiled.AnyStateIndex,
+                        tickFrame,
+                        intents,
+                        previousContext,
+                        out winnerIndex,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (winnerIndex >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return TryChooseWinnerForState(
+                layerIndex,
+                layer.CommittedLeafIndex,
+                tickFrame,
+                intents,
+                previousContext,
+                out winnerIndex,
+                out diagnostic);
+        }
+
+        private bool TryChooseWinnerForState(
+            int layerIndex,
+            int sourceStateIndex,
+            in CoCoTickFrame tickFrame,
+            ICoCoIntentFrame intents,
+            in CoCoContextFrameReadView previousContext,
+            out int winnerIndex,
+            out CoCoDiagnostic diagnostic)
+        {
+            LayerRuntime layer = _layers[layerIndex];
+            StateRuntime source = layer.States[sourceStateIndex];
             winnerIndex = -1;
             int winningPriority = int.MinValue;
             for (int transitionIndex = 0;
@@ -2001,8 +2066,8 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 CoCoCompiledTransition transition = layer.Compiled.Transitions[transitionIndex];
-                if (transition.SourceStateIndex != layer.CommittedLeafIndex ||
-                    !WindowMatches(transition.Window, leaf))
+                if (transition.SourceStateIndex != sourceStateIndex ||
+                    !WindowMatches(transition.Window, source))
                 {
                     continue;
                 }
@@ -2018,12 +2083,13 @@ namespace CoCoFlow.Runtime.Core
                         previousContext,
                         condition.Compiled.Config,
                         layer.Compiled.LayerId,
-                        leaf.Compiled.StateId,
+                        source.Compiled.StateId,
+                        layer.Compiled.States[layer.CommittedLeafIndex].StateId,
                         transition.TransitionId,
-                        leaf.CommittedLocalSeconds,
-                        leaf.CandidateLocalSeconds,
-                        leaf.CommittedActionProgress,
-                        leaf.CandidateActionProgress);
+                        source.CommittedLocalSeconds,
+                        source.CandidateLocalSeconds,
+                        source.CommittedActionProgress,
+                        source.CandidateActionProgress);
                     if (!condition.Evaluator.Evaluate(_conditionContext))
                     {
                         accepted = false;
@@ -2098,6 +2164,12 @@ namespace CoCoFlow.Runtime.Core
                 StateRuntime state = layer.States[stateIndex];
                 int pathDepth = FindPathDepth(path, stateIndex);
                 bool expectedActive = pathDepth >= 0;
+                if (state.Compiled.IsAnyState && !state.CandidateActivationId.IsValid)
+                {
+                    diagnostic = RestoreError("Restored AnyState requires its persistent activation identity.");
+                    return false;
+                }
+
                 if (state.RestoreIsOnActivePath != expectedActive ||
                     state.RestoreEnterPending && !expectedActive)
                 {

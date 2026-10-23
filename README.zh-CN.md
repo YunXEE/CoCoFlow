@@ -7,6 +7,14 @@
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
 
+当前开发分支为 0.4.6 增加可选的 Layer AnyState。
+特殊 `CoCoAnyStateLogic` 在普通活跃枝之后执行，保留完整的
+Config/Memory/Intent/Operation 和邮箱能力；请求的边满足条件时优先转移。
+AnyState 的独立 Memory 跨换叶保留；重入当前叶只重置该叶，
+其祖先和 AnyState 保持。旧图无需迁移。
+接线与行为见 [Runtime 契约](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+和 [Editor 操作](Docs/StateGraphEditor.md#configuring-anystate)。该增量尚未发布。
+
 ## 0.4.5 新内容
 
 - 标准 `[Config]` 支持数组和 `List<T>`，包括纯数据 struct 元素，提供增删、
