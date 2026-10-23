@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using CoCoFlow.Editor.Common;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -361,6 +362,50 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 Assert.IsFalse(controller.Session.DrillRootStateId.IsValid,
                     "navigating to a nested State must keep the flat canvas at Layer root");
             }
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void DeleteLayerDisclosureMatchesAnyStateBindingAndUndoRestoresIt(bool configured)
+        {
+            var asset = CreateAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            AddState(asset, layerId, default, "Idle");
+            if (configured)
+            {
+                var catalog = CoCoStateGraphTestFactory.CreateCatalog(false, includeAnyState: true);
+                catalog.TryGetStateDescriptor(CoCoStateGraphTestFactory.AnyStateDescriptorId, out var descriptor);
+                Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddAnyState(asset, layerId, descriptor,
+                    new TestStateAuthoringConfig { Value = 7 }, Vector2.zero, out _, out _));
+            }
+            try
+            {
+                foreach (var language in new[] { CoCoEditorLanguage.English, CoCoEditorLanguage.SimplifiedChinese })
+                {
+                    CoCoEditorLocalization.SetLanguage(language);
+                    string message = CoCoStateGraphEditorWindow.DeleteLayerMessage(asset.Layers[0]);
+                    Assert.AreEqual(configured, message.Contains("AnyState"));
+                    Assert.AreEqual(configured, message.Contains("Config"));
+                    StringAssert.Contains("1", message);
+                }
+                Undo.ClearAll();
+                using (var controller = new CoCoStateGraphEditorController(asset))
+                {
+                    Assert.IsTrue(controller.DeleteLayer());
+                    Undo.FlushUndoRecordObjects();
+                    Assert.IsEmpty(asset.Layers);
+                    Undo.PerformUndo();
+                    Assert.AreEqual(1, asset.Layers.Count);
+                    Assert.AreEqual(configured, asset.Layers[0].AnyState != null);
+                    if (configured)
+                    {
+                        var any = asset.Layers[0].AnyState;
+                        Assert.NotNull(any);
+                        Assert.AreEqual(7, ((TestStateAuthoringConfig)any.Config).Value);
+                    }
+                }
+            }
+            finally { CoCoEditorLocalization.SetLanguage(CoCoEditorLanguage.English); }
         }
 
         private CoCoStateGraphAsset CreateAsset()

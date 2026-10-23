@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.1` · AnyState increment: `0.4.6` (unreleased)
+> Documentation baseline: `0.4.1` · AnyState and canvas folding: `0.4.6` (unreleased)
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
@@ -57,6 +57,7 @@ border (offset from the card body) is reserved for dynamic states. The first
 outer-border type is the ancestry highlight: selecting a State lights the
 selected State, all of its ancestors, and the genealogy segments between them,
 visualizing how much Logic the State inherits and runs.
+AnyState has a permanent rose-pink inner border with the same 2px width as Default, visible even when unselected.
 The selected State's direct Transition targets have purple outer frames, and
 its outgoing edges and arrows turn purple. Incoming and indirect connections
 keep their normal colors. Purple and yellow use the same 2px card border;
@@ -77,6 +78,38 @@ that State's own EditorLayout record. The canvas also offers a one-step
 "Add Composite (sub-state machine)" context action that creates a container
 plus its first child State in one collapsed undo group. Right-dragging from a
 leaf card to another leaf creates an Always Transition.
+
+### Collapsing a sub-state machine
+
+On a composite card, **Collapse Subtree** (`收起子机`) is immediately below
+**Tidy Subtree** (`整理子级`). It hides all descendants and their internal
+genealogy/Transition lines. **Expand Subtree** (`展开子机`) restores them;
+an inner composite retains its own collapsed choice when an outer one expands.
+AnyState stays visible as an independent Layer source.
+
+Cross-boundary Transitions use the visible composite as their displayed endpoint.
+Each directed pair becomes one line with exactly one triangle per real Transition;
+the opposite direction uses a separate offset line. Short lines arrange the triangles
+in adjacent rows. Internal Transitions never turn into composite self-loops.
+Unaffected parallel edges and visible leaf self-loops keep their existing presentation.
+
+Click a line or triangle to select its only member, or open a Unity menu when it
+contains several. Each menu item gives the full source and target paths, Priority,
+and complete Transition ID. Choosing one edits that original Transition, including
+its Window, Conditions and Config, through the normal Undo commands. Cancelling
+the menu leaves selection intact. Selection keeps the submachine collapsed;
+explicit state navigation or diagnostic **Locate** reveals the necessary ancestors.
+Selection ancestry and direct-target highlighting follow the visible cards.
+
+Folding is a per-asset Editor session preference, separate from the left directory's
+foldouts. It survives Domain Reload and does not alter the asset, IDs, Config,
+runtime fingerprints or Undo history. Older sessions open fully expanded. It also
+preserves an unsaved Logic draft. Moving a collapsed composite carries its subtree
+through the parent's local position; hidden children's local positions stay intact.
+Tidy still arranges all actual descendants, whether visible or hidden.
+
+Deleting a Layer with AnyState explicitly warns that its Logic binding and Config
+will also be deleted. Cancel leaves the graph intact; deletion uses the normal Undo.
 
 The Asset Inspector is an entry point, summary, and diagnostic surface built
 with the same unified visual language. It shows identity and count summaries,

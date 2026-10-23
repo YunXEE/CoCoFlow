@@ -338,7 +338,33 @@ namespace CoCoFlow.Editor.StateGraph
             Session.DrillRootStateId = default;
             Session.SelectedStateId = stateId;
             Session.SelectedTransitionId = default;
+            RevealCanvasAncestors(stateId);
             SaveAndNotify();
+        }
+
+        internal void ToggleCanvasCollapsed(CoCoStateId stateId)
+        {
+            CoCoStateGraphLayerRecord layer = SelectedLayer;
+            if (FindState(layer, stateId) == null) return;
+            bool composite = false;
+            foreach (CoCoStateGraphStateRecord child in layer.States)
+                if (child != null && Matches(child.ParentStateId, stateId)) composite = true;
+            if (!composite) return;
+            Session.SetCanvasCollapsed(stateId, !Session.IsCanvasCollapsed(stateId));
+            // This view action neither switches selection nor resolves an unsaved Logic draft.
+            SaveAndNotify(CoCoStateGraphEditorInvalidation.Canvas);
+        }
+
+        private void RevealCanvasAncestors(CoCoStateId stateId)
+        {
+            CoCoStateGraphStateRecord state = FindState(SelectedLayer, stateId);
+            var visited = new HashSet<CoCoStateId>();
+            while (state != null && CoCoStateId.TryCreate(state.ParentStateId.High,
+                       state.ParentStateId.Low, out CoCoStateId parentId) && visited.Add(parentId))
+            {
+                Session.SetCanvasCollapsed(parentId, false);
+                state = FindState(SelectedLayer, parentId);
+            }
         }
 
         internal void SelectTransition(CoCoTransitionId transitionId)
@@ -786,6 +812,16 @@ namespace CoCoFlow.Editor.StateGraph
             Session.SelectedTransitionId = location.TransitionId;
             Session.SelectedDiagnosticLocation = location;
             Session.DrillRootStateId = default;
+
+            RevealCanvasAncestors(location.StateId);
+            if (SelectedLayer != null && location.TransitionId.IsValid)
+                foreach (CoCoStateGraphTransitionRecord edge in SelectedLayer.Transitions)
+                    if (edge != null && Matches(edge.TransitionId, location.TransitionId))
+                    {
+                        RevealCanvasAncestors(ToStateId(edge.SourceStateId));
+                        RevealCanvasAncestors(ToStateId(edge.TargetStateId));
+                        break;
+                    }
 
             SaveAndNotify();
         }

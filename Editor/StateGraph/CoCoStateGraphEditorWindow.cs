@@ -869,11 +869,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (layer == null ||
                 !EditorUtility.DisplayDialog(
                     L("Delete State Graph Layer", "删除 State Graph Layer"),
-                    L(
-                        $"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
-                        $"{layer.Transitions.Count} Transition(s)?",
-                        $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
-                        $"{layer.Transitions.Count} 个 Transition？"),
+                    DeleteLayerMessage(layer),
                     L("Delete", "删除"),
                     L("Cancel", "取消")))
             {
@@ -882,6 +878,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             controller.DeleteLayer();
         }
+
+        internal static string DeleteLayerMessage(CoCoStateGraphLayerRecord layer) =>
+            L($"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
+              $"{layer.Transitions.Count} Transition(s)?" + (layer.AnyState == null ? string.Empty :
+                  " The AnyState Logic binding and its Config will also be deleted."),
+              $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
+              $"{layer.Transitions.Count} 个 Transition？" + (layer.AnyState == null ? string.Empty :
+                  " 同时删除 AnyState 的 Logic 绑定及其 Config。"));
 
         private void DeleteState(StateIdChoice replacement)
         {

@@ -12,6 +12,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private readonly string sessionKey;
         private readonly HashSet<CoCoStateId> collapsedStateIds = new HashSet<CoCoStateId>();
+        private readonly HashSet<CoCoStateId> _canvasCollapsedStateIds = new HashSet<CoCoStateId>();
         private readonly Dictionary<string, CoCoStateGraphCanvasView> canvasViews =
             new Dictionary<string, CoCoStateGraphCanvasView>(StringComparer.Ordinal);
 
@@ -28,6 +29,7 @@ namespace CoCoFlow.Editor.StateGraph
         internal bool AnalysisRequested { get; set; }
         internal CoCoGraphDiagnosticLocation? SelectedDiagnosticLocation { get; set; }
         internal IReadOnlyCollection<CoCoStateId> CollapsedStateIds => collapsedStateIds;
+        internal IReadOnlyCollection<CoCoStateId> CanvasCollapsedStateIds => _canvasCollapsedStateIds;
 
         internal static CoCoStateGraphEditorSessionState Load(CoCoStateGraphAsset asset)
         {
@@ -68,6 +70,7 @@ namespace CoCoFlow.Editor.StateGraph
                 searchText = SearchText ?? string.Empty,
                 analysisRequested = AnalysisRequested,
                 collapsedStateIds = new List<string>(),
+                canvasCollapsedStateIds = new List<string>(),
                 canvasViews = new List<CoCoStateGraphCanvasViewDto>(),
                 selectedDiagnostic = CreateDiagnosticDto(SelectedDiagnosticLocation)
             };
@@ -88,6 +91,9 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             dto.collapsedStateIds.Sort(StringComparer.Ordinal);
+            foreach (CoCoStateId stateId in _canvasCollapsedStateIds)
+                dto.canvasCollapsedStateIds.Add(Format(stateId));
+            dto.canvasCollapsedStateIds.Sort(StringComparer.Ordinal);
             dto.canvasViews.Sort((left, right) =>
                 StringComparer.Ordinal.Compare(left.key, right.key));
             UnityEditor.SessionState.SetString(sessionKey, JsonUtility.ToJson(dto));
@@ -97,6 +103,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             var layerIds = new HashSet<CoCoLayerId>();
             var stateOwners = new Dictionary<CoCoStateId, CoCoLayerId>();
+            var compositeIds = new HashSet<CoCoStateId>();
             var transitionOwners = new Dictionary<CoCoTransitionId, CoCoLayerId>();
             var validCanvasKeys = new HashSet<string>(StringComparer.Ordinal);
             CoCoLayerId firstLayerId = default;
@@ -131,6 +138,11 @@ namespace CoCoFlow.Editor.StateGraph
                         transitionOwners[transitionId] = layerId;
                     }
                 }
+
+                foreach (CoCoStateGraphStateRecord state in layer.States)
+                    if (state != null && TryStateId(state.ParentStateId, out CoCoStateId parentId) &&
+                        stateOwners.TryGetValue(parentId, out CoCoLayerId owner) && owner == layerId)
+                        compositeIds.Add(parentId);
             }
 
             if (!SelectedLayerId.IsValid || !layerIds.Contains(SelectedLayerId))
@@ -160,6 +172,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             collapsedStateIds.RemoveWhere(stateId => !stateOwners.ContainsKey(stateId));
+            _canvasCollapsedStateIds.RemoveWhere(stateId => !compositeIds.Contains(stateId));
             var invalidCanvasKeys = new List<string>();
             foreach (string key in canvasViews.Keys)
             {
@@ -189,6 +202,15 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         internal bool IsCollapsed(CoCoStateId stateId) => collapsedStateIds.Contains(stateId);
+
+        internal bool IsCanvasCollapsed(CoCoStateId stateId) => _canvasCollapsedStateIds.Contains(stateId);
+
+        internal void SetCanvasCollapsed(CoCoStateId stateId, bool collapsed)
+        {
+            if (!stateId.IsValid) return;
+            if (collapsed) _canvasCollapsedStateIds.Add(stateId);
+            else _canvasCollapsedStateIds.Remove(stateId);
+        }
 
         internal void SetCollapsed(CoCoStateId stateId, bool collapsed)
         {
@@ -266,6 +288,11 @@ namespace CoCoFlow.Editor.StateGraph
                     }
                 }
             }
+
+            if (dto.canvasCollapsedStateIds != null)
+                foreach (string value in dto.canvasCollapsedStateIds)
+                    if (CoCoStateId.TryParse(value, out CoCoStateId stateId))
+                        _canvasCollapsedStateIds.Add(stateId);
         }
 
         private static string BuildKey(CoCoStateGraphAsset asset)
@@ -363,6 +390,7 @@ namespace CoCoFlow.Editor.StateGraph
             public string searchText;
             public bool analysisRequested;
             public List<string> collapsedStateIds;
+            public List<string> canvasCollapsedStateIds;
             public List<CoCoStateGraphCanvasViewDto> canvasViews;
             public CoCoStateGraphDiagnosticDto selectedDiagnostic;
         }
