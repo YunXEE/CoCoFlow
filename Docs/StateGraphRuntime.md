@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Runtime and Host
 
-> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6` (unreleased)
+> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6`
 >
 > StateGraph Runtime and StateGraphHost are included in the Core Engine maturity
 > statement. Editor inspection is described here only as current tooling.

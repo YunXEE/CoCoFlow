@@ -6,6 +6,54 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.6] - 2026-10-24
+
+### Added and changed
+
+- Each Layer can bind one optional `CoCoAnyStateLogic`. Its Update runs after
+  the ordinary active path; an eligible AnyState request takes transition
+  priority, with ordinary selection as fallback. It has no Enter/Exit callbacks
+  and keeps full Config, Memory, Intent, Operation and Inbox/Outbox capabilities
+  under the existing transaction and restore rules.
+- AnyState Memory survives ordinary leaf changes. A transition to the current
+  leaf uses normal self-reentry, resetting that leaf's Activation, Memory and
+  clock while preserving its ancestors and AnyState. Authors may request this
+  every Tick. Targets remain ordinary leaves in the same Layer.
+- Composite cards offer Collapse/Expand Subtree below Tidy Subtree. Folding is
+  stored in the Editor session, independently of directory foldouts, and leaves
+  graph data, positions and Runtime inputs unchanged. Directed cross-boundary
+  transitions share one projected line with one triangle and menu entry per
+  real transition; selection edits the original ID. Reverse directions remain
+  separate, internal transitions are hidden, and explicit Locate reveals ancestors.
+- Folded submachines retain purple outgoing-edge and target highlights.
+  Transition triangles are 18 by 14 pixels; AnyState has a persistent rose
+  border, and genealogy line opacity is reduced by 40%.
+
+### Fixed
+
+- BUG-124: PersistenceContext identity is authored explicitly on Prefab assets,
+  with separate variant overrides. Inspector Lock ID, read-only Scan and
+  Regenerate ID replace automatic lifecycle/serialization ID generation and
+  deduplication. Existing IDs and scene overrides remain. Regeneration changes
+  save identity without migrating saves; one Prefab identity represents at most
+  one independently saved entity in a loaded world. Projects with several such
+  entities must provide distinct identities. This fix was merged after the
+  v0.4.5 Tag and is included in 0.4.6.
+- BUG-125: Layer deletion warns that its AnyState binding and Config are deleted;
+  Cancel and Undo retain their normal behavior.
+- BUG-126: Transition triangle hit testing uses the rendered triangle vertices
+  and distance to its sides, preserving the existing click tolerance.
+
+### Boundaries
+
+- Graphs without AnyState need no migration, new transitions or reconstruction.
+  AnyState adds no parent-to-leaf transitions, cross-Layer transitions or multiple
+  transition hops per Tick. See the [runtime contract](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer),
+  [folding guide](Docs/StateGraphEditor.md#collapsing-a-sub-state-machine) and
+  [Persistence identity policy](Docs/Module-Persistence.md#stable-entity-identity).
+- Player, IL2CPP/AOT, stripping and complete Umbra animation/foot IK remain
+  unverified. Existing module maturity declarations are unchanged.
+
 ## [0.4.5] - 2026-10-21
 
 ### Added and changed

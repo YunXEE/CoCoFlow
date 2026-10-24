@@ -1,6 +1,6 @@
 <!-- CoCoFlow 0.4 冻结契约清单。方案与 PR 按所属模块引用对应节核对，非全量。 -->
 
-## 0.4.6 AnyState 增量（未发布）
+## 0.4.6 AnyState 增量
 
 - [ ] One optional `CoCoAnyStateLogic` per Layer; Update only, outside ordinary
       parent/child topology. Ordinary States and transition targets exclude AnyState.
