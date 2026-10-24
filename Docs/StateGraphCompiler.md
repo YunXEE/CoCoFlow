@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Asset and Compiler
 
-> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6` (unreleased)
+> Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6`
 >
 > The Compiler and StateGraphAuthoring Runtime are included in the Core Engine
 > maturity statement. The StateGraph Editor is current tooling, but it is not

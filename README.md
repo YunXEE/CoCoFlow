@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.5 · **Unity**: 6000+
+> **Version**: 0.4.6 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -8,30 +8,31 @@ CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
 
-The current development branch adds optional Layer AnyState for 0.4.6.
-A special `CoCoAnyStateLogic` runs after the ordinary active path, keeps the
-full Config/Memory/Intent/Operation and mailbox surface, and takes transition
-priority when an eligible edge is requested. Its independent Memory survives
-leaf changes; re-entering the current leaf resets that leaf while preserving
-its ancestors and AnyState. Old graphs require no migration.
-See the [runtime contract](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
-and [Editor setup](Docs/StateGraphEditor.md#configuring-anystate). This is unreleased.
+## New in 0.4.6
 
-## New in 0.4.5
+- Each Layer can bind one optional `CoCoAnyStateLogic`. It updates after the
+  ordinary active path and takes transition priority when its request is eligible.
+  It keeps the complete Config/Memory/Intent/Operation and mailbox surface,
+  including existing transaction and restore rules. Its Memory survives leaf
+  changes; re-entering the current leaf resets that leaf's Activation, Memory and
+  clock while preserving its ancestors and AnyState. Authors can request this
+  every Tick. See the [runtime contract](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+  and [Editor setup](Docs/StateGraphEditor.md#configuring-anystate).
+- Collapse sub-state machines below **Tidy Subtree**. Cross-boundary transitions
+  share a line with one triangle per real transition; a menu selects the original
+  transition. Folding stays in the Editor session and preserves graph data and
+  Runtime inputs. Purple highlights remain visible when folded; larger triangles,
+  a persistent rose AnyState border and quieter genealogy lines improve reading.
+  See [submachine folding](Docs/StateGraphEditor.md#collapsing-a-sub-state-machine).
+- Author PersistenceContext IDs explicitly on Prefab assets, with separate variant
+  overrides. Lock ID, read-only Scan and Regenerate ID support this workflow;
+  lifecycle callbacks no longer generate or deduplicate IDs. Existing IDs remain;
+  regeneration changes save identity. Multiple independently saved entities need
+  distinct identities. See [identity boundaries](Docs/Module-Persistence.md#stable-entity-identity).
 
-- Edit standard `[Config]` arrays and `List<T>`, including pure data struct
-  elements, with add/remove and ordering controls. Numeric input keeps partial
-  text such as `2.` until confirmation or focus loss.
-- Edit State name, Logic and Config together as a draft, then Save or Discard.
-  Reorganized sidebars, scoped Transition lists and targeted refreshes keep
-  editing controls in place; Save applies and analyzes the draft once.
-- Host setup exceptions now reach the Console with their original stack and
-  inner exceptions, associated with the Host component.
-
-`[Memory]` keeps its unmanaged contract. StateLogic still requires
-`ICoCoStateUpdate`; this release does not add an empty Update implementation.
-Player and IL2CPP compatibility remain unverified. See the
-[Editor guide](Docs/StateGraphEditor.md) and [changelog](CHANGELOG.md).
+Graphs without AnyState need no migration or additional transitions. Player,
+IL2CPP/AOT, stripping and complete Umbra animation/foot IK remain unverified.
+See the [changelog](CHANGELOG.md) for fixes and compatibility boundaries.
 
 ## What “mature” means
 
@@ -90,7 +91,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.5
+https://github.com/YunXEE/CoCoFlow.git#v0.4.6
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -98,7 +99,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.5"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.6"
   }
 }
 ```

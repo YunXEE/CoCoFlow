@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.1` · AnyState and canvas folding: `0.4.6` (unreleased)
+> Documentation baseline: `0.4.1` · AnyState and canvas folding: `0.4.6`
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
