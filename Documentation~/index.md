@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.5`.
+`0.4.6`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -30,6 +30,19 @@ The StateGraph Editor page describes current tooling; Editor behavior is not
 part of the Runtime API maturity guarantee. Older EventBus, Services, and
 Context facilities under `Runtime/Core/*.cs` are also outside the Core Engine
 maturity statement.
+
+### AnyState and submachine folding
+
+Each Layer may bind one `CoCoAnyStateLogic`, updating after the ordinary active
+path with eligible transition priority and the full Logic binding surface.
+Its Memory survives leaf changes; self-reentry resets the current leaf while
+preserving ancestors and AnyState. Graphs without AnyState need no migration.
+See the [runtime contract](../Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+and [Editor setup](../Docs/StateGraphEditor.md#configuring-anystate).
+
+[Collapse Subtree](../Docs/StateGraphEditor.md#collapsing-a-sub-state-machine)
+hides descendants and groups crossing transitions with one triangle per real
+transition. This Editor session preference preserves graph data and Runtime inputs.
 
 ## Modules
 

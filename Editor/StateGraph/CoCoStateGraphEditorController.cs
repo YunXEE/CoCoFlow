@@ -68,6 +68,11 @@ namespace CoCoFlow.Editor.StateGraph
         internal Func<bool> ConfirmStateDraftChanges { get; set; }
         internal bool HasStateDraftChanges { get; private set; }
         internal CoCoStateGraphAsset StateEditingAsset => _stateDraftAsset != null ? _stateDraftAsset : Asset;
+        internal bool IsAnyStateSelected => SelectedLayer?.AnyState != null &&
+            Matches(SelectedLayer.AnyState.StateId, Session.SelectedStateId);
+
+        internal static bool IsAnyStateDescriptor(CoCoStateDescriptor descriptor) =>
+            descriptor != null && typeof(CoCoAnyStateLogic).IsAssignableFrom(descriptor.LogicType);
 
         internal CoCoStateGraphStateRecord BeginStateDraft()
         {
@@ -112,6 +117,8 @@ namespace CoCoFlow.Editor.StateGraph
         {
             CoCoStateGraphStateRecord state = BeginStateDraft();
             if (state == null || descriptor == null) return false;
+            if (IsAnyStateDescriptor(descriptor) != IsAnyStateSelected)
+                return SetFailure("The Logic must match the selected State role.");
             if (state.StateDescriptorId.High == descriptor.DescriptorId.High &&
                 state.StateDescriptorId.Low == descriptor.DescriptorId.Low) return true;
             if (!TryCreateStateConfig(descriptor, out CoCoStateConfig config, out string failure))
@@ -245,7 +252,7 @@ namespace CoCoFlow.Editor.StateGraph
                     return result;
                 }
 
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state == null)
                     {
@@ -331,7 +338,33 @@ namespace CoCoFlow.Editor.StateGraph
             Session.DrillRootStateId = default;
             Session.SelectedStateId = stateId;
             Session.SelectedTransitionId = default;
+            RevealCanvasAncestors(stateId);
             SaveAndNotify();
+        }
+
+        internal void ToggleCanvasCollapsed(CoCoStateId stateId)
+        {
+            CoCoStateGraphLayerRecord layer = SelectedLayer;
+            if (FindState(layer, stateId) == null) return;
+            bool composite = false;
+            foreach (CoCoStateGraphStateRecord child in layer.States)
+                if (child != null && Matches(child.ParentStateId, stateId)) composite = true;
+            if (!composite) return;
+            Session.SetCanvasCollapsed(stateId, !Session.IsCanvasCollapsed(stateId));
+            // This view action neither switches selection nor resolves an unsaved Logic draft.
+            SaveAndNotify(CoCoStateGraphEditorInvalidation.Canvas);
+        }
+
+        private void RevealCanvasAncestors(CoCoStateId stateId)
+        {
+            CoCoStateGraphStateRecord state = FindState(SelectedLayer, stateId);
+            var visited = new HashSet<CoCoStateId>();
+            while (state != null && CoCoStateId.TryCreate(state.ParentStateId.High,
+                       state.ParentStateId.Low, out CoCoStateId parentId) && visited.Add(parentId))
+            {
+                Session.SetCanvasCollapsed(parentId, false);
+                state = FindState(SelectedLayer, parentId);
+            }
         }
 
         internal void SelectTransition(CoCoTransitionId transitionId)
@@ -453,6 +486,8 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (!ResolveStateDraft()) return false;
             ClearStateDraft();
+            if (IsAnyStateDescriptor(descriptor))
+                return SetFailure("Use the Layer AnyState binding for CoCoAnyStateLogic.");
             string failure = string.Empty;
             if (descriptor == null || !TryCreateStateConfig(descriptor, out CoCoStateConfig config, out failure))
             {
@@ -474,6 +509,30 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Session.SelectedStateId = stateId;
+            return Succeed();
+        }
+
+        internal bool AddAnyState(CoCoStateDescriptor descriptor, Vector2 position)
+        {
+            if (!ResolveStateDraft()) return false;
+            ClearStateDraft();
+            string failure = string.Empty;
+            if (!IsAnyStateDescriptor(descriptor) ||
+                !TryCreateStateConfig(descriptor, out CoCoStateConfig config, out failure))
+            {
+                return SetFailure(string.IsNullOrEmpty(failure)
+                    ? "Select a CoCoAnyStateLogic descriptor first." : failure);
+            }
+
+            if (!CoCoStateGraphAuthoringOperations.TryAddAnyState(
+                    Asset, Session.SelectedLayerId, descriptor, config, position,
+                    out CoCoStateId stateId, out failure))
+            {
+                return SetFailure(failure);
+            }
+
+            Session.SelectedStateId = stateId;
+            Session.SelectedTransitionId = default;
             return Succeed();
         }
 
@@ -512,6 +571,8 @@ namespace CoCoFlow.Editor.StateGraph
 
         internal bool SetSelectedStateDescriptor(CoCoStateDescriptor descriptor)
         {
+            if (descriptor != null && IsAnyStateDescriptor(descriptor) != IsAnyStateSelected)
+                return SetFailure("The Logic must match the selected State role.");
             if (!ResolveStateDraft()) return false;
             ClearStateDraft();
             string failure = string.Empty;
@@ -578,13 +639,17 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (!ResolveStateDraft()) return false;
             ClearStateDraft();
-            bool succeeded = CoCoStateGraphAuthoringOperations.TryDeleteStateSubtree(
+            string failure;
+            bool succeeded = IsAnyStateSelected
+                ? CoCoStateGraphAuthoringOperations.TryDeleteAnyState(
+                    Asset, Session.SelectedLayerId, out failure)
+                : CoCoStateGraphAuthoringOperations.TryDeleteStateSubtree(
                 Asset,
                 Session.SelectedLayerId,
                 Session.SelectedStateId,
                 replacementInitialStateId,
                 out _,
-                out string failure);
+                out failure);
             if (!succeeded)
             {
                 return SetFailure(failure);
@@ -747,6 +812,16 @@ namespace CoCoFlow.Editor.StateGraph
             Session.SelectedTransitionId = location.TransitionId;
             Session.SelectedDiagnosticLocation = location;
             Session.DrillRootStateId = default;
+
+            RevealCanvasAncestors(location.StateId);
+            if (SelectedLayer != null && location.TransitionId.IsValid)
+                foreach (CoCoStateGraphTransitionRecord edge in SelectedLayer.Transitions)
+                    if (edge != null && Matches(edge.TransitionId, location.TransitionId))
+                    {
+                        RevealCanvasAncestors(ToStateId(edge.SourceStateId));
+                        RevealCanvasAncestors(ToStateId(edge.TargetStateId));
+                        break;
+                    }
 
             SaveAndNotify();
         }
@@ -1018,7 +1093,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return null;
             }
 
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state != null && Matches(state.StateId, stateId))
                 {
@@ -1038,7 +1113,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return null;
             }
 
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state != null && state.StateId == stateId)
                 {

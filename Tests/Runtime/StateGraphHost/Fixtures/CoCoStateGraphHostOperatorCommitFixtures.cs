@@ -514,6 +514,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public int Value;
     }
 
+    public sealed class AnyClaimLogic : CoCoAnyStateLogic
+    {
+        private readonly OperatorCommitClaimLogic _inner;
+        public AnyClaimLogic(OperatorCommitClaimLogic inner) => _inner = inner;
+
+        public override void Update(CoCoStateExecutionContext context)
+        {
+            _inner.Update(context);
+            context.Memory<OperatorCommitClaimMemory>().Value++;
+        }
+    }
+
     public sealed class OperatorCommitClaimLogic : CoCoStateLogic, ICoCoStateUpdate
     {
         private readonly CoCoOperationSectionHandle<IOperatorCommitPrimarySection> _primary;

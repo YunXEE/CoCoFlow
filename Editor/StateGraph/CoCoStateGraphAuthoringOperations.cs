@@ -212,7 +212,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             CoCoSerializedId128 duplicatedSerializedLayerId = CreateUniqueId(layerIds);
             var stateIdRemaps = new Dictionary<CoCoSerializedId128, CoCoSerializedId128>();
-            foreach (CoCoStateGraphStateRecord state in sourceLayer.States)
+            foreach (CoCoStateGraphStateRecord state in sourceLayer.AllStates)
             {
                 CoCoSerializedId128 duplicatedStateId = CreateUniqueId(stateIds);
                 stateIds.Add(duplicatedStateId);
@@ -244,7 +244,7 @@ namespace CoCoFlow.Editor.StateGraph
 
                 duplicatedLayer.LayerId = duplicatedSerializedLayerId;
                 duplicatedLayer.InitialStateId = stateIdRemaps[duplicatedLayer.InitialStateId];
-                foreach (CoCoStateGraphStateRecord state in duplicatedLayer.States)
+                foreach (CoCoStateGraphStateRecord state in duplicatedLayer.AllStates)
                 {
                     state.StateId = stateIdRemaps[state.StateId];
                     if (state.ParentStateId.IsValid)
@@ -343,7 +343,7 @@ namespace CoCoFlow.Editor.StateGraph
                     return false;
                 }
 
-                foreach (CoCoStateGraphStateRecord state in layer.States)
+                foreach (CoCoStateGraphStateRecord state in layer.AllStates)
                 {
                     if (state == null || !state.StateId.IsValid || !stateIds.Add(state.StateId))
                     {
@@ -363,6 +363,12 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             if (sourceLayer.States.Count == 0)
+            {
+                return false;
+            }
+
+            if (sourceLayer.AnyState != null &&
+                (sourceLayer.AnyState.ParentStateId.IsValid || sourceLayer.AnyState.InitialChildStateId.IsValid))
             {
                 return false;
             }
@@ -424,7 +430,8 @@ namespace CoCoFlow.Editor.StateGraph
 
             foreach (CoCoStateGraphTransitionRecord transition in sourceLayer.Transitions)
             {
-                if (!sourceStates.ContainsKey(transition.SourceStateId) ||
+                if ((!sourceStates.ContainsKey(transition.SourceStateId) &&
+                     sourceLayer.AnyState?.StateId != transition.SourceStateId) ||
                     !sourceStates.ContainsKey(transition.TargetStateId))
                 {
                     return false;

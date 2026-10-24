@@ -29,6 +29,48 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        [TestCase(false)]
+        [TestCase(true)]
+        public void OptionalAnyStateSurvivesSaveReloadAndUndo(bool configured)
+        {
+            CoCoStateGraphAsset asset = CreateSavedAsset();
+            CoCoLayerId layerId = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Any");
+            CoCoStateId leaf = CoCoStateGraphAuthoringOperations.AddState(asset, layerId, default,
+                CoCoStateGraphTestFactory.StateDescriptorId, new TestStateAuthoringConfig { Value = 1 });
+            CoCoStateId anyId = default;
+            if (configured)
+            {
+                CoCoGraphDescriptorCatalog catalog = CoCoStateGraphTestFactory.CreateCatalog(false, includeAnyState: true);
+                Assert.IsTrue(catalog.TryGetStateDescriptor(CoCoStateGraphTestFactory.AnyStateDescriptorId, out var descriptor));
+                Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryAddAnyState(asset, layerId, descriptor,
+                    new TestStateAuthoringConfig { Value = 7 }, Vector2.zero, out anyId, out _));
+                CoCoStateGraphAuthoringOperations.AddTransition(asset, layerId, anyId, leaf, 0);
+                Undo.FlushUndoRecordObjects();
+                Undo.IncrementCurrentGroup();
+                Assert.IsTrue(CoCoStateGraphAuthoringOperations.TryDeleteAnyState(asset, layerId, out _));
+                Undo.FlushUndoRecordObjects();
+                Undo.PerformUndo();
+                Assert.AreEqual(anyId, ToStateId(asset.Layers[0].AnyState.StateId));
+                Undo.PerformRedo();
+                Assert.IsNull(asset.Layers[0].AnyState);
+                Undo.PerformUndo();
+            }
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            Resources.UnloadAsset(asset);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            asset = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath);
+            Assert.AreEqual(configured, asset.Layers[0].AnyState != null);
+            Assert.AreEqual(1, asset.Layers[0].States.Count);
+            if (!configured) return;
+            Assert.AreEqual(anyId, ToStateId(asset.Layers[0].AnyState.StateId));
+            Assert.AreEqual(7, ((TestStateAuthoringConfig)asset.Layers[0].AnyState.Config).Value);
+            Assert.AreEqual(asset.Layers[0].AnyState.StateId, asset.Layers[0].Transitions[0].SourceStateId);
+            Assert.IsTrue(new CoCoStateGraphAssetCompiler(new CoCoStateGraphCompilationCache()).Compile(
+                asset, CoCoStateGraphTestFactory.CreateCatalog(false, includeAnyState: true)).Succeeded);
+        }
+
+        [Test]
         public void SaveReimportRenameMoveAndReorderPreserveStableIds()
         {
             CoCoStateGraphAsset asset = CreateSavedAsset();

@@ -1,24 +1,31 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.5 · **Unity**：6000+
+> **版本**：0.4.6 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
 
-## 0.4.5 新内容
+## 0.4.6 新内容
 
-- 标准 `[Config]` 支持数组和 `List<T>`，包括纯数据 struct 元素，提供增删、
-  排序和元素编辑。数值输入保留 `2.` 等中间文本，在确认或失焦时提交。
-- State 名称、Logic 和 Config 统一使用草稿，通过 Save 或 Discard 处理。
-  侧栏重新排版，Transition 列表按选择范围展示，局部刷新保留编辑控件；
-  Save 统一应用草稿并分析一次。
-- Host 启动链的异常输出到 Console，保留原始堆栈和内部异常并关联 Host 组件。
+- 每个 Layer 可绑定一个 `CoCoAnyStateLogic`，在普通活跃枝之后执行，
+  请求的转移满足条件时优先。保留完整 Config/Memory/Intent/Operation 和邮箱
+  能力，沿用事务与恢复规则。AnyState Memory 跨换叶保留；重入当前叶只重置
+  该叶的 Activation、Memory 和时钟，祖先与 AnyState 保持，作者可每 Tick 请求。
+  见 [Runtime 契约](Docs/StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+  和 [Editor 接线](Docs/StateGraphEditor.md#configuring-anystate)。
+- Composite 卡的“整理子级”下提供“收起子机”。跨边界转移共享连线，每个真实
+  转移对应一个三角，通过菜单选择原转移。折叠仅存于 Editor Session，保留图数据
+  和 Runtime 输入。收起后保留紫色高亮；三角放大、AnyState 常驻玫红边框，
+  谱系线透明度降低。见 [子机折叠](Docs/StateGraphEditor.md#collapsing-a-sub-state-machine)。
+- PersistenceContext ID 改为在 Prefab 资产上显式维护，变体使用独立覆盖。
+  Lock ID、只读 Scan 和 Regenerate ID 支持此流程；生命周期回调不再自动生成
+  或去重 ID。既有 ID 保留；重新生成会改变存档身份，多个独立存档实体须使用
+  不同身份。见 [身份边界](Docs/Module-Persistence.md#stable-entity-identity)。
 
-`[Memory]` 仍遵循 unmanaged 契约。StateLogic 仍需实现 `ICoCoStateUpdate`，
-本版不自动补空 Update。Player 与 IL2CPP 兼容性仍未验证。
-使用方式见 [Editor 指南](Docs/StateGraphEditor.md) 和 [Changelog](CHANGELOG.md)。
+没有 AnyState 的旧图无需迁移或补边。Player、IL2CPP/AOT、裁剪、完整 Umbra
+动画和脚 IK 仍未验证。修复与兼容边界见 [Changelog](CHANGELOG.md)。
 
 ## “成熟”的定义
 
@@ -72,7 +79,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.5
+https://github.com/YunXEE/CoCoFlow.git#v0.4.6
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -80,7 +87,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.5
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.5"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.6"
   }
 }
 ```

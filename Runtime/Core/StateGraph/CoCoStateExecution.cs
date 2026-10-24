@@ -294,6 +294,7 @@ namespace CoCoFlow.Runtime.Core
         private CoCoStateCallbackOperationLease _operationLease;
         private CoCoLayerId _layerId;
         private CoCoStateId _stateId;
+        private CoCoStateId _activeLeafStateId;
         private CoCoActivationId _activationId;
         private double _previousLocalSeconds;
         private double _localSeconds;
@@ -322,6 +323,8 @@ namespace CoCoFlow.Runtime.Core
             : default;
         public CoCoLayerId LayerId => _layerId;
         public CoCoStateId StateId => _stateId;
+        /// <summary>The ordinary leaf whose lifecycle a Transition changes.</summary>
+        public CoCoStateId ActiveLeafStateId => _activeLeafStateId;
         public CoCoActivationId ActivationId => _activationId;
         public double PreviousLocalSeconds => _previousLocalSeconds;
         public double LocalSeconds => _localSeconds;
@@ -542,6 +545,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateCallbackOperationLease operationLease,
             CoCoLayerId layerId,
             CoCoStateId stateId,
+            CoCoStateId activeLeafStateId,
             CoCoActivationId activationId,
             double previousLocalSeconds,
             double localSeconds,
@@ -562,6 +566,7 @@ namespace CoCoFlow.Runtime.Core
             _operationLease = operationLease;
             _layerId = layerId;
             _stateId = stateId;
+            _activeLeafStateId = activeLeafStateId;
             _activationId = activationId;
             _previousLocalSeconds = previousLocalSeconds;
             _localSeconds = localSeconds;
@@ -592,6 +597,7 @@ namespace CoCoFlow.Runtime.Core
             _allowedOperationSections = null;
             _layerId = default;
             _stateId = default;
+            _activeLeafStateId = default;
             _activationId = default;
             _previousLocalSeconds = 0d;
             _localSeconds = 0d;
@@ -631,6 +637,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoFrozenConfigSnapshot Config { get; private set; }
         public CoCoLayerId LayerId { get; private set; }
         public CoCoStateId SourceStateId { get; private set; }
+        public CoCoStateId ActiveLeafStateId { get; private set; }
         public CoCoTransitionId TransitionId { get; private set; }
         public double PreviousLocalSeconds { get; private set; }
         public double LocalSeconds { get; private set; }
@@ -644,6 +651,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoFrozenConfigSnapshot config,
             CoCoLayerId layerId,
             CoCoStateId sourceStateId,
+            CoCoStateId activeLeafStateId,
             CoCoTransitionId transitionId,
             double previousLocalSeconds,
             double localSeconds,
@@ -656,6 +664,7 @@ namespace CoCoFlow.Runtime.Core
             Config = config;
             LayerId = layerId;
             SourceStateId = sourceStateId;
+            ActiveLeafStateId = activeLeafStateId;
             TransitionId = transitionId;
             PreviousLocalSeconds = previousLocalSeconds;
             LocalSeconds = localSeconds;
@@ -671,6 +680,7 @@ namespace CoCoFlow.Runtime.Core
             Config = null;
             LayerId = default;
             SourceStateId = default;
+            ActiveLeafStateId = default;
             TransitionId = default;
             PreviousLocalSeconds = 0d;
             LocalSeconds = 0d;

@@ -56,6 +56,30 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
+    [CoCoState(nameof(MailboxAnyLogic))]
+    public sealed class MailboxAnyLogic : CoCoAnyStateLogic
+    {
+        [Config] public int Increment = 2;
+        [Memory] public int Total = 10;
+        public static Action Tick;
+
+        public override void Update(CoCoStateExecutionContext context)
+        {
+            Total += Increment;
+            if (context.Inbox.TryGetBatch<MailboxDamage>(out var damages))
+                for (int index = 0; index < damages.Count; index++)
+                    if (damages.TryRead(index, out var damage)) Total -= (int)damage.RawDamage;
+            context.Outbox.Publish(new MailboxNotice { Value = Total });
+            Tick?.Invoke();
+        }
+    }
+
+    [CoCoState(nameof(MailboxStatelessAnyLogic))]
+    public sealed class MailboxStatelessAnyLogic : CoCoAnyStateLogic
+    {
+        public override void Update(CoCoStateExecutionContext context) { }
+    }
+
     [Condition]
     public sealed class MailboxReadyCondition : CoCoStateCondition, ICoCoStateConditionEvaluator
     {

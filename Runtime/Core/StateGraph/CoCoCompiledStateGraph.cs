@@ -66,7 +66,8 @@ namespace CoCoFlow.Runtime.Core
             int[] childStateIndices,
             int[] rootPathStateIndices,
             int firstOutgoingTransitionIndex,
-            int outgoingTransitionCount)
+            int outgoingTransitionCount,
+            bool isAnyState = false)
         {
             StateId = stateId;
             DenseIndex = denseIndex;
@@ -78,6 +79,7 @@ namespace CoCoFlow.Runtime.Core
             _rootPathStateIndices = Array.AsReadOnly((int[])rootPathStateIndices.Clone());
             FirstOutgoingTransitionIndex = firstOutgoingTransitionIndex;
             OutgoingTransitionCount = outgoingTransitionCount;
+            IsAnyState = isAnyState;
         }
 
         public CoCoStateId StateId { get; }
@@ -90,8 +92,9 @@ namespace CoCoFlow.Runtime.Core
         public IReadOnlyList<int> RootPathStateIndices => _rootPathStateIndices;
         public int FirstOutgoingTransitionIndex { get; }
         public int OutgoingTransitionCount { get; }
-        public bool IsRoot => ParentStateIndex < 0;
-        public bool IsLeaf => _childStateIndices.Count == 0;
+        public bool IsAnyState { get; }
+        public bool IsRoot => !IsAnyState && ParentStateIndex < 0;
+        public bool IsLeaf => !IsAnyState && _childStateIndices.Count == 0;
     }
 
     public sealed class CoCoCompiledStateLayer
@@ -108,11 +111,13 @@ namespace CoCoFlow.Runtime.Core
             int denseIndex,
             int initialStateIndex,
             CoCoCompiledState[] states,
-            CoCoCompiledTransition[] transitions)
+            CoCoCompiledTransition[] transitions,
+            int anyStateIndex = -1)
         {
             LayerId = layerId;
             DenseIndex = denseIndex;
             InitialStateIndex = initialStateIndex;
+            AnyStateIndex = anyStateIndex;
             _states = (CoCoCompiledState[])states.Clone();
             _transitions = (CoCoCompiledTransition[])transitions.Clone();
             _readOnlyStates = Array.AsReadOnly(_states);
@@ -133,6 +138,8 @@ namespace CoCoFlow.Runtime.Core
         public CoCoLayerId LayerId { get; }
         public int DenseIndex { get; }
         public int InitialStateIndex { get; }
+        public int AnyStateIndex { get; }
+        public bool HasAnyState => AnyStateIndex >= 0;
         public IReadOnlyList<CoCoCompiledState> States => _readOnlyStates;
         public IReadOnlyList<CoCoCompiledTransition> Transitions => _readOnlyTransitions;
 

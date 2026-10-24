@@ -72,6 +72,7 @@ namespace CoCoFlow.Editor.StateGraph
                 CollectDetailsSection(management, () => DrawLayerCard(layer));
                 CollectDetailsSection(management, DrawAddStateCard);
                 CollectDetailsSection(management, DrawAddLogicCard);
+                CollectDetailsSection(management, DrawAddAnyStateCard);
                 details.Add(management);
             }
 
@@ -157,7 +158,7 @@ namespace CoCoFlow.Editor.StateGraph
             texts.Register(card[0], "Add State", "添加 State");
 
             IReadOnlyList<CoCoStateDescriptor> stateDescriptors =
-                controller.Catalog?.StateDescriptors ?? Array.Empty<CoCoStateDescriptor>();
+                StateDescriptorsForRole(false);
             StateDescriptorChoice addDescriptor = AddStateDescriptorPopup(
                 stateDescriptors,
                 addStateDescriptorId,
@@ -186,6 +187,32 @@ namespace CoCoFlow.Editor.StateGraph
 
             details.Add(card);
         }
+
+        private void DrawAddAnyStateCard()
+        {
+            if (controller.SelectedLayer.AnyState == null)
+            {
+                var anyCard = CoCoEditorElements.CreateCard("AnyState");
+                anyCard.name = "state-graph-add-any-state";
+                anyCard.AddToClassList("sg-card");
+                StateDescriptorChoice anyDescriptor = AddStateDescriptorPopup(
+                    StateDescriptorsForRole(true), default, false, "any-state-descriptor", anyCard);
+                anyCard.Add(new HelpBox(L(
+                    "Bind a CoCoAnyStateLogic: one persistent Update-only Logic per Layer, targeting ordinary leaves.",
+                    "绑定 CoCoAnyStateLogic：每个 Layer 一个常驻、仅 Update 的 Logic，目标为普通叶状态。"),
+                    HelpBoxMessageType.Info));
+                anyCard.Add(new Button(() => controller.AddAnyState(anyDescriptor.Value, NextPosition()))
+                {
+                    text = L("Add AnyState", "添加 AnyState")
+                });
+                details.Add(anyCard);
+            }
+        }
+
+        private IReadOnlyList<CoCoStateDescriptor> StateDescriptorsForRole(bool anyState) =>
+            (controller.Catalog?.StateDescriptors ?? Array.Empty<CoCoStateDescriptor>())
+            .Where(descriptor => CoCoStateGraphEditorController.IsAnyStateDescriptor(descriptor) == anyState)
+            .ToArray();
 
         private void DrawAddLogicCard()
         {
@@ -237,7 +264,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             IReadOnlyList<CoCoStateDescriptor> stateDescriptors =
-                controller.Catalog?.StateDescriptors ?? Array.Empty<CoCoStateDescriptor>();
+                StateDescriptorsForRole(controller.IsAnyStateSelected);
 
             var card = CoCoEditorElements.CreateCard(L("Selected State", "选中的 State"));
             card.AddToClassList("sg-card");
@@ -289,6 +316,16 @@ namespace CoCoFlow.Editor.StateGraph
             _stateConfigHost = new VisualElement { name = "state-graph-state-config-host" };
             card.Add(_stateConfigHost);
             RefreshStateConfig();
+
+            if (controller.IsAnyStateSelected)
+            {
+                card.Add(new Label("AnyState ID: " + StableStateId(state)));
+                card.Add(CoCoEditorElements.CreateDangerButton(L("Delete AnyState", "删除 AnyState"),
+                    () => controller.DeleteSelectedState(default)));
+                details.Add(card);
+                RefreshStateDraftStatus();
+                return;
+            }
 
             _stateStructureActions = CreateDetailsFoldout("state-graph-state-structure", "Structure actions", "结构操作");
             card.Add(_stateStructureActions);
@@ -515,7 +552,9 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
-            if (selected == null && !leafIds.Contains(sourceScope))
+            var sourceIds = new List<CoCoStateId>(leafIds);
+            if (layer.AnyState != null) sourceIds.Add(ToStateId(layer.AnyState.StateId));
+            if (selected == null && !sourceIds.Contains(sourceScope))
             {
                 card.Add(new HelpBox(L("Only leaf States can have outgoing Transitions.",
                     "只有叶子 State 可以创建出边。"), HelpBoxMessageType.Info));
@@ -527,9 +566,9 @@ namespace CoCoFlow.Editor.StateGraph
             CoCoStateId targetId = selected == null
                 ? leafIds.Find(id => id != sourceId)
                 : ToStateId(selected.TargetStateId);
-            if (!targetId.IsValid) targetId = sourceId;
+            if (!targetId.IsValid && leafIds.Contains(sourceId)) targetId = sourceId;
             StateIdChoice source = AddStateIdPopup("Source State",
-                selected == null ? new List<CoCoStateId> { sourceId } : leafIds, sourceId, card);
+                selected == null ? new List<CoCoStateId> { sourceId } : sourceIds, sourceId, card);
             if (selected == null) card.Q<PopupField<string>>().SetEnabled(false);
             StateIdChoice target = AddStateIdPopup("Target State", leafIds, targetId, card);
             var priority = new IntegerField(L("Priority", "优先级")) { value = selected?.Priority ?? 0 };
@@ -584,6 +623,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             card.Add(apply);
+            apply.SetEnabled(leafIds.Count > 0);
 
             if (selected == null)
             {
@@ -837,7 +877,11 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
-            return null;
+            SerializedProperty anyState = layer?.FindPropertyRelative("anyState");
+            return anyState != null && anyState.managedReferenceValue != null &&
+                   SerializedIdMatches(anyState.FindPropertyRelative("stateId"), stateId.High, stateId.Low)
+                ? anyState.FindPropertyRelative("config")
+                : null;
         }
 
         private SerializedProperty FindConditionConfigProperty(

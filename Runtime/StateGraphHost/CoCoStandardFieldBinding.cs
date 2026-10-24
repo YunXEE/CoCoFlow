@@ -86,8 +86,9 @@ namespace CoCoFlow.Runtime.Core
             var binding = new CoCoFieldMemory<TLogic, TState>.Binding();
             ulong initial = InitialActivation(builder.Graph, state);
             CoCoActivationId.TryCreate(initial, out var activation);
-            CoCoGraphStateRecord<TState>.TryCreate(layer.LayerId, state.StateId, initial != 0, activation,
-                0, 0, initial != 0, binding.SemanticFingerprint, CoCoFieldMemory<TLogic, TState>.Initial, out var record);
+            bool isOnActivePath = initial != 0 && !state.IsAnyState;
+            CoCoGraphStateRecord<TState>.TryCreate(layer.LayerId, state.StateId, isOnActivePath, activation,
+                0, 0, isOnActivePath, binding.SemanticFingerprint, CoCoFieldMemory<TLogic, TState>.Initial, out var record);
             return builder.TryBindGraphStateSlot<CoCoFieldMemory<TLogic, TState>, TState, CoCoFieldMemory<TLogic, TState>.Binding>(
                 layer.LayerId, state.StateId, StandardGraphState.BlockFor(state.Descriptor.DescriptorId),
                 StandardGraphState.SlotFor(state.Descriptor.DescriptorId), record, binding.SemanticFingerprint, binding, out diagnostic);
@@ -105,6 +106,11 @@ namespace CoCoFlow.Runtime.Core
                 {
                     activation++;
                     if (ReferenceEquals(layer.States[index], state)) return activation;
+                }
+                if (layer.AnyStateIndex >= 0)
+                {
+                    activation++;
+                    if (ReferenceEquals(layer.States[layer.AnyStateIndex], state)) return activation;
                 }
             }
             return 0;

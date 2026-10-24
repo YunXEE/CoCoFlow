@@ -1,6 +1,6 @@
 # CoCoFlow StateGraph Editor and Runtime Debugger
 
-> Documentation baseline: `0.4.1` · Updated 2026-09-02
+> Documentation baseline: `0.4.1` · AnyState and canvas folding: `0.4.6`
 >
 > This page describes current Editor tooling. StateGraph Editor features are not
 > included in the Core Engine Runtime API maturity guarantee.
@@ -36,7 +36,7 @@ The canvas shows the whole selected Layer as one flattened genealogy view:
 every State, at any nesting depth, is placed on the same canvas (positions are
 composed from the per-scope local EditorLayout coordinates), and parent-child
 structure is drawn as white flowchart-style elbow lines (genealogy lines). A
-Transition can connect only two leaves of the Layer, at any depth. Its runtime
+Transition goes from an ordinary leaf or AnyState to an ordinary leaf of the Layer. Its runtime
 declaration consists of Conditions, one Window, and a Priority that is unique
 among the outgoing Transitions of its source. Completion and Interrupt are not
 authoring fields. The interaction rejects a cross-Layer or composite endpoint
@@ -57,6 +57,7 @@ border (offset from the card body) is reserved for dynamic states. The first
 outer-border type is the ancestry highlight: selecting a State lights the
 selected State, all of its ancestors, and the genealogy segments between them,
 visualizing how much Logic the State inherits and runs.
+AnyState has a permanent rose-pink inner border with the same 2px width as Default, visible even when unselected.
 The selected State's direct Transition targets have purple outer frames, and
 its outgoing edges and arrows turn purple. Incoming and indirect connections
 keep their normal colors. Purple and yellow use the same 2px card border;
@@ -64,7 +65,7 @@ ancestry takes precedence when roles overlap, including on a self-loop.
 Outgoing Transition controls remain expanded, with a bounded scrolling list.
 
 Leaf flow states are computed from the Layer default leaf by following all
-Transitions: reachable leaves with outgoing edges (and the default leaf when
+Transitions, also starting from configured AnyState: reachable leaves with outgoing edges (and the default leaf when
 it has outgoing edges) show no marker; reachable leaves without outgoing edges
 (dead ends) show an orange dashed outer ring; topologically unreachable leaves
 (including a default leaf without outgoing edges) show a red dashed ring.
@@ -78,6 +79,38 @@ that State's own EditorLayout record. The canvas also offers a one-step
 plus its first child State in one collapsed undo group. Right-dragging from a
 leaf card to another leaf creates an Always Transition.
 
+### Collapsing a sub-state machine
+
+On a composite card, **Collapse Subtree** (`收起子机`) is immediately below
+**Tidy Subtree** (`整理子级`). It hides all descendants and their internal
+genealogy/Transition lines. **Expand Subtree** (`展开子机`) restores them;
+an inner composite retains its own collapsed choice when an outer one expands.
+AnyState stays visible as an independent Layer source.
+
+Cross-boundary Transitions use the visible composite as their displayed endpoint.
+Each directed pair becomes one line with exactly one triangle per real Transition;
+the opposite direction uses a separate offset line. Short lines arrange the triangles
+in adjacent rows. Internal Transitions never turn into composite self-loops.
+Unaffected parallel edges and visible leaf self-loops keep their existing presentation.
+
+Click a line or triangle to select its only member, or open a Unity menu when it
+contains several. Each menu item gives the full source and target paths, Priority,
+and complete Transition ID. Choosing one edits that original Transition, including
+its Window, Conditions and Config, through the normal Undo commands. Cancelling
+the menu leaves selection intact. Selection keeps the submachine collapsed;
+explicit state navigation or diagnostic **Locate** reveals the necessary ancestors.
+Selection ancestry and direct-target highlighting follow the visible cards.
+
+Folding is a per-asset Editor session preference, separate from the left directory's
+foldouts. It survives Domain Reload and does not alter the asset, IDs, Config,
+runtime fingerprints or Undo history. Older sessions open fully expanded. It also
+preserves an unsaved Logic draft. Moving a collapsed composite carries its subtree
+through the parent's local position; hidden children's local positions stay intact.
+Tidy still arranges all actual descendants, whether visible or hidden.
+
+Deleting a Layer with AnyState explicitly warns that its Logic binding and Config
+will also be deleted. Cancel leaves the graph intact; deletion uses the normal Undo.
+
 The Asset Inspector is an entry point, summary, and diagnostic surface built
 with the same unified visual language. It shows identity and count summaries,
 a read-only Host-requirements card derived from the three compilation
@@ -90,7 +123,7 @@ Analyze, and diagnostic location remain available without mutating serialized
 data.
 
 With nothing selected, the details sidebar shows Layer management, Add State,
-Add Logic, then all Transitions in the current Layer. These three operation
+Add Logic, the optional AnyState creation card, then all Transitions in the current Layer. These operation
 panels stay expanded and appear only while neither a State nor a Transition is
 selected. Selecting a State or Transition shows its editor and scoped outgoing
 Transitions instead. Clicking empty canvas clears selection and keeps the current
@@ -117,6 +150,38 @@ one Undo transaction, persists the asset and immediately analyzes and refreshes
 it. Switching selection or assets asks to save, discard or cancel; closing the
 window uses Unity's unsaved-changes prompt. UI rebuilds preserve an unsaved draft.
 Analyze always analyzes the saved asset, including while a draft is pending.
+
+### Configuring AnyState
+
+Write an attributed project Logic deriving from `CoCoAnyStateLogic`, overriding
+`Update`. It uses the normal Config/Memory/Intent/Operation and mailbox binding
+paths. Do not implement Enter or Exit. The normal **Add Logic** script wizard
+still creates ordinary Logic; AnyState requires the explicit special base class.
+
+1. Select the Layer and click empty canvas to clear the current selection.
+2. In the **AnyState** card, select the special Logic and click **Add AnyState**
+   (`添加 AnyState`). This entry exists only while the Layer has no AnyState.
+3. Select its independent `AnyState · name` canvas card or directory row.
+   Edit Name, Logic and StateConfig through the same **Save / Discard** draft.
+4. Add outgoing transitions in **Transitions**, or right-drag its canvas card
+   to an ordinary leaf. Source choices include AnyState and ordinary leaves;
+   target choices include only ordinary leaves. Set unique source Priorities,
+   Conditions and a Window as usual.
+5. **Delete AnyState** (`删除 AnyState`) clears the binding and its associated
+   transitions in one Undo operation. Undo/Redo restores the same IDs and Config.
+
+AnyState has no parent/default-child controls, child creation or subtree copy.
+Its card is separate from genealogy; the current ordinary leaf remains a leaf.
+AnyState Config diagnostics locate `anyState.config`, with stable owner ID and
+`StateIndex = -1`. Layer/Asset copies include and remap AnyState, while ordinary
+subtree copies do not capture it. An old graph remains unconfigured, with its
+ordinary tree, layout and fingerprints unchanged; no migration is required.
+
+The existing Runtime Debugger continues to show the ordinary active path and
+real winning Transition ID. An AnyState-owned edge's declared source is AnyState;
+the Runtime exits the current ordinary leaf's path. See the
+[runtime contract and example](StateGraphRuntime.md#anystate-one-persistent-logic-per-layer)
+for self-reentry, persistent Memory and output composition.
 
 Structure actions live in a collapsed section and explain their scope: default
 entry, copy/create child States, change parent, delete, and State order. They

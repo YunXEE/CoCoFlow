@@ -535,6 +535,15 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
+            if (layer.AnyState != null)
+            {
+                var anyRow = new Button(() => controller.NavigateToState(ToStateId(layer.AnyState.StateId)))
+                {
+                    text = $"AnyState · {layer.AnyState.DisplayName}"
+                };
+                anyRow.AddToClassList("sg-tree-row");
+                tree.Add(anyRow);
+            }
             AddTreeChildren(tree, layer, default, 0);
         }
 
@@ -712,6 +721,10 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             controller.SelectState(id);
+            if (ReferenceEquals(state, layer.AnyState))
+            {
+                return;
+            }
             bool hasIncidentTransition = HasIncidentTransition(layer, state.StateId);
             var menu = new GenericMenu();
             if (CoCoStateGraphAuthoringOperations.CanEdit(out _) && !hasIncidentTransition)
@@ -856,11 +869,7 @@ namespace CoCoFlow.Editor.StateGraph
             if (layer == null ||
                 !EditorUtility.DisplayDialog(
                     L("Delete State Graph Layer", "删除 State Graph Layer"),
-                    L(
-                        $"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
-                        $"{layer.Transitions.Count} Transition(s)?",
-                        $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
-                        $"{layer.Transitions.Count} 个 Transition？"),
+                    DeleteLayerMessage(layer),
                     L("Delete", "删除"),
                     L("Cancel", "取消")))
             {
@@ -869,6 +878,14 @@ namespace CoCoFlow.Editor.StateGraph
 
             controller.DeleteLayer();
         }
+
+        internal static string DeleteLayerMessage(CoCoStateGraphLayerRecord layer) =>
+            L($"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
+              $"{layer.Transitions.Count} Transition(s)?" + (layer.AnyState == null ? string.Empty :
+                  " The AnyState Logic binding and its Config will also be deleted."),
+              $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
+              $"{layer.Transitions.Count} 个 Transition？" + (layer.AnyState == null ? string.Empty :
+                  " 同时删除 AnyState 的 Logic 绑定及其 Config。"));
 
         private void DeleteState(StateIdChoice replacement)
         {
@@ -940,7 +957,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 foreach (CoCoStateDescriptor descriptor in controller.Catalog.StateDescriptors)
                 {
-                    if (descriptor.DescriptorId == descriptorId)
+                    if (descriptor.DescriptorId == descriptorId &&
+                        !CoCoStateGraphEditorController.IsAnyStateDescriptor(descriptor))
                     {
                         return descriptor;
                     }
@@ -1022,7 +1040,7 @@ namespace CoCoFlow.Editor.StateGraph
                 return null;
             }
 
-            foreach (CoCoStateGraphStateRecord state in layer.States)
+            foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
                 if (state != null && state.StateId.High == stateId.High && state.StateId.Low == stateId.Low)
                 {

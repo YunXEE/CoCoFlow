@@ -56,6 +56,7 @@ namespace CoCoFlow.Runtime.Core
             }
 
             internal ulong[] States { get; }
+            internal ulong AnyState;
             internal ulong[][] Conditions { get; }
             internal ulong[] InvalidWindows { get; }
         }
@@ -207,9 +208,15 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 CoCoLayerId.TryCreate(layer.LayerId.High, layer.LayerId.Low, out CoCoLayerId layerId);
-                for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
+                for (int stateIndex = -1; stateIndex < layer.States.Count; stateIndex++)
                 {
-                    CoCoStateGraphStateRecord state = layer.States[stateIndex];
+                    CoCoStateGraphStateRecord state = stateIndex < 0
+                        ? layer.AnyState
+                        : layer.States[stateIndex];
+                    if (stateIndex < 0 && state == null)
+                    {
+                        continue;
+                    }
                     if (state == null)
                     {
                         diagnostics.Add(Error(
@@ -459,11 +466,23 @@ namespace CoCoFlow.Runtime.Core
                     out configFingerprints.InvalidWindows[transitionIndex]);
             }
 
+            CoCoStateSource anyState = layer.AnyState == null ? null : BuildState(
+                layer.AnyState,
+                graphId,
+                layerId,
+                layerIndex,
+                -1,
+                allowFreezing,
+                configFreezer,
+                preflightDiagnostics,
+                adapterDiagnostics,
+                out configFingerprints.AnyState);
             return new CoCoStateLayerSource(
                 layerId,
                 initialStateId,
                 stateSources,
-                transitionSources);
+                transitionSources,
+                anyState);
         }
 
         private static CoCoStateSource BuildState(
@@ -839,6 +858,21 @@ namespace CoCoFlow.Runtime.Core
                                 ? layerConfigFingerprints.States[stateIndex]
                                 : state.Config?.Fingerprint ?? 0UL);
                     }
+                }
+
+                if (layer.AnyState != null)
+                {
+                    CoCoStateSource anyState = layer.AnyState;
+                    Add(ref hash, 0x414E595354415445UL);
+                    Add(ref hash, anyState.StateId.High);
+                    Add(ref hash, anyState.StateId.Low);
+                    Add(ref hash, anyState.ParentStateId.High);
+                    Add(ref hash, anyState.ParentStateId.Low);
+                    Add(ref hash, anyState.InitialChildStateId.High);
+                    Add(ref hash, anyState.InitialChildStateId.Low);
+                    Add(ref hash, anyState.DescriptorId.High);
+                    Add(ref hash, anyState.DescriptorId.Low);
+                    Add(ref hash, layerConfigFingerprints?.AnyState ?? anyState.Config?.Fingerprint ?? 0UL);
                 }
 
                 Add(ref hash, layer.Transitions?.Count ?? -1);
