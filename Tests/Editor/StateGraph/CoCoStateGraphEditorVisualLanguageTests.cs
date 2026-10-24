@@ -456,6 +456,27 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 Assert.IsTrue(canvas.TryHitEdge(new Vector2(234, 131 + row * 24), 3, out var hit));
                 Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, hit);
             }
+            for (int row = 1; row < 3; row++)
+            {
+                foreach (float zoom in new[] { 1f, 2f })
+                {
+                    Vector2 center = new Vector2(234, 131 + row * 24);
+                    float threshold = 6f / zoom;
+                    foreach (Vector2 offset in new[] { new Vector2(-5, 4), new Vector2(-8, -6), new Vector2(8, 0) })
+                    {
+                        Assert.IsTrue(canvas.TryHitEdge(center + offset, threshold, out var hit),
+                            $"Visible triangle interior must be hittable at zoom {zoom}: {offset}");
+                        Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, hit);
+                    }
+                    Vector2 edgeMidpoint = center + new Vector2(0, 3.5f);
+                    Vector2 outwardNormal = new Vector2(7, 18).normalized;
+                    Assert.IsTrue(canvas.TryHitEdge(edgeMidpoint + outwardNormal * (threshold - 0.5f),
+                        threshold, out var nearEdge), "Screen-space tolerance must extend from the triangle edge.");
+                    Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, nearEdge);
+                    Assert.IsFalse(canvas.TryHitEdge(edgeMidpoint + outwardNormal * (threshold + 0.5f),
+                        threshold, out _), "Points outside the triangle tolerance must still miss.");
+                }
+            }
             controller.SelectState(target);
             Assert.IsTrue(canvas.Q<VisualElement>("state-card").ClassListContains("state-card--transition-target"));
             controller.ToggleCanvasCollapsed(parent);

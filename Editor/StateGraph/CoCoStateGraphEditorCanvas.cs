@@ -882,6 +882,10 @@ namespace CoCoFlow.Editor.StateGraph
             internal CoCoSerializedId128 TransitionId;
             internal Vector2 Start;
             internal Vector2 End;
+            internal bool IsTriangle;
+            internal Vector2 TriangleTip;
+            internal Vector2 TriangleLeft;
+            internal Vector2 TriangleRight;
             internal bool IsLoop;
             internal Vector2 LoopCenter;
             internal float LoopRadius;
@@ -1074,8 +1078,7 @@ namespace CoCoFlow.Editor.StateGraph
                 int rowCount = Mathf.Min(columns, group.TransitionIds.Count - row * columns);
                 Vector2 center = (start + end) * 0.5f +
                     direction * ((index % columns - (rowCount - 1) * 0.5f) * 28f) + normal * (row * 24f);
-                DrawDirectionTriangle(painter, center, direction);
-                edgeHits.Add(new EdgeHit { TransitionId = group.TransitionIds[0], Start = center, End = center });
+                DrawDirectionTriangle(painter, center, direction, group.TransitionIds[0]);
             }
         }
 
@@ -1169,7 +1172,8 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         /// <summary>维护者反馈 1：实心小三角，画在连线中间，指向行进方向。</summary>
-        private static void DrawDirectionTriangle(Painter2D painter, Vector2 center, Vector2 direction)
+        private void DrawDirectionTriangle(Painter2D painter, Vector2 center, Vector2 direction,
+            CoCoSerializedId128 transitionId = default)
         {
             if (direction.sqrMagnitude <= 0f)
             {
@@ -1178,12 +1182,21 @@ namespace CoCoFlow.Editor.StateGraph
 
             direction.Normalize();
             Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 tip = center + direction * (TriangleLength * 0.5f);
+            Vector2 left = center - direction * (TriangleLength * 0.5f) + normal * (TriangleWidth * 0.5f);
+            Vector2 right = center - direction * (TriangleLength * 0.5f) - normal * (TriangleWidth * 0.5f);
             painter.BeginPath();
-            painter.MoveTo(center + direction * (TriangleLength * 0.5f));
-            painter.LineTo(center - direction * (TriangleLength * 0.5f) + normal * (TriangleWidth * 0.5f));
-            painter.LineTo(center - direction * (TriangleLength * 0.5f) - normal * (TriangleWidth * 0.5f));
+            painter.MoveTo(tip);
+            painter.LineTo(left);
+            painter.LineTo(right);
             painter.ClosePath();
             painter.Fill();
+            if (transitionId.IsValid)
+                edgeHits.Add(new EdgeHit
+                {
+                    TransitionId = transitionId, IsTriangle = true,
+                    TriangleTip = tip, TriangleLeft = left, TriangleRight = right
+                });
         }
 
         private static Vector2 CubicBezierPoint(
@@ -1313,6 +1326,11 @@ namespace CoCoFlow.Editor.StateGraph
                         distance = 0f;
                     }
                 }
+                else if (hit.IsTriangle)
+                {
+                    distance = DistancePointToTriangle(graphPosition,
+                        hit.TriangleTip, hit.TriangleLeft, hit.TriangleRight);
+                }
                 else
                 {
                     distance = DistancePointToSegment(graphPosition, hit.Start, hit.End);
@@ -1328,6 +1346,19 @@ namespace CoCoFlow.Editor.StateGraph
 
             return found;
         }
+
+        private static float DistancePointToTriangle(Vector2 point, Vector2 a, Vector2 b, Vector2 c)
+        {
+            float ab = Cross(b - a, point - a);
+            float bc = Cross(c - b, point - b);
+            float ca = Cross(a - c, point - c);
+            if ((ab >= 0f && bc >= 0f && ca >= 0f) || (ab <= 0f && bc <= 0f && ca <= 0f))
+                return 0f;
+            return Mathf.Min(DistancePointToSegment(point, a, b),
+                Mathf.Min(DistancePointToSegment(point, b, c), DistancePointToSegment(point, c, a)));
+        }
+
+        private static float Cross(Vector2 first, Vector2 second) => first.x * second.y - first.y * second.x;
 
         private static float DistancePointToSegment(Vector2 point, Vector2 start, Vector2 end)
         {
