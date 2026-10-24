@@ -413,6 +413,78 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [UnityTest]
+        public IEnumerator FoldedEdgesKeepAllTrianglesAndReverseDirectionsHittable()
+        {
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId parent = AddState(asset, layer, "OnFoot", new Vector2(40, 60));
+            CoCoStateId child = CoCoStateGraphAuthoringOperations.AddState(asset, layer, parent,
+                CoCoStateGraphTestFactory.StateDescriptorId, new TestStateAuthoringConfig(), "Idle");
+            CoCoStateId target = AddState(asset, layer, "Death", new Vector2(500, 75));
+            for (int priority = 0; priority < 3; priority++)
+                CoCoStateGraphAuthoringOperations.AddTransition(asset, layer, child, target, priority);
+            CoCoTransitionId reverse = CoCoStateGraphAuthoringOperations.AddTransition(asset, layer, target, child, 0);
+            var controller = new CoCoStateGraphEditorController(asset);
+            controllers.Add(controller);
+            controller.ToggleCanvasCollapsed(parent);
+            var canvas = new CoCoStateGraphEditorCanvas(controller);
+            canvases.Add(canvas);
+            Host(canvas);
+            for (int frame = 0; frame < 10 && canvas.EdgeHitCount == 0; frame++) yield return null;
+            Assert.AreEqual(6, canvas.EdgeHitCount, "Two lines plus 3+1 triangle hit regions.");
+            FieldInfo rectangleField = typeof(CoCoStateGraphEditorCanvas)
+                .GetField("stateRects", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(rectangleField);
+            var rectangles = (IDictionary)rectangleField.GetValue(canvas);
+            Rect sourceRect = (Rect)rectangles[new CoCoSerializedId128(parent.High, parent.Low)];
+            Rect targetRect = (Rect)rectangles[new CoCoSerializedId128(target.High, target.Low)];
+            Assert.AreEqual(sourceRect.center.y, targetRect.center.y);
+            Vector2 middle = (sourceRect.center + targetRect.center) * 0.5f;
+            foreach (float x in new[] { -28f, 0f, 28f })
+            {
+                Assert.IsTrue(canvas.TryHitEdge(middle + new Vector2(x, 8), 3, out var hit));
+                Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, hit);
+            }
+            Assert.IsTrue(canvas.TryHitEdge(middle - new Vector2(0, 8), 3, out var back));
+            Assert.IsTrue(Matches(back, reverse));
+            controller.SelectState(target);
+            Assert.IsTrue(controller.SetPosition(target, new Vector2(240, 75)));
+            for (int frame = 0; frame < 10 && canvas.EdgeHitCount == 0; frame++) yield return null;
+            Assert.AreEqual(6, canvas.EdgeHitCount, "A short line keeps every triangle, in adjacent rows.");
+            for (int row = 0; row < 3; row++)
+            {
+                Assert.IsTrue(canvas.TryHitEdge(new Vector2(234, 131 + row * 24), 3, out var hit));
+                Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, hit);
+            }
+            for (int row = 1; row < 3; row++)
+            {
+                foreach (float zoom in new[] { 1f, 2f })
+                {
+                    Vector2 center = new Vector2(234, 131 + row * 24);
+                    float threshold = 6f / zoom;
+                    foreach (Vector2 offset in new[] { new Vector2(-5, 4), new Vector2(-8, -6), new Vector2(8, 0) })
+                    {
+                        Assert.IsTrue(canvas.TryHitEdge(center + offset, threshold, out var hit),
+                            $"Visible triangle interior must be hittable at zoom {zoom}: {offset}");
+                        Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, hit);
+                    }
+                    Vector2 edgeMidpoint = center + new Vector2(0, 3.5f);
+                    Vector2 outwardNormal = new Vector2(7, 18).normalized;
+                    Assert.IsTrue(canvas.TryHitEdge(edgeMidpoint + outwardNormal * (threshold - 0.5f),
+                        threshold, out var nearEdge), "Screen-space tolerance must extend from the triangle edge.");
+                    Assert.AreEqual(asset.Layers[0].Transitions[0].TransitionId, nearEdge);
+                    Assert.IsFalse(canvas.TryHitEdge(edgeMidpoint + outwardNormal * (threshold + 0.5f),
+                        threshold, out _), "Points outside the triangle tolerance must still miss.");
+                }
+            }
+            controller.SelectState(target);
+            Assert.IsTrue(canvas.Q<VisualElement>("state-card").ClassListContains("state-card--transition-target"));
+            controller.ToggleCanvasCollapsed(parent);
+            for (int frame = 0; frame < 10 && canvas.EdgeHitCount == 0; frame++) yield return null;
+            Assert.AreEqual(4, canvas.EdgeHitCount, "Unfolded edges retain individual geometry.");
+        }
+
+        [UnityTest]
         public IEnumerator SelfLoopEdgeIsHittable()
         {
             CoCoStateGraphAsset asset = CreateAsset();

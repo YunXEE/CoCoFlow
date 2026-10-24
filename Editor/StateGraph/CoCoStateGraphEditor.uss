@@ -323,6 +323,14 @@
     border-bottom-color: rgba(89, 219, 122, 0.45);
 }
 
+/* AnyState 常驻玫红内框，沿用 Default 的边框尺寸。 */
+.state-card__body--any-state {
+    border-left-color: rgb(236, 72, 153);
+    border-right-color: rgb(236, 72, 153);
+    border-top-color: rgb(236, 72, 153);
+    border-bottom-color: rgb(236, 72, 153);
+}
+
 .state-card__title {
     -unity-font-style: bold;
     font-size: 12px;
@@ -345,6 +353,12 @@
 
 .state-card__tidy {
     height: 20px;
+    margin-top: 3px;
+}
+
+.state-card__collapse {
+    height: 20px;
+    flex-shrink: 0;
     margin-top: 3px;
 }
 

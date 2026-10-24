@@ -939,6 +939,66 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
         }
 
+        [UnityTest]
+        public IEnumerator CollapseButtonKeepsDraftAndDraggingDoesNotRecreateHiddenCards()
+        {
+            CoCoStateGraphAsset asset = CreateAsset();
+            CoCoLayerId layer = CoCoStateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            CoCoStateId parent = AddState(asset, layer, CoCoStateGraphTestFactory.StateDescriptorId,
+                new TestStateAuthoringConfig(), "OnFoot");
+            CoCoStateId child = CoCoStateGraphAuthoringOperations.AddState(asset, layer, parent,
+                CoCoStateGraphTestFactory.StateDescriptorId, new TestStateAuthoringConfig(), "Idle");
+            CoCoStateGraphAuthoringOperations.TrySetStatePosition(asset, layer, parent, new Vector2(40, 60), out _);
+            CoCoStateGraphAuthoringOperations.TrySetStatePosition(asset, layer, child, new Vector2(40, 190), out _);
+            var controller = new CoCoStateGraphEditorController(asset);
+            var canvas = new CoCoStateGraphEditorCanvas(controller);
+            controllers.Add(controller);
+            canvases.Add(canvas);
+            CreatePanelHost(canvas);
+            yield return null;
+            controller.SelectState(child);
+            controller.SetStateDraftName("Unsaved Idle");
+            controller.ConfirmStateDraftChanges = () => { Assert.Fail("Folding must not resolve a draft."); return false; };
+            string original = EditorJsonUtility.ToJson(asset);
+            VisualElement card = canvas.Q<VisualElement>("state-card");
+            Button collapse = card.Q<Button>("state-card-collapse");
+            Assert.AreEqual("Collapse Subtree", collapse.text);
+            Assert.AreEqual("Tidy Subtree", ((Button)collapse.parent[collapse.parent.IndexOf(collapse) - 1]).text);
+            Click(collapse);
+            yield return null;
+            Assert.AreEqual(original, EditorJsonUtility.ToJson(asset));
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.AreEqual("Unsaved Idle", controller.BeginStateDraft().DisplayName);
+            Assert.AreEqual(child, controller.Session.SelectedStateId);
+            Assert.AreEqual(1, canvas.Query<VisualElement>("state-card").ToList().Count);
+            card = canvas.Q<VisualElement>("state-card");
+            Assert.IsTrue(card.ClassListContains("state-card--ancestry"));
+            Assert.AreEqual("Expand Subtree", card.Q<Button>("state-card-collapse").text);
+            Assert.Greater(card.style.height.value.value, 96f);
+            controller.DiscardStateDraft();
+            Undo.ClearAll();
+            card = canvas.Q<VisualElement>("state-card");
+            Vector2 start = card.worldBound.center;
+            SendDown(card, 9, 0, start);
+            SendMove(card, 9, start + new Vector2(50, 25));
+            FieldInfo rectangleField = typeof(CoCoStateGraphEditorCanvas)
+                .GetField("stateRects", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(rectangleField);
+            var rectangles = (IDictionary)rectangleField.GetValue(canvas);
+            Assert.AreEqual(1, rectangles.Count, "Dragging cannot add hidden hit targets.");
+            SendUp(card, 9, 0, start + new Vector2(50, 25));
+            Undo.FlushUndoRecordObjects();
+            AssertPosition(asset, parent, new Vector2(90, 85));
+            AssertPosition(asset, child, new Vector2(40, 190));
+            Undo.PerformUndo();
+            AssertPosition(asset, parent, new Vector2(40, 60));
+            Assert.IsTrue(controller.Session.IsCanvasCollapsed(parent));
+            Click(canvas.Q<Button>("state-card-collapse"));
+            yield return null;
+            Assert.AreEqual(2, canvas.Query<VisualElement>("state-card").ToList().Count);
+            AssertPosition(asset, child, new Vector2(40, 190));
+        }
+
         private CoCoStateGraphAsset CreateAsset()
         {
             var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();

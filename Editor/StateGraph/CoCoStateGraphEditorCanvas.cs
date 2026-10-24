@@ -21,9 +21,10 @@ namespace CoCoFlow.Editor.StateGraph
         private const float CanvasSize = 4096f;
         private const float CardWidth = 188f;
         private const float CardHeight = 96f;
+        private const float CompositeCardHeight = 126f;
         private const float ParallelSpacing = 16f;
-        private const float TriangleLength = 9f;
-        private const float TriangleWidth = 7f;
+        private const float TriangleLength = 18f;
+        private const float TriangleWidth = 14f;
         private const float LoopHeight = 44f;
         private const float LoopRadius = 30f;
         private const float ScreenGridBaseStep = 24f;
@@ -39,8 +40,8 @@ namespace CoCoFlow.Editor.StateGraph
         private static Color OutgoingEdgeColor => new Color(184f / 255f, 122f / 255f, 1f, 1f);
         private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
         // D9：谱系线（父子结构）默认白；血统链点亮时变黄（与 Transition 选中色一致）。
-        private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.55f);
-        private static Color ChainColor => SelectedEdgeColor;
+        private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.33f);
+        private static Color ChainColor => new Color(1f, 0.72f, 0.2f, 0.6f);
         // 流转状态外环（维护者裁决）：橙=可达但死端；红=拓扑不可达（或 Default 无出边）。
         // 50% 不透明度虚线，不喧宾夺主；血统高亮（实线外描边）绘制在其上可覆盖。
         private static Color DeadEndRingColor => new Color(1f, 0.55f, 0f, 0.5f);
@@ -67,6 +68,7 @@ namespace CoCoFlow.Editor.StateGraph
             new Dictionary<CoCoSerializedId128, LeafFlowState>();
 
         private Slider zoomSlider;
+        private CoCoStateGraphCanvasProjection _projection;
         private Label zoomLabel;
 
         private bool panning;
@@ -221,11 +223,12 @@ namespace CoCoFlow.Editor.StateGraph
             stateCards.Clear();
             edgeHits.Clear();
             leafFlowStates.Clear();
+            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
+            _projection = CoCoStateGraphCanvasProjection.Build(layer, controller.Session.CanvasCollapsedStateIds);
             BuildChainHighlight();
             BuildOutgoingHighlight();
             BuildLeafFlowStates();
 
-            CoCoStateGraphLayerRecord layer = controller.SelectedLayer;
             if (layer == null)
             {
                 ApplyView();
@@ -233,10 +236,10 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            // D9 全展开：Layer 内全部 State 以合成绝对位置上画布（谱系图）。
+            // D9 flat canvas with session-only visibility; authored positions remain local.
             foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
-                if (state == null)
+                if (state == null || !_projection.IsVisible(state.StateId))
                 {
                     continue;
                 }
@@ -246,7 +249,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             foreach (CoCoStateGraphStateRecord state in layer.AllStates)
             {
-                if (state == null)
+                if (state == null || !_projection.IsVisible(state.StateId))
                 {
                     continue;
                 }
@@ -264,7 +267,7 @@ namespace CoCoFlow.Editor.StateGraph
                     TidySubtree);
                 content.Add(card);
                 stateCards[state.StateId] = card;
-                stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, CardHeight));
+                stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, GetCardHeight(layer, state.StateId)));
             }
 
             if (visibleStates.Count == 0)
@@ -373,7 +376,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             // 自底向上分配 x：叶子按访问顺序占槽，父=子均值；y=代际行距。
             const float xSpacing = 230f;
-            const float ySpacing = 175f;
+            float ySpacing = GetCardHeight(layer, rootId) + 79f;
             var absolute = new Dictionary<CoCoSerializedId128, Vector2>
             {
                 [rootId] = rootRect.position
@@ -486,8 +489,8 @@ namespace CoCoFlow.Editor.StateGraph
             if (layer == null || !selected.IsValid) return;
             foreach (CoCoStateGraphTransitionRecord transition in layer.Transitions)
             {
-                if (transition != null && Matches(transition.SourceStateId, selected))
-                    _outgoingTargets.Add(transition.TargetStateId);
+                if (transition != null && IsOutgoingTransition(transition))
+                    _outgoingTargets.Add(_projection.VisibleId(transition.TargetStateId));
             }
         }
 
@@ -495,8 +498,14 @@ namespace CoCoFlow.Editor.StateGraph
         {
             if (Matches(transition.TransitionId, controller.Session.SelectedTransitionId))
                 return SelectedEdgeColor;
-            return Matches(transition.SourceStateId, controller.Session.SelectedStateId)
-                ? OutgoingEdgeColor : EdgeColor;
+            return IsOutgoingTransition(transition) ? OutgoingEdgeColor : EdgeColor;
+        }
+
+        private bool IsOutgoingTransition(CoCoStateGraphTransitionRecord transition)
+        {
+            CoCoStateId selected = controller.Session.SelectedStateId;
+            return Matches(transition.SourceStateId, selected) ||
+                (_projection != null && Matches(_projection.VisibleId(transition.SourceStateId), selected));
         }
 
         /// <summary>
@@ -656,7 +665,8 @@ namespace CoCoFlow.Editor.StateGraph
 
             void ApplyPosition(CoCoSerializedId128 id, Vector2 absolute)
             {
-                stateRects[id] = new Rect(absolute, new Vector2(CardWidth, CardHeight));
+                if (!stateRects.TryGetValue(id, out Rect rect)) return;
+                stateRects[id] = new Rect(absolute, rect.size);
                 if (stateCards.TryGetValue(id, out CoCoStateGraphStateCard card))
                 {
                     card.SetCanvasPosition(absolute);
@@ -872,6 +882,10 @@ namespace CoCoFlow.Editor.StateGraph
             internal CoCoSerializedId128 TransitionId;
             internal Vector2 Start;
             internal Vector2 End;
+            internal bool IsTriangle;
+            internal Vector2 TriangleTip;
+            internal Vector2 TriangleLeft;
+            internal Vector2 TriangleRight;
             internal bool IsLoop;
             internal Vector2 LoopCenter;
             internal float LoopRadius;
@@ -886,9 +900,11 @@ namespace CoCoFlow.Editor.StateGraph
 
             // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
             var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<CoCoStateGraphTransitionRecord>>();
+            var ordinaryIds = new HashSet<CoCoSerializedId128>(_projection.OrdinaryTransitionIds);
             foreach (CoCoStateGraphTransitionRecord transition in controller.VisibleTransitions)
             {
                 if (transition == null ||
+                    !ordinaryIds.Contains(transition.TransitionId) ||
                     !stateRects.ContainsKey(transition.SourceStateId) ||
                     !stateRects.ContainsKey(transition.TargetStateId))
                 {
@@ -948,6 +964,18 @@ namespace CoCoFlow.Editor.StateGraph
                 }
             }
 
+            foreach (CoCoStateGraphCanvasProjection.TransitionGroup group in _projection.TransitionGroups)
+            {
+                if (!stateRects.TryGetValue(group.SourceId, out Rect source) ||
+                    !stateRects.TryGetValue(group.TargetId, out Rect target)) continue;
+                bool reverse = false;
+                foreach (CoCoStateGraphCanvasProjection.TransitionGroup other in _projection.TransitionGroups)
+                    if (other.SourceId == group.TargetId && other.TargetId == group.SourceId) reverse = true;
+                Vector2 direction = (target.center - source.center).normalized;
+                DrawEdge(painter, FindTransition(group.TransitionIds[0]), reverse ? ParallelSpacing * 0.5f : 0f,
+                    new Vector2(-direction.y, direction.x), group);
+            }
+
             if (transitionDragging && stateRects.TryGetValue(transitionSourceStateId, out Rect sourceRect))
             {
                 // 维护者反馈：预览线从源卡中心出（与已提交边的中心锚定一致）。
@@ -970,17 +998,26 @@ namespace CoCoFlow.Editor.StateGraph
             Painter2D painter,
             CoCoStateGraphTransitionRecord transition,
             float offset,
-            Vector2 sharedNormal)
+            Vector2 sharedNormal,
+            CoCoStateGraphCanvasProjection.TransitionGroup group = null)
         {
-            if (!stateRects.TryGetValue(transition.SourceStateId, out Rect source) ||
-                !stateRects.TryGetValue(transition.TargetStateId, out Rect target))
+            if (transition == null ||
+                !stateRects.TryGetValue(group?.SourceId ?? transition.SourceStateId, out Rect source) ||
+                !stateRects.TryGetValue(group?.TargetId ?? transition.TargetStateId, out Rect target))
             {
                 return;
             }
 
             bool selected = Matches(transition.TransitionId, controller.Session.SelectedTransitionId);
-            bool outgoing = Matches(transition.SourceStateId, controller.Session.SelectedStateId);
-            painter.strokeColor = GetTransitionColor(transition);
+            bool outgoing = IsOutgoingTransition(transition);
+            if (group != null)
+                foreach (CoCoSerializedId128 id in group.TransitionIds)
+                {
+                    selected |= Matches(id, controller.Session.SelectedTransitionId);
+                    CoCoStateGraphTransitionRecord member = FindTransition(id);
+                    outgoing |= member != null && IsOutgoingTransition(member);
+                }
+            painter.strokeColor = selected ? SelectedEdgeColor : outgoing ? OutgoingEdgeColor : EdgeColor;
             painter.fillColor = painter.strokeColor;
             painter.lineWidth = selected || outgoing ? 3f : 2f;
 
@@ -1015,7 +1052,10 @@ namespace CoCoFlow.Editor.StateGraph
             painter.MoveTo(start);
             painter.LineTo(end);
             painter.Stroke();
-            DrawDirectionTriangle(painter, Vector2.Lerp(start, end, 0.5f), (end - start).normalized);
+            if (group == null)
+                DrawDirectionTriangle(painter, Vector2.Lerp(start, end, 0.5f), (end - start).normalized);
+            else
+                DrawGroupTriangles(painter, group, start, end);
 
             edgeHits.Add(new EdgeHit
             {
@@ -1023,6 +1063,84 @@ namespace CoCoFlow.Editor.StateGraph
                 Start = start,
                 End = end
             });
+        }
+
+        private void DrawGroupTriangles(Painter2D painter,
+            CoCoStateGraphCanvasProjection.TransitionGroup group, Vector2 start, Vector2 end)
+        {
+            Vector2 direction = (end - start).normalized;
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            int columns = Mathf.Max(1, Mathf.Min(group.TransitionIds.Count,
+                Mathf.FloorToInt(Vector2.Distance(start, end) / 28f)));
+            for (int index = 0; index < group.TransitionIds.Count; index++)
+            {
+                int row = index / columns;
+                int rowCount = Mathf.Min(columns, group.TransitionIds.Count - row * columns);
+                Vector2 center = (start + end) * 0.5f +
+                    direction * ((index % columns - (rowCount - 1) * 0.5f) * 28f) + normal * (row * 24f);
+                DrawDirectionTriangle(painter, center, direction, group.TransitionIds[0]);
+            }
+        }
+
+        private CoCoStateGraphTransitionRecord FindTransition(CoCoSerializedId128 id)
+        {
+            if (controller.SelectedLayer != null)
+                foreach (CoCoStateGraphTransitionRecord edge in controller.SelectedLayer.Transitions)
+                    if (edge != null && edge.TransitionId == id) return edge;
+            return null;
+        }
+
+        internal string TransitionMenuLabel(CoCoStateGraphCanvasProjection projection,
+            CoCoStateGraphTransitionRecord edge) =>
+            $"{projection.StatePath(edge.SourceStateId)} → {projection.StatePath(edge.TargetStateId)}".Replace('/', '∕') +
+            $"  | Priority {edge.Priority} | {edge.TransitionId.High:x16}{edge.TransitionId.Low:x16}";
+
+        private void SelectEdgeOrShowMenu(CoCoSerializedId128 transitionId)
+        {
+            var projection = CoCoStateGraphCanvasProjection.Build(controller.SelectedLayer,
+                controller.Session.CanvasCollapsedStateIds);
+            foreach (CoCoStateGraphCanvasProjection.TransitionGroup group in projection.TransitionGroups)
+            {
+                if (!ContainsTransition(group, transitionId)) continue;
+                if (group.TransitionIds.Count == 1) break;
+                var menu = new GenericMenu();
+                foreach (CoCoSerializedId128 id in group.TransitionIds)
+                {
+                    CoCoStateGraphTransitionRecord edge = FindTransition(id);
+                    if (edge == null) continue;
+                    menu.AddItem(new GUIContent(TransitionMenuLabel(projection, edge)),
+                        Matches(id, controller.Session.SelectedTransitionId),
+                        () => SelectGroupTransition(group.SourceId, group.TargetId, id));
+                }
+                menu.ShowAsContext();
+                return;
+            }
+            if (FindTransition(transitionId) != null &&
+                CoCoTransitionId.TryCreate(transitionId.High, transitionId.Low, out CoCoTransitionId selected))
+                controller.SelectTransition(selected);
+        }
+
+        internal void SelectGroupTransition(CoCoSerializedId128 source, CoCoSerializedId128 target,
+            CoCoSerializedId128 transitionId)
+        {
+            // A menu can outlive Undo, a Layer switch or a topology edit. Resolve IDs again.
+            var projection = CoCoStateGraphCanvasProjection.Build(controller.SelectedLayer,
+                controller.Session.CanvasCollapsedStateIds);
+            foreach (CoCoStateGraphCanvasProjection.TransitionGroup group in projection.TransitionGroups)
+                if (group.SourceId == source && group.TargetId == target && ContainsTransition(group, transitionId) &&
+                    CoCoTransitionId.TryCreate(transitionId.High, transitionId.Low, out CoCoTransitionId selected))
+                {
+                    controller.SelectTransition(selected);
+                    return;
+                }
+        }
+
+        private static bool ContainsTransition(CoCoStateGraphCanvasProjection.TransitionGroup group,
+            CoCoSerializedId128 id)
+        {
+            foreach (CoCoSerializedId128 member in group.TransitionIds)
+                if (member == id) return true;
+            return false;
         }
 
         private void DrawSelfLoop(Painter2D painter, CoCoStateGraphTransitionRecord transition, Rect rect)
@@ -1054,7 +1172,8 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         /// <summary>维护者反馈 1：实心小三角，画在连线中间，指向行进方向。</summary>
-        private static void DrawDirectionTriangle(Painter2D painter, Vector2 center, Vector2 direction)
+        private void DrawDirectionTriangle(Painter2D painter, Vector2 center, Vector2 direction,
+            CoCoSerializedId128 transitionId = default)
         {
             if (direction.sqrMagnitude <= 0f)
             {
@@ -1063,12 +1182,21 @@ namespace CoCoFlow.Editor.StateGraph
 
             direction.Normalize();
             Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 tip = center + direction * (TriangleLength * 0.5f);
+            Vector2 left = center - direction * (TriangleLength * 0.5f) + normal * (TriangleWidth * 0.5f);
+            Vector2 right = center - direction * (TriangleLength * 0.5f) - normal * (TriangleWidth * 0.5f);
             painter.BeginPath();
-            painter.MoveTo(center + direction * (TriangleLength * 0.5f));
-            painter.LineTo(center - direction * (TriangleLength * 0.5f) + normal * (TriangleWidth * 0.5f));
-            painter.LineTo(center - direction * (TriangleLength * 0.5f) - normal * (TriangleWidth * 0.5f));
+            painter.MoveTo(tip);
+            painter.LineTo(left);
+            painter.LineTo(right);
             painter.ClosePath();
             painter.Fill();
+            if (transitionId.IsValid)
+                edgeHits.Add(new EdgeHit
+                {
+                    TransitionId = transitionId, IsTriangle = true,
+                    TriangleTip = tip, TriangleLeft = left, TriangleRight = right
+                });
         }
 
         private static Vector2 CubicBezierPoint(
@@ -1198,6 +1326,11 @@ namespace CoCoFlow.Editor.StateGraph
                         distance = 0f;
                     }
                 }
+                else if (hit.IsTriangle)
+                {
+                    distance = DistancePointToTriangle(graphPosition,
+                        hit.TriangleTip, hit.TriangleLeft, hit.TriangleRight);
+                }
                 else
                 {
                     distance = DistancePointToSegment(graphPosition, hit.Start, hit.End);
@@ -1213,6 +1346,19 @@ namespace CoCoFlow.Editor.StateGraph
 
             return found;
         }
+
+        private static float DistancePointToTriangle(Vector2 point, Vector2 a, Vector2 b, Vector2 c)
+        {
+            float ab = Cross(b - a, point - a);
+            float bc = Cross(c - b, point - b);
+            float ca = Cross(a - c, point - c);
+            if ((ab >= 0f && bc >= 0f && ca >= 0f) || (ab <= 0f && bc <= 0f && ca <= 0f))
+                return 0f;
+            return Mathf.Min(DistancePointToSegment(point, a, b),
+                Mathf.Min(DistancePointToSegment(point, b, c), DistancePointToSegment(point, c, a)));
+        }
+
+        private static float Cross(Vector2 first, Vector2 second) => first.x * second.y - first.y * second.x;
 
         private static float DistancePointToSegment(Vector2 point, Vector2 start, Vector2 end)
         {
@@ -1271,10 +1417,9 @@ namespace CoCoFlow.Editor.StateGraph
                 if (TryHitEdge(
                         clickGraph,
                         6f / Mathf.Max(CurrentView.Zoom, 0.01f),
-                        out CoCoSerializedId128 hitId) &&
-                    CoCoTransitionId.TryCreate(hitId.High, hitId.Low, out CoCoTransitionId hitTransitionId))
+                        out CoCoSerializedId128 hitId))
                 {
-                    controller.SelectTransition(hitTransitionId);
+                    SelectEdgeOrShowMenu(hitId);
                     evt.StopPropagation();
                     return;
                 }
@@ -1615,7 +1760,7 @@ namespace CoCoFlow.Editor.StateGraph
                 style.left = position.x;
                 style.top = position.y;
                 style.width = CardWidth;
-                style.height = CardHeight;
+                style.height = GetCardHeight(controller.SelectedLayer, state.StateId);
                 AddToClassList("state-card");
 
                 // 外描边类型 1：血统链选中（自己+全部祖先；最高优先级）。
@@ -1629,9 +1774,12 @@ namespace CoCoFlow.Editor.StateGraph
                     AddToClassList("state-card--transition-target");
                 }
 
-                // 卡体：内描边承载节点状态（Initial/Default 分级）。
+                // 卡体：内描边承载节点状态（Initial/Default 分级、AnyState 常驻标识）。
                 var body = new VisualElement { name = "state-card-body" };
                 body.AddToClassList("state-card__body");
+                bool isAnyState = ReferenceEquals(state, controller.SelectedLayer?.AnyState);
+                if (isAnyState)
+                    body.AddToClassList("state-card__body--any-state");
                 if (IsInitial())
                 {
                     bool isLayerInitial = !state.ParentStateId.IsValid;
@@ -1651,7 +1799,7 @@ namespace CoCoFlow.Editor.StateGraph
 
                 Add(body);
 
-                var title = new Label(ReferenceEquals(state, controller.SelectedLayer?.AnyState)
+                var title = new Label(isAnyState
                     ? $"AnyState · {state.DisplayName}" : state.DisplayName);
                 title.AddToClassList("state-card__title");
                 body.Add(title);
@@ -1699,6 +1847,18 @@ namespace CoCoFlow.Editor.StateGraph
                     };
                     tidy.AddToClassList("state-card__tidy");
                     body.Add(tidy);
+                    bool collapsed = controller.Session.IsCanvasCollapsed(ToStateId());
+                    var collapse = new Button(() => controller.ToggleCanvasCollapsed(ToStateId()))
+                    {
+                        name = "state-card-collapse",
+                        text = collapsed ? CoCoEditorLocalization.Text("Expand Subtree", "展开子机")
+                            : CoCoEditorLocalization.Text("Collapse Subtree", "收起子机"),
+                        tooltip = CoCoEditorLocalization.Text(
+                            "Hide or show descendants without changing the graph",
+                            "隐藏或显示后代，不改变图的状态与转移")
+                    };
+                    collapse.AddToClassList("state-card__collapse");
+                    body.Add(collapse);
                 }
 
                 tooltip = CoCoEditorLocalization.Text(
@@ -1974,6 +2134,9 @@ namespace CoCoFlow.Editor.StateGraph
                 return null;
             }
         }
+
+        private static float GetCardHeight(CoCoStateGraphLayerRecord layer, CoCoSerializedId128 stateId) =>
+            HasChildren(layer, stateId) ? CompositeCardHeight : CardHeight;
 
         private static bool HasChildren(
             CoCoStateGraphLayerRecord layer,
