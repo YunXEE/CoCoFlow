@@ -1,0 +1,105 @@
+name: Unity Personal Smoke
+
+on:
+  push:
+    branches:
+      - refactor/0.4.7-P003-personal-ci-smoke
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unity-personal-smoke
+  cancel-in-progress: false
+
+env:
+  UNITY_VERSION: 6000.3.27f2
+
+jobs:
+  smoke:
+    name: Personal activation and fresh-host smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the result reader
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: package
+          persist-credentials: false
+
+      - name: Create a fresh minimal Unity host
+        env:
+          SMOKE_HOST: ci-host
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          host = Path(os.environ['SMOKE_HOST'])
+          if host.exists():
+              raise SystemExit('Smoke host must not exist before this run')
+          for folder in ('Assets/Editor', 'Packages', 'ProjectSettings'):
+              (host / folder).mkdir(parents=True, exist_ok=True)
+          (host / 'ProjectSettings/ProjectVersion.txt').write_text(
+              'm_EditorVersion: ' + os.environ['UNITY_VERSION'] + '\n', encoding='utf-8')
+          (host / 'Packages/manifest.json').write_text(json.dumps({
+              'dependencies': {'com.unity.test-framework': '1.6.0'}
+          }, indent=2) + '\n', encoding='utf-8')
+          (host / 'Assets/Editor/CoCoFlow.Ci.Smoke.Editor.asmdef').write_text(json.dumps({
+              'name': 'CoCoFlow.Ci.Smoke.Editor',
+              'includePlatforms': ['Editor'],
+              'optionalUnityReferences': ['TestAssemblies'],
+              'autoReferenced': False
+          }, indent=2) + '\n', encoding='utf-8')
+          source = '\n'.join([
+              'using NUnit.Framework;',
+              'using UnityEngine;',
+              '',
+              'public sealed class PersonalCiSmokeTests',
+              '{',
+              '    [Test]',
+              '    public void RunsInThePinnedBatchmodeEditor()',
+              '    {',
+              '        Assert.That(Application.isBatchMode, Is.True);',
+              '        Assert.That(Application.unityVersion, Is.EqualTo("' + os.environ['UNITY_VERSION'] + '"));',
+              '    }',
+              '}',
+              ''
+          ])
+          (host / 'Assets/Editor/PersonalCiSmokeTests.cs').write_text(source, encoding='utf-8')
+          print('Created a new Unity host with one Editor smoke test')
+          PY
+
+      - name: Run Unity with the Personal license
+        uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: ${{ env.UNITY_VERSION }}
+          projectPath: ci-host
+          customImage: unityci/editor:6000.3.27f2-base-3@sha256:97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb
+          packageMode: false
+          testMode: editmode
+          artifactsPath: ci-results
+
+      - name: Require a valid new NUnit result
+        if: always()
+        run: python3 package/.github/ci/cocoflow_ci.py unity-result ci-results/editmode-results.xml
+
+      - name: Preserve only smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unity-personal-smoke-${{ github.run_id }}
+          path: |
+            ci-results/editmode-results.xml
+            ci-results/editmode.log
+            ci-host/Packages/manifest.json
+            ci-host/Packages/packages-lock.json
+            ci-host/ProjectSettings/ProjectVersion.txt
+          if-no-files-found: warn
+          retention-days: 7
