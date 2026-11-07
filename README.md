@@ -126,6 +126,11 @@ the [dependency matrix](Docs/DependencyMatrix.md).
 
 ## Release policy
 
+Once the Unity CI gate is enabled, patch (Z) releases use complete automated
+package validation and a small version-closing commit. Minor (Y) releases retain
+full version acceptance. Task acceptance remains required for both.
+See the [CI and release-gate scope](.github/ci/README.md).
+
 CoCoFlow 0.4.x will iterate in small steps. Mature Runtime surfaces are treated
 as stable APIs, with explicit breaking changes documented per release. Map and
 Pooling may change their APIs, configuration, and serialized structures during

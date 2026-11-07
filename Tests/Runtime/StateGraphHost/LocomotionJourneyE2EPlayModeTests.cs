@@ -6,6 +6,7 @@ using CoCoFlow.Runtime.Locomotion.Contracts;
 using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using CoCoFlow.Runtime.Modules.Persistence;
+using CoCoFlow.Runtime.Modules.Persistence.Core;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
@@ -185,11 +186,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public System.Collections.IEnumerator ScenarioDSaveLoadRestoresSlotAnimatorAndGraph()
         {
             BuildActor(withAnimator: true);
-            // The context registers itself in OnEnable with its
-            // auto-generated stable id — overriding the field afterwards
-            // would desync the registry key (capture writes one id, apply
-            // looks up another and silently skips).
-            _actor.AddComponent<PersistenceContext>();
+            // Runtime identity is explicit; register after assigning it.
+            var persistence = _actor.AddComponent<PersistenceContext>();
+            persistence.EnsureStableEntityId();
+            PersistenceContextRegistry.Register(persistence);
             SetRecovery(true, true);
             Require(StartHost());
             // The first tick after start establishes the graph baseline and
@@ -220,6 +220,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual("Jump", JourneyMemory.Current);
 
             PersistenceSaveLoadSystem.SaveGame(0);
+            Assert.IsTrue(PersistenceFileStore.TryReadDocument(0, out var savedDocument));
+            Assert.IsTrue(savedDocument.contextSection.TryGetRecord(
+                persistence.StableEntityId, out _), "The durable payload must contain this actor.");
             // Typed drift first: the live Animator and the committed slot
             // both leave the saved Int/Bool values before the load.
             animator.SetInteger("Gear", 42);

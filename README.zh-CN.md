@@ -113,6 +113,10 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.6
 
 ## 发布策略
 
+真实 Unity CI 门禁启用后，补丁级（Z）发布依靠完整自动包验证与一个版本收口提交；
+次版本级（Y）保留完整版本验收。两者均保留代码任务本人验收。
+执行与证据边界见 [CI 与发布门禁](.github/ci/README.md)。
+
 CoCoFlow 0.4.x 采用小步迭代。成熟的 Runtime surface 按稳定 API 对待，破坏性变更会在
 对应版本中明确列出。Map 与 Pooling 可能在 0.4.x 调整 API、配置和序列化结构。
 未评级模块应依据实际实现和模块文档判断，

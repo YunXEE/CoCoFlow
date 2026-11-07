@@ -1,0 +1,29 @@
+{
+  "unity": "6000.3.27f2",
+  "image": "unityci/editor:ubuntu-6000.3.27f2-linux-il2cpp-3",
+  "packages": {
+    "com.cysharp.unitask": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
+    "com.unity.addressables": "2.9.1",
+    "com.unity.ugui": "2.0.0",
+    "com.unity.test-framework": "1.6.0"
+  },
+  "defines": [
+    "DOTWEEN",
+    "COCOFLOW_DOTWEEN_SUPPORT",
+    "UNITASK_DOTWEEN_SUPPORT"
+  ],
+  "dotween": {
+    "version": "1.3.045",
+    "url": "https://dotween.demigiant.com/downloads/DOTween_1_3_045.zip",
+    "sha256": "32eba5c48520a541775d00cb396e18975b83587ba79175dbb878d753725ba5d9"
+  },
+  "tmpResourceSha256": "58564ec64cef8a8cea3d0b8ffb5e6fecf4176d544a2f6a29a2b43a0a33256431",
+  "engineModules": [
+    "animation", "assetbundle", "audio", "director", "imageconversion",
+    "imgui", "jsonserialize", "particlesystem", "physics", "physics2d",
+    "screencapture", "terrain", "terrainphysics", "tilemap", "ui",
+    "uielements", "unitywebrequest", "unitywebrequestassetbundle",
+    "unitywebrequestaudio", "unitywebrequesttexture", "unitywebrequestwww",
+    "vehicles", "video", "wind", "xr"
+  ]
+}

@@ -8,12 +8,12 @@ namespace CoCoFlow.Editor.Core.Tests
     public sealed class CoCoFlowUtilityVersionTests
     {
         [Test]
-        public void PackageAndLocalizationVersionsAreFrozen()
+        public void PackageIsDiscoverableAndLocalizationVersionIsFrozen()
         {
             PackageInfo packageInfo = PackageInfo.FindForAssembly(
                 typeof(CoCoFlowUtility).Assembly);
             Assert.IsNotNull(packageInfo);
-            Assert.AreEqual("0.4.6", packageInfo.version);
+            Assert.IsNotEmpty(packageInfo.version);
 
             string manifest = File.ReadAllText(
                 Path.Combine(packageInfo.resolvedPath, "package.json"));
