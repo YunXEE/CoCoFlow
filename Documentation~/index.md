@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.6`.
+`0.4.7`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented

@@ -80,6 +80,9 @@ crashlytics-build.properties
 # Local CI evidence
 /.ci-artifacts/
 /.artifacts/
+/.ci-work/
+/ci-results/
+/.github/ci/__pycache__/
 
 # Local Codex workspace configuration
 /.codex/

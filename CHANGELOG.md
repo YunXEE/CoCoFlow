@@ -6,6 +6,19 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.7] - 2026-11-08
+
+### Fixed
+
+- Release temporary Config graph copies after successful or failed Host startup,
+  using the appropriate Edit Mode or Play Mode cleanup.
+
+### Changed
+
+- Add complete Windows Unity CI, dependency checks and release identity checks.
+  Patch releases use a version-closing commit; minor releases retain full
+  version acceptance when the new required gate is enabled.
+
 ## [0.4.6] - 2026-10-24
 
 ### Added and changed

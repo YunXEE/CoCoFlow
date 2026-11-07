@@ -1,5 +1,11 @@
 <!-- CoCoFlow 0.4 冻结契约清单。方案与 PR 按所属模块引用对应节核对，非全量。 -->
 
+## 当前发布证据入口
+
+Z/Y 发布分级与新 CI 启用条件见 [CI 文档](ci/README.md) 和项目 AGENTS.md。
+任务只核对实际触及的契约；Windows Editor 编译/EditMode/PlayMode 结果不扩展为
+Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始含义和历史验收状态。
+
 ## 0.4.6 AnyState 增量
 
 - [ ] One optional `CoCoAnyStateLogic` per Layer; Update only, outside ordinary
