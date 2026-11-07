@@ -1,0 +1,40 @@
+name: Release identity
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  identity:
+    name: Release / identity
+    permissions:
+      contents: read
+      checks: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check the tagged package identity
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG_NAME: ${{ github.ref_name }}
+          TESTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            [[ "$(git rev-list -n 1 "$TAG_NAME")" == "$TESTED_SHA" ]]
+            python3 .github/ci/cocoflow_ci.py release --tag "$TAG_NAME"
+            gate_passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TESTED_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "CI / gate" and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length > 0')"
+            if [[ "$gate_passed" != "true" ]]; then
+              echo "::error::The tagged commit has no successful CI / gate."
+              exit 1
+            fi
+          else
+            python3 .github/ci/cocoflow_ci.py release
+          fi

@@ -1,7 +1,10 @@
-name: CI Static
+name: CoCoFlow CI
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -9,13 +12,15 @@ permissions:
 
 concurrency:
   group: ci-static-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   static:
     name: CI Static / gate
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      unity: ${{ steps.scope.outputs.unity }}
     steps:
       - name: Check out pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,3 +46,123 @@ jobs:
 
       - name: Test Unity result reader
         run: python3 -m unittest discover -s .github/ci -p "test_*.py" -v
+
+      - name: Check current package identity
+        run: python3 .github/ci/cocoflow_ci.py release
+
+      - name: Classify this candidate
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          scope_args=(--base "$BASE_SHA")
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$BASE_BRANCH" == "master" || "$REF_NAME" == "master" ]]; then
+            scope_args+=(--force-unity)
+          fi
+          if [[ "$BASE_BRANCH" == "master" && "$HEAD_BRANCH" == dev/* ]]; then
+            scope_args+=(--release-candidate)
+            previous_version="$(git show "$BASE_SHA:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+            python3 .github/ci/cocoflow_ci.py release --previous "$previous_version"
+          fi
+          python3 .github/ci/cocoflow_ci.py scope "${scope_args[@]}" >> "$GITHUB_OUTPUT"
+
+  unity:
+    name: Unity / complete package
+    needs: static
+    if: >-
+      needs.static.outputs.unity == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    concurrency:
+      group: unity-personal-activation
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the official Windows Editor and GameCI
+        timeout-minutes: 25
+        run: .github/ci/setup_unity_windows.ps1
+
+      - name: Prepare clean host and complete dependencies
+        id: prepare
+        timeout-minutes: 5
+        run: |
+          python .github/ci/prepare_unity_host.py --editor-data "$env:UNITY_PATH/Editor/Data"
+
+      - name: Run complete package EditMode and PlayMode
+        id: tests
+        timeout-minutes: 22
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          GAME_CI_UNITY_LICENSING_METHOD: personal
+          GAME_CI_LICENSE_RETRY_MAX_ATTEMPTS: "1"
+          GAME_CI_COVERAGE_ENABLED: "false"
+        run: .github/ci/run_unity_windows.ps1
+
+      - name: Return this run's confirmed Personal seat
+        if: always() && steps.tests.outcome != 'skipped'
+        timeout-minutes: 3
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: .github/ci/return_unity_windows.ps1
+
+      - name: Record exact inputs and resolved packages
+        if: always() && steps.prepare.outcome == 'success'
+        run: |
+          Copy-Item .ci-work/prepared.json ci-results/prepared.json
+          Copy-Item .ci-work/host/Packages/manifest.json ci-results/host-manifest.json
+          if (Test-Path .ci-work/host/Packages/packages-lock.json) {
+            Copy-Item .ci-work/host/Packages/packages-lock.json ci-results/packages-lock.json
+          }
+
+      - name: Require fresh XML and all package test assemblies
+        if: always() && steps.prepare.outcome == 'success'
+        run: python .github/ci/cocoflow_ci.py unity-suite ci-results .ci-work/prepared.json
+
+      - name: Preserve this run's test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-results/
+          if-no-files-found: error
+          retention-days: 30
+
+  gate:
+    name: CI / gate
+    needs: [static, unity]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every applicable check
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          UNITY_REQUIRED: ${{ needs.static.outputs.unity }}
+          UNITY_RESULT: ${{ needs.unity.result }}
+        shell: bash
+        run: |
+          [[ "$STATIC_RESULT" == "success" ]] || exit 1
+          if [[ "$UNITY_REQUIRED" == "true" ]]; then
+            if [[ "$UNITY_RESULT" != "success" ]]; then
+              echo "::error::This candidate requires successful complete Unity evidence; failed, cancelled, or skipped is not a pass."
+              exit 1
+            fi
+          elif [[ "$UNITY_REQUIRED" != "false" ]]; then
+            echo "::error::The required validation scope was not established."
+            exit 1
+          fi

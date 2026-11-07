@@ -1,13 +1,18 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.6 · **Unity**：6000+
+> **版本**：0.4.7 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
 
-## 0.4.6 新内容
+## 0.4.7 更新
+
+- 修复 Host 成功或失败启动后的临时 Config 图副本清理。
+- 增加 Windows 真实 Unity 完整包 CI、依赖检查和发布版本一致性检查。
+
+## 0.4.6 功能概览
 
 - 每个 Layer 可绑定一个 `CoCoAnyStateLogic`，在普通活跃枝之后执行，
   请求的转移满足条件时优先。保留完整 Config/Memory/Intent/Operation 和邮箱
@@ -79,7 +84,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.6
+https://github.com/YunXEE/CoCoFlow.git#v0.4.7
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -87,7 +92,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.6
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.6"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.7"
   }
 }
 ```
@@ -112,6 +117,10 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.6
 - [Changelog](CHANGELOG.md)
 
 ## 发布策略
+
+真实 Unity CI 门禁启用后，补丁级（Z）发布依靠完整自动包验证与一个版本收口提交；
+次版本级（Y）保留完整版本验收。两者均保留代码任务本人验收。
+执行与证据边界见 [CI 与发布门禁](.github/ci/README.md)。
 
 CoCoFlow 0.4.x 采用小步迭代。成熟的 Runtime surface 按稳定 API 对待，破坏性变更会在
 对应版本中明确列出。Map 与 Pooling 可能在 0.4.x 调整 API、配置和序列化结构。
