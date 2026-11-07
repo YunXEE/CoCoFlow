@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.6 · **Unity**: 6000+
+> **Version**: 0.4.7 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -8,7 +8,12 @@ CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
 
-## New in 0.4.6
+## New in 0.4.7
+
+- Fix temporary Config graph cleanup after successful or failed Host startup.
+- Add complete Windows Unity CI, dependency checks and release identity checks.
+
+## 0.4.6 highlights
 
 - Each Layer can bind one optional `CoCoAnyStateLogic`. It updates after the
   ordinary active path and takes transition priority when its request is eligible.
@@ -91,7 +96,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.6
+https://github.com/YunXEE/CoCoFlow.git#v0.4.7
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -99,7 +104,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.6"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.7"
   }
 }
 ```
