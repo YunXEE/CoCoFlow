@@ -89,7 +89,6 @@ jobs:
           cliVersion: v0.1.72
           unityVersion: ${{ env.UNITY_VERSION }}
           githubToken: ${{ secrets.GITHUB_TOKEN }}
-          coverageEnabled: false
           projectPath: ci-host
           packageMode: false
           testMode: editmode
