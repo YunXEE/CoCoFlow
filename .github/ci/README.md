@@ -87,10 +87,19 @@ run 42378865246 demonstrated that race and its licensing-client mutex failure.
 The pinned native cleanup can stop after its first missing-ULF attempt. If the
 official output confirms activation but not return, the wrapper runs the same
 Personal entitlement-return Editor command as GameCI's Windows return script.
-That invocation receives no username/password. A native successful-return marker
-is required, and license-return.json records the result. A rejected activation
-never triggers the fallback; return failure fails the job even when tests passed.
-Authentication and return logs stay in runner temp, outside uploaded artifacts.
+That invocation includes the official username/password arguments and waits for
+the Editor to exit. A native successful-return marker is required; an exit code
+alone is not a return receipt. license-return.json records the route, exit code,
+log availability and a fixed list of diagnostic categories without account values.
+A rejected activation never triggers the fallback; return failure fails the job
+even when tests passed. Raw authentication and return logs stay in runner temp,
+outside uploaded artifacts.
+
+The earlier Linux run also needed a separate return step: its first missing-ULF
+attempt did not return the entitlement. The two-attempt cleanup then switched to
+the official Editor command and confirmed the return. The Windows flow preserves
+one activation attempt and makes one explicit Editor return after that same ULF
+fallback condition; it does not increase the activation retry limit.
 
 Unity jobs share a concurrency group with the activation trial. Active jobs
 finish cleanup; later pending runs can supersede older pending ones.
