@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 concurrency:
   group: unity-personal-smoke
@@ -27,73 +28,6 @@ jobs:
         with:
           path: package
           persist-credentials: false
-
-      - name: Check out the pinned GameCI action
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: game-ci/unity-test-runner
-          ref: fa6ced25861c16ef56187828c43f76d00df43a23
-          path: .ci-actions/unity-test-runner
-          persist-credentials: false
-
-      - name: Disable activation retries and stop on login failure
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib
-
-          path = Path('.ci-actions/unity-test-runner/dist/platforms/ubuntu/activate.sh')
-          source = path.read_text()
-          expected = 'b516f545a6ca5655ee450d4687d8ab2ecd04f8241e06704b59a5b2a7b8a37c1b'
-          if hashlib.sha256(source.rstrip().encode()).hexdigest() != expected:
-              raise SystemExit('Pinned activation script changed; refusing to activate')
-          replacement = r'''if [[ -n "$UNITY_SERIAL" && -n "$UNITY_EMAIL" && -n "$UNITY_PASSWORD" ]]; then
-            echo "Activation attempt 1/1; automatic retries disabled."
-            activation_log="$(mktemp)"
-            unity-editor \
-              -logFile /dev/stdout \
-              -quit \
-              -serial "$UNITY_SERIAL" \
-              -username "$UNITY_EMAIL" \
-              -password "$UNITY_PASSWORD" \
-              -projectPath "/BlankProject" >"$activation_log" 2>&1 &
-            activation_pid=$!
-            activation_started=$SECONDS
-            auth_failure='UnityConnectLoginRequest: Failed to login|HTTP error code (401|403)'
-
-            while kill -0 "$activation_pid" 2>/dev/null; do
-              if grep -Eiq "$auth_failure" "$activation_log"; then
-                cat "$activation_log"
-                echo "::error::Unity login failed; stopping immediately without retry."
-                kill -TERM "$activation_pid" 2>/dev/null || true
-                exit 1
-              fi
-              if (( SECONDS - activation_started >= 90 )); then
-                echo "::error::Unity activation exceeded 90 seconds; stopping without retry."
-                kill -TERM "$activation_pid" 2>/dev/null || true
-                exit 124
-              fi
-              sleep 0.05
-            done
-
-            if wait "$activation_pid"; then
-              UNITY_EXIT_CODE=0
-            else
-              UNITY_EXIT_CODE=$?
-            fi
-            cat "$activation_log"
-            if grep -Eiq "$auth_failure" "$activation_log"; then
-              echo "::error::Unity login failed; no retry will be attempted."
-              exit 1
-            fi
-          '''
-          start = 'if [[ -n "$UNITY_SERIAL"'
-          end = '\nelif [[ -n "$UNITY_LICENSING_SERVER"'
-          if source.count(start) != 1 or source.count(end) != 1:
-              raise SystemExit('Activation patch anchors changed; refusing to activate')
-          path.write_text(source[:source.index(start)] + replacement + source[source.index(end):])
-          print('Activation is limited to one invocation; login errors stop immediately')
-          PY
 
       - name: Create a fresh minimal Unity host
         env:
@@ -139,16 +73,25 @@ jobs:
           print('Created a new Unity host with one Editor smoke test')
           PY
 
+      - name: Use the official one-attempt licensing setting
+        run: |
+          cat > .game-ci.yml <<'YAML'
+          cliOptions:
+            licenseRetryMaxAttempts: 1
+          YAML
+
       - name: Run Unity with the Personal license
-        uses: ./.ci-actions/unity-test-runner # pinned v4.3.2 with one-attempt activation
+        uses: game-ci/unity-test-runner@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
+          cliVersion: v0.1.72
           unityVersion: ${{ env.UNITY_VERSION }}
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          coverageEnabled: false
           projectPath: ci-host
-          customImage: unityci/editor:6000.3.27f2-base-3@sha256:97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb
           packageMode: false
           testMode: editmode
           artifactsPath: ci-results
