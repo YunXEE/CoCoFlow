@@ -31,9 +31,9 @@ No business scenes, Graphs, previous Library, or stale XML are carried over.
 
 | Input | CI configuration |
 | --- | --- |
-| Runner / Editor | Ubuntu 24.04 / Unity `6000.3.27f2` |
-| GameCI | Official test-runner `v4.4.0`, pinned commit; official CLI `v0.1.72` |
-| Product dependencies | Resolved from CoCoFlow's unchanged `package.json` |
+| Runner / Editor | Windows Server 2022 / native Unity `6000.3.27f2` |
+| GameCI | Official CLI `v0.1.72` Windows executable, checked by SHA-256; native HostRunner |
+| Product dependencies | UPM resolves the unchanged product requirements; valid upgrades are accepted and recorded |
 | UniTask | Official Git tag `2.5.11` |
 | Addressables | Explicit `2.9.1`; Localization's transitive minimum `1.25.0` does not enable our supported backend |
 | UGUI / UTF | `2.0.0` / `1.6.0` |
@@ -51,8 +51,10 @@ The active Standalone target explicitly has `COCOFLOW_DOTWEEN_SUPPORT`,
 `UNITASK_DOTWEEN_SUPPORT` and DOTween's `DOTWEEN`. Input uses the Input System
 backend (`activeInputHandler: 1`).
 
-A host-only EditMode fixture checks resolved versions, compiled assemblies,
-DOTween version and support defines. The result reader requires every
+A host-only EditMode fixture checks the actual Windows Editor/version, required
+packages, compiled assemblies, DOTween version and support defines. Product
+requirements are not exact-version pins: UPM may resolve a compatible newer
+version. The actual versions are recorded in dependencies.json. The result reader requires every
 test-bearing CoCoFlow assembly in each mode's XML. Missing UI, Content, Map or
 Addressables tests cannot be hidden by compiling those integrations out.
 The empty-project build-callback test must execute and pass.
@@ -66,24 +68,24 @@ support claim; actual source and asmdefs remain authoritative.
 Only `UNITY_EMAIL` and `UNITY_PASSWORD` are required. The working Personal account
 does not use `UNITY_LICENSE` or a Student serial.
 
-The official Test Runner activates once and runs all tests inside that same
-container. The activation retry limit is one. A separate activation container
-was verified to grant a seat but did not give the test Editor usable licensing
-state (run 42372280656); do not use SKIP_ACTIVATION to bridge those containers.
-No GameCI source is modified. Credentials are limited to the official test step
-and explicit return step. Official chownFilesTo gives the host runner ownership
-of results so it can record inputs and publish artifacts.
+The Windows job installs the official Editor with its documented silent-install
+arguments, validates the release integrity and installer signature, and downloads
+the SHA-256-checked GameCI executable. It uses GameCI's official native flow:
 
-The pinned runner's one-attempt cleanup cannot complete its missing-ULF fallback.
-An explicit return has its own two-attempt limit so the official script can switch
-to the Editor's entitlement return. It runs only when a test Editor log exists;
-the official scripts create those logs after successful activation. A rejected
-activation therefore stops without another credential-bearing command.
-The return step requires Unity's
-explicit successful-return message. The narrow CLI v0.1.72 post-return
-`validateBuild` error is accepted only with that message, exit 1, the exact known
-error/stack frame and no additional CLI error. Other errors fail. Recheck/remove
-the guard when upgrading GameCI.
+    game-ci test .ci-work/host --docker --local --test-platforms "playmode;editmode"
+
+Here `--local` runs the installed Windows Editor directly; no Docker container is
+used. No GameCI source is modified. The activation retry limit is one, and test
+failures are not retried. Scripts and test changes are verified locally before a
+GitHub candidate validation run.
+
+The pinned native cleanup can stop after its first missing-ULF attempt. If the
+official output confirms activation but not return, the wrapper runs the same
+Personal entitlement-return Editor command as GameCI's Windows return script.
+That invocation receives no username/password. A native successful-return marker
+is required, and license-return.json records the result. A rejected activation
+never triggers the fallback; return failure fails the job even when tests passed.
+Authentication and return logs stay in runner temp, outside uploaded artifacts.
 
 Unity jobs share a concurrency group with the activation trial. Active jobs
 finish cleanup; later pending runs can supersede older pending ones.
@@ -96,7 +98,7 @@ and dependency/empty-host assertions are required. A result-reader exit zero
 cannot override a failed Unity step or failed seat return.
 
 Artifacts contain this run's XML, Editor test logs, dependency evidence, prepared
-inputs, manifest/lock and image digest. They are named with SHA and run attempt.
+inputs, manifest/lock and installer/CLI identity. They are named with SHA and run attempt.
 License state, authentication logs, full host and Library are not uploaded.
 Downloaded evidence can be archived at:
 
@@ -108,10 +110,10 @@ IDs. Historical 0.4.6 XML stays unchanged. Package discovery/localization
 assertions remain; release equality is checked by the release-identity command
 instead of a hardcoded C# version.
 
-Linux Editor results do not prove Player, IL2CPP/AOT, stripping, Windows/Mac,
-coverage, performance or visual acceptance. The `linux-il2cpp` image name does not
-mean an IL2CPP Player was built. Y releases and task-specific external checks
-retain their declared acceptance requirements.
+Windows Editor results do not prove Player, IL2CPP/AOT, stripping, other operating
+systems, coverage, performance or visual acceptance. Prior Linux results remain
+historical evidence and do not become Windows results. Y releases and task-specific
+external checks retain their declared acceptance requirements.
 
 ## Release policy
 
@@ -137,7 +139,6 @@ Do not remove the old requirement before the replacement is proven and deployed.
 
     python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
     python3 .github/ci/cocoflow_ci.py release
-    bash -n .github/ci/return_unity_license.sh
 
 These do not prove Unity tests. Persistent 03/05 hosts remain separate;
 temporary linkage requires exclusive use and exact manifest/lock restoration.

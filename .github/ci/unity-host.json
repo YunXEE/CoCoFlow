@@ -1,6 +1,16 @@
 {
   "unity": "6000.3.27f2",
-  "image": "unityci/editor:ubuntu-6000.3.27f2-linux-il2cpp-3",
+  "runner": "windows-2022",
+  "editorPlatform": "WindowsEditor",
+  "editorInstaller": {
+    "url": "https://download.unity3d.com/download_unity/22188f149405/Windows64EditorInstaller/UnitySetup64-6000.3.27f2.exe",
+    "integrity": "md5-dEvEQDTebuIwZWIy4Yb7bg=="
+  },
+  "gameci": {
+    "version": "v0.1.72",
+    "url": "https://github.com/game-ci/cli/releases/download/v0.1.72/game-ci-windows-x64.exe",
+    "sha256": "24ce37735c9b820cea18c6b807fc2ba7b14e55fbb90dfc558bc11c049e403cb3"
+  },
   "packages": {
     "com.cysharp.unitask": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11",
     "com.unity.addressables": "2.9.1",

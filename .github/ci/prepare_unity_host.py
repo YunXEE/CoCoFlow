@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create CoCoFlow's clean CI project with the optional integrations enabled."""
+"""Create CoCoFlow's clean CI project from an installed Editor's resources."""
 
 from __future__ import annotations
 
@@ -72,6 +72,8 @@ def unpack_unitypackage(data: bytes, host: Path) -> None:
 def prepare(work: Path, dotween_archive: Path | None = None,
             editor_data: Path | None = None) -> dict:
     config = json.loads(CONFIG.read_text())
+    if editor_data is None:
+        raise ValueError("The installed Unity Editor Data directory is required")
     if work.exists():
         raise ValueError(f"Refusing to reuse an existing CI workspace: {work}")
     package, host = work / "package", work / "host"
@@ -102,13 +104,7 @@ def prepare(work: Path, dotween_archive: Path | None = None,
         json.dumps({"name": "DOTween.Modules", "references": ["UnityEngine.UI"]}, indent=2) + "\n")
 
     resource = "Resources/PackageManager/BuiltInPackages/com.unity.ugui/Package Resources/TMP Essential Resources.unitypackage"
-    if editor_data:
-        tmp_data = (editor_data / resource).read_bytes()
-    else:
-        subprocess.run(["docker", "pull", config["image"]], check=True)
-        tmp_data = subprocess.check_output([
-            "docker", "run", "--rm", "--entrypoint", "/bin/cat",
-            config["image"], "/opt/unity/Editor/Data/" + resource])
+    tmp_data = (editor_data / resource).read_bytes()
     checked_bytes(tmp_data, config["tmpResourceSha256"], "Bundled TMP resources")
     unpack_unitypackage(tmp_data, host)
 
@@ -136,13 +132,12 @@ def prepare(work: Path, dotween_archive: Path | None = None,
                       {"DOTween", "DOTween.Modules", "UniTask", "UniTask.DOTween",
                        "Unity.TextMeshPro", "Unity.InputSystem.TestFramework"})
     product = json.loads((package / "package.json").read_text())
-    pins = dict(product["dependencies"])
-    pins.update(config["packages"])
-    pins["com.cysharp.unitask"] = "2.5.11"
+    package_names = sorted(set(product["dependencies"]) | set(config["packages"]))
     requirements = {
         "unityVersion": config["unity"],
+        "editorPlatform": config["editorPlatform"],
         "assemblies": required,
-        "packages": [{"name": name, "version": version} for name, version in sorted(pins.items())],
+        "packages": package_names,
         "defines": config["defines"], "dotweenVersion": config["dotween"]["version"]
     }
     (host / "CiRequirements.json").write_text(json.dumps(requirements, indent=2) + "\n")
@@ -156,7 +151,10 @@ def prepare(work: Path, dotween_archive: Path | None = None,
     metadata = {
         "sourceSha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "packageContentSha256": package_digest.hexdigest(),
-        "unity": config["unity"], "image": config["image"],
+        "unity": config["unity"], "runner": config["runner"],
+        "editorPlatform": config["editorPlatform"],
+        "editorInstaller": config["editorInstaller"],
+        "gameci": config["gameci"],
         "dotweenSha256": config["dotween"]["sha256"],
         "tmpResourceSha256": config["tmpResourceSha256"],
         "expectedTestAssemblies": expected
