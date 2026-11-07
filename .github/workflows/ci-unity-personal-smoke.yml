@@ -26,7 +26,6 @@ jobs:
       - name: Check out the result reader
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: package
           persist-credentials: false
 
       - name: Create a fresh minimal Unity host
@@ -98,7 +97,7 @@ jobs:
 
       - name: Require a valid new NUnit result
         if: always()
-        run: python3 package/.github/ci/cocoflow_ci.py unity-result ci-results/editmode-results.xml
+        run: python3 .github/ci/cocoflow_ci.py unity-result ci-results/editmode-results.xml
 
       - name: Preserve only smoke-test evidence
         if: always()
