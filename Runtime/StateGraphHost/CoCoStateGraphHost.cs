@@ -242,9 +242,12 @@ namespace CoCoFlow.Runtime.Core
                 _lastDiagnostic = diagnostic;
                 return false;
             }
+            finally
+            {
+                // Ownership transfers here only after ConfiguredGraph returns.
+                ReleaseConfiguredGraph(configuredGraph);
+            }
 
-            if (configuredGraph != stateGraphAsset)
-                Destroy(configuredGraph);
             if (!compileResult.Succeeded)
             {
                 diagnostic = FirstCompileError(compileResult);

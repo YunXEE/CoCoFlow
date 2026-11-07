@@ -10,16 +10,34 @@ namespace CoCoFlow.Runtime.Core
         {
             if (!(provider is CoCoStandardBindingProvider standard)) return stateGraphAsset;
             var graph = Instantiate(stateGraphAsset);
-            var aliases = new Dictionary<CoCoStateDescriptorId, Type>();
-            foreach (var layer in graph.Layers)
+            try
             {
-                foreach (var state in layer.States)
-                    ConfigureStateAlias(state, provider.Catalog, aliases);
-                if (layer.AnyState != null)
-                    ConfigureStateAlias(layer.AnyState, provider.Catalog, aliases);
+                var aliases = new Dictionary<CoCoStateDescriptorId, Type>();
+                foreach (var layer in graph.Layers)
+                {
+                    foreach (var state in layer.States)
+                        ConfigureStateAlias(state, provider.Catalog, aliases);
+                    if (layer.AnyState != null)
+                        ConfigureStateAlias(layer.AnyState, provider.Catalog, aliases);
+                }
+                provider = CoCoStandardBindingProvider.Build(standard.Assemblies, aliases);
+                return graph;
             }
-            provider = CoCoStandardBindingProvider.Build(standard.Assemblies, aliases);
-            return graph;
+            catch
+            {
+                // Until return, the creator still owns the configured copy.
+                ReleaseConfiguredGraph(graph);
+                throw;
+            }
+        }
+
+        private void ReleaseConfiguredGraph(CoCoStateGraphAsset graph)
+        {
+            if (graph == null || graph == stateGraphAsset) return;
+            if (Application.isPlaying)
+                Destroy(graph);
+            else
+                DestroyImmediate(graph);
         }
 
         private static void ConfigureStateAlias(CoCoStateGraphStateRecord state,
