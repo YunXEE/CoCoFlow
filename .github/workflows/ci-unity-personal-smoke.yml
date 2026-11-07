@@ -51,4 +51,4 @@ jobs:
           --engine=unity
           --engineVersion=6000.3.27f2
           --unityLicensingMethod=personal
-          --licenseRetryMaxAttempts=1
+          --licenseRetryMaxAttempts=2
