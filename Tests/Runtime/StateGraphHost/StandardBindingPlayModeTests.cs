@@ -106,6 +106,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
             playerInput.actions.FindActionMap("Player").Enable();
 
+            CoCoStateGraphAsset[] originalGraphs = Resources.FindObjectsOfTypeAll<CoCoStateGraphAsset>();
             Assert.IsTrue(host.TryStart(out CoCoDiagnostic start),
                 "start: " + start.Message + " / " + host.LastDiagnostic.Message);
             Assert.AreEqual(CoCoRuntimeLifecycleState.Running, host.Lifecycle);
@@ -117,6 +118,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "New properties and legacy Writer must produce the same movement.");
             yield return null;
 
+            CollectionAssert.AreEquivalent(originalGraphs, Resources.FindObjectsOfTypeAll<CoCoStateGraphAsset>(),
+                "Configured copies must be reclaimed after the PlayMode destruction frame.");
             Press(keyboard.wKey);
             InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
             Assert.IsTrue(host.TryStep(1f / 60f, out _));
