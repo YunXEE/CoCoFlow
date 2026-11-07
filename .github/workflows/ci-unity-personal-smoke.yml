@@ -21,7 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: game-ci/cli@v0.1.72
+      - name: Install GameCI using the official install script
+        env:
+          GAME_CI_VERSION: v0.1.72
+          GAME_CI_INSTALL: ${{ runner.temp }}/game-ci/bin
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/game-ci/cli/main/install.sh | sh
+          echo "$GAME_CI_INSTALL" >> "$GITHUB_PATH"
 
       - name: Activate Personal license
         id: activation
