@@ -92,7 +92,9 @@ jobs:
       - name: Prepare clean host and complete dependencies
         id: prepare
         timeout-minutes: 10
-        run: python3 .github/ci/prepare_unity_host.py
+        run: |
+          python3 .github/ci/prepare_unity_host.py
+          echo "CI_ARTIFACT_OWNER=$(id -u):$(id -g)" >> "$GITHUB_ENV"
 
       - name: Install the official GameCI CLI
         env:
@@ -102,29 +104,17 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/game-ci/cli/main/install.sh | sh
           echo "$GAME_CI_INSTALL" >> "$GITHUB_PATH"
 
-      - name: Activate Personal once
-        id: activation
-        timeout-minutes: 2
-        env:
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        run: >-
-          game-ci activate .ci-work/host
-          --engine=unity --engineVersion=6000.3.27f2
-          --targetPlatform=StandaloneLinux64
-          --unityLicensingMethod=personal --licenseRetryMaxAttempts=1
-
       - name: Run complete package EditMode and PlayMode
         id: tests
         timeout-minutes: 25
         uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0
         env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           GAME_CI_UNITY_LICENSING_METHOD: personal
           GAME_CI_LICENSE_RETRY_MAX_ATTEMPTS: "1"
           # v4.4.0's false input emits an unsupported --no-coverageEnabled flag.
           GAME_CI_COVERAGE_ENABLED: "false"
-          # Supported dockerEnv override: this job already activated once.
-          GAME_CI_DOCKER_ENV: SKIP_ACTIVATION=true
         with:
           cliVersion: v0.1.72
           unityVersion: 6000.3.27f2
@@ -132,10 +122,13 @@ jobs:
           packageMode: false
           testMode: all
           artifactsPath: ci-results
+          chownFilesTo: ${{ env.CI_ARTIFACT_OWNER }}
           githubToken: ""
 
       - name: Return the activated Personal seat
-        if: always() && steps.activation.outcome == 'success'
+        # These logs are created only after activation succeeds. A rejected
+        # login therefore stops without another credential-bearing command.
+        if: always() && hashFiles('ci-results/playmode.log', 'ci-results/editmode.log') != ''
         timeout-minutes: 3
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}

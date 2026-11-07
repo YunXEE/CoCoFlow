@@ -66,16 +66,20 @@ support claim; actual source and asmdefs remain authoritative.
 Only `UNITY_EMAIL` and `UNITY_PASSWORD` are required. The working Personal account
 does not use `UNITY_LICENSE` or a Student serial.
 
-The same job calls official `game-ci activate` once, runs the official Test Runner
-using that license state, and always calls `game-ci return-license` after a
-successful activation. The supported `dockerEnv` option supplies
-`SKIP_ACTIVATION=true` to the test container, avoiding another login and leaving
-cleanup to the explicit return step. No GameCI source is modified. Credentials
-are injected only into activation and return steps. A failed login stops; the
-workflow is never automatically rerun.
+The official Test Runner activates once and runs all tests inside that same
+container. The activation retry limit is one. A separate activation container
+was verified to grant a seat but did not give the test Editor usable licensing
+state (run 42372280656); do not use SKIP_ACTIVATION to bridge those containers.
+No GameCI source is modified. Credentials are limited to the official test step
+and explicit return step. Official chownFilesTo gives the host runner ownership
+of results so it can record inputs and publish artifacts.
 
-Return has its own two-attempt limit so the official script can switch from
-missing ULF to the Editor's entitlement return. The return step requires Unity's
+The pinned runner's one-attempt cleanup cannot complete its missing-ULF fallback.
+An explicit return has its own two-attempt limit so the official script can switch
+to the Editor's entitlement return. It runs only when a test Editor log exists;
+the official scripts create those logs after successful activation. A rejected
+activation therefore stops without another credential-bearing command.
+The return step requires Unity's
 explicit successful-return message. The narrow CLI v0.1.72 post-return
 `validateBuild` error is accepted only with that message, exit 1, the exact known
 error/stack frame and no additional CLI error. Other errors fail. Recheck/remove
