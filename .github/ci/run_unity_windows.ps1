@@ -3,6 +3,8 @@ $config = Get-Content '.github/ci/unity-host.json' -Raw | ConvertFrom-Json
 $nativeLog = Join-Path $env:RUNNER_TEMP 'gameci-native-test.log'
 $returnPattern = 'Successfully returned (the entitlement|ULF|floating) license|License has been returned'
 $unityTestExitCode = 1
+$launcher = (Resolve-Path '.github/ci/wait_unity_windows.ps1').Path
+$env:ENGINE_LAUNCH_WRAPPER = "pwsh -NoProfile -NonInteractive -File $launcher"
 
 try {
     # Official HostRunner: activates, tests both modes, then attempts cleanup.
@@ -21,7 +23,7 @@ try {
         New-Item -ItemType Directory $scratch -Force | Out-Null
         $returnLog = Join-Path $scratch 'return.log'
         $editor = Join-Path $env:UNITY_PATH 'Editor/Unity.exe'
-        & $editor -batchmode -quit -returnlicense -projectPath $scratch -logFile $returnLog | Out-Host
+        & pwsh -NoProfile -NonInteractive -File $launcher $editor -batchmode -quit -returnlicense -projectPath $scratch -logFile $returnLog | Out-Host
         $returnText = if (Test-Path $returnLog) { Get-Content $returnLog -Raw } else { '' }
         $returned = $returnText -match $returnPattern
     }

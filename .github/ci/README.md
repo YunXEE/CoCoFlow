@@ -79,6 +79,11 @@ used. No GameCI source is modified. The activation retry limit is one, and test
 failures are not retried. Scripts and test changes are verified locally before a
 GitHub candidate validation run.
 
+The supported ENGINE_LAUNCH_WRAPPER hook explicitly waits for each Windows GUI
+Editor process and forwards its exit code. Without that wait, v0.1.72 can start
+PlayMode and EditMode concurrently and attempt license return before they finish;
+run 42378865246 demonstrated that race and its licensing-client mutex failure.
+
 The pinned native cleanup can stop after its first missing-ULF attempt. If the
 official output confirms activation but not return, the wrapper runs the same
 Personal entitlement-return Editor command as GameCI's Windows return script.
