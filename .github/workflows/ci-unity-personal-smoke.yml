@@ -1,4 +1,4 @@
-name: Unity Personal Smoke
+name: Unity Personal Activation
 
 on:
   push:
@@ -8,106 +8,41 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 concurrency:
-  group: unity-personal-smoke
+  group: unity-personal-activation
   cancel-in-progress: false
 
-env:
-  UNITY_VERSION: 6000.3.27f2
-
 jobs:
-  smoke:
-    name: Personal activation and fresh-host smoke
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  activate:
+    name: Activate Personal with official GameCI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Check out the result reader
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v4
 
-      - name: Create a fresh minimal Unity host
+      - uses: game-ci/cli@v0.1.72
+
+      - name: Activate Personal license
+        id: activation
         env:
-          SMOKE_HOST: ci-host
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          host = Path(os.environ['SMOKE_HOST'])
-          if host.exists():
-              raise SystemExit('Smoke host must not exist before this run')
-          for folder in ('Assets/Editor', 'Packages', 'ProjectSettings'):
-              (host / folder).mkdir(parents=True, exist_ok=True)
-          (host / 'ProjectSettings/ProjectVersion.txt').write_text(
-              'm_EditorVersion: ' + os.environ['UNITY_VERSION'] + '\n', encoding='utf-8')
-          (host / 'Packages/manifest.json').write_text(json.dumps({
-              'dependencies': {'com.unity.test-framework': '1.6.0'}
-          }, indent=2) + '\n', encoding='utf-8')
-          (host / 'Assets/Editor/CoCoFlow.Ci.Smoke.Editor.asmdef').write_text(json.dumps({
-              'name': 'CoCoFlow.Ci.Smoke.Editor',
-              'includePlatforms': ['Editor'],
-              'optionalUnityReferences': ['TestAssemblies'],
-              'autoReferenced': False
-          }, indent=2) + '\n', encoding='utf-8')
-          source = '\n'.join([
-              'using NUnit.Framework;',
-              'using UnityEngine;',
-              '',
-              'public sealed class PersonalCiSmokeTests',
-              '{',
-              '    [Test]',
-              '    public void RunsInThePinnedBatchmodeEditor()',
-              '    {',
-              '        Assert.That(Application.isBatchMode, Is.True);',
-              '        Assert.That(Application.unityVersion, Is.EqualTo("' + os.environ['UNITY_VERSION'] + '"));',
-              '    }',
-              '}',
-              ''
-          ])
-          (host / 'Assets/Editor/PersonalCiSmokeTests.cs').write_text(source, encoding='utf-8')
-          print('Created a new Unity host with one Editor smoke test')
-          PY
-
-      - name: Use the official one-attempt licensing setting
-        run: |
-          cat > .game-ci.yml <<'YAML'
-          cliOptions:
-            licenseRetryMaxAttempts: 1
-          YAML
-
-      - name: Run Unity with the Personal license
-        uses: game-ci/unity-test-runner@v4
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        with:
-          cliVersion: v0.1.72
-          unityVersion: ${{ env.UNITY_VERSION }}
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
-          projectPath: ci-host
-          packageMode: false
-          testMode: editmode
-          artifactsPath: ci-results
+        run: >-
+          game-ci activate .
+          --engine=unity
+          --engineVersion=6000.3.27f2
+          --unityLicensingMethod=personal
+          --licenseRetryMaxAttempts=1
 
-      - name: Require a valid new NUnit result
-        if: always()
-        run: python3 .github/ci/cocoflow_ci.py unity-result ci-results/editmode-results.xml
-
-      - name: Preserve only smoke-test evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: unity-personal-smoke-${{ github.run_id }}
-          path: |
-            ci-results/editmode-results.xml
-            ci-results/editmode.log
-            ci-host/Packages/manifest.json
-            ci-host/Packages/packages-lock.json
-            ci-host/ProjectSettings/ProjectVersion.txt
-          if-no-files-found: warn
-          retention-days: 7
+      - name: Return the temporary Personal seat
+        if: steps.activation.outcome == 'success'
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: >-
+          game-ci return-license .
+          --engine=unity
+          --engineVersion=6000.3.27f2
+          --unityLicensingMethod=personal
+          --licenseRetryMaxAttempts=1
