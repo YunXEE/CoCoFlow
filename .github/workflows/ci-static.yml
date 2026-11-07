@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - master
-      - refactor/0.4.7-P003-release-ci-gates
   workflow_dispatch:
 
 permissions:
@@ -104,7 +103,7 @@ jobs:
 
       - name: Run complete package EditMode and PlayMode
         id: tests
-        timeout-minutes: 25
+        timeout-minutes: 22
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -112,6 +111,14 @@ jobs:
           GAME_CI_LICENSE_RETRY_MAX_ATTEMPTS: "1"
           GAME_CI_COVERAGE_ENABLED: "false"
         run: .github/ci/run_unity_windows.ps1
+
+      - name: Return this run's confirmed Personal seat
+        if: always() && steps.tests.outcome != 'skipped'
+        timeout-minutes: 3
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: .github/ci/return_unity_windows.ps1
 
       - name: Record exact inputs and resolved packages
         if: always() && steps.prepare.outcome == 'success'
