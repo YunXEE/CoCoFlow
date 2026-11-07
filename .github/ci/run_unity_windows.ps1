@@ -15,6 +15,7 @@ try {
     & $env:COCOFLOW_GAMECI_EXE test '.ci-work/host' --engine unity --engineVersion $config.unity --docker --local --targetPlatform StandaloneWindows64 --testPlatforms 'playmode;editmode' --artifactsPath ci-results 2>&1 |
         Tee-Object -FilePath $nativeLog
     $unityTestExitCode = $LASTEXITCODE
+    Write-Host 'Package test command finished; checking the Personal seat return.'
 } finally {
     $text = if (Test-Path $nativeLog) { Get-Content $nativeLog -Raw } else { '' }
     $activated = $text -match '(?m)^Activation complete\.\s*$'
@@ -24,11 +25,12 @@ try {
         # Use the complete Personal command from official return_license.ps1.
         # This returns the existing seat; it does not activate another one.
         $returnSource = 'editor-fallback'
+        Write-Host 'Returning the existing Personal seat through the batchmode Editor.'
         $scratch = Join-Path $env:RUNNER_TEMP 'unity-return'
         New-Item -ItemType Directory $scratch -Force | Out-Null
         $returnLog = Join-Path $scratch 'return.log'
         $editor = Join-Path $env:UNITY_PATH 'Editor/Unity.exe'
-        & pwsh -NoProfile -NonInteractive -File $launcher $editor -logFile $returnLog -quit -returnlicense -username $env:UNITY_EMAIL -password $env:UNITY_PASSWORD -projectPath $scratch | Out-Host
+        & pwsh -NoProfile -NonInteractive -File $launcher -TimeoutSeconds 120 $editor -logFile $returnLog -quit -batchmode -returnlicense -username $env:UNITY_EMAIL -password $env:UNITY_PASSWORD -projectPath $scratch | Out-Host
         $returnExitCode = $LASTEXITCODE
         $returnLogAvailable = Test-Path $returnLog
         $returnText = if ($returnLogAvailable) { Get-Content $returnLog -Raw } else { '' }
@@ -42,6 +44,8 @@ try {
             'no-active-license' = 'No license activation found|No valid Unity Editor license found|License is not active'
         }
         $returnDiagnostics = @($patterns.Keys | Where-Object { $returnText -match $patterns[$_] })
+        if ($returnExitCode -eq 124) { $returnDiagnostics += 'editor-return-timeout' }
+        Write-Host "Personal seat return confirmed: $returned (Editor exit: $returnExitCode)."
     }
     if ($activated) {
         @{

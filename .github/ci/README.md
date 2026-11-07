@@ -87,8 +87,10 @@ run 42378865246 demonstrated that race and its licensing-client mutex failure.
 The pinned native cleanup can stop after its first missing-ULF attempt. If the
 official output confirms activation but not return, the wrapper runs the same
 Personal entitlement-return Editor command as GameCI's Windows return script.
-That invocation includes the official username/password arguments and waits for
-the Editor to exit. A native successful-return marker is required; an exit code
+That invocation includes the official username/password arguments and Unity's
+documented -batchmode flag for unattended Windows execution. It waits up to two
+minutes for the return process; that bound does not change any package test
+timeout. A native successful-return marker is required; an exit code
 alone is not a return receipt. license-return.json records the route, exit code,
 log availability and a fixed list of diagnostic categories without account values.
 A rejected activation never triggers the fallback; return failure fails the job

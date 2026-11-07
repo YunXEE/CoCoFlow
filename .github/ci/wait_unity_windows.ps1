@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory, Position = 0)]
     [string]$ExePath,
     [Parameter(ValueFromRemainingArguments)]
-    [string[]]$Arguments
+    [string[]]$Arguments,
+    [int]$TimeoutSeconds = 0
 )
 $ErrorActionPreference = 'Stop'
 
@@ -13,5 +14,10 @@ $start.FileName = $ExePath
 $start.UseShellExecute = $false
 foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
 $process = [Diagnostics.Process]::Start($start)
+if ($TimeoutSeconds -gt 0 -and -not $process.WaitForExit($TimeoutSeconds * 1000)) {
+    $process.Kill($true)
+    $process.WaitForExit()
+    exit 124
+}
 $process.WaitForExit()
 exit $process.ExitCode
