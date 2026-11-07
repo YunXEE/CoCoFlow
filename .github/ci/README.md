@@ -84,18 +84,30 @@ Editor process and forwards its exit code. Without that wait, v0.1.72 can start
 PlayMode and EditMode concurrently and attempt license return before they finish;
 run 42378865246 demonstrated that race and its licensing-client mutex failure.
 
-The pinned native cleanup can stop after its first missing-ULF attempt. If the
-official output confirms activation but not return, the wrapper runs the same
-Personal entitlement-return Editor command as GameCI's Windows return script.
-That invocation includes the official username/password arguments and Unity's
-documented -batchmode flag for unattended Windows execution. It waits up to two
-minutes for the return process; that bound does not change any package test
-timeout. A native successful-return marker is required; an exit code
-alone is not a return receipt. license-return.json records the route, exit code,
-log availability and a fixed list of diagnostic categories without account values.
-A rejected activation never triggers the fallback; return failure fails the job
-even when tests passed. Raw authentication and return logs stay in runner temp,
-outside uploaded artifacts.
+Each test Editor process has a ten-minute deadline. The test step has a
+twenty-two-minute hard limit, followed in the same Windows job by a separate
+three-minute cleanup step using always(). Test case assertions and their own
+timeouts are unchanged. This leaves cleanup independent of the test shell's
+finally block when the test step fails, times out or is cancelled.
+
+The cleanup step uses this run's explicit ASSIGN_SEAT or Activation complete
+evidence, including allocation followed by a command failure. A rejected login
+does not start a return command. If GameCI or a previous invocation already
+confirmed return, cleanup does not return the seat again.
+
+The pinned native cleanup can stop at its missing-ULF fallback. The separate
+cleanup then uses the complete official Personal Editor return arguments,
+including -batchmode, and waits up to two minutes. A native successful-return
+marker is required; exit zero alone is not a return receipt. license-return.json
+records observed activation, fallback use, return confirmation, exit code, log
+availability and fixed diagnostic categories without account values. An
+unconfirmed return fails the job even when all tests passed. Raw licensing logs
+stay outside uploaded artifacts.
+
+The old Personal activation trial workflow has been retired; its history and
+prior evidence remain. Routine validation uses the complete Unity workflow.
+Cleanup is best effort if the runner disappears or the entire job is forcibly
+terminated; such a run must not be reported as a confirmed seat return.
 
 The earlier Linux run also needed a separate return step: its first missing-ULF
 attempt did not return the entitlement. The two-attempt cleanup then switched to
@@ -103,8 +115,9 @@ the official Editor command and confirmed the return. The Windows flow preserves
 one activation attempt and makes one explicit Editor return after that same ULF
 fallback condition; it does not increase the activation retry limit.
 
-Unity jobs share a concurrency group with the activation trial. Active jobs
-finish cleanup; later pending runs can supersede older pending ones.
+Unity jobs share one Personal activation concurrency group. An active job keeps
+its slot through the bounded cleanup step; pending runs may replace older
+pending runs.
 
 ## Evidence and failures
 

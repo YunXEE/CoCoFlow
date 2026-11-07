@@ -1,5 +1,7 @@
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -20,6 +22,34 @@ class ScopeAndReleaseTests(unittest.TestCase):
                       ["package.json"], ["Unknown.asset"]):
             self.assertTrue(ci.unity_required(paths))
         self.assertTrue(ci.unity_required(["README.md"], release_candidate=True))
+
+    def test_source_renamed_to_documentation_still_requires_unity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def git(*arguments):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=CI Test", "-c", "user.email=ci@example.invalid",
+                     "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + str(root / "hooks"),
+                     *arguments], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+
+            git("init")
+            git("config", "diff.renames", "true")
+            (root / "package.json").write_text('{"version":"0.4.7"}')
+            (root / "Runtime").mkdir()
+            source = root / "Runtime/Foo.cs"
+            source.write_text("public sealed class Foo {}\n")
+            git("add", ".")
+            git("commit", "-m", "source")
+            before = git("rev-parse", "HEAD")
+            source.rename(root / "Runtime/Foo.md")
+            git("add", "-A")
+            git("commit", "-m", "rename source to documentation")
+            self.assertEqual("Runtime/Foo.md", git("diff", "--name-only", before, "HEAD"))
+            result = subprocess.check_output(
+                [sys.executable, str(Path(ci.__file__).resolve()), "scope", "--base", before],
+                cwd=root, text=True).strip()
+            self.assertEqual("unity=true", result)
 
     def test_release_identity_rejects_mismatched_refs_changelog_exceptions_and_tag(self):
         with tempfile.TemporaryDirectory() as temporary:

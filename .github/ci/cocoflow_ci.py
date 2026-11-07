@@ -174,7 +174,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         version_only = False
         if args.base and not re.fullmatch("0+", args.base):
             paths = subprocess.check_output(
-                ["git", "diff", "--name-only", args.base, "HEAD"], text=True).splitlines()
+                ["git", "diff", "--name-only", "--no-renames", args.base, "HEAD"], text=True).splitlines()
             before = json.loads(subprocess.check_output(
                 ["git", "show", args.base + ":package.json"], text=True))
             after = json.loads(Path("package.json").read_text())
