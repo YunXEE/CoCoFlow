@@ -207,6 +207,31 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void RuntimeGraphMetadataRetainsInvalidDeclarationsForRuntimeDiagnostics()
+        {
+            var scanner = new CoCoPlayerOperationMetadataScanner();
+            string assemblyPath = typeof(ILinkerTestSection).Assembly.Location;
+            var result = scanner.Scan(
+                Path.GetDirectoryName(assemblyPath),
+                new[] { typeof(ILinkerTestSection).Assembly.GetName().Name },
+                false);
+
+            Assert.IsEmpty(result.Diagnostics);
+            Assert.IsTrue(Array.Exists(result.Entries, entry =>
+                entry.TypeFullName == CoCoPlayerOperationMetadataNaming.GetLinkerTypeFullName(
+                    typeof(IInvalidRuntimeLinkerSection)) && entry.Preserve == "all"));
+            Assert.IsTrue(Array.Exists(result.Entries, entry =>
+                entry.TypeFullName == CoCoPlayerOperationMetadataNaming.GetLinkerTypeFullName(
+                    typeof(LinkerAttributedState)) && entry.Preserve == "all"));
+
+            var validation = scanner.Scan(
+                Path.GetDirectoryName(assemblyPath),
+                new[] { typeof(ILinkerTestSection).Assembly.GetName().Name });
+            Assert.IsTrue(Array.Exists(validation.Diagnostics, message =>
+                message.Contains(nameof(IInvalidRuntimeLinkerSection))));
+        }
+
+        [Test]
         public void PlayerMetadataScanFailsClosedWhenSelectedDependencyIsUnavailable()
         {
             UnityEditor.Compilation.Assembly sectionAssembly = Array.Find(
@@ -321,6 +346,17 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         public interface ILinkerTestSection : ICoCoOperationSection
         {
             LinkerOuterValue Payload { get; }
+        }
+
+        public interface IInvalidRuntimeLinkerSection : ICoCoOperationSection
+        {
+            string Value { get; }
+        }
+
+        [CoCoState("linker-attributed-state")]
+        public sealed class LinkerAttributedState
+        {
+            [CoCoStateConfig] public LinkerOuterValue Config;
         }
 
         public struct LinkerOuterValue

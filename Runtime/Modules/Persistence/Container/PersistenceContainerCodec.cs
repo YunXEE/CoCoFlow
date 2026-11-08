@@ -127,6 +127,10 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Container
 
     internal sealed class PersistenceContainerSectionJsonConverter : JsonConverter
     {
+        // Json.NET 根据 JsonConverterAttribute 反射创建此转换器。
+        [UnityEngine.Scripting.Preserve]
+        public PersistenceContainerSectionJsonConverter() { }
+
         public override bool CanConvert(Type objectType) => objectType == typeof(PersistenceContainerSection);
 
         public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)

@@ -20,6 +20,8 @@ namespace CoCoFlow.Runtime.Core
 
     public interface ICoCoContextProvider<out TContext> where TContext : class, ICoCoContext
     {
+        // PersistenceContext 通过闭合泛型接口反射读取此属性。
+        [UnityEngine.Scripting.Preserve]
         TContext Context { get; }
     }
 

@@ -30,6 +30,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
     public sealed class CamIntentRegistration :
         CoCoStandardIntentRegistration<CameraIntentData, CamIntentReducer, CamIntentReducerFactory>
     {
+        [UnityEngine.Scripting.Preserve]
         public CamIntentRegistration() : base(CamContractIds.IntentId, 1, CamContractIds.Fingerprint) { }
     }
 }
