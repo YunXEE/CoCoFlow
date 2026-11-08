@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.7`.
+`0.4.8`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -17,6 +17,20 @@ breaking changes and compatibility boundaries.
 - [简体中文概览](../README.zh-CN.md)
 - [Changelog](../CHANGELOG.md)
 - [Dependency matrix](../Docs/DependencyMatrix.md)
+
+## Player validation
+
+Recorded Windows x64 implementation runs on Unity 6000.3.27f2 passed 456/456
+tests with [Mono / Disabled](https://github.com/YunXEE/CoCoFlow/actions/runs/42481797870)
+and [IL2CPP / Medium / OptimizeSpeed](https://github.com/YunXEE/CoCoFlow/actions/runs/42481773588).
+Each suite contains 455 package cases and one Player environment guard, with no
+failed, skipped or inconclusive cases. Evidence is bound to those runs; the final
+integrated release candidate still requires its complete CI gate.
+
+High stripping, other platforms and real-game smoke builds without test
+assemblies remain unverified. Test references can retain types that an ordinary
+game would otherwise strip, so these results do not certify every game or build
+configuration.
 
 ## Core Engine
 
@@ -67,8 +81,9 @@ Editor Debug Mode without changing the existing Graph path.
 
 See [Persistence](../Docs/Module-Persistence.md) for the four Mono roles, lifecycle,
 nested data and save format. Old Container gameplay APIs are removed without
-data migration. Actual Player save/load and stripping compatibility remain
-unverified for this release.
+data migration. Player save/load cases are included in the tested Windows
+profiles above; real-game save/load smoke and other stripping levels remain
+unverified.
 
 ## State mailboxes and automatic binding
 
@@ -157,4 +172,6 @@ Missing overrides use the field initializer; zero, false and empty collections
 are valid overrides. See [Config collections](../Docs/StateGraphCompiler.md#standard-config-collections).
 Memory must remain unmanaged; it is captured with Context and restored with
 the saved activation state. StateLogic still requires `ICoCoStateUpdate`.
-The runtime generic binding path has not been verified in an IL2CPP Player.
+Standard runtime generic binding is covered by the Windows IL2CPP / Medium
+Player suite above. Game-specific reflected types and build settings still need
+their own validation.

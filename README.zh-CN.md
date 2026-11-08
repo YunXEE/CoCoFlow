@@ -1,11 +1,19 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.7 · **Unity**：6000+
+> **版本**：0.4.8 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
+
+## 0.4.8 更新
+
+- 在现有 GameCI 中接入完整 Windows Mono 与 IL2CPP Player 测试，
+  按 PR 目标分支选择必需测试组合。
+- 保留 IL2CPP 裁剪下模块注册、State 绑定、Context 和持久化所需的反射元数据，
+  覆盖运行时创建的图。
+- 统一 Mono 与 IL2CPP 的 State 工厂约束检查。
 
 ## 0.4.7 更新
 
@@ -29,8 +37,10 @@ StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownersh
   或去重 ID。既有 ID 保留；重新生成会改变存档身份，多个独立存档实体须使用
   不同身份。见 [身份边界](Docs/Module-Persistence.md#stable-entity-identity)。
 
-没有 AnyState 的旧图无需迁移或补边。Player、IL2CPP/AOT、裁剪、完整 Umbra
-动画和脚 IK 仍未验证。修复与兼容边界见 [Changelog](CHANGELOG.md)。
+没有 AnyState 的旧图无需迁移或补边。Windows x64 测试 Player 已在
+Unity 6000.3.27f2 上通过 Mono / Disabled 和 IL2CPP / Medium / OptimizeSpeed
+的完整 Player 适用测试套件。High 裁剪、其他平台、不含测试程序集的真实游戏
+smoke 构建、完整 Umbra 动画和脚 IK 仍未验证。修复与兼容边界见 [Changelog](CHANGELOG.md)。
 
 ## “成熟”的定义
 
@@ -84,7 +94,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.7
+https://github.com/YunXEE/CoCoFlow.git#v0.4.8
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -92,7 +102,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.7
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.7"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.8"
   }
 }
 ```
