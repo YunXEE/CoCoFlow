@@ -6,7 +6,11 @@ $installer = Join-Path ([IO.Path]::GetTempPath()) "UnitySetup64-$($config.unity)
 
 # Fail fast on release-asset transport errors, before the large Editor install.
 $gameci = Join-Path $env:RUNNER_TEMP 'game-ci.exe'
-Invoke-WebRequest -Uri $config.gameci.url -OutFile $gameci -MaximumRetryCount 2 -RetryIntervalSec 5
+# The public browser download route has repeatedly returned HTTP 504. Fetch the
+# same pinned official asset through GitHub's API, retaining the SHA256 check.
+Invoke-WebRequest -Uri $config.gameci.assetApiUrl -Headers @{
+    Accept = 'application/octet-stream'; 'X-GitHub-Api-Version' = '2022-11-28'
+} -OutFile $gameci -MaximumRetryCount 2 -RetryIntervalSec 5
 if ((Get-FileHash $gameci -Algorithm SHA256).Hash -ne $config.gameci.sha256) {
     throw 'GameCI executable SHA256 does not match the official release.'
 }
