@@ -7,6 +7,7 @@
     "integrity": "md5-dEvEQDTebuIwZWIy4Yb7bg=="
   },
   "gameci": {
+    "assetApiUrl": "https://api.github.com/repos/game-ci/cli/releases/assets/608713170",
     "version": "v0.1.72",
     "url": "https://github.com/game-ci/cli/releases/download/v0.1.72/game-ci-windows-x64.exe",
     "sha256": "24ce37735c9b820cea18c6b807fc2ba7b14e55fbb90dfc558bc11c049e403cb3"
@@ -35,5 +36,9 @@
     "uielements", "unitywebrequest", "unitywebrequestassetbundle",
     "unitywebrequestaudio", "unitywebrequesttexture", "unitywebrequestwww",
     "vehicles", "video", "wind", "xr"
-  ]
+  ],
+  "windowsIl2CppInstaller": {
+    "url": "https://download.unity3d.com/download_unity/22188f149405/TargetSupportInstaller/UnitySetup-Windows-IL2CPP-Support-for-Editor-6000.3.27f2.exe",
+    "integrity": "md5-qiVpz0LWaFXIL1pdtx6aHA=="
+  }
 }

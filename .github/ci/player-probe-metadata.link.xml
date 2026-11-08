@@ -1,0 +1,32 @@
+<linker>
+  <!-- Diagnostic host only: retain the observed reflection dependencies so a
+       second run can distinguish metadata stripping from later AOT failures. -->
+  <assembly fullname="CoCoFlow.Runtime.Modules.Camera">
+    <type fullname="CoCoFlow.Runtime.Modules.Camera.CamIntentRegistration" preserve="all" />
+    <type fullname="CoCoFlow.Runtime.Modules.Camera.CameraOperationRegistrar" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Modules.Animation">
+    <type fullname="CoCoFlow.Runtime.Modules.Animation.AnimSectionRegistrar" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Modules.Locomotion">
+    <type fullname="CoCoFlow.Runtime.Modules.Locomotion.LocomotionSectionRegistrar" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Modules.Persistence">
+    <type fullname="CoCoFlow.Runtime.Modules.Persistence.Container.PersistenceContainerSectionJsonConverter" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Animation.Contracts">
+    <type fullname="CoCoFlow.Runtime.Animation.Contracts.IAnimParameterOperationSection" preserve="all" />
+    <type fullname="CoCoFlow.Runtime.Animation.Contracts.IAnimTriggerOperationSection" preserve="all" />
+    <type fullname="CoCoFlow.Runtime.Animation.Contracts.AnimParameterCommand" preserve="fields" />
+    <type fullname="CoCoFlow.Runtime.Animation.Contracts.AnimTriggerCommand" preserve="fields" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Locomotion.Contracts">
+    <type fullname="CoCoFlow.Runtime.Locomotion.Contracts.ILocomotionSection" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Runtime.Camera.Contracts">
+    <type fullname="CoCoFlow.Runtime.Camera.Contracts.CameraOperation" preserve="all" />
+  </assembly>
+  <assembly fullname="CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures">
+    <type fullname="CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures.IOperatorCommitPrimarySection" preserve="all" />
+  </assembly>
+</linker>

@@ -15,6 +15,35 @@ from typing import Any, Dict, Optional, Sequence
 COUNT_KEYS = ("total", "passed", "failed", "inconclusive", "skipped")
 
 
+def validation_plan(event: str, base_branch: str = "", ref_name: str = "",
+                    player_probe: bool = False, player_backend: str = "mono") -> dict:
+    probe = event == "workflow_dispatch" and player_probe
+    master = ((event == "pull_request" and base_branch == "master") or
+              (event in ("push", "workflow_dispatch") and ref_name == "master"))
+    development = event == "pull_request" and base_branch.startswith("dev/")
+    return {
+        "force_unity": not probe and (master or development or event == "workflow_dispatch"),
+        "players": master and not probe,
+        "player_backends": [player_backend] if probe else ["mono", "il2cpp"],
+    }
+
+
+def gate_errors(static_result: str, unity_required: str, unity_result: str,
+                players_required: str, player_result: str) -> list[str]:
+    errors = []
+    if static_result != "success":
+        errors.append("Static checks must succeed")
+    if players_required == "true" and unity_required != "true":
+        errors.append("Full Player validation also requires the Editor suite")
+    for name, required, result in (("Editor", unity_required, unity_result),
+                                   ("Player Mono and IL2CPP", players_required, player_result)):
+        if required not in ("true", "false"):
+            errors.append(name + " validation scope is missing or invalid")
+        elif required == "true" and result != "success":
+            errors.append(name + " checks must succeed; got " + result)
+    return errors
+
+
 def unity_required(paths: Sequence[str], version_only: bool = False,
                    release_candidate: bool = False) -> bool:
     if release_candidate or not paths:
@@ -164,11 +193,31 @@ def build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--base", default="")
     scope.add_argument("--release-candidate", action="store_true")
     scope.add_argument("--force-unity", action="store_true")
+    plan = subparsers.add_parser("validation-plan", help="select PR target validation requirements")
+    plan.add_argument("--event", required=True)
+    plan.add_argument("--base-branch", default="")
+    plan.add_argument("--ref-name", default="")
+    plan.add_argument("--player-probe", action="store_true")
+    plan.add_argument("--player-backend", choices=("mono", "il2cpp"), default="mono")
+    gate = subparsers.add_parser("gate", help="require every job selected by the validation plan")
+    for name in ("static-result", "unity-required", "unity-result", "players-required", "player-result"):
+        gate.add_argument("--" + name, required=True)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "validation-plan":
+        plan = validation_plan(args.event, args.base_branch, args.ref_name,
+                               args.player_probe, args.player_backend)
+        for key, value in plan.items():
+            print(key + "=" + json.dumps(value, separators=(",", ":")))
+        return 0
+    if args.command == "gate":
+        errors = gate_errors(args.static_result, args.unity_required, args.unity_result,
+                             args.players_required, args.player_result)
+        print(json.dumps({"passedGate": not errors, "errors": errors}))
+        return 1 if errors else 0
     if args.command == "scope":
         paths = []
         version_only = False
