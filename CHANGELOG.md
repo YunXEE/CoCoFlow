@@ -6,6 +6,31 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.8] - 2026-11-08
+
+### Changed
+
+- Add complete Windows Mono and IL2CPP Player tests to GameCI. PRs into version
+  development branches require complete Editor tests; master candidates also
+  require both complete Player suites.
+
+### Fixed
+
+- Preserve reflected registration/converter constructors, Context provider
+  properties, and Operation/State/Condition metadata during Player stripping,
+  including graphs created at runtime without serialized StateGraph assets.
+- Check State factory constraints explicitly so Mono and IL2CPP report invalid
+  State logic consistently. Retain test inspection metadata only in test Players.
+
+### Validation scope
+
+- The Windows x64 Player suite passed 456/456 with Mono / Disabled and IL2CPP /
+  Medium / OptimizeSpeed on Unity 6000.3.27f2, with no failed, skipped or
+  inconclusive cases. These implementation runs precede the version-closing
+  update; the final integrated candidate still requires its complete CI gate.
+- High stripping, other platforms, a real-game smoke build without test
+  assemblies, and complete Umbra animation/foot IK remain unverified.
+
 ## [0.4.7] - 2026-11-08
 
 ### Fixed

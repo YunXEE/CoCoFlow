@@ -33,6 +33,16 @@
 - Unity 验证：batchmode / Unity CLI，结果 XML 归档 .ci-artifacts/<SHA>/<宿主>/<版本>/
 - 静态分析基线：jb inspectcode，输出 .artifacts/resharper.sarif 对比
 
+## PR 测试要求
+
+- 以 PR 目标分支判断测试强度，与来源分支名称无关。
+- 进入 `dev/*`：静态检查与完整包体 Editor EditMode + PlayMode 测试。
+- 进入 `master`：上述检查，加完整 Windows Mono Player 与 IL2CPP Player 测试；
+  包括 `dev/* → master` 以及任何其他指向 `master` 的 PR。
+- 文档或版本号修改不豁免上述目标分支的测试要求。`master` push 同样跑全部测试。
+- `CI / gate` 必须等待本次所有必需测试成功；失败、取消、缺结果或必需测试跳过均不得通过。
+  手动小探针与诊断性保留实验不作为合并门禁证据。
+
 ## Z/Y 发布策略（003 新门禁启用后生效）
 
 - 启用前提：固定环境完整 Unity CI 已取得真实红/绿证据，维护者已授权

@@ -168,7 +168,8 @@ namespace CoCoFlow.Editor.StateGraph
         internal static CoCoPlayerOperationMetadataEntry[] CollectAndValidatePlayerOperationMetadata(
             UnityAssembly[] playerAssemblies,
             IReadOnlyList<string> assemblyPaths,
-            out CoCoDiagnostic[] diagnostics)
+            out CoCoDiagnostic[] diagnostics,
+            bool validateSections = true)
         {
             var messages = new SortedSet<string>(StringComparer.Ordinal);
             var playerAssemblyNames = new HashSet<string>(StringComparer.Ordinal);
@@ -269,7 +270,8 @@ namespace CoCoFlow.Editor.StateGraph
                 ScanPlayerMetadataInIsolatedDomain(
                     orderedResolverPaths,
                     orderedPlayerAssemblyNames,
-                    messages);
+                    messages,
+                    validateSections);
             diagnostics = CreateOperationDiagnostics(messages);
             return entries;
         }
@@ -421,7 +423,8 @@ namespace CoCoFlow.Editor.StateGraph
         private static CoCoPlayerOperationMetadataEntry[] ScanPlayerMetadataInIsolatedDomain(
             IReadOnlyList<string> assemblyPaths,
             ICollection<string> assemblyNames,
-            ISet<string> messages)
+            ISet<string> messages,
+            bool validateSections)
         {
             if (messages.Count > 0)
             {
@@ -472,7 +475,8 @@ namespace CoCoFlow.Editor.StateGraph
                 Array.Sort(orderedNames, StringComparer.Ordinal);
                 CoCoPlayerOperationMetadataResult result = scanner.Scan(
                     scanDirectory,
-                    orderedNames);
+                    orderedNames,
+                    validateSections);
                 if (result == null)
                 {
                     messages.Add("Player Operation Section metadata isolation returned no result.");
@@ -875,25 +879,19 @@ namespace CoCoFlow.Editor.StateGraph
 
         public void OnPostBuildPlayerScriptDLLs(BuildReport report)
         {
-            if (!CoCoStateGraphBuildValidation.HasStateGraphAssets())
-            {
-                CoCoStateGraphOperationLinkerState.Clear();
-                return;
-            }
-
             if (report == null)
             {
                 throw new BuildFailedException(
                     "Player script assembly metadata report is unavailable.");
             }
 
-            CoCoGraphDescriptorCatalog catalog = CoCoStateGraphBuildValidation.RequireCatalog();
+            bool hasAssets = CoCoStateGraphBuildValidation.HasStateGraphAssets();
             UnityAssembly[] playerAssemblies =
                 CompilationPipeline.GetAssemblies(AssembliesType.Player);
-            CoCoDiagnostic[] closureDiagnostics =
-                CoCoStateGraphAuthoringDependencyClosureValidator.Validate(
-                    catalog,
-                    playerAssemblies);
+            CoCoDiagnostic[] closureDiagnostics = hasAssets
+                ? CoCoStateGraphAuthoringDependencyClosureValidator.Validate(
+                    CoCoStateGraphBuildValidation.RequireCatalog(), playerAssemblies)
+                : Array.Empty<CoCoDiagnostic>();
             var buildFiles = report.GetFiles();
             var assemblyPaths = new string[buildFiles.Length];
             for (int index = 0; index < buildFiles.Length; index++)
@@ -905,7 +903,8 @@ namespace CoCoFlow.Editor.StateGraph
                 CoCoStateGraphBuildValidation.CollectAndValidatePlayerOperationMetadata(
                     playerAssemblies,
                     assemblyPaths,
-                    out CoCoDiagnostic[] operationDiagnostics);
+                    out CoCoDiagnostic[] operationDiagnostics,
+                    hasAssets);
             CoCoStateGraphBuildValidation.ThrowIfBuildDiagnostics(
                 closureDiagnostics,
                 operationDiagnostics);
@@ -923,7 +922,7 @@ namespace CoCoFlow.Editor.StateGraph
             BuildReport report,
             UnityLinkerBuildPipelineData data)
         {
-            if (!CoCoStateGraphBuildValidation.HasStateGraphAssets())
+            if (report == null && !CoCoStateGraphBuildValidation.HasStateGraphAssets())
             {
                 return null;
             }

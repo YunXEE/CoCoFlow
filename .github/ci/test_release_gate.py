@@ -15,6 +15,48 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ScopeAndReleaseTests(unittest.TestCase):
+    def test_pr_targets_select_editor_for_dev_and_both_players_for_any_master_pr(self):
+        for target in ("dev/0.4.8", "dev/0.5.0"):
+            plan = ci.validation_plan("pull_request", target)
+            self.assertTrue(plan["force_unity"], "Docs and version-only Dev PRs also require Editor")
+            self.assertFalse(plan["players"])
+        # 来源分支不参与此选择；所有指向 master 的 PR 都必须通过两种 Player。
+        plan = ci.validation_plan("pull_request", "master")
+        self.assertTrue(plan["force_unity"])
+        self.assertTrue(plan["players"])
+        self.assertEqual(["mono", "il2cpp"], plan["player_backends"])
+
+    def test_master_push_and_manual_validation_require_full_suite(self):
+        for event in ("push", "workflow_dispatch"):
+            plan = ci.validation_plan(event, ref_name="master")
+            self.assertTrue(plan["force_unity"])
+            self.assertTrue(plan["players"])
+        plan = ci.validation_plan("workflow_dispatch", ref_name="feat/example")
+        self.assertTrue(plan["force_unity"])
+        self.assertFalse(plan["players"])
+
+    def test_explicit_player_diagnostic_remains_separate_from_merge_gate(self):
+        for backend in ("mono", "il2cpp"):
+            plan = ci.validation_plan("workflow_dispatch", ref_name="master",
+                                      player_probe=True, player_backend=backend)
+            self.assertFalse(plan["force_unity"])
+            self.assertFalse(plan["players"])
+            self.assertEqual([backend], plan["player_backends"])
+        # PR 不能用手动探针参数降低 master 的必需范围。
+        self.assertTrue(ci.validation_plan("pull_request", "master", player_probe=True)["players"])
+
+    def test_gate_rejects_each_missing_failed_cancelled_or_skipped_required_job(self):
+        self.assertEqual([], ci.gate_errors("success", "true", "success", "false", "skipped"))
+        self.assertEqual([], ci.gate_errors("success", "true", "success", "true", "success"))
+        for outcome in ("failure", "cancelled", "skipped", ""):
+            self.assertTrue(ci.gate_errors(outcome, "true", "success", "true", "success"))
+            self.assertTrue(ci.gate_errors("success", "true", outcome, "true", "success"))
+            self.assertTrue(ci.gate_errors("success", "true", "success", "true", outcome))
+        for unknown in ("", "unknown"):
+            self.assertTrue(ci.gate_errors("success", unknown, "success", "false", "skipped"))
+            self.assertTrue(ci.gate_errors("success", "true", "success", unknown, "success"))
+        self.assertTrue(ci.gate_errors("success", "false", "skipped", "true", "success"))
+
     def test_docs_can_skip_but_unknown_inputs_and_release_candidates_cannot(self):
         self.assertFalse(ci.unity_required(["README.md", "Documentation~/index.md"]))
         self.assertFalse(ci.unity_required(["package.json"], version_only=True))
