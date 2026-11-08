@@ -75,6 +75,10 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
     public sealed class CameraOperationRegistrar : ICoCoStandardOperatorRegistrar
     {
+        // 标准绑定根据注册特性反射创建此注册器。
+        [UnityEngine.Scripting.Preserve]
+        public CameraOperationRegistrar() { }
+
         public IReadOnlyList<CoCoStandardOperationRegistration> Operations { get; } =
             new[] { new CoCoStandardOperationRegistration(typeof(CameraOperation), CamContractIds.OperationId) };
         public IReadOnlyList<CoCoStateBlockId> ContextBlocks { get; } =

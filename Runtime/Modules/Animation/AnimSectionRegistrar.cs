@@ -12,6 +12,9 @@ namespace CoCoFlow.Runtime.Modules.Animation
     public sealed class AnimSectionRegistrar :
         ICoCoStandardOperatorRegistrar
     {
+        [UnityEngine.Scripting.Preserve]
+        public AnimSectionRegistrar() { }
+
         private static readonly CoCoStandardOperationRegistration[]
             OperationRegistrations =
             {

@@ -455,6 +455,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     public sealed class LocomotionSectionRegistrar :
         ICoCoStandardOperatorRegistrar
     {
+        [UnityEngine.Scripting.Preserve]
+        public LocomotionSectionRegistrar() { }
+
         private static readonly CoCoStandardOperationRegistration[]
             OperationRegistrations =
             {

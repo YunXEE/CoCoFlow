@@ -51,6 +51,14 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
             string assemblyDirectory,
             string[] playerAssemblyNames)
         {
+            return Scan(assemblyDirectory, playerAssemblyNames, true);
+        }
+
+        public CoCoPlayerOperationMetadataResult Scan(
+            string assemblyDirectory,
+            string[] playerAssemblyNames,
+            bool validateSections)
+        {
             var messages = new SortedSet<string>(StringComparer.Ordinal);
             var entries = new Dictionary<string, CoCoPlayerOperationMetadataEntry>(
                 StringComparer.Ordinal);
@@ -86,7 +94,7 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
                     continue;
                 }
 
-                ScanAssembly(assembly, entries, messages);
+                ScanAssembly(assembly, entries, messages, validateSections);
             }
 
             var orderedEntries = new List<CoCoPlayerOperationMetadataEntry>(entries.Values);
@@ -109,7 +117,8 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
         private static void ScanAssembly(
             Assembly assembly,
             IDictionary<string, CoCoPlayerOperationMetadataEntry> entries,
-            ISet<string> messages)
+            ISet<string> messages,
+            bool validateSections)
         {
             Type[] types;
             try
@@ -134,11 +143,26 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
             for (int index = 0; index < types.Length; index++)
             {
                 Type type = types[index];
+                CollectStandardBindingMetadata(type, entries);
                 if (type == null ||
                     !type.IsInterface ||
                     type == typeof(ICoCoOperationSection) ||
                     !typeof(ICoCoOperationSection).IsAssignableFrom(type))
                 {
+                    continue;
+                }
+
+                // 运行时创建的图也需要完整声明；无资产构建保留无效声明，
+                // 由运行时注册路径报告原有诊断，不在构建时提前拒绝。
+                if (!validateSections)
+                {
+                    AddEntry(type, "all", entries);
+                    var propertyTypes = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (PropertyInfo property in type.GetProperties())
+                    {
+                        CollectValueTypes(property.PropertyType, entries, propertyTypes);
+                    }
+
                     continue;
                 }
 
@@ -156,6 +180,31 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
                 for (int fieldIndex = 0; fieldIndex < shape.FieldCount; fieldIndex++)
                 {
                     CollectValueTypes(shape.Fields[fieldIndex].ValueType, entries, visited);
+                }
+            }
+        }
+
+        private static void CollectStandardBindingMetadata(
+            Type type,
+            IDictionary<string, CoCoPlayerOperationMetadataEntry> entries)
+        {
+            if (type == null || !type.IsClass ||
+                (!type.IsDefined(typeof(CoCoStateAttribute), false) &&
+                 !type.IsDefined(typeof(ConditionAttribute), false)))
+            {
+                return;
+            }
+
+            // 标准绑定按声明发现类型，再通过泛型反射创建实例、绑定属性和配置字段。
+            // 保留声明类型本身，避免测试里偶然存在的 new 调用成为构造函数的唯一根。
+            AddEntry(type, "all", entries);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (field.IsDefined(typeof(CoCoStateConfigAttribute), false) ||
+                    field.IsDefined(typeof(CoCoStateMemoryAttribute), false))
+                {
+                    CollectValueTypes(field.FieldType, entries, visited);
                 }
             }
         }

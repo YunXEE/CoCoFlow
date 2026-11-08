@@ -765,6 +765,14 @@ namespace CoCoFlow.Runtime.Core
             Type logicType,
             out ICoCoStateRuntimeFactory factory)
         {
+            // IL2CPP 的 MakeGenericMethod 不保证执行与 Mono 相同的约束检查。
+            if (!typeof(ICoCoStateUpdate).IsAssignableFrom(logicType))
+            {
+                throw new ArgumentException(
+                    "Standard State generic constraint requires ICoCoStateUpdate: " + logicType.FullName,
+                    nameof(logicType));
+            }
+
             if (HasFields(logicType))
             {
                 factory = (ICoCoStateRuntimeFactory)InvokeFields(nameof(FieldFactory), logicType);
