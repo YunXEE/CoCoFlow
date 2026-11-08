@@ -52,16 +52,34 @@ class PlayerProbeTests(unittest.TestCase):
             ET.ElementTree(xml).write(root / "standalone-results.xml")
             self.assertFalse(probe.check(root, prepared)["passedProbe"])
 
+    def test_preservation_diagnostic_requires_a_matching_file_receipt_and_stays_labelled(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            prepared, _, settings = self.fixture(root, "il2cpp")
+            metadata = json.loads(prepared.read_text())
+            metadata["diagnosticPreservation"] = {"sha256": "declared-file"}
+            prepared.write_text(json.dumps(metadata))
+            self.assertFalse(probe.check(root, prepared)["passedProbe"])
+            settings["diagnosticPreservationSha256"] = "declared-file"
+            (root / "player-build-settings.json").write_text(json.dumps(settings))
+            report = probe.check(root, prepared)
+            self.assertTrue(report["passedProbe"])
+            self.assertEqual(metadata["diagnosticPreservation"], report["diagnosticPreservation"])
+            del metadata["diagnosticPreservation"]
+            prepared.write_text(json.dumps(metadata))
+            self.assertFalse(probe.check(root, prepared)["passedProbe"])
+
     def test_host_preparation_selects_the_requested_profile_and_callback_requirements(self):
-        for backend, backend_value, stripping_value in (("mono", 0, 0), ("il2cpp", 1, 2)):
-            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as folder:
+        for backend, preserve, backend_value, stripping_value in (
+                ("mono", False, 0, 0), ("il2cpp", False, 1, 2), ("il2cpp", True, 1, 2)):
+            with self.subTest(backend=backend, preserve=preserve), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 (root / "host/ProjectSettings").mkdir(parents=True)
                 (root / "host/Assets/Editor").mkdir(parents=True)
                 settings = root / "host/ProjectSettings/ProjectSettings.asset"
                 settings.write_text("PlayerSettings:\n")
                 with patch.object(prepare.host, "prepare", return_value={"sourceSha": "candidate"}):
-                    metadata = prepare.prepare(root, Path("unused"), backend)
+                    metadata = prepare.prepare(root, Path("unused"), backend, preserve)
                 expected = metadata["playerProbe"]
                 required = json.loads((root / "host/CiPlayerProbeRequirements.json").read_text())
                 self.assertEqual(expected, required)
@@ -69,6 +87,8 @@ class PlayerProbeTests(unittest.TestCase):
                 self.assertIn(f"scriptingBackend:\n    Standalone: {backend_value}\n", settings.read_text())
                 self.assertIn(f"managedStrippingLevel:\n    Standalone: {stripping_value}\n", settings.read_text())
                 self.assertTrue((root / "host/Assets/Editor/CoCoFlowCiPlayerBuild.cs").is_file())
+                link = root / "host/Assets/PlayerProbe/player-probe-metadata.link.xml"
+                self.assertEqual(preserve, link.is_file())
 
     def test_green_totals_do_not_hide_missing_or_duplicated_required_cases(self):
         for kind in ("missing", "duplicate", "summary-mismatch"):

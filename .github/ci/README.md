@@ -210,3 +210,11 @@ Example after the experiment branch is explicitly approved and pushed:
 Artifacts are named `player-probe-<backend>-<SHA>-<attempt>` and include the source SHA,
 build settings, executable SHA-256, XML, Player/Editor logs and cleanup receipt.
 Account values and the native authentication log are not uploaded.
+
+`player_preserve_metadata=true` is a separate diagnostic experiment. It adds a
+host-only link.xml retaining selected module registrar/converter types and
+Operation Section metadata, to distinguish stripping failures from subsequent
+AOT failures. Prepared inputs and the actual build receipt bind its file hash;
+the result summary retains the diagnostic label. Its results cannot certify the
+baseline package without those preservation rules. The default remains false;
+the rules do not enter the UPM Runtime or a game's build automatically.

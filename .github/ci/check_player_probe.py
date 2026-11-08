@@ -33,6 +33,9 @@ def check(results, prepared):
             errors.append("Player build setting mismatch: " + key)
     if settings.get("unity") != metadata["unity"]:
         errors.append("Player build Unity version mismatch")
+    preservation = metadata.get("diagnosticPreservation")
+    if (settings.get("diagnosticPreservationSha256") or None) != (preservation or {}).get("sha256"):
+        errors.append("Diagnostic preservation file does not match the declared experiment")
     executable = Path(settings.get("outputPath", ""))
     executable_hash = None
     if not executable.is_file() or executable.stat().st_size == 0:
@@ -44,6 +47,7 @@ def check(results, prepared):
     if receipt.get("activationObserved") is not True or receipt.get("confirmed") is not True:
         errors.append("This run's activation and Personal seat return must be confirmed")
     return {"passedProbe": not errors, "sourceSha": metadata["sourceSha"],
+            "diagnosticPreservation": preservation,
             "playerResults": report, "buildSettings": settings,
             "executableSha256": executable_hash, "errors": errors}
 

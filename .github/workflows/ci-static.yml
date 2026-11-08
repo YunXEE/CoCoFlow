@@ -18,6 +18,11 @@ on:
         options: [mono, il2cpp]
         required: false
         default: mono
+      player_preserve_metadata:
+        description: 'Diagnostic only: retain selected reflection metadata; does not certify baseline compatibility'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -156,13 +161,14 @@ jobs:
           retention-days: 30
 
   player_probe:
-    name: Player experiment / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}
+    name: Player experiment / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
     needs: static
     if: github.event_name == 'workflow_dispatch' && inputs.player_probe
     runs-on: windows-2022
     timeout-minutes: 80
     env:
       COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
+      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ inputs.player_preserve_metadata }}
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
@@ -181,7 +187,10 @@ jobs:
       - name: Prepare the existing clean host with the selected Player backend
         id: prepare
         timeout-minutes: 5
-        run: python .github/ci/prepare_player_probe.py --editor-data "$env:UNITY_PATH/Editor/Data" --backend $env:COCOFLOW_PLAYER_BACKEND
+        run: |
+          $probeArgs = @('--editor-data', "$env:UNITY_PATH/Editor/Data", '--backend', $env:COCOFLOW_PLAYER_BACKEND)
+          if ($env:COCOFLOW_PLAYER_PRESERVE_METADATA -eq 'true') { $probeArgs += '--diagnostic-preserve-metadata' }
+          python .github/ci/prepare_player_probe.py @probeArgs
 
       - name: Build and run the selected tests in Windows Player
         id: tests

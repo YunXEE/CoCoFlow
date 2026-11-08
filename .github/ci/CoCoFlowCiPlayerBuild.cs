@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -18,6 +19,8 @@ namespace CoCoFlow.CI
             public string stripping;
             public string unity;
             public string outputPath;
+            public string codeGeneration;
+            public string diagnosticPreservationSha256;
         }
 
         [Serializable]
@@ -44,8 +47,14 @@ namespace CoCoFlow.CI
                 backend = backend.ToString(),
                 stripping = stripping.ToString(),
                 unity = Application.unityVersion,
-                outputPath = report.summary.outputPath
+                outputPath = report.summary.outputPath,
+                codeGeneration = PlayerSettings.GetIl2CppCodeGeneration(NamedBuildTarget.Standalone).ToString()
             };
+            string diagnosticLink = Path.Combine(project, "Assets/PlayerProbe/player-probe-metadata.link.xml");
+            if (File.Exists(diagnosticLink))
+                using (var sha256 = SHA256.Create())
+                    settings.diagnosticPreservationSha256 = BitConverter.ToString(
+                        sha256.ComputeHash(File.ReadAllBytes(diagnosticLink))).Replace("-", "").ToLowerInvariant();
             string output = Path.GetFullPath(Path.Combine(project, "../../ci-results"));
             Directory.CreateDirectory(output);
             File.WriteAllText(Path.Combine(output, "player-build-settings.json"), JsonUtility.ToJson(settings, true));
