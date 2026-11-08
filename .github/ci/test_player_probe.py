@@ -87,7 +87,7 @@ class PlayerProbeTests(unittest.TestCase):
                 self.assertIn(f"scriptingBackend:\n    Standalone: {backend_value}\n", settings.read_text())
                 self.assertIn(f"managedStrippingLevel:\n    Standalone: {stripping_value}\n", settings.read_text())
                 self.assertTrue((root / "host/Assets/Editor/CoCoFlowCiPlayerBuild.cs").is_file())
-                link = root / "host/Assets/PlayerProbe/player-probe-metadata.link.xml"
+                link = root / "host/Assets/PlayerProbe/link.xml"
                 self.assertEqual(preserve, link.is_file())
 
     def test_green_totals_do_not_hide_missing_or_duplicated_required_cases(self):

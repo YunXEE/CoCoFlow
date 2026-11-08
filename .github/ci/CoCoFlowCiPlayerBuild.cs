@@ -50,7 +50,7 @@ namespace CoCoFlow.CI
                 outputPath = report.summary.outputPath,
                 codeGeneration = PlayerSettings.GetIl2CppCodeGeneration(NamedBuildTarget.Standalone).ToString()
             };
-            string diagnosticLink = Path.Combine(project, "Assets/PlayerProbe/player-probe-metadata.link.xml");
+            string diagnosticLink = Path.Combine(project, "Assets/PlayerProbe/link.xml");
             if (File.Exists(diagnosticLink))
                 using (var sha256 = SHA256.Create())
                     settings.diagnosticPreservationSha256 = BitConverter.ToString(
