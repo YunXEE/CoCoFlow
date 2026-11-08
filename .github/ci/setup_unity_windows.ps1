@@ -21,7 +21,8 @@ if (-not (Test-Path (Join-Path $unityRoot 'Editor/Unity.exe'))) {
 }
 
 $gameci = Join-Path $env:RUNNER_TEMP 'game-ci.exe'
-Invoke-WebRequest -Uri $config.gameci.url -OutFile $gameci
+# Only the pinned asset download retries; activation and test attempts remain one.
+Invoke-WebRequest -Uri $config.gameci.url -OutFile $gameci -MaximumRetryCount 2 -RetryIntervalSec 5
 if ((Get-FileHash $gameci -Algorithm SHA256).Hash -ne $config.gameci.sha256) {
     throw 'GameCI executable SHA256 does not match the official release.'
 }
