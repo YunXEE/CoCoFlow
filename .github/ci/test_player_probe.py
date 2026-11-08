@@ -3,13 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 import xml.etree.ElementTree as ET
+from unittest.mock import patch
 
 import check_player_probe as probe
+import prepare_player_probe as prepare
 
 
 class PlayerProbeTests(unittest.TestCase):
-    def fixture(self, root):
-        required = json.loads(Path(probe.__file__).with_name("player-probe.json").read_text())
+    def fixture(self, root, backend="mono"):
+        config = "player-probe-il2cpp.json" if backend == "il2cpp" else "player-probe.json"
+        required = json.loads(Path(probe.__file__).with_name(config).read_text())
         prepared = root / "prepared.json"
         prepared.write_text(json.dumps({"sourceSha": "candidate", "unity": "6000.3.27f2", "playerProbe": required}))
         cases = required["expectedCases"]
@@ -34,6 +37,38 @@ class PlayerProbeTests(unittest.TestCase):
             self.assertTrue(result["passedProbe"])
             self.assertEqual("candidate", result["sourceSha"])
             self.assertEqual(64, len(result["executableSha256"]))
+
+    def test_il2cpp_requires_its_own_backend_guard_and_stripping_receipt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            prepared, xml, settings = self.fixture(root, "il2cpp")
+            self.assertTrue(probe.check(root, prepared)["passedProbe"])
+            settings["backend"] = "Mono2x"
+            (root / "player-build-settings.json").write_text(json.dumps(settings))
+            self.assertFalse(probe.check(root, prepared)["passedProbe"])
+            settings["backend"] = "IL2CPP"
+            (root / "player-build-settings.json").write_text(json.dumps(settings))
+            list(xml)[0].set("fullname", "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsMonoPlayer")
+            ET.ElementTree(xml).write(root / "standalone-results.xml")
+            self.assertFalse(probe.check(root, prepared)["passedProbe"])
+
+    def test_host_preparation_selects_the_requested_profile_and_callback_requirements(self):
+        for backend, backend_value, stripping_value in (("mono", 0, 0), ("il2cpp", 1, 2)):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                (root / "host/ProjectSettings").mkdir(parents=True)
+                (root / "host/Assets/Editor").mkdir(parents=True)
+                settings = root / "host/ProjectSettings/ProjectSettings.asset"
+                settings.write_text("PlayerSettings:\n")
+                with patch.object(prepare.host, "prepare", return_value={"sourceSha": "candidate"}):
+                    metadata = prepare.prepare(root, Path("unused"), backend)
+                expected = metadata["playerProbe"]
+                required = json.loads((root / "host/CiPlayerProbeRequirements.json").read_text())
+                self.assertEqual(expected, required)
+                self.assertEqual(expected, json.loads((root / "prepared.json").read_text())["playerProbe"])
+                self.assertIn(f"scriptingBackend:\n    Standalone: {backend_value}\n", settings.read_text())
+                self.assertIn(f"managedStrippingLevel:\n    Standalone: {stripping_value}\n", settings.read_text())
+                self.assertTrue((root / "host/Assets/Editor/CoCoFlowCiPlayerBuild.cs").is_file())
 
     def test_green_totals_do_not_hide_missing_or_duplicated_required_cases(self):
         for kind in ("missing", "duplicate", "summary-mismatch"):

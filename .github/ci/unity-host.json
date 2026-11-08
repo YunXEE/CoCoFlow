@@ -35,5 +35,9 @@
     "uielements", "unitywebrequest", "unitywebrequestassetbundle",
     "unitywebrequestaudio", "unitywebrequesttexture", "unitywebrequestwww",
     "vehicles", "video", "wind", "xr"
-  ]
+  ],
+  "windowsIl2CppInstaller": {
+    "url": "https://download.unity3d.com/download_unity/22188f149405/TargetSupportInstaller/UnitySetup-Windows-IL2CPP-Support-for-Editor-6000.3.27f2.exe",
+    "integrity": "md5-qiVpz0LWaFXIL1pdtx6aHA=="
+  }
 }

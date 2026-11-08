@@ -172,22 +172,32 @@ Do not remove the old requirement before the replacement is proven and deployed.
 These do not prove Unity tests. Persistent 03/05 hosts remain separate;
 temporary linkage requires exclusive use and exact manifest/lock restoration.
 
-## Manual Windows Mono Player experiment
+## Manual Windows Player experiments
 
 The optional workflow_dispatch input `player_probe=true` runs the separate
-`Player experiment / Windows Mono` job using the existing pinned installer,
+`Player experiment / Windows Mono` or `Windows IL2CPP` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
 push/PR/manual runs keep their existing complete Editor path. On this explicit
 experiment, the complete Editor job and `CI / gate` are skipped: the probe is
 not complete-package release evidence and does not change branch protection.
 
-The probe builds a Windows x64 Mono test Player with stripping Disabled and
+Select `player_backend=mono` (default, stripping Disabled) or
+`player_backend=il2cpp` (stripping Medium). The latter installs the official,
+integrity-checked Windows IL2CPP module for the same Unity version and verifies
+the runner's Visual C++ x64 compiler and Windows SDK before activation. The
+installation receipt records the detected tools and Player variations.
+
+Each probe builds a Windows x64 test Player and
 runs six existing binding/config/context/restore cases plus a host-only test
-that requires WindowsPlayer, not Editor, with ENABLE_MONO. The reader requires
+that requires WindowsPlayer, not Editor, with ENABLE_MONO or ENABLE_IL2CPP
+matching the requested backend. The reader requires
 all seven cases exactly once, consistent counts, no skipped/failed/inconclusive
 cases, actual prebuild settings, the executable and confirmed seat return.
 A failed GameCI step still fails the job even if result files appear green.
-No IL2CPP, stripping, coverage, other-platform or performance claim is made.
+Results certify only the recorded backend, stripping level and selected paths;
+they do not certify coverage, other platforms or performance. Test code can
+root types that a real game would otherwise strip, so even a passing IL2CPP
+probe does not certify arbitrary game builds or High stripping.
 Windows Server headless Player startup is an experiment, not an assumed pass.
 The build receipt records Unity's native enum name `Mono2x` for Mono. The build
 callback compares typed enum values and writes observed settings before a failure.
@@ -195,7 +205,8 @@ callback compares typed enum values and writes observed settings before a failur
 Example after the experiment branch is explicitly approved and pushed:
 
     gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true
+    gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true -f player_backend=il2cpp
 
-Artifacts are named `player-probe-<SHA>-<attempt>` and include the source SHA,
+Artifacts are named `player-probe-<backend>-<SHA>-<attempt>` and include the source SHA,
 build settings, executable SHA-256, XML, Player/Editor logs and cleanup receipt.
 Account values and the native authentication log are not uploaded.

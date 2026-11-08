@@ -20,10 +20,22 @@ namespace CoCoFlow.CI
             public string outputPath;
         }
 
+        [Serializable]
+        private sealed class Requirements
+        {
+            public string backend = string.Empty;
+            public string stripping = string.Empty;
+        }
+
         public int callbackOrder => -2000;
 
         public void OnPreprocessBuild(BuildReport report)
         {
+            string project = Path.GetDirectoryName(Application.dataPath);
+            var required = JsonUtility.FromJson<Requirements>(
+                File.ReadAllText(Path.Combine(project, "CiPlayerProbeRequirements.json")));
+            var requiredBackend = (ScriptingImplementation)Enum.Parse(typeof(ScriptingImplementation), required.backend);
+            var requiredStripping = (ManagedStrippingLevel)Enum.Parse(typeof(ManagedStrippingLevel), required.stripping);
             ScriptingImplementation backend = PlayerSettings.GetScriptingBackend(NamedBuildTarget.Standalone);
             ManagedStrippingLevel stripping = PlayerSettings.GetManagedStrippingLevel(NamedBuildTarget.Standalone);
             var settings = new BuildSettings
@@ -34,13 +46,12 @@ namespace CoCoFlow.CI
                 unity = Application.unityVersion,
                 outputPath = report.summary.outputPath
             };
-            string project = Path.GetDirectoryName(Application.dataPath);
             string output = Path.GetFullPath(Path.Combine(project, "../../ci-results"));
             Directory.CreateDirectory(output);
             File.WriteAllText(Path.Combine(output, "player-build-settings.json"), JsonUtility.ToJson(settings, true));
             if (report.summary.platform != BuildTarget.StandaloneWindows64 ||
-                backend != ScriptingImplementation.Mono2x || stripping != ManagedStrippingLevel.Disabled)
-                throw new BuildFailedException("The Player probe requires Windows x64 / Mono / Disabled stripping. " +
+                backend != requiredBackend || stripping != requiredStripping)
+                throw new BuildFailedException($"The Player probe requires Windows x64 / {required.backend} / {required.stripping} stripping. " +
                     $"Observed: target={settings.target}, backend={settings.backend}, stripping={settings.stripping}.");
         }
     }

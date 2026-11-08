@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add a Windows Mono probe to the existing clean, complete CI host."""
+"""Add a Windows Mono or IL2CPP probe to the existing complete CI host."""
 import argparse
 import json
 import shutil
@@ -8,14 +8,17 @@ from pathlib import Path
 import prepare_unity_host as host
 
 
-def prepare(work, editor_data):
+def prepare(work, editor_data, backend="mono"):
     metadata = host.prepare(work, editor_data=editor_data)
     ci = Path(__file__).parent
-    metadata["playerProbe"] = json.loads((ci / "player-probe.json").read_text())
+    config = "player-probe-il2cpp.json" if backend == "il2cpp" else "player-probe.json"
+    metadata["playerProbe"] = json.loads((ci / config).read_text())
+    backend_value, stripping_value = (1, 2) if backend == "il2cpp" else (0, 0)
     settings = work / "host/ProjectSettings/ProjectSettings.asset"
     settings.write_text(settings.read_text() +
-                        "  scriptingBackend:\n    Standalone: 0\n"
-                        "  managedStrippingLevel:\n    Standalone: 0\n")
+                        f"  scriptingBackend:\n    Standalone: {backend_value}\n"
+                        f"  managedStrippingLevel:\n    Standalone: {stripping_value}\n")
+    (work / "host/CiPlayerProbeRequirements.json").write_text(json.dumps(metadata["playerProbe"], indent=2) + "\n")
     shutil.copy2(ci / "CoCoFlowCiPlayerBuild.cs", work / "host/Assets/Editor")
     fixture = work / "host/Assets/PlayerProbe"
     fixture.mkdir()
@@ -31,5 +34,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work", type=Path, default=host.ROOT / ".ci-work")
     parser.add_argument("--editor-data", type=Path, required=True)
+    parser.add_argument("--backend", choices=("mono", "il2cpp"), default="mono")
     args = parser.parse_args()
-    print(json.dumps(prepare(args.work, args.editor_data), indent=2))
+    print(json.dumps(prepare(args.work, args.editor_data, args.backend), indent=2))

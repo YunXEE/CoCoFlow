@@ -8,10 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       player_probe:
-        description: 'Experimental Windows Mono Player probe; does not run or certify the complete Editor gate'
+        description: 'Experimental Windows Player probe; does not certify the complete Editor gate'
         type: boolean
         required: false
         default: false
+      player_backend:
+        description: 'Player scripting backend (IL2CPP uses Medium stripping)'
+        type: choice
+        options: [mono, il2cpp]
+        required: false
+        default: mono
 
 permissions:
   contents: read
@@ -150,11 +156,13 @@ jobs:
           retention-days: 30
 
   player_probe:
-    name: Player experiment / Windows Mono
+    name: Player experiment / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}
     needs: static
     if: github.event_name == 'workflow_dispatch' && inputs.player_probe
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 80
+    env:
+      COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
@@ -168,16 +176,16 @@ jobs:
 
       - name: Install the existing pinned Windows Editor and GameCI
         timeout-minutes: 25
-        run: .github/ci/setup_unity_windows.ps1
+        run: .github/ci/setup_unity_windows.ps1 -PlayerBackend $env:COCOFLOW_PLAYER_BACKEND
 
-      - name: Prepare the existing clean host with a Mono Player probe
+      - name: Prepare the existing clean host with the selected Player backend
         id: prepare
         timeout-minutes: 5
-        run: python .github/ci/prepare_player_probe.py --editor-data "$env:UNITY_PATH/Editor/Data"
+        run: python .github/ci/prepare_player_probe.py --editor-data "$env:UNITY_PATH/Editor/Data" --backend $env:COCOFLOW_PLAYER_BACKEND
 
-      - name: Build and run the selected tests in Windows Mono Player
+      - name: Build and run the selected tests in Windows Player
         id: tests
-        timeout-minutes: 22
+        timeout-minutes: 40
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -211,7 +219,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: player-probe-${{ github.sha }}-${{ github.run_attempt }}
+          name: player-probe-${{ inputs.player_backend }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/
           if-no-files-found: error
           retention-days: 30
