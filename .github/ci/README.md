@@ -171,3 +171,29 @@ Do not remove the old requirement before the replacement is proven and deployed.
 
 These do not prove Unity tests. Persistent 03/05 hosts remain separate;
 temporary linkage requires exclusive use and exact manifest/lock restoration.
+
+## Manual Windows Mono Player experiment
+
+The optional workflow_dispatch input `player_probe=true` runs the separate
+`Player experiment / Windows Mono` job using the existing pinned installer,
+GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
+push/PR/manual runs keep their existing complete Editor path. On this explicit
+experiment, the complete Editor job and `CI / gate` are skipped: the probe is
+not complete-package release evidence and does not change branch protection.
+
+The probe builds a Windows x64 Mono test Player with stripping Disabled and
+runs six existing binding/config/context/restore cases plus a host-only test
+that requires WindowsPlayer, not Editor, with ENABLE_MONO. The reader requires
+all seven cases exactly once, consistent counts, no skipped/failed/inconclusive
+cases, actual prebuild settings, the executable and confirmed seat return.
+A failed GameCI step still fails the job even if result files appear green.
+No IL2CPP, stripping, coverage, other-platform or performance claim is made.
+Windows Server headless Player startup is an experiment, not an assumed pass.
+
+Example after the experiment branch is explicitly approved and pushed:
+
+    gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true
+
+Artifacts are named `player-probe-<SHA>-<attempt>` and include the source SHA,
+build settings, executable SHA-256, XML, Player/Editor logs and cleanup receipt.
+Account values and the native authentication log are not uploaded.

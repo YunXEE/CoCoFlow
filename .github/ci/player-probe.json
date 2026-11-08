@@ -1,0 +1,14 @@
+{
+  "target": "StandaloneWindows64",
+  "backend": "Mono",
+  "stripping": "Disabled",
+  "expectedCases": [
+    "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsMonoPlayer",
+    "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.AttributedStateRunsThroughStandardBinding",
+    "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.PropertyStateReadsInputAndMovesThroughTheExistingOperator",
+    "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.ConfigAndMemoryFieldsUseTheRealHost",
+    "CoCoFlow.Tests.Runtime.StateGraphHost.CoCoStateGraphHostContextAuthorityPlayModeTests.FirstTickUsesDefaultBackedPreviousAndCommitsRevisionOne",
+    "CoCoFlow.Tests.Runtime.StateGraphHost.CoCoStateGraphHostContextAuthorityPlayModeTests.FaultedActorTransactionCanPrepareAndApplyLowLevelRestoreWithoutCallbacks",
+    "CoCoFlow.Tests.Runtime.Persistence.PersistenceHostTests.InspectorConfigurationAppliesToComponentAndStaticSaveEntries"
+  ]
+}
