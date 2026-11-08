@@ -1,12 +1,20 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.7 · **Unity**: 6000+
+> **Version**: 0.4.8 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
 CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
+
+## New in 0.4.8
+
+- Add complete Windows Mono and IL2CPP Player testing to GameCI, with required
+  suites selected by the PR target branch.
+- Preserve reflection metadata used by module registration, State binding,
+  Context and persistence under IL2CPP stripping, including runtime-created graphs.
+- Keep State factory constraint checks consistent between Mono and IL2CPP.
 
 ## New in 0.4.7
 
@@ -35,8 +43,11 @@ runtime ownership.
   regeneration changes save identity. Multiple independently saved entities need
   distinct identities. See [identity boundaries](Docs/Module-Persistence.md#stable-entity-identity).
 
-Graphs without AnyState need no migration or additional transitions. Player,
-IL2CPP/AOT, stripping and complete Umbra animation/foot IK remain unverified.
+Graphs without AnyState need no migration or additional transitions. Windows x64
+test Players have passed the complete Player-eligible suite with Mono / Disabled
+and IL2CPP / Medium / OptimizeSpeed on Unity 6000.3.27f2. High stripping, other
+platforms, real-game smoke builds without test assemblies, and complete Umbra
+animation/foot IK remain unverified.
 See the [changelog](CHANGELOG.md) for fixes and compatibility boundaries.
 
 ## What “mature” means
@@ -96,7 +107,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.7
+https://github.com/YunXEE/CoCoFlow.git#v0.4.8
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -104,7 +115,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.7"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.8"
   }
 }
 ```
