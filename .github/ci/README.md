@@ -1,10 +1,9 @@
 # CoCoFlow CI and release gates
 
-The new Unity gate is being introduced by 0.4.7 task P003. Keep the existing
-required check, `CI Static / gate`, until the complete workflow has real passing
-and failing evidence and the maintainer authorizes the ruleset change to
-`CI / gate`. Local script checks or successful license activation do not prove
-that package tests passed.
+The master and `dev/*` rulesets require `CI / gate`. Its required jobs are selected
+by the PR target as described below. Local script checks or successful license
+activation do not prove that package tests passed. A policy change must be
+deployed and validated before its new job routing is claimed as active.
 
 ## What runs
 
@@ -12,15 +11,31 @@ that package tests passed.
 | --- | --- |
 | `CI Static / gate` | Diff hygiene, accidentally tracked ignored files, result-reader tests, current release metadata, and change classification |
 | `Unity / complete package` | A new host, complete dependencies, real Unity compilation, package EditMode and PlayMode, strict XML/suite checks, and seat cleanup |
+| `Player all / Windows Mono`, `Player all / Windows IL2CPP` | Complete Player-eligible tests with the existing Mono / Disabled and IL2CPP / Medium profiles; strict build, XML, assembly and seat-return checks |
 | `CI / gate` | Always summarizes applicable jobs; failed, cancelled, missing, or required-but-skipped Unity does not pass |
 | `Release / identity` | Checks tag/package/current-doc identity and successful `CI / gate` on that commit; does not rerun tests or publish |
 
-Documentation-only PRs can skip Unity. Unknown files, source, tests, assets,
-assemblies, dependencies, and execution configuration require it. A package
-version-only change can skip Unity on a task PR; final PRs into master, master
-pushes and manual runs always execute the complete suite. External PRs never
-receive Unity credentials. Their code needs a trusted candidate with real Unity
-results before release; skipped Unity is not a pass.
+PR requirements follow the **target branch**, regardless of the source branch:
+
+| Target / event | Required tests |
+| --- | --- |
+| PR into `dev/*` | Static checks + complete package Editor EditMode and PlayMode |
+| Any PR into `master` | Static + complete Editor + complete Windows Mono and IL2CPP Players |
+| Push to `master`, ordinary manual validation on `master` | The same complete combination |
+| Ordinary manual validation on another branch | Static + complete Editor |
+
+Documentation-only and version-only changes into `dev/*` or `master` follow the
+same requirements. Other targets retain path-based classification. An explicit
+manual Player experiment remains separate and cannot satisfy `CI / gate`.
+External PRs never receive Unity credentials; skipped required tests block the
+gate until a trusted candidate produces real results.
+
+Player jobs wait for Editor completion, then run Mono and IL2CPP sequentially
+with `max-parallel: 1` and `fail-fast: false`. This preserves the shared Personal
+license limit and collects both backend results even if one fails. `CI / gate`
+requires the matrix to succeed for master candidates; failure, cancellation or
+a skipped required job blocks it. Existing master/dev rulesets already require
+`CI / gate`; this change does not alter review, bypass or merge-method settings.
 
 ## Disposable host and complete dependencies
 
@@ -160,9 +175,8 @@ After the new required gate is enabled:
 - Green CI does not authorize merge, tag, GitHub Release or branch deletion.
 
 Preserve current master/dev PR, thread-resolution, merge-method, bypass and
-force-push/delete settings. Only the required check changes from
-`CI Static / gate` to `CI / gate`, preserving its GitHub Actions integration.
-Do not remove the old requirement before the replacement is proven and deployed.
+force-push/delete settings, including the existing `CI / gate` required check
+and its GitHub Actions integration.
 
 ## Local infrastructure checks
 
@@ -177,7 +191,8 @@ temporary linkage requires exclusive use and exact manifest/lock restoration.
 The optional workflow_dispatch input `player_probe=true` runs the separate
 `Player experiment / Windows Mono` or `Windows IL2CPP` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
-push/PR/manual runs keep their existing complete Editor path. On this explicit
+Dev PRs retain the Editor path; master candidates also require both full Player
+profiles as described above. On this explicit
 experiment, the complete Editor job and `CI / gate` are skipped: the probe is
 not complete-package release evidence and does not change branch protection.
 

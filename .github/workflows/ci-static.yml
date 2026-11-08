@@ -44,6 +44,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       unity: ${{ steps.scope.outputs.unity }}
+      players: ${{ steps.validation.outputs.players }}
+      player_backends: ${{ steps.validation.outputs.player_backends }}
     steps:
       - name: Check out pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,6 +75,20 @@ jobs:
       - name: Check current package identity
         run: python3 .github/ci/cocoflow_ci.py release
 
+      - name: Select tests by PR target
+        id: validation
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          PLAYER_PROBE: ${{ inputs.player_probe }}
+          PLAYER_BACKEND: ${{ inputs.player_backend || 'mono' }}
+        shell: bash
+        run: |
+          plan_args=(--event "$EVENT_NAME" --base-branch "$BASE_BRANCH" --ref-name "$REF_NAME" --player-backend "$PLAYER_BACKEND")
+          if [[ "$PLAYER_PROBE" == "true" ]]; then plan_args+=(--player-probe); fi
+          python3 .github/ci/cocoflow_ci.py validation-plan "${plan_args[@]}" >> "$GITHUB_OUTPUT"
+
       - name: Classify this candidate
         id: scope
         env:
@@ -81,10 +97,11 @@ jobs:
           BASE_BRANCH: ${{ github.base_ref }}
           HEAD_BRANCH: ${{ github.head_ref }}
           REF_NAME: ${{ github.ref_name }}
+          FORCE_UNITY: ${{ steps.validation.outputs.force_unity }}
         shell: bash
         run: |
           scope_args=(--base "$BASE_SHA")
-          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$BASE_BRANCH" == "master" || "$REF_NAME" == "master" ]]; then
+          if [[ "$FORCE_UNITY" == "true" ]]; then
             scope_args+=(--force-unity)
           fi
           if [[ "$BASE_BRANCH" == "master" && "$HEAD_BRANCH" == dev/* ]]; then
@@ -167,15 +184,25 @@ jobs:
           retention-days: 30
 
   player_probe:
-    name: Player ${{ inputs.player_suite }} / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
-    needs: static
-    if: github.event_name == 'workflow_dispatch' && inputs.player_probe
+    name: Player ${{ needs.static.outputs.players == 'true' && 'all' || inputs.player_suite }} / Windows ${{ matrix.backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ github.event_name == 'workflow_dispatch' && inputs.player_probe && inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
+    needs: [static, unity]
+    if: >-
+      always() && needs.static.result == 'success' &&
+      (needs.static.outputs.players == 'true' ||
+       (github.event_name == 'workflow_dispatch' && inputs.player_probe)) &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        backend: ${{ fromJSON(needs.static.outputs.player_backends) }}
     runs-on: windows-2022
-    timeout-minutes: ${{ inputs.player_suite == 'all' && 130 || 80 }}
+    timeout-minutes: ${{ (needs.static.outputs.players == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
     env:
-      COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
-      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ inputs.player_preserve_metadata }}
-      COCOFLOW_PLAYER_SUITE: ${{ inputs.player_suite }}
+      COCOFLOW_PLAYER_BACKEND: ${{ matrix.backend }}
+      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ github.event_name == 'workflow_dispatch' && inputs.player_probe && inputs.player_preserve_metadata }}
+      COCOFLOW_PLAYER_SUITE: ${{ needs.static.outputs.players == 'true' && 'all' || inputs.player_suite }}
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
@@ -201,7 +228,7 @@ jobs:
 
       - name: Build and run the requested tests in Windows Player
         id: tests
-        timeout-minutes: ${{ inputs.player_suite == 'all' && 85 || 40 }}
+        timeout-minutes: ${{ (needs.static.outputs.players == 'true' || inputs.player_suite == 'all') && 85 || 40 }}
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -235,32 +262,32 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: player-${{ inputs.player_suite }}-${{ inputs.player_backend }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: player-${{ env.COCOFLOW_PLAYER_SUITE }}-${{ matrix.backend }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/
           if-no-files-found: error
           retention-days: 30
 
   gate:
     name: CI / gate
-    needs: [static, unity]
+    needs: [static, unity, player_probe]
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.player_probe)
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Require every applicable check
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           UNITY_REQUIRED: ${{ needs.static.outputs.unity }}
           UNITY_RESULT: ${{ needs.unity.result }}
+          PLAYERS_REQUIRED: ${{ needs.static.outputs.players }}
+          PLAYER_RESULT: ${{ needs.player_probe.result }}
         shell: bash
         run: |
-          [[ "$STATIC_RESULT" == "success" ]] || exit 1
-          if [[ "$UNITY_REQUIRED" == "true" ]]; then
-            if [[ "$UNITY_RESULT" != "success" ]]; then
-              echo "::error::This candidate requires successful complete Unity evidence; failed, cancelled, or skipped is not a pass."
-              exit 1
-            fi
-          elif [[ "$UNITY_REQUIRED" != "false" ]]; then
-            echo "::error::The required validation scope was not established."
-            exit 1
-          fi
+          python3 .github/ci/cocoflow_ci.py gate \
+            --static-result "$STATIC_RESULT" \
+            --unity-required "$UNITY_REQUIRED" --unity-result "$UNITY_RESULT" \
+            --players-required "$PLAYERS_REQUIRED" --player-result "$PLAYER_RESULT"
