@@ -189,6 +189,8 @@ cases, actual prebuild settings, the executable and confirmed seat return.
 A failed GameCI step still fails the job even if result files appear green.
 No IL2CPP, stripping, coverage, other-platform or performance claim is made.
 Windows Server headless Player startup is an experiment, not an assumed pass.
+The build receipt records Unity's native enum name `Mono2x` for Mono. The build
+callback compares typed enum values and writes observed settings before a failure.
 
 Example after the experiment branch is explicitly approved and pushed:
 

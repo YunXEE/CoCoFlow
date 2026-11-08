@@ -1,6 +1,6 @@
 {
   "target": "StandaloneWindows64",
-  "backend": "Mono",
+  "backend": "Mono2x",
   "stripping": "Disabled",
   "expectedCases": [
     "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsMonoPlayer",

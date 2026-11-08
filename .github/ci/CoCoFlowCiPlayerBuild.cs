@@ -24,22 +24,24 @@ namespace CoCoFlow.CI
 
         public void OnPreprocessBuild(BuildReport report)
         {
+            ScriptingImplementation backend = PlayerSettings.GetScriptingBackend(NamedBuildTarget.Standalone);
+            ManagedStrippingLevel stripping = PlayerSettings.GetManagedStrippingLevel(NamedBuildTarget.Standalone);
             var settings = new BuildSettings
             {
                 target = report.summary.platform.ToString(),
-                backend = PlayerSettings.GetScriptingBackend(NamedBuildTarget.Standalone).ToString(),
-                stripping = PlayerSettings.GetManagedStrippingLevel(NamedBuildTarget.Standalone).ToString(),
+                backend = backend.ToString(),
+                stripping = stripping.ToString(),
                 unity = Application.unityVersion,
                 outputPath = report.summary.outputPath
             };
-            if (report.summary.platform != BuildTarget.StandaloneWindows64 ||
-                settings.backend != "Mono" || settings.stripping != "Disabled")
-                throw new BuildFailedException("The Player probe requires Windows x64 / Mono / Disabled stripping.");
-
             string project = Path.GetDirectoryName(Application.dataPath);
             string output = Path.GetFullPath(Path.Combine(project, "../../ci-results"));
             Directory.CreateDirectory(output);
             File.WriteAllText(Path.Combine(output, "player-build-settings.json"), JsonUtility.ToJson(settings, true));
+            if (report.summary.platform != BuildTarget.StandaloneWindows64 ||
+                backend != ScriptingImplementation.Mono2x || stripping != ManagedStrippingLevel.Disabled)
+                throw new BuildFailedException("The Player probe requires Windows x64 / Mono / Disabled stripping. " +
+                    $"Observed: target={settings.target}, backend={settings.backend}, stripping={settings.stripping}.");
         }
     }
 }
