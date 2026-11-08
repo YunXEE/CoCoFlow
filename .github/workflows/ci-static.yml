@@ -23,6 +23,12 @@ on:
         type: boolean
         required: false
         default: false
+      player_suite:
+        description: 'All Player-eligible tests or the original small probe'
+        type: choice
+        options: [probe, all]
+        required: false
+        default: probe
 
 permissions:
   contents: read
@@ -161,14 +167,15 @@ jobs:
           retention-days: 30
 
   player_probe:
-    name: Player experiment / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
+    name: Player ${{ inputs.player_suite }} / Windows ${{ inputs.player_backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
     needs: static
     if: github.event_name == 'workflow_dispatch' && inputs.player_probe
     runs-on: windows-2022
-    timeout-minutes: 80
+    timeout-minutes: ${{ inputs.player_suite == 'all' && 130 || 80 }}
     env:
       COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
       COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ inputs.player_preserve_metadata }}
+      COCOFLOW_PLAYER_SUITE: ${{ inputs.player_suite }}
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
@@ -188,13 +195,13 @@ jobs:
         id: prepare
         timeout-minutes: 5
         run: |
-          $probeArgs = @('--editor-data', "$env:UNITY_PATH/Editor/Data", '--backend', $env:COCOFLOW_PLAYER_BACKEND)
+          $probeArgs = @('--editor-data', "$env:UNITY_PATH/Editor/Data", '--backend', $env:COCOFLOW_PLAYER_BACKEND, '--suite', $env:COCOFLOW_PLAYER_SUITE)
           if ($env:COCOFLOW_PLAYER_PRESERVE_METADATA -eq 'true') { $probeArgs += '--diagnostic-preserve-metadata' }
           python .github/ci/prepare_player_probe.py @probeArgs
 
-      - name: Build and run the selected tests in Windows Player
+      - name: Build and run the requested tests in Windows Player
         id: tests
-        timeout-minutes: 40
+        timeout-minutes: ${{ inputs.player_suite == 'all' && 85 || 40 }}
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -228,7 +235,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: player-probe-${{ inputs.player_backend }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: player-${{ inputs.player_suite }}-${{ inputs.player_backend }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/
           if-no-files-found: error
           retention-days: 30

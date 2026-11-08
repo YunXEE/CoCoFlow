@@ -3,7 +3,7 @@
   "backend": "Mono2x",
   "stripping": "Disabled",
   "expectedCases": [
-    "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsMonoPlayer",
+    "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsPlayer",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.AttributedStateRunsThroughStandardBinding",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.PropertyStateReadsInputAndMovesThroughTheExistingOperator",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.ConfigAndMemoryFieldsUseTheRealHost",

@@ -3,7 +3,7 @@
   "backend": "IL2CPP",
   "stripping": "Medium",
   "expectedCases": [
-    "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsIl2CppPlayer",
+    "CoCoFlow.CI.PlayerProbeTests.RunsInWindowsPlayer",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.AttributedStateRunsThroughStandardBinding",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.PropertyStateReadsInputAndMovesThroughTheExistingOperator",
     "CoCoFlow.Tests.Runtime.StateGraphHost.StandardBindingPlayModeTests.ConfigAndMemoryFieldsUseTheRealHost",

@@ -9,11 +9,18 @@ from pathlib import Path
 import prepare_unity_host as host
 
 
-def prepare(work, editor_data, backend="mono", preserve_metadata=False):
+def prepare(work, editor_data, backend="mono", preserve_metadata=False, suite="probe"):
+    if suite == "all" and preserve_metadata:
+        raise ValueError("Full Player runs must use the unmodified preservation configuration")
     metadata = host.prepare(work, editor_data=editor_data)
     ci = Path(__file__).parent
     config = "player-probe-il2cpp.json" if backend == "il2cpp" else "player-probe.json"
     metadata["playerProbe"] = json.loads((ci / config).read_text())
+    metadata["playerProbe"]["scope"] = suite
+    if suite == "all":
+        metadata["playerProbe"]["expectedCases"] = ["CoCoFlow.CI.PlayerProbeTests.RunsInWindowsPlayer"]
+        metadata["expectedPlayerAssemblies"] = metadata["expectedTestAssemblies"]["playmode"] + [
+            "CoCoFlow.CI.Tests.Player"]
     backend_value, stripping_value = (1, 2) if backend == "il2cpp" else (0, 0)
     settings = work / "host/ProjectSettings/ProjectSettings.asset"
     settings.write_text(settings.read_text() +
@@ -29,7 +36,9 @@ def prepare(work, editor_data, backend="mono", preserve_metadata=False):
         shutil.copy2(source, fixture / "link.xml")
         metadata["diagnosticPreservation"] = {"file": "link.xml",
             "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
-    shutil.copy2(ci / "CoCoFlowCiPlayerProbe.cs", fixture)
+    (fixture / "CoCoFlowCiPlayerProbe.cs").write_text(
+        (ci / "CoCoFlowCiPlayerProbe.cs").read_text().replace(
+            "__COCOFLOW_EXPECTED_BACKEND__", metadata["playerProbe"]["backend"]))
     (fixture / "CoCoFlow.CI.Tests.Player.asmdef").write_text(json.dumps({
         "name": "CoCoFlow.CI.Tests.Player", "references": [],
         "optionalUnityReferences": ["TestAssemblies"]}, indent=2) + "\n")
@@ -43,5 +52,7 @@ if __name__ == "__main__":
     parser.add_argument("--editor-data", type=Path, required=True)
     parser.add_argument("--backend", choices=("mono", "il2cpp"), default="mono")
     parser.add_argument("--diagnostic-preserve-metadata", action="store_true")
+    parser.add_argument("--suite", choices=("probe", "all"), default="probe")
     args = parser.parse_args()
-    print(json.dumps(prepare(args.work, args.editor_data, args.backend, args.diagnostic_preserve_metadata), indent=2))
+    print(json.dumps(prepare(args.work, args.editor_data, args.backend,
+                             args.diagnostic_preserve_metadata, args.suite), indent=2))

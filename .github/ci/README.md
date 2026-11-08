@@ -207,7 +207,7 @@ Example after the experiment branch is explicitly approved and pushed:
     gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true
     gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true -f player_backend=il2cpp
 
-Artifacts are named `player-probe-<backend>-<SHA>-<attempt>` and include the source SHA,
+Artifacts are named `player-<suite>-<backend>-<SHA>-<attempt>` and include the source SHA,
 build settings, executable SHA-256, XML, Player/Editor logs and cleanup receipt.
 Account values and the native authentication log are not uploaded.
 
@@ -218,3 +218,22 @@ AOT failures. Prepared inputs and the actual build receipt bind its file hash;
 the result summary retains the diagnostic label. Its results cannot certify the
 baseline package without those preservation rules. The default remains false;
 the rules do not enter the UPM Runtime or a game's build automatically.
+
+For all Player-eligible tests, set `player_suite=all`. The runner omits the name
+filter and executes every test compiled into the Player. Editor-only assemblies
+and code behind UNITY_EDITOR remain excluded by Unity. Both profiles add one
+host-only guard that checks WindowsPlayer and the selected compiled backend.
+The full mode rejects diagnostic preservation and retains the original Mono /
+Disabled and IL2CPP / Medium profiles. It reports per-assembly totals and every
+case's result, failure message, stack or skip reason in player-probe-summary.json.
+Missing source-inventoried Runtime test assemblies are reported explicitly;
+an absent assembly is not silently counted as tested. Test failures, skips,
+missing XML, configuration mismatches and unconfirmed seat return stay red.
+
+    gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true -f player_suite=all -f player_backend=mono -f player_preserve_metadata=false
+    gh workflow run ci-static.yml --ref feat/0.4.8-P001-player-validation -f player_probe=true -f player_suite=all -f player_backend=il2cpp -f player_preserve_metadata=false
+
+The full run allows up to 60 minutes for the build Editor, 85 minutes for the
+combined build/test step and 130 minutes for the job, leaving a separate cleanup
+step. These are deadlines, not measured duration estimates. Ordinary Editor CI
+and the small probe retain their previous deadlines.
