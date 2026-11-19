@@ -4,27 +4,41 @@ using System.Collections.Generic;
 namespace CoCoFlow.Runtime.Core
 {
     public interface ICoCoIntentReducer<TIntent>
-        where TIntent : unmanaged
     {
         TIntent Reduce(in TIntent current, in TIntent candidate);
     }
 
     public interface ICoCoIntentReducerFactory<TIntent, TReducer>
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
     {
         TReducer Create(CoCoGraphInstanceId graphInstanceId);
     }
 
     public interface ICoCoIntentFrameSource<TIntent>
-        where TIntent : unmanaged
     {
         bool TrySample(in CoCoTickFrame tickFrame, out TIntent intent);
     }
 
+    internal interface ICoCoCursorIntentSource<TIntent>
+    {
+        void AttachCursor(CoCoIntentSourceCursor cursor);
+        bool TrySample(CoCoIntentSourceCursor cursor, out TIntent intent);
+    }
+
+    internal sealed class CoCoIntentSourceCursor
+    {
+        private readonly CoCoIntentFrameRuntime _runtime;
+
+        internal CoCoIntentSourceCursor(CoCoIntentFrameRuntime runtime) => _runtime = runtime;
+
+        internal bool IsActive => !_runtime.IsDisposed;
+        internal object Reader;
+        internal ulong Committed;
+        internal ulong Prepared;
+    }
+
     public interface ICoCoEventToIntentAdapter<TEvent, TIntent>
         where TEvent : unmanaged
-        where TIntent : unmanaged
     {
         bool TryProject(in CoCoEventPacket<TEvent> packet, out TIntent intent);
     }
@@ -38,19 +52,16 @@ namespace CoCoFlow.Runtime.Core
 
         bool TryGet<TIntent>(
             CoCoIntentHandle<TIntent> handle,
-            out TIntent value)
-            where TIntent : unmanaged;
+            out TIntent value);
 
-        bool IsPresent<TIntent>(CoCoIntentHandle<TIntent> handle)
-            where TIntent : unmanaged;
+        bool IsPresent<TIntent>(CoCoIntentHandle<TIntent> handle);
 
         /// <summary>
         /// Returns the first present slot of type TIntent in this frame.
         /// Standard single-intent-per-type wiring uses this; frames with
         /// multiple ids of one type resolve handles explicitly.
         /// </summary>
-        bool TryFirst<TIntent>(out TIntent value)
-            where TIntent : unmanaged;
+        bool TryFirst<TIntent>(out TIntent value);
     }
 
     public enum CoCoIntentContributionResult
@@ -138,7 +149,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     public readonly struct CoCoIntentHandle<TIntent> : IEquatable<CoCoIntentHandle<TIntent>>
-        where TIntent : unmanaged
     {
         private readonly CoCoIntentFrameLayout _owner;
 
@@ -194,7 +204,6 @@ namespace CoCoFlow.Runtime.Core
 
     public readonly struct CoCoIntentSourceRequirement<TIntent> :
         IEquatable<CoCoIntentSourceRequirement<TIntent>>
-        where TIntent : unmanaged
     {
         private CoCoIntentSourceRequirement(
             CoCoIntentHandle<TIntent> handle,
@@ -249,10 +258,10 @@ namespace CoCoFlow.Runtime.Core
     }
 
     public sealed class CoCoIntentSourceBinding<TIntent>
-        where TIntent : unmanaged
     {
         private readonly CoCoIntentFrameRuntime _runtime;
         private readonly ICoCoIntentFrameSource<TIntent> _source;
+        private ICoCoCursorIntentSource<TIntent> _cursorSource;
         private ulong _lastSampledFrameGeneration;
 
         internal CoCoIntentSourceBinding(
@@ -280,6 +289,17 @@ namespace CoCoFlow.Runtime.Core
                                BindingToken > 0;
 
         internal int BindingToken { get; }
+        internal CoCoIntentSourceCursor Cursor { get; private set; }
+
+        internal void AttachHostCursor()
+        {
+            if (_source is ICoCoCursorIntentSource<TIntent> source)
+            {
+                _cursorSource = source;
+                Cursor = new CoCoIntentSourceCursor(_runtime);
+                source.AttachCursor(Cursor);
+            }
+        }
 
         internal bool IsOwnedBy(CoCoIntentFrameRuntime runtime) => ReferenceEquals(_runtime, runtime);
 
@@ -309,14 +329,15 @@ namespace CoCoFlow.Runtime.Core
             }
 
             _lastSampledFrameGeneration = frameGeneration;
-            hasValue = _source.TrySample(tickFrame, out intent);
+            hasValue = _cursorSource != null
+                ? _cursorSource.TrySample(Cursor, out intent)
+                : _source.TrySample(tickFrame, out intent);
             return true;
         }
     }
 
     public sealed class CoCoEventToIntentBinding<TEvent, TIntent>
         where TEvent : unmanaged
-        where TIntent : unmanaged
     {
         private readonly CoCoIntentFrameRuntime _runtime;
         private readonly ICoCoEventToIntentAdapter<TEvent, TIntent> _adapter;
@@ -394,7 +415,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal readonly struct CoCoIntentContribution<TIntent>
-        where TIntent : unmanaged
     {
         public CoCoIntentContribution(
             CoCoIntentHandle<TIntent> handle,
@@ -478,7 +498,6 @@ namespace CoCoFlow.Runtime.Core
         public bool TryGet<TIntent>(
             CoCoIntentHandle<TIntent> handle,
             out TIntent value)
-            where TIntent : unmanaged
         {
             if (!_isFrozen || !_layout.Matches(handle))
             {
@@ -498,7 +517,6 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool IsPresent<TIntent>(CoCoIntentHandle<TIntent> handle)
-            where TIntent : unmanaged
         {
             return _isFrozen &&
                    _layout.Matches(handle) &&
@@ -507,7 +525,6 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public bool TryFirst<TIntent>(out TIntent value)
-            where TIntent : unmanaged
         {
             if (_isFrozen)
             {
@@ -594,7 +611,6 @@ namespace CoCoFlow.Runtime.Core
             ICoCoIntentReducerFactory<TIntent, TReducer> reducerFactory,
             out CoCoIntentHandle<TIntent> handle,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
             where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
         {
             if (_isFrozen)
@@ -728,7 +744,6 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal bool Matches<TIntent>(CoCoIntentHandle<TIntent> handle)
-            where TIntent : unmanaged
         {
             if (!handle.IsValid ||
                 !handle.IsOwnedBy(this) ||
@@ -745,7 +760,6 @@ namespace CoCoFlow.Runtime.Core
         }
 
         internal int GetContributionCapacity<TIntent>(CoCoIntentHandle<TIntent> handle)
-            where TIntent : unmanaged
         {
             return Matches(handle)
                 ? _definitions[handle.DenseIndex].Descriptor.MaxContributions
@@ -835,7 +849,6 @@ namespace CoCoFlow.Runtime.Core
             ICoCoIntentFrameSource<TIntent> source,
             out CoCoIntentSourceBinding<TIntent> binding,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
         {
             if (!TryReserveBinding(requirement.Handle, source, 1, out int registrationOrder, out int bindingToken,
                     out diagnostic))
@@ -862,7 +875,6 @@ namespace CoCoFlow.Runtime.Core
             out CoCoEventToIntentBinding<TEvent, TIntent> binding,
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             if (!eventDomainId.IsValid || !eventTypeId.IsValid || projectionCapacity <= 0)
             {
@@ -965,7 +977,6 @@ namespace CoCoFlow.Runtime.Core
         public CoCoIntentSourceSampleResult TrySample<TIntent>(
             CoCoIntentSourceBinding<TIntent> binding,
             in CoCoTickFrame tickFrame)
-            where TIntent : unmanaged
         {
             if (_isDisposed || _isExecutingUserCallback || binding == null || !binding.IsOwnedBy(this))
             {
@@ -1022,7 +1033,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoEventToIntentBinding<TEvent, TIntent> binding,
             in CoCoActorEventSealedBatch<TEvent> batch)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             if (_isDisposed || _isExecutingUserCallback)
             {
@@ -1081,6 +1091,10 @@ namespace CoCoFlow.Runtime.Core
                 CompleteDeferredInboxLifecycle();
                 CompleteDeferredDispose();
                 throw;
+            }
+            finally
+            {
+                Array.Clear(binding.Scratch, 0, Math.Min(packetCount, binding.ProjectionCapacity));
             }
 
             _isExecutingUserCallback = false;
@@ -1269,7 +1283,6 @@ namespace CoCoFlow.Runtime.Core
             int packetCount,
             ulong expectedGeneration)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             if (!batch.TryClaimProjection(this, expectedGeneration) ||
                 !binding.TryClaimProjection(expectedGeneration))
@@ -1475,7 +1488,6 @@ namespace CoCoFlow.Runtime.Core
             out int registrationOrder,
             out int bindingToken,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
         {
             if (_isDisposed || _bindingsFrozen)
             {
@@ -1630,7 +1642,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoIntentSourceBinding<TIntent> binding,
             in CoCoTickFrame tickFrame,
             ulong expectedGeneration)
-            where TIntent : unmanaged
         {
             if (!IsGenerationCurrent(expectedGeneration))
             {
@@ -1684,7 +1695,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoIntentContribution<TIntent>[] contributions,
             int count,
             ulong expectedGeneration)
-            where TIntent : unmanaged
         {
             if (!IsGenerationCurrent(expectedGeneration))
             {
@@ -1786,7 +1796,6 @@ namespace CoCoFlow.Runtime.Core
         private CoCoIntentContributionResult Contribute<TIntent>(
             CoCoIntentHandle<TIntent> handle,
             in CoCoIntentContribution<TIntent> contribution)
-            where TIntent : unmanaged
         {
             if (!_layout.Matches(handle) || !contribution.IsValid || contribution.Handle != handle)
             {
@@ -1808,7 +1817,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal sealed class CoCoIntentDefinition<TIntent, TReducer> : ICoCoIntentDefinition
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
     {
         private readonly ICoCoIntentReducerFactory<TIntent, TReducer> _reducerFactory;
@@ -1841,7 +1849,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal sealed class CoCoIntentFrameSlot<TIntent> : ICoCoIntentFrameSlot
-        where TIntent : unmanaged
     {
         public bool IsPresent { get; private set; }
         public TIntent Value { get; private set; }
@@ -1869,14 +1876,12 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal interface ICoCoIntentArbitrationLane<TIntent> : ICoCoIntentArbitrationLane
-        where TIntent : unmanaged
     {
         CoCoIntentContributionResult Add(in CoCoIntentContribution<TIntent> contribution);
         CoCoIntentContributionResult AddBatch(CoCoIntentContribution<TIntent>[] contributions, int count);
     }
 
     internal sealed class CoCoIntentArbitrationLane<TIntent, TReducer> : ICoCoIntentArbitrationLane<TIntent>
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
     {
         private readonly CoCoIntentContribution<TIntent>[] _contributions;
@@ -1948,6 +1953,7 @@ namespace CoCoFlow.Runtime.Core
         public void Reset()
         {
             RollbackReductionCheckpoint();
+            Array.Clear(_contributions, 0, _count);
             _count = 0;
         }
 

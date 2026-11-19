@@ -242,7 +242,7 @@ Event-to-Intent Adapter.
 The compiler records graph-level Event-to-Intent declarations. Each declaration
 serializes only one `(EventTypeId, IntentId)` pair; the catalog supplies and the
 compiled declaration captures the Event Domain, unmanaged Event payload type,
-and exact unmanaged Intent value type.
+and exact Intent payload type.
 Declarations are resolved and validated by Event and Intent identity, retained
 in Asset list order, automatically add their provided Intent to the Graph's
 requirements, and cannot exceed that Intent's static `MaxContributions` lower

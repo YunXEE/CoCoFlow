@@ -320,7 +320,6 @@ namespace CoCoFlow.Runtime.Core
             ulong semanticFingerprint,
             out CoCoIntentHandle<TIntent> handle,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
             where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
             where TFactory : ICoCoIntentReducerFactory<TIntent, TReducer>
         {
@@ -397,7 +396,6 @@ namespace CoCoFlow.Runtime.Core
             int hostSourceIndex,
             CoCoIntentSourceRequirement<TIntent> requirement,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
         {
             if (!CanBindIntent(requirement.Handle.IntentId, typeof(TIntent), out int denseIndex, out diagnostic))
             {
@@ -437,7 +435,6 @@ namespace CoCoFlow.Runtime.Core
             bool allowSourceEcho,
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             if (!CanBindIntent(requirement.Handle.IntentId, typeof(TIntent), out int intentIndex, out diagnostic) ||
                 !TryFindEventDeclaration(
@@ -1118,7 +1115,6 @@ namespace CoCoFlow.Runtime.Core
             int hostSourceIndex,
             out ICoCoIntentFrameSource<TIntent> source,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
         {
             source = null;
             if (_host == null)
@@ -1161,7 +1157,6 @@ namespace CoCoFlow.Runtime.Core
             out ICoCoEventToIntentAdapter<TEvent, TIntent> adapter,
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             adapter = null;
             if (_host == null)
@@ -1740,7 +1735,21 @@ namespace CoCoFlow.Runtime.Core
         internal bool IsIntentTickCommitReady(in CoCoTickFrame tickFrame) =>
             _hasCachedIntentTick && _cachedIntentTick == tickFrame;
 
-        internal void ResolveIntentTickNoFail()
+        internal void CommitIntentTickNoFail()
+        {
+            foreach (ICoCoHostIntentContribution contribution in _intentContributions)
+            {
+                CoCoIntentSourceCursor cursor = contribution.Cursor;
+                if (cursor != null)
+                {
+                    cursor.Committed = cursor.Prepared;
+                }
+            }
+
+            ResolveIntentTickNoFail();
+        }
+
+        private void ResolveIntentTickNoFail()
         {
             _cachedIntentTick = default;
             _cachedIntentFrame = null;
@@ -1805,6 +1814,7 @@ namespace CoCoFlow.Runtime.Core
     {
         int IntentSourceHostIndex { get; }
         int EventAdapterAuthoringIndex { get; }
+        CoCoIntentSourceCursor Cursor { get; }
 
         bool TryAssignRegistrationOrder(int registrationOrder);
 
@@ -1812,7 +1822,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal sealed class CoCoHostIntentSourceContribution<TIntent> : ICoCoHostIntentContribution
-        where TIntent : unmanaged
     {
         private readonly CoCoIntentSourceBinding<TIntent> _binding;
         private readonly int _hostIndex;
@@ -1823,10 +1832,12 @@ namespace CoCoFlow.Runtime.Core
         {
             _binding = binding;
             _hostIndex = hostIndex;
+            _binding.AttachHostCursor();
         }
 
         public int IntentSourceHostIndex => _hostIndex;
         public int EventAdapterAuthoringIndex => -1;
+        public CoCoIntentSourceCursor Cursor => _binding.Cursor;
 
         public bool TryAssignRegistrationOrder(int registrationOrder) =>
             _binding.TryAssignRegistrationOrder(registrationOrder);
@@ -1841,7 +1852,6 @@ namespace CoCoFlow.Runtime.Core
 
     internal sealed class CoCoHostEventIntentContribution<TEvent, TIntent> : ICoCoHostIntentContribution
         where TEvent : unmanaged
-        where TIntent : unmanaged
     {
         private readonly CoCoHostEventLane<TEvent> _lane;
         private readonly CoCoEventToIntentBinding<TEvent, TIntent> _binding;
@@ -1859,6 +1869,7 @@ namespace CoCoFlow.Runtime.Core
 
         public int IntentSourceHostIndex => -1;
         public int EventAdapterAuthoringIndex => _authoringIndex;
+        public CoCoIntentSourceCursor Cursor => null;
 
         public bool TryAssignRegistrationOrder(int registrationOrder) =>
             _binding.TryAssignRegistrationOrder(registrationOrder);

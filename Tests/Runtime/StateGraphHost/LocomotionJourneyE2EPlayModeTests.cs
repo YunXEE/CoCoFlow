@@ -692,23 +692,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             public bool TrySample(in CoCoTickFrame tickFrame, out InputIntentData intent)
             {
-                if (_holdMove)
-                {
-                    _pending.RemoveAll(record =>
-                        record.Action == CoCoFixedString64.FromString(JourneyContract.Move));
-                    _pending.Add(Record(
-                        JourneyContract.Move, _holdX, _holdY, RawInputPhase.Held));
-                }
-
-                intent = new InputIntentData
-                {
-                    ActiveMap = CoCoFixedString64.FromString("Gameplay"),
-                    Count = System.Math.Min(_pending.Count, InputIntentData.RecordCapacity),
-                };
-                for (int index = 0; index < intent.Count; index++)
-                {
-                    intent.Set(index, _pending[index]);
-                }
+                RawInputRecord[] current = _holdMove
+                    ? new[] { Record(JourneyContract.Move, _holdX, _holdY, RawInputPhase.Held) }
+                    : System.Array.Empty<RawInputRecord>();
+                intent = new InputIntentData(
+                    CoCoFixedString64.FromString("Gameplay"), _pending.ToArray(), current);
 
                 _pending.Clear();
                 return true;

@@ -1,11 +1,9 @@
 # Module: Input
 
-> Documentation baseline: `0.4.3` · Updated 2026-10-15
-
 The Input module owns the Unity Input System boundary. `PlayerInput`, its
 runtime `InputActionAsset`, actions, devices, control scheme, bindings, and
 rebind overrides remain the physical-input authority. StateGraph consumes the
-unmanaged `InputIntentData`; it never reads an `InputAction`, device callback, or
+typed `InputIntentData`; it never reads an `InputAction`, device callback, or
 binding path.
 
 ## InputIntentData broadcast
@@ -14,40 +12,36 @@ Keep PlayerInput and InputReader on a persistent object. On each Host, add an
 InputIntent, assign its Reader, and put InputIntent in the Host Intent Sources.
 Several Hosts can reference the same Reader. Source list order is not a type ID.
 
-Each gameplay InputSystem update (Dynamic, Fixed or Manual) replaces the latest
-image, even when no action fires. Performed/Canceled callbacks for the same
-action overwrite its previous phase within that update; Performed then Canceled
-therefore leaves Canceled. Actuated Move/Look/Zoom convenience bindings append
-Held records at the end of the update, while the eight-record capacity permits.
+Once a Host binds the source, the Reader retains Performed and Canceled changes
+across gameplay Input System updates until the bound Hosts have committed them.
+`Changes` preserves arrival order, including repeated actions. `Sequence` orders
+records with equal timestamps. `InputTime` is the original Unity input time in seconds.
 
-InputIntent implements ICoCoIntentFrameSource<InputIntentData> and only copies
-Reader.TryReadLatest. Reading never drains, advances, acknowledges or replays
-input. Hosts may see the same image repeatedly, or miss a short pulse while
-paused. Resuming reads the latest update, with no backlog. The optional legacy
-TryConsumeBufferedAction convenience API is separate from this broadcast.
+Each Host Tick freezes its own unread changes and samples `Current` at the same
+boundary. `Current` contains pressed buttons and actuated Move, Look and Zoom
+as Held records, including on Ticks without changes. A retry of an unresolved
+Tick uses its frozen data. Successful commit advances only that Host's cursor.
+A fence clears pending changes and increments `FenceGeneration`.
 
-InputIntentData carries up to eight records using the pass-through reducer.
-No extra queue or per-Host cursor is created. The action-name encoding is the
-existing CoCoFixedString64 encoding. Capacity overflow is dropped, not deferred.
-Missing, disabled or uninitialized Reader returns false/default. FenceInput
-clears the latest image for every observer. Disabling one InputIntent has no
-effect on another observer or on the Reader.
-
-Programmatic callers use InputIntent.TrySample or the non-consuming
-InputReader.TryReadLatest. StateLogic declares
-`[Intent] public InputIntentData Input { get; set; }`.
+StateLogic declares `[Intent] public InputIntentData Input { get; set; }`.
+`Count`, `TryGet` and `TryFind` read changes followed by current state.
+Producers constructing their own `InputIntentData` supply read-only views of
+arrays they keep immutable after delivery. Code that used the slot setters
+must migrate to the constructor. With managed array references, the payload
+can no longer be used as an argument to an `unmanaged`-constrained generic.
+Use direct Reader queries or Action events in place of `TryReadLatest`.
 
 ## Convenience and event surface
 
 `InputReader` also exposes current `MoveInput`, `LookInput`, and `ZoomInput`,
-typed `TryReadValue`, performed/canceled `ActionChanged`, action-name events,
-prompt changes, and a short optional one-action input buffer. These are local
+typed `TryReadValue`, button `TryReadPressed`, performed/canceled `ActionChanged`,
+action-name events, prompt changes, and a short optional one-action input buffer. These are local
 Unity-facing conveniences; only `InputIntentData` crosses into StateFlow.
 
-`TryReadValue` fails with `false/default` while the Reader is disabled, not
-initialized, changing maps/bindings, or neutral-gating an action. `FenceInput`
-clears the latest input image, short buffer, and convenience snapshots, then publishes
-`InputFenced`.
+Both direct queries respect action enablement and neutral gating. Direct
+queries and Action subscriptions leave all Host cursors untouched. `FenceInput`
+clears pending changes, the short convenience buffer and cached axis values,
+then publishes `InputFenced`.
 
 Switching action maps and binding changes fence input before and after the
 controlled transition. Actions that were active across a transition remain
@@ -80,7 +74,6 @@ snapshot; prompt presentation does not become gameplay authority.
 
 ## Boundaries
 
-- The latest image has eight records; overflow is dropped without replay.
 - `InputReader` samples one local `PlayerInput`; it does not aggregate players,
   network input, AI, replay files, or platform account state.
 - Rebind storage and conflict policy are project-owned.

@@ -10,7 +10,6 @@ namespace CoCoFlow.Runtime.Core
     /// </summary>
     public readonly struct CoCoIntentReducerFactoryToken<TIntent, TReducer, TFactory> :
         IEquatable<CoCoIntentReducerFactoryToken<TIntent, TReducer, TFactory>>
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
         where TFactory : ICoCoIntentReducerFactory<TIntent, TReducer>
     {
@@ -334,7 +333,6 @@ namespace CoCoFlow.Runtime.Core
             int maxContributions,
             CoCoIntentReducerFactoryToken<TIntent, TReducer, TFactory> reducerFactoryToken,
             out CoCoDiagnostic diagnostic)
-            where TIntent : unmanaged
             where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
             where TFactory : ICoCoIntentReducerFactory<TIntent, TReducer>
         {
@@ -401,7 +399,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoIntentId providedIntentId,
             out CoCoDiagnostic diagnostic)
             where TEvent : unmanaged
-            where TIntent : unmanaged
         {
             if (!CanRegister(
                     domainId.IsValid && eventTypeId.IsValid && providedIntentId.IsValid,
@@ -1484,7 +1481,6 @@ namespace CoCoFlow.Runtime.Core
     }
 
     internal sealed class CoCoGraphIntentRegistration<TIntent, TReducer> : ICoCoGraphIntentRegistration
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
     {
         public CoCoGraphIntentRegistration(

@@ -22,7 +22,6 @@ namespace CoCoFlow.Runtime.Core
     /// <summary>Immutable module registration; source handles belong to each Host.</summary>
     public class CoCoStandardIntentRegistration<TIntent, TReducer, TFactory> :
         ICoCoStandardIntentRegistration
-        where TIntent : unmanaged
         where TReducer : unmanaged, ICoCoIntentReducer<TIntent>
         where TFactory : ICoCoIntentReducerFactory<TIntent, TReducer>, new()
     {
