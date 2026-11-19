@@ -48,80 +48,47 @@ namespace CoCoFlow.Tests.Editor.CoreContracts
         }
 
         [Test]
-        public void Intent_TryGetAndCapacityBoundary()
+        public void Intent_TryGetReadsChangesThenCurrentBeyondEightRecords()
         {
-            var intent = new InputIntentData();
-            Assert.IsFalse(intent.TryGet(0, out _));
-            Assert.AreEqual(0, intent.Count);
-
-            for (int index = 0; index < InputIntentData.RecordCapacity; index++)
+            Assert.IsFalse(default(InputIntentData).TryGet(0, out _));
+            var changes = new RawInputRecord[10];
+            for (int index = 0; index < changes.Length; index++)
             {
-                intent.Set(index, new RawInputRecord
-                {
-                    Action = CoCoFixedString64.FromString("A" + index),
-                    Sequence = (ulong)(index + 1)
-                });
+                changes[index] = Record("Jump", RawInputPhase.Performed, (ulong)(index + 1));
             }
 
-            intent.Count = InputIntentData.RecordCapacity;
-            Assert.IsTrue(intent.TryGet(7, out RawInputRecord last));
-            Assert.AreEqual("A7", last.Action.ToString());
-            Assert.IsFalse(intent.TryGet(8, out _));
+            var intent = new InputIntentData(default, changes, new[] { Record("Move", RawInputPhase.Held) });
+            Assert.AreEqual(11, intent.Count);
+            Assert.IsTrue(intent.TryGet(9, out RawInputRecord lastChange));
+            Assert.AreEqual(10UL, lastChange.Sequence);
+            Assert.IsTrue(intent.TryGet(10, out RawInputRecord current));
+            Assert.AreEqual("Move", current.Action.ToString());
+            Assert.IsFalse(intent.TryGet(-1, out _));
+            Assert.IsFalse(intent.TryGet(11, out _));
         }
 
         [Test]
-        public void Intent_TryFindMatchesNameAndPhaseInArrivalOrder()
+        public void Intent_TryFindMatchesPhaseAndReturnsFirstDuplicate()
         {
-            var intent = new InputIntentData();
-            intent.Set(intent.Count++, new RawInputRecord
+            var intent = new InputIntentData(default, new[]
             {
-                Action = CoCoFixedString64.FromString("Move"),
-                Phase = RawInputPhase.Held,
-                Sequence = 1
-            });
-            intent.Set(intent.Count++, new RawInputRecord
-            {
-                Action = CoCoFixedString64.FromString("Jump"),
-                Phase = RawInputPhase.Performed,
-                Sequence = 2
-            });
-            intent.Set(intent.Count++, new RawInputRecord
-            {
-                Action = CoCoFixedString64.FromString("Attack"),
-                Phase = RawInputPhase.Performed,
-                Sequence = 3
-            });
+                Record("Jump", RawInputPhase.Started, 1),
+                Record("Jump", RawInputPhase.Performed, 2),
+                Record("Jump", RawInputPhase.Performed, 3)
+            }, new[] { Record("Move", RawInputPhase.Held) });
 
-            Assert.IsTrue(
-                intent.TryFind("Jump", RawInputPhase.Performed, out RawInputRecord jump));
-            Assert.AreEqual(2UL, jump.Sequence);
-
-            // Same name, wrong phase -> not found.
-            Assert.IsFalse(intent.TryFind("Jump", RawInputPhase.Canceled, out _));
-            // Held semantics: released actions are simply absent.
-            Assert.IsFalse(intent.TryFind("Move", RawInputPhase.Performed, out _));
-        }
-
-        [Test]
-        public void Intent_TryFindReturnsFirstDuplicateInArrivalOrder()
-        {
-            var intent = new InputIntentData();
-            intent.Set(intent.Count++, new RawInputRecord
-            {
-                Action = CoCoFixedString64.FromString("Jump"),
-                Phase = RawInputPhase.Started,
-                Sequence = 1
-            });
-            intent.Set(intent.Count++, new RawInputRecord
-            {
-                Action = CoCoFixedString64.FromString("Jump"),
-                Phase = RawInputPhase.Performed,
-                Sequence = 2
-            });
-
-            Assert.IsTrue(
-                intent.TryFind("Jump", RawInputPhase.Performed, out RawInputRecord record));
+            Assert.IsTrue(intent.TryFind("Jump", RawInputPhase.Performed, out RawInputRecord record));
             Assert.AreEqual(2UL, record.Sequence);
+            Assert.IsFalse(intent.TryFind("Jump", RawInputPhase.Canceled, out _));
+            Assert.IsTrue(intent.TryFind("Move", RawInputPhase.Held, out _));
         }
+
+        private static RawInputRecord Record(string action, RawInputPhase phase, ulong sequence = 0) =>
+            new RawInputRecord
+            {
+                Action = CoCoFixedString64.FromString(action),
+                Phase = phase,
+                Sequence = sequence
+            };
     }
 }

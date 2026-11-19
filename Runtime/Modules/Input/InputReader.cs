@@ -60,8 +60,9 @@ namespace CoCoFlow.Runtime.Modules.Input
         private bool _bindingOverrideLoadAttempted;
         private bool _hasStarted;
 
-        private InputIntentData _latestInput;
-        private uint _inputUpdateCount;
+        private readonly List<RawInputRecord> _pendingInput = new();
+        private readonly List<WeakReference<CoCoIntentSourceCursor>> _inputCursors = new();
+        private ulong _fenceGeneration;
         private ulong _rawSequence;
 
         public PlayerInput PlayerInput => playerInput;
@@ -139,6 +140,15 @@ namespace CoCoFlow.Runtime.Modules.Input
             FenceInput();
         }
 
+        private void OnApplicationFocus(bool focused)
+        {
+            if (!focused && _runtimeInitialized)
+            {
+                RefreshNeutralGates(Actions);
+                FenceInput();
+            }
+        }
+
         private void OnDestroy()
         {
             InputSystem.onAfterUpdate -= EndInputUpdate;
@@ -151,18 +161,30 @@ namespace CoCoFlow.Runtime.Modules.Input
             out TValue value)
             where TValue : struct
         {
-            if (!isActiveAndEnabled ||
-                !_runtimeInitialized ||
-                !TryResolveAction(actionReference, out InputAction action) ||
-                !action.enabled ||
-                ShouldSuppress(action))
+            if (TryGetReadableAction(actionReference, out InputAction action))
             {
-                value = default;
-                return false;
+                value = action.ReadValue<TValue>();
+                return true;
             }
 
-            value = action.ReadValue<TValue>();
-            return true;
+            value = default;
+            return false;
+        }
+
+        /// <summary>Reads current button state without advancing any Host's input cursor.</summary>
+        public bool TryReadPressed(InputActionReference actionReference, out bool pressed)
+        {
+            bool readable = TryGetReadableAction(actionReference, out InputAction action);
+            pressed = readable && action.IsPressed();
+            return readable;
+        }
+
+        private bool TryGetReadableAction(InputActionReference reference, out InputAction action)
+        {
+            action = null;
+            return isActiveAndEnabled && _runtimeInitialized &&
+                   TryResolveAction(reference, out action) &&
+                   action.enabled && !ShouldSuppress(action);
         }
 
         private static bool IsGameplayInputUpdate()
@@ -173,108 +195,155 @@ namespace CoCoFlow.Runtime.Modules.Input
                    type == InputUpdateType.Manual;
         }
 
-        private void RefreshInputFrame()
-        {
-            uint updateCount = InputState.updateCount;
-            if (_inputUpdateCount == updateCount)
-            {
-                return;
-            }
-
-            _inputUpdateCount = updateCount;
-            _latestInput = default;
-        }
-
         private void EndInputUpdate()
         {
-            if (!IsGameplayInputUpdate() ||
-                !isActiveAndEnabled || !_runtimeInitialized)
+            if (!IsGameplayInputUpdate() || !isActiveAndEnabled || !_runtimeInitialized)
             {
                 return;
             }
 
-            RefreshInputFrame();
             ReleaseNeutralActions();
             SampleConvenienceValues();
-            _latestInput.ActiveMap = CoCoFixedString64.FromString(
-                playerInput != null && playerInput.currentActionMap != null
-                    ? playerInput.currentActionMap.name
-                    : string.Empty);
-
-            AppendHeldIfActuated(moveAction, MoveInput, ref _latestInput);
-            AppendHeldIfActuated(lookAction, LookInput, ref _latestInput);
-            AppendHeldIfActuated(zoomAction, ZoomInput, ref _latestInput);
+            TrimDeliveredInput();
         }
 
-        public bool TryReadLatest(out InputIntentData intent)
+        internal void AttachCursor(CoCoIntentSourceCursor cursor)
+        {
+            if (ReferenceEquals(cursor.Reader, this))
+            {
+                return;
+            }
+
+            cursor.Reader = this;
+            cursor.Committed = 0;
+            _inputCursors.Add(new WeakReference<CoCoIntentSourceCursor>(cursor));
+        }
+
+        private void TrimDeliveredInput()
+        {
+            ulong delivered = _rawSequence;
+            for (int index = _inputCursors.Count - 1; index >= 0; index--)
+            {
+                if (_inputCursors[index].TryGetTarget(out CoCoIntentSourceCursor cursor) &&
+                    cursor.IsActive && ReferenceEquals(cursor.Reader, this))
+                {
+                    delivered = Math.Min(delivered, cursor.Committed);
+                }
+                else
+                {
+                    _inputCursors.RemoveAt(index);
+                }
+            }
+
+            _pendingInput.RemoveRange(0, FirstUndeliveredIndex(delivered));
+        }
+
+        private int FirstUndeliveredIndex(ulong delivered)
+        {
+            if (_pendingInput.Count == 0 || delivered < _pendingInput[0].Sequence)
+            {
+                return 0;
+            }
+
+            // Once a fence clears the buffer, the remaining sequence range is contiguous.
+            return (int)(delivered - _pendingInput[0].Sequence + 1);
+        }
+
+        internal bool TrySnapshot(ulong delivered, out InputIntentData intent)
         {
             intent = default;
-            if (!isActiveAndEnabled || !_runtimeInitialized)
+            if (!isActiveAndEnabled || !_runtimeInitialized || _subscribedActions == null ||
+                playerInput == null || !playerInput.inputIsActive)
             {
                 return false;
             }
 
-            intent = _latestInput;
+            TrimDeliveredInput();
+            int first = FirstUndeliveredIndex(delivered);
+            int count = _pendingInput.Count - first;
+            var changes = count == 0 ? Array.Empty<RawInputRecord>() : new RawInputRecord[count];
+            _pendingInput.CopyTo(first, changes, 0, count);
+            intent = new InputIntentData(
+                CoCoFixedString64.FromString(playerInput.currentActionMap?.name),
+                changes, SampleCurrent(), _fenceGeneration);
             return true;
         }
 
-        private void AppendHeldIfActuated(
-            InputActionReference actionReference,
-            Vector2 value,
-            ref InputIntentData intent)
+        private RawInputRecord[] SampleCurrent()
         {
-            if (value.sqrMagnitude <= 0.0000001f ||
-                intent.Count >= InputIntentData.RecordCapacity ||
-                !TryResolveAction(actionReference, out InputAction action))
+            SampleConvenienceValues();
+            int count = CopyCurrent(default);
+            if (count == 0)
             {
-                return;
+                return Array.Empty<RawInputRecord>();
             }
 
-            _rawSequence++;
-            intent.Set(intent.Count++, new RawInputRecord
-            {
-                Action = CoCoFixedString64.FromString(action.name),
-                ValueX = value.x,
-                ValueY = value.y,
-                Phase = RawInputPhase.Held,
-                Sequence = _rawSequence
-            });
+            var current = new RawInputRecord[count];
+            CopyCurrent(current);
+            return current;
         }
 
-        private void AppendRawRecord(string actionName, RawInputPhase phase)
+        private int CopyCurrent(Span<RawInputRecord> current)
         {
-            if (!IsGameplayInputUpdate() ||
-                !isActiveAndEnabled || !_runtimeInitialized)
+            int count = 0;
+            foreach (InputActionMap map in _subscribedActions.actionMaps)
+            {
+                foreach (InputAction action in map.actions)
+                {
+                    if (action.type == InputActionType.Button && action.enabled &&
+                        !ShouldSuppress(action) && action.IsPressed())
+                    {
+                        CopyHeld(current, ref count, action, Vector2.up);
+                    }
+                }
+            }
+
+            CopyAxis(current, ref count, moveAction, MoveInput);
+            CopyAxis(current, ref count, lookAction, LookInput);
+            CopyAxis(current, ref count, zoomAction, ZoomInput);
+            return count;
+        }
+
+        private void CopyAxis(Span<RawInputRecord> current, ref int count,
+            InputActionReference reference, Vector2 value)
+        {
+            if (value.sqrMagnitude > 0.0000001f && TryResolveAction(reference, out InputAction action))
+            {
+                CopyHeld(current, ref count, action, value);
+            }
+        }
+
+        private static void CopyHeld(Span<RawInputRecord> current, ref int count, InputAction action, Vector2 value)
+        {
+            if (!current.IsEmpty)
+            {
+                current[count] = new RawInputRecord
+                {
+                    Action = CoCoFixedString64.FromString(action.name),
+                    ValueX = value.x,
+                    ValueY = value.y,
+                    Phase = RawInputPhase.Held
+                };
+            }
+
+            count++;
+        }
+
+        private void AppendRawRecord(InputAction.CallbackContext context, RawInputPhase phase)
+        {
+            if (!IsGameplayInputUpdate() || !isActiveAndEnabled || !_runtimeInitialized ||
+                _inputCursors.Count == 0)
             {
                 return;
             }
 
-            RefreshInputFrame();
-            CoCoFixedString64 action = CoCoFixedString64.FromString(actionName);
-            int index = 0;
-            while (index < _latestInput.Count &&
-                   _latestInput.TryGet(index, out RawInputRecord previous) &&
-                   previous.Action != action)
+            _pendingInput.Add(new RawInputRecord
             {
-                index++;
-            }
-
-            if (index >= InputIntentData.RecordCapacity)
-            {
-                return;
-            }
-            if (index == _latestInput.Count)
-            {
-                _latestInput.Count++;
-            }
-
-            _latestInput.Set(index, new RawInputRecord
-            {
-                Action = action,
-                ValueX = 0f,
+                Action = CoCoFixedString64.FromString(context.action.name),
                 ValueY = phase == RawInputPhase.Performed ? 1f : 0f,
                 Phase = phase,
-                Sequence = ++_rawSequence
+                Sequence = ++_rawSequence,
+                InputTime = context.time
             });
         }
 
@@ -299,7 +368,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return false;
             }
 
-            action = actions.FindAction(actionId.ToString(), false);
+            action = actions.FindAction(actionId);
             return action != null;
         }
 
@@ -412,7 +481,8 @@ namespace CoCoFlow.Runtime.Modules.Input
         public void FenceInput()
         {
             ClearBuffer();
-            _latestInput = default;
+            _pendingInput.Clear();
+            _fenceGeneration++;
             MoveInput = Vector2.zero;
             LookInput = Vector2.zero;
             ZoomInput = Vector2.zero;
@@ -633,7 +703,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                 _currentBuffer.Timestamp = Time.time;
             }
 
-            AppendRawRecord(context.action.name, RawInputPhase.Performed);
+            AppendRawRecord(context, RawInputPhase.Performed);
             PublishActionChanged(new InputActionEvent(
                 context.action, InputActionPhase.Performed));
             PublishActionName(
@@ -653,7 +723,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             bool presentationChanged = UpdateLastUsedDevice(
                 context.control?.device);
-            AppendRawRecord(context.action.name, RawInputPhase.Canceled);
+            AppendRawRecord(context, RawInputPhase.Canceled);
             PublishActionChanged(new InputActionEvent(
                 context.action, InputActionPhase.Canceled));
             PublishActionName(

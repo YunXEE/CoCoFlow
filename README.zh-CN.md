@@ -1,11 +1,18 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.8 · **Unity**：6000+
+> **版本**：0.4.9 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
+
+## 0.4.9 更新
+
+- Player Intent 按采集顺序保留短按的按下与松开。每个 StateGraph Tick
+  也可读取当前按住的动作和轴值。
+- 使用旧八槽 API 的输入生产方改用只读数组视图构造 `InputIntentData`。
+  见 [Input 模块](Docs/Module-Input.md)。
 
 ## 0.4.8 更新
 
@@ -94,7 +101,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.8
+https://github.com/YunXEE/CoCoFlow.git#v0.4.9
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -102,7 +109,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.8
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.8"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.9"
   }
 }
 ```
