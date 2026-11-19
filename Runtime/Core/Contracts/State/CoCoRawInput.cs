@@ -147,29 +147,33 @@ namespace CoCoFlow.Runtime.Core
         public float ValueY;
         public RawInputPhase Phase;
         public ulong Sequence;
+        /// <summary>Original Unity input time in seconds for a change record.</summary>
+        public double InputTime;
     }
 
-    /// <summary>
-    /// Latest input-update image copied by each Host's InputIntent. At most
-    /// eight records; the last discrete phase replaces earlier phases of the
-    /// same action. Continuous convenience actions append Held while actuated.
-    /// Reading never drains this value; missed input updates are not replayed.
-    /// </summary>
+    /// <summary>One Tick's ordered input changes and sampled continuous state.</summary>
     public struct InputIntentData
     {
-        public const int RecordCapacity = 8;
-
         public CoCoFixedString64 ActiveMap;
-        public int Count;
+        public ulong FenceGeneration { get; }
+        public ReadOnlyMemory<RawInputRecord> Changes { get; }
+        public ReadOnlyMemory<RawInputRecord> Current { get; }
+        public int Count => Changes.Length + Current.Length;
 
-        public RawInputRecord Record0;
-        public RawInputRecord Record1;
-        public RawInputRecord Record2;
-        public RawInputRecord Record3;
-        public RawInputRecord Record4;
-        public RawInputRecord Record5;
-        public RawInputRecord Record6;
-        public RawInputRecord Record7;
+        /// <summary>
+        /// The producer owns the backing storage and must keep it immutable after delivery.
+        /// </summary>
+        public InputIntentData(
+            CoCoFixedString64 activeMap,
+            ReadOnlyMemory<RawInputRecord> changes,
+            ReadOnlyMemory<RawInputRecord> current = default,
+            ulong fenceGeneration = 0)
+        {
+            ActiveMap = activeMap;
+            Changes = changes;
+            Current = current;
+            FenceGeneration = fenceGeneration;
+        }
 
         public bool TryGet(int index, out RawInputRecord record)
         {
@@ -179,33 +183,10 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            switch (index)
-            {
-                case 0: record = Record0; return true;
-                case 1: record = Record1; return true;
-                case 2: record = Record2; return true;
-                case 3: record = Record3; return true;
-                case 4: record = Record4; return true;
-                case 5: record = Record5; return true;
-                case 6: record = Record6; return true;
-                case 7: record = Record7; return true;
-                default: record = default; return false;
-            }
-        }
-
-        public void Set(int index, in RawInputRecord record)
-        {
-            switch (index)
-            {
-                case 0: Record0 = record; break;
-                case 1: Record1 = record; break;
-                case 2: Record2 = record; break;
-                case 3: Record3 = record; break;
-                case 4: Record4 = record; break;
-                case 5: Record5 = record; break;
-                case 6: Record6 = record; break;
-                case 7: Record7 = record; break;
-            }
+            record = index < Changes.Length
+                ? Changes.Span[index]
+                : Current.Span[index - Changes.Length];
+            return true;
         }
 
         /// <summary>

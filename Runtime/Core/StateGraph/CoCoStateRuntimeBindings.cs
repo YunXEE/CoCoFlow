@@ -51,7 +51,7 @@ namespace CoCoFlow.Runtime.Core
         }
 
         private static Action<ICoCoIntentFrame> CreateIntentSetter<TIntent>(
-            CoCoStateLogic logic, PropertyInfo property) where TIntent : unmanaged
+            CoCoStateLogic logic, PropertyInfo property)
         {
             var setter = (Action<TIntent>)Delegate.CreateDelegate(typeof(Action<TIntent>), logic, property.SetMethod);
             return frame =>

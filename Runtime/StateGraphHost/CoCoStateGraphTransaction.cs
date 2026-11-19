@@ -574,7 +574,7 @@ namespace CoCoFlow.Runtime.Core
             preparedGraph.CommitNoFail();
             _operators.CommitClaimsNoFail();
             _lastEventSequence = committedEventSequenceValue;
-            bindings.ResolveIntentTickNoFail();
+            bindings.CommitIntentTickNoFail();
             temporal.PublishCaptureNoFail();
             authorityCommitted = true;
             _trace?.Append(CoCoStateFlowTraceEntry.Commit(

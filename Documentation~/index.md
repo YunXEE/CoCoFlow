@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.8`.
+`0.4.9`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -18,7 +18,7 @@ breaking changes and compatibility boundaries.
 - [Changelog](../CHANGELOG.md)
 - [Dependency matrix](../Docs/DependencyMatrix.md)
 
-## Player validation
+## Windows Player validation for 0.4.8
 
 Recorded Windows x64 implementation runs on Unity 6000.3.27f2 passed 456/456
 tests with [Mono / Disabled](https://github.com/YunXEE/CoCoFlow/actions/runs/42481797870)

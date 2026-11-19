@@ -6,6 +6,21 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.9] - 2026-11-19
+
+### Fixed
+
+- Keep short press and release records in order across Input System updates.
+  Player Intent delivers current held state each Tick and advances each Host's
+  input cursor after a successful commit.
+
+### Changed
+
+- Intent payloads can contain managed references. Producers construct
+  `InputIntentData` from read-only array views, and external generics constrained
+  to `unmanaged` must migrate callers that use this payload.
+  See the [Input module](Docs/Module-Input.md) for the updated contract.
+
 ## [0.4.8] - 2026-11-08
 
 ### Changed
