@@ -27,13 +27,6 @@ namespace CoCoFlow.Editor.StateGraphHost
                 component => component is ICoCoOperator);
         }
 
-        internal static void FindEventAdapters(CoCoStateGraphHost host, Type eventType,
-            IReadOnlyList<MonoBehaviour> assigned, List<MonoBehaviour> results)
-        {
-            Type expected = typeof(ICoCoEventInboxAdapter<>).MakeGenericType(eventType);
-            Find(host, assigned, results, component => expected.IsAssignableFrom(component.GetType()));
-        }
-
         internal static bool IsIntentSource(MonoBehaviour component)
         {
             if (component == null)

@@ -1,20 +1,14 @@
 # StateFlow 程序集与 API 边界
 
-P001 在 CoCoFlow 0.4.9 的程序集布局上交付类型化 Intent、Operation、Inbox、Outbox 和 Outcome。P002 的长期行为回归覆盖同一目标分支。
+CoCoFlow 0.4.10 的玩法入口由三个 Runtime 程序集提供。
 
-## 程序集归属
-
-下表缩写 C、F、G、A 的前缀为 `CoCoFlow.Runtime.Core.`，H 为 `CoCoFlow.Runtime.StateGraphHost`。这五个程序集均参与 Editor 和 Player 编译。
-
-| 程序集 | 源码路径 | 直接引用 | noEngineReferences / unsafe |
+| 程序集 | 源码路径 | 包内直接引用 | noEngineReferences / unsafe |
 | --- | --- | --- | --- |
-| C · Contracts | `Runtime/Core/Contracts` | 无 | true / true |
-| F · StateFlow | `Runtime/Core/StateFlow` | C | true / false |
-| G · StateGraph | `Runtime/Core/StateGraph` | C、F | true / false |
-| A · StateGraphAuthoring | `Runtime/Core/StateGraphAuthoring` | C、F、G | false / false |
-| H · StateGraphHost | `Runtime/StateGraphHost` | C、F、G、A、`CoCoFlow.Runtime.Core` | false / true |
+| CoCoFlow.Runtime.Core | `Runtime/Core` | 无 | true / false |
+| CoCoFlow.Runtime.Core.StateGraph | `Runtime/StateGraph` | Core | true / true |
+| CoCoFlow.Runtime.StateGraphHost | `Runtime/StateGraphHost` | Core、StateGraph | false / true |
 
-A 持有图资产、序列化布局和无参资产编译器。H 负责 Unity 生命周期、Host 槽绑定、事务和恢复。Editor.StateGraph、Editor.StateGraphHost 和 Editor.StateGraph.PlayerMetadata 的 asmdef 限定为 Editor。既有生产 friend 权限保持原配置，F 对既有测试和其夹具开放了用于白盒验证的友元权限。
+Core 提供服务、日志、事件和诊断。StateGraph 提供玩法契约、图编译和帧执行。图资产与 Unity 生命周期归 Host。三个 Editor 主目录与 Runtime 对应，PlayerMetadata 单独维持无引擎的隔离扫描程序集。原 `Core.Contracts` 引用按所用类型替换，`Core.StateFlow` 迁至 StateGraph，`Core.StateGraphAuthoring` 迁至 Host。更新外部 asmdef 的名称或 GUID 后重新编译，预编译 DLL 也需要重建。
 
 ## 标准玩法接入
 
@@ -26,7 +20,7 @@ A 持有图资产、序列化布局和无参资产编译器。H 负责 Unity 生
 | State 调用 `context.Outbox.Publish(in payload)`。Operator 以 `Emit<TEvent>(id, domain, capacity)` 声明通道，再用 `EventOutbox.TryWrite` 写目标和载荷。 | Host 在事务接受后发布，事务取消时丢弃暂存。 |
 | Operator 以 `OwnOutcome<T>(block, slot, projection, restorePolicy, defaultValue, fingerprint)` 声明拥有的槽。 | 标准目录登记形状，Host 按同一声明绑定默认值与恢复策略，写入仍经过事务与所有权检查。使用 Operator 的恢复投影时，在 Host 的 Operator Recovery 中启用相应模式。 |
 
-**Inbox 读取写法。** 在 `CoCoStateLogic` 的回调或同一 State 类的私有方法里调用 `TryGetBatch<TEvent>`。不要把这一步放进独立工具类或扩展方法。生成器不会追踪这些调用。如果没有其他声明或收件适配器登记该事件类型，Host 就不会订阅，`TryGetBatch<TEvent>` 会一直返回 `false`。需要复用玩法逻辑时，先在 State 内读出事件，再把事件值交给辅助方法处理。
+在 State 类内直接读取 `TryGetBatch<TEvent>` 时，生成器会登记事件类型。独立 helper 或扩展方法读取时，在玩法程序集声明 `[assembly: CoCoStateInboxEvent(typeof(MyState), typeof(MyEvent))]`，或在 Host 边界内提供对应类型的 Inbox 适配器。
 
 玩家和相机均使用标准 Intent 匹配。`InputIntentData` 保留 `ActiveMap`、`Changes`、`Current`、`Count`、`FenceGeneration`、`TryGet` 和两种 `TryFind`；`RawInputRecord` 保留 `InputTime` 与 `Sequence`。`Changes`、`Current` 允许托管 `ReadOnlyMemory<RawInputRecord>`，采样游标仍在 Tick 接受后提交。
 
@@ -45,8 +39,22 @@ A 持有图资产、序列化布局和无参资产编译器。H 负责 Unity 生
 
 ## 验证入口
 
-[RequiredApi.cs](RequiredApi.cs) 是无 friend 权限的外部编译用例。`python3 .github/ci/check_stateflow_api.py` 由 `CI Static / gate` 执行并定位失效的调用。检查覆盖必需调用的签名、约束和读写能力。其 Unity 引用 shim 只用于编译检查。
+[Core 消费者](CoreApi.cs)、[纯玩法消费者](GameplayApi.cs) 和 [Unity 消费者](RequiredApi.cs) 分别按允许的引用编译，均无 friend 权限。`python3 .github/ci/check_stateflow_api.py` 由 `CI Static / gate` 执行并定位失效的调用。检查覆盖必需调用的签名、约束和读写能力。逐项负例检查测试重置、自驱动创建和跳过校验的帧提交。其 Unity 引用 shim 只用于编译检查。
 
 Unity 的 `DeclarativeGameplayPlayModeTests` 驱动标准 Host，包外示例代码位于 `Tests/Runtime/StateGraphHost/DeclarativeGameplay`。`StandardBindingPlayModeTests` 继续覆盖完整玩家路径和包内 Operator。完整 EditMode 与 PlayMode 由版本分支的 Unity CI 执行。
 
-Section View 源码生成器位于 `Tools~/StateFlowGenerator`。修改后以 .NET SDK 执行 `dotnet build Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj -c Release`，将 DLL 放回 `Runtime/Core/StateFlow`。`RoslynAnalyzer` 标签让 Unity 将它作为构建工具加载。
+Section View 源码生成器位于 `Tools~/StateFlowGenerator`。修改后以 .NET SDK 执行 `dotnet build Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj -c Release`，将 DLL 放回 `Runtime/StateGraph/StateFlow`。`RoslynAnalyzer` 标签让 Unity 将它作为构建工具加载。
+
+## Umbra 升级清单
+
+宿主基线为 `96f43a7`。先替换 asmdef 和包引用，再用对应版本的 Unity 重新编译宿主程序集。
+
+| 现有接线 | 宿主迁移与验证 |
+| --- | --- |
+| DamageRegistrar | 在 Damage Operator 的定义中声明 Section、Outcome 与事件。验证命令写入、伤害结果及下一 Tick 读取。 |
+| EnemyNavMeshRegistrar | 声明移动 Section，保留导航 Operator 的 Host 引用，验证敌人实际移动。 |
+| HandGrip | 将旧 Builder 接线改为 HandGrip Operator 定义，核对抓取的 Section 与结果槽。 |
+| CoCoAnim | 迁移绑定并核对动画反馈到达对应 Host 的 Inbox。 |
+| CoCoTimeBindings | 列出同一 CoCoTimeWalkState 的所有旧 descriptor ID。逐个核对所属图和节点，将资产改为标准目录可解析的 ID，或在宿主保留可解析旧 ID 的迁移方案。编译、启动每张样例图，再验证每个节点的配置与行为。 |
+
+Umbra 宿主任务负责项目升级、重新编译及场景实跑。版本 PR 负责 Windows Mono 与 IL2CPP Player。

@@ -10,7 +10,6 @@ namespace CoCoFlow.Runtime.Core
         private readonly CoCoStateGraphHost _host;
         private readonly CoCoContextFrameLayout _layout;
         private readonly CoCoStateGraphTransaction _transaction;
-        private readonly CoCoActorEventInboxCore _inbox;
         private readonly MonoBehaviour _bindingComponent;
         private readonly ICoCoContextRestoreBinding _binding;
         private readonly ICoCoStateGraphTemporalParticipant _participant;
@@ -32,7 +31,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateGraphHost host,
             CoCoContextFrameLayout layout,
             CoCoStateGraphTransaction transaction,
-            CoCoActorEventInboxCore inbox,
             MonoBehaviour bindingComponent,
             ICoCoContextRestoreBinding binding,
             ICoCoStateGraphTemporalParticipant participant,
@@ -42,7 +40,6 @@ namespace CoCoFlow.Runtime.Core
             _host = host;
             _layout = layout;
             _transaction = transaction;
-            _inbox = inbox;
             _bindingComponent = bindingComponent;
             _binding = binding;
             _participant = participant;
@@ -65,7 +62,6 @@ namespace CoCoFlow.Runtime.Core
                                                     _previewDepth > 0
                     ? _previewInfo
                     : current;
-                ulong dropped = _inbox?.Counters.RewindRestoreDropped ?? 0UL;
                 bool canConfirm = _mode == CoCoTemporalMode.Previewing &&
                                   _previewDepth > 0 &&
                                   _history != null &&
@@ -81,7 +77,7 @@ namespace CoCoFlow.Runtime.Core
                     _previewDepth,
                     current,
                     preview,
-                    dropped,
+                    0UL,
                     canConfirm);
             }
         }
@@ -201,7 +197,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoContextFrameLayout layout,
             CoCoContextCodecRegistry codecs,
             CoCoStateGraphTransaction transaction,
-            CoCoActorEventInboxCore inbox,
             MonoBehaviour bindingComponent,
             int capacity,
             out CoCoStateGraphTemporalController controller,
@@ -287,7 +282,6 @@ namespace CoCoFlow.Runtime.Core
                     host,
                     layout,
                     transaction,
-                    inbox,
                     activeBindingComponent,
                     activeBindingComponent as ICoCoContextRestoreBinding,
                     participant,
@@ -471,13 +465,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_inbox != null && !_inbox.BeginRewindOrRestore())
-            {
-                diagnostic = MailboxError(
-                    "Inbox could not enter Restore mode for Persistence import.");
-                return false;
-            }
-
             if (!_transaction.TryPreparePersistenceRestore(
                     runtime,
                     codec.Projection,
@@ -492,7 +479,6 @@ namespace CoCoFlow.Runtime.Core
                     out diagnostic))
             {
                 _history?.CancelPreparedCapture();
-                _inbox?.CancelRewindOrRestoreNoFail();
                 return false;
             }
 
@@ -507,7 +493,6 @@ namespace CoCoFlow.Runtime.Core
                     _participant.CancelPreparedAuthorityResetNoFail();
                     _history?.CancelPreparedCapture();
                     preparedRestore.Cancel();
-                    _inbox?.CancelRewindOrRestoreNoFail();
                     if (!diagnostic.IsError)
                     {
                         diagnostic = HistoryError(
@@ -523,7 +508,6 @@ namespace CoCoFlow.Runtime.Core
                 _participant?.CancelPreparedAuthorityResetNoFail();
                 _history?.CancelPreparedCapture();
                 preparedRestore.Cancel();
-                _inbox?.CancelRewindOrRestoreNoFail();
                 diagnostic = HistoryError(
                     CoCoDiagnosticCode.CommitPreparationFailed,
                     "Temporal participant authority reset threw before the Persistence authority barrier.");
@@ -542,7 +526,6 @@ namespace CoCoFlow.Runtime.Core
                 _participant?.CancelPreparedAuthorityResetNoFail();
                 _history?.CancelPreparedCapture();
                 preparedRestore.Cancel();
-                _inbox?.CancelRewindOrRestoreNoFail();
                 if (worldMayBeDirty)
                 {
                     _host.LatchWorldCorrectionFault(diagnostic);
@@ -556,13 +539,11 @@ namespace CoCoFlow.Runtime.Core
                 (_history != null && !_history.HasPreparedCapture) ||
                 (_participant != null &&
                  !_participant.IsTemporalParticipantLive(_host)) ||
-                !IsBindingLive ||
-                (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
+                !IsBindingLive)
             {
                 _participant?.CancelPreparedAuthorityResetNoFail();
                 _history?.CancelPreparedCapture();
                 preparedRestore.Cancel();
-                _inbox?.CancelRewindOrRestoreNoFail();
                 diagnostic = TemporalLifecycleError(
                     "Persistence import proof changed during Unity projection before authority publication.");
                 if (worldMayBeDirty)
@@ -576,7 +557,6 @@ namespace CoCoFlow.Runtime.Core
             preparedRestore.CommitNoFail();
             _history?.PublishAuthorityResetNoFail();
             _participant?.CommitPreparedAuthorityResetNoFail();
-            _inbox?.ResumeAfterTimelineResetNoFail(importedTickFrame.TimelineEpoch);
             _mode = _history == null
                 ? CoCoTemporalMode.Disabled
                 : CoCoTemporalMode.Ready;
@@ -611,17 +591,9 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_inbox != null && !_inbox.BeginRewindOrRestore())
-            {
-                diagnostic = MailboxError(
-                    "Inbox could not enter Rewind mode at the resolved Running boundary.");
-                return false;
-            }
-
             if (_participant != null &&
                 !_participant.TryBeginPreview(_history.Count, out diagnostic))
             {
-                _inbox?.CancelRewindOrRestoreNoFail();
                 return false;
             }
 
@@ -778,13 +750,6 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_inbox != null && !_inbox.CanResumeAfterTimelineReset)
-            {
-                diagnostic = MailboxError(
-                    "Inbox cannot complete the Temporal timeline reset.");
-                return false;
-            }
-
             CoCoTemporalSelection selection;
             try
             {
@@ -865,8 +830,7 @@ namespace CoCoFlow.Runtime.Core
 
             if (_host.IsTemporalOperationCancellationRequested ||
                 !preparedRestore.IsValid ||
-                !_history.HasPreparedCapture ||
-                (_inbox != null && !_inbox.CanResumeAfterTimelineReset))
+                !_history.HasPreparedCapture)
             {
                 _participant?.CancelPreparedCaptureNoFail();
                 preparedRestore.Cancel();
@@ -880,7 +844,6 @@ namespace CoCoFlow.Runtime.Core
             preparedRestore.CommitNoFail();
             _history.PublishBranchCaptureNoFail();
             _participant?.PublishBranchCaptureNoFail();
-            _inbox?.ResumeAfterTimelineResetNoFail(resumedTickFrame.TimelineEpoch);
             _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Confirm);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
@@ -904,13 +867,6 @@ namespace CoCoFlow.Runtime.Core
                 !TryRequireLiveBinding(out diagnostic))
             {
                 _host.LatchWorldCorrectionFault(diagnostic);
-                return false;
-            }
-
-            if (_inbox != null && !_inbox.CanCancelRewindOrRestore)
-            {
-                diagnostic = MailboxError(
-                    "Inbox cannot cancel the current Temporal preview session.");
                 return false;
             }
 
@@ -944,7 +900,6 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
-            _inbox?.CancelRewindOrRestoreNoFail();
             _participant?.CompletePreviewNoFail(CoCoContextRestoreApplyKind.Cancel);
             _mode = CoCoTemporalMode.Ready;
             _previewDepth = 0;
@@ -979,16 +934,6 @@ namespace CoCoFlow.Runtime.Core
             if (!_host.RecoveryProjection.HasValue && !_host.RecoveryOperatorsLive(requireCoverage: true))
             {
                 diagnostic = BindingError("Tick fault correction requires enabled recovery for every bound Operator.");
-                return false;
-            }
-
-            bool closesPreview = _mode == CoCoTemporalMode.Previewing;
-            if (closesPreview &&
-                _inbox != null &&
-                !_inbox.CanCancelRewindOrRestore)
-            {
-                diagnostic = MailboxError(
-                    "Inbox cannot close the faulted Temporal preview during world correction.");
                 return false;
             }
 
@@ -1028,20 +973,12 @@ namespace CoCoFlow.Runtime.Core
             }
 
             if (_host.IsTemporalOperationCancellationRequested ||
-                !recovery.IsValid ||
-                (closesPreview &&
-                 _inbox != null &&
-                 !_inbox.CanCancelRewindOrRestore))
+                !recovery.IsValid)
             {
                 recovery.Cancel();
                 diagnostic = TemporalLifecycleError(
                     "World correction proof changed during Unity projection.");
                 return false;
-            }
-
-            if (closesPreview)
-            {
-                _inbox?.CancelRewindOrRestoreNoFail();
             }
 
             recovery.CompleteNoFail();
@@ -1482,12 +1419,6 @@ namespace CoCoFlow.Runtime.Core
             CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Restore,
                 CoCoDiagnosticCode.WorldCorrectionRequired,
-                message);
-
-        private static CoCoDiagnostic MailboxError(string message) =>
-            CoCoDiagnostic.Error(
-                CoCoDiagnosticDomain.Mailbox,
-                CoCoDiagnosticCode.MailboxUnavailable,
                 message);
 
         private static CoCoDiagnostic TemporalLifecycleError(string message) =>

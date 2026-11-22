@@ -10,13 +10,13 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
     public sealed class CoCoStateGraphTransitiveDependencyClosureIntegrationTests
     {
         [Test]
-        public void DirectRuntimeGuardAcceptsWhileEditorClosureRejectsTransitiveLegacyCorePath()
+        public void CatalogAndEditorAcceptGameplayUsingCoreThroughAHelper()
         {
             string[] authorReferences = ReferencedAssemblyNames(typeof(TransitiveDependencyLogic));
             CollectionAssert.Contains(
                 authorReferences,
                 "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper");
-            CollectionAssert.DoesNotContain(authorReferences, "CoCoFlow.Runtime.Core");
+            Assert.That(TransitiveDependencyLogic.ReadCoreViaHelper(), Is.EqualTo((int)CoCoLifecycleState.Uninitialized));
 
             Assert.IsTrue(CoCoStateDescriptorId.TryCreate(
                 0xD15UL,
@@ -45,27 +45,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             CoCoDiagnostic[] diagnostics =
                 CoCoStateGraphAuthoringDependencyClosureValidator.Validate(
                     catalog,
-                    AssembliesType.Editor);
+                    AssembliesType.Player);
 
-            const string expectedMessage =
-                "Graph author dependency closure " +
-                "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor -> " +
-                "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper -> " +
-                "CoCoFlow.Runtime.Core references a forbidden framework boundary.";
-            int expectedIndex = Array.FindIndex(
-                diagnostics,
-                item => string.Equals(item.Message, expectedMessage, StringComparison.Ordinal));
-            Assert.GreaterOrEqual(
-                expectedIndex,
-                0,
-                string.Join("\n", Array.ConvertAll(diagnostics, item => item.Message)));
-
-            CoCoDiagnostic expected = diagnostics[expectedIndex];
-            Assert.AreEqual(CoCoDiagnosticDomain.State, expected.Domain);
-            Assert.AreEqual(
-                CoCoDiagnosticCode.InvalidAuthoringDependency,
-                expected.Code);
-            Assert.IsTrue(expected.IsError);
+            Assert.IsEmpty(diagnostics, string.Join("\n", Array.ConvertAll(diagnostics, item => item.Message)));
         }
 
         private static string[] ReferencedAssemblyNames(Type type)

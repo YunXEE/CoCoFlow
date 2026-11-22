@@ -32,7 +32,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             PersistenceSession.ClearPendingDocument();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
             _previousSaveDirectory = PersistenceFileStore.SaveDirectoryOverride;
             _saveDirectory = Path.Combine(
                 Application.temporaryCachePath,
@@ -66,8 +65,47 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
         }
+
+#if UNITY_EDITOR
+        [Test]
+        public void LoadsGraphAndSaveCapturedBeforeAssemblyMigration()
+        {
+            const string folder = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/";
+            var yaml = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "LegacyGraph.asset.bytes");
+            var save = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "LegacySave.json");
+            string path = UnityEditor.AssetDatabase.GenerateUniqueAssetPath("Assets/P003LegacyGraph.asset");
+            try
+            {
+                File.WriteAllBytes(path, yaml.bytes);
+                File.WriteAllText(path + ".meta", "fileFormatVersion: 2\nguid: 8910f80cccf748b885d97a43aa7bcde4\n");
+                UnityEditor.AssetDatabase.ImportAsset(path, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
+                var graph = UnityEditor.AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(path);
+                Assert.That(graph.GraphId.High, Is.EqualTo(3916367682240073490UL));
+                Assert.That(graph.GraphId.Low, Is.EqualTo(10913725610826399969UL));
+                Assert.That(((HostTestStateConfig)graph.Layers[0].States[0].Config).Value, Is.EqualTo(1));
+
+                var scenario = Track(TemporalHostTestHarness.Create(historyCapacity: 3, withDurableProjection: true));
+                SetField(scenario.Host, "stateGraphAsset", graph);
+                AttachPersistence(scenario, StableEntityId);
+                Require(scenario.Host.TryStart(out var start), start);
+                StepWithActorValue(scenario, 99);
+                File.WriteAllBytes(PersistenceFileStore.GetSaveFilePath(0), save.bytes);
+                Assert.That(PersistenceSaveLoadSystem.LoadGame(0), Is.True);
+                Assert.That(scenario.Binding.Value, Is.EqualTo(20));
+                Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(2));
+                Assert.That(scenario.Host.ActivePaths[0].ActiveLeaf, Is.EqualTo(scenario.Ids.StateId));
+                Require(scenario.Host.TryStep(0.1d, out var step), step);
+                Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(3));
+                Assert.That(TemporalHostTestHarness.ReadActorValue(scenario.Host.CurrentContext,
+                    scenario.Ids.ActorStateSlotId), Is.EqualTo(20));
+            }
+            finally
+            {
+                UnityEditor.AssetDatabase.DeleteAsset(path);
+            }
+        }
+#endif
 
         [Test]
         public void SaveGameLoadsDurableContextIntoSiblingAndReseedsHistory()

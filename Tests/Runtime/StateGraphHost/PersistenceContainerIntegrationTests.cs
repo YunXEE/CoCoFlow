@@ -36,7 +36,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
             PersistenceContextRegistry.Clear();
             PersistenceSession.ClearPendingDocument();
             _previousDirectory = PersistenceFileStore.SaveDirectoryOverride;
@@ -58,7 +57,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
         }
 
         [TestCase(false, false)]

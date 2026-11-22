@@ -4,7 +4,7 @@
     "references": [
         "CoCoFlow.Editor.Modules.Map",
         "CoCoFlow.Fixtures.ExternalMapTa",
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Modules.Map",
         "UniTask"
     ],

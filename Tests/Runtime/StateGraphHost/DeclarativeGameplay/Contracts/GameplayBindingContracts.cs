@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper;
 using CoCoFlow.Runtime.Camera.Contracts;
 using CoCoFlow.Runtime.Core;
 
@@ -45,12 +46,16 @@ namespace CoCoFlow.Tests.GameplayBinding
         public int Window;
     }
 
+    public sealed class GameplayCoreService { }
+
     [CoCoState("P001.Enemy")]
     public sealed class EnemyLogic : CoCoStateLogic, ICoCoStateUpdate
     {
         [Intent] public EnemyIntentData Enemy { get; private set; }
         [Operation] public IDamageWindowSection Damage { get; private set; }
         [Operation] public DamageSections.IDamagePulseSection Pulse { get; private set; }
+        public static GameplayCoreService DirectService { get; private set; }
+        public static GameplayCoreService HelperService { get; private set; }
         public static string Target { get; private set; }
         public static CoCoStateEventBatch<Interaction> LastBatch { get; private set; }
         public static int RepeatedRead { get; private set; }
@@ -58,6 +63,8 @@ namespace CoCoFlow.Tests.GameplayBinding
 
         public void Update(CoCoStateExecutionContext context)
         {
+            DirectService = CoCoServices.Get<GameplayCoreService>();
+            HelperService = TransitiveDependencyHelperToken.GetService<GameplayCoreService>();
             Target = Enemy.Target;
             if (context.Inbox.TryGetBatch<Interaction>(out var batch) && batch.TryRead(0, out var interaction))
             {

@@ -2,8 +2,7 @@
     "name": "CoCoFlow.Runtime.Modules.Input",
     "rootNamespace": "CoCoFlow.Runtime.Modules.Input",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core.StateGraph",
         "Unity.InputSystem"
     ],
     "includePlatforms": [],

@@ -177,73 +177,25 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    public struct TemporalHostIntent
-    {
-        public int Value;
-    }
-
     public struct TemporalHostEvent
     {
         public int Value;
     }
 
-    public struct TemporalHostIntentReducer : ICoCoIntentReducer<TemporalHostIntent>
-    {
-        public TemporalHostIntent Reduce(
-            in TemporalHostIntent current,
-            in TemporalHostIntent candidate) => candidate;
-    }
-
-    public sealed class TemporalHostIntentReducerFactory :
-        ICoCoIntentReducerFactory<TemporalHostIntent, TemporalHostIntentReducer>
-    {
-        public TemporalHostIntentReducer Create(
-            CoCoGraphInstanceId graphInstanceId) => default;
-    }
-
-    public sealed class TemporalHostEventAdapter :
-        ICoCoEventToIntentAdapter<TemporalHostEvent, TemporalHostIntent>
-    {
-        public static int ProjectionCount { get; private set; }
-
-        public static void Reset()
-        {
-            ProjectionCount = 0;
-        }
-
-        public bool TryProject(
-            in CoCoEventPacket<TemporalHostEvent> packet,
-            out TemporalHostIntent intent)
-        {
-            ProjectionCount++;
-            intent = new TemporalHostIntent { Value = packet.Payload.Value };
-            return true;
-        }
-    }
-
     public sealed class TemporalHostLogic : CoCoStateLogic, ICoCoStateUpdate
     {
-        private readonly CoCoGraphInstanceId _graphInstanceId;
-        private readonly CoCoIntentHandle<TemporalHostIntent> _intent;
-
-        public TemporalHostLogic(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoIntentHandle<TemporalHostIntent> intent)
-        {
-            _graphInstanceId = graphInstanceId;
-            _intent = intent;
-        }
-
+        public static int EventCount { get; private set; }
         public static int UpdateCount { get; private set; }
         public static int LastMemoryValue { get; private set; }
-        public static int LastIntentValue { get; private set; }
+        public static int LastEventValue { get; private set; }
         public static Action UpdateCallback { get; set; }
 
         public static void Reset()
         {
             UpdateCount = 0;
             LastMemoryValue = 0;
-            LastIntentValue = 0;
+            LastEventValue = 0;
+            EventCount = 0;
             UpdateCallback = null;
         }
 
@@ -256,12 +208,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             TemporalHostMemory memory = context.Memory<TemporalHostMemory>();
             memory.Value++;
             LastMemoryValue = memory.Value;
-            if (_graphInstanceId.IsValid &&
-                _intent.IsValid &&
-                context.Intents != null &&
-                context.Intents.TryGet(_intent, out TemporalHostIntent intent))
+            if (context.Inbox.TryGetBatch<TemporalHostEvent>(out var batch))
             {
-                LastIntentValue = intent.Value;
+                for (int index = 0; batch.TryRead(index, out TemporalHostEvent payload); index++)
+                {
+                    EventCount++;
+                    LastEventValue = payload.Value;
+                }
             }
 
             UpdateCallback?.Invoke();

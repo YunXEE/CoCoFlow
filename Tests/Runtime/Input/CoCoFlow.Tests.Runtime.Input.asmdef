@@ -4,7 +4,8 @@
     "references": [
         "CoCoFlow.Runtime.Modules.Input",
         "Unity.InputSystem",
-        "Unity.InputSystem.TestFramework"
+        "Unity.InputSystem.TestFramework",
+        "CoCoFlow.Runtime.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

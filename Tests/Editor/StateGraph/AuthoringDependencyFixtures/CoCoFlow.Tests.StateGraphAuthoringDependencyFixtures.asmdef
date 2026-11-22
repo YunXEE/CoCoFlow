@@ -2,9 +2,9 @@
     "name": "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Runtime.Core.StateGraphAuthoring"
+        "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [
         "Editor"

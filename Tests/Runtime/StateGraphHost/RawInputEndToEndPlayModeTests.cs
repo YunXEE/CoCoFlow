@@ -41,6 +41,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
+            RawInputProbeCapture.RejectAfterReading = false;
             RawInputProbeCapture.Records = null;
             CoCoStateGraphProjectBindings.ResetForTests();
         }
@@ -118,6 +119,26 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryStep(1f / 60f, out CoCoDiagnostic following), following.Message);
             Assert.That(records.Exists(record => record.Action.ToString() == SubmitAction), Is.False,
                 "The next successful tick should not replay the committed short press");
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            records.Clear();
+            RawInputProbeCapture.RejectAfterReading = true;
+            CoCoContextRevision beforeFailure = host.CurrentContext.Revision;
+            Assert.That(host.TryStep(1f / 60f, out var rejected), Is.False);
+            Assert.That(rejected.IsError, Is.True);
+            Assert.That(host.CurrentContext.Revision, Is.EqualTo(beforeFailure));
+            var sampled = records.FindAll(record => record.Action.ToString() == SubmitAction);
+            Assert.That(sampled, Has.Count.EqualTo(2));
+
+            InputSystem.Update();
+            Assert.That(input.TrySample(default, out InputIntentData remaining), Is.True);
+            var pending = new List<ulong>();
+            foreach (var record in remaining.Changes.ToArray())
+                if (record.Action.ToString() == SubmitAction) pending.Add(record.Sequence);
+            CollectionAssert.AreEqual(new[] { sampled[0].Sequence, sampled[1].Sequence }, pending);
         }
 
         private static InputActionAsset CreateActions()

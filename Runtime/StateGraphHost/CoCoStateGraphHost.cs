@@ -28,8 +28,6 @@ namespace CoCoFlow.Runtime.Core
         [SerializeField, Min(0)] private int eventOutboxCapacity = 32;
         [SerializeField, Min(0)] private int traceCapacity;
         [SerializeField, Min(1)] private int eventLaneCapacity = 32;
-        [SerializeField, Min(1)] private int eventSourceCapacity = 32;
-        [SerializeField, Min(1)] private int eventDedupCapacity = 128;
 
         private CoCoStateGraphHostRuntimeBindings _bindings;
         private CoCoStateGraphRuntime _runtime;
@@ -66,9 +64,6 @@ namespace CoCoFlow.Runtime.Core
         internal int ContextFrameCapacity => contextFrameCapacity;
         internal int EventOutboxCapacity => eventOutboxCapacity;
         internal int TraceCapacity => traceCapacity;
-        internal int EventLaneCapacity => eventLaneCapacity;
-        internal int EventSourceCapacity => eventSourceCapacity;
-        internal int EventDedupCapacity => eventDedupCapacity;
         internal bool HasLiveRuntime => _runtime != null;
         internal bool IsRuntimeFaulted => _runtime?.IsFaulted ?? false;
         public int TemporalHistoryCapacity => temporalHistoryCapacity;
@@ -304,9 +299,6 @@ namespace CoCoFlow.Runtime.Core
                 }
 
                 if (!builder.TryFreeze(
-                        eventLaneCapacity,
-                        eventSourceCapacity,
-                        eventDedupCapacity,
                         out bindings,
                         out diagnostic))
                 {
@@ -458,7 +450,6 @@ namespace CoCoFlow.Runtime.Core
                         bindings.ContextLayout,
                         bindings.ContextCodecs,
                         transaction,
-                        bindings.Inbox,
                         contextRestoreBinding,
                         temporalHistoryCapacity,
                         out temporal,
@@ -495,16 +486,6 @@ namespace CoCoFlow.Runtime.Core
 
                 // Registration is deliberately last: no packet can reach a partially started Host.
                 StartStateEvents(provider, compileResult.Graph);
-                if (!_bindings.RegisterRouter(this))
-                {
-                    DisposeInstance();
-                    diagnostic = RegistryError(
-                        CoCoDiagnosticCode.DuplicateIdentifier,
-                        "Router rejected a duplicate GraphInstance event sink.");
-                    _lastDiagnostic = diagnostic;
-                    return false;
-                }
-
                 _acceptsEventInput = true;
                 _hasStoppedInstance = false;
                 AdvanceInputAuthorityRevision();
@@ -584,20 +565,6 @@ namespace CoCoFlow.Runtime.Core
             }
 
             AdvanceInputAuthorityRevision();
-            if (_bindings.Inbox != null && !_bindings.Inbox.Suspend())
-            {
-                if (_runtime.TryResume(out _))
-                {
-                    AdvanceInputAuthorityRevision();
-                }
-
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Mailbox,
-                    CoCoDiagnosticCode.MailboxUnavailable,
-                    "Inbox could not enter Suspended with the Runtime.");
-                return false;
-            }
-
             _transaction?.Suspend();
 
             diagnostic = CoCoDiagnostic.None;
@@ -633,18 +600,8 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            if (_bindings.Inbox != null && !_bindings.Inbox.Resume())
-            {
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.Mailbox,
-                    CoCoDiagnosticCode.MailboxUnavailable,
-                    "Inbox could not resume with the Runtime.");
-                return false;
-            }
-
             if (!_runtime.TryResume(out diagnostic))
             {
-                _bindings.Inbox?.Suspend();
                 return false;
             }
 
@@ -687,26 +644,11 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
-            // Unregister first so no packet can target a tearing-down instance.
+            // Close the Inbox before stopping the instance.
             _acceptsEventInput = false;
-            _bindings?.UnregisterRouter();
             if (!_runtime.TryStop(out diagnostic))
             {
-                if (_bindings != null)
-                {
-                    if (!_bindings.RegisterRouter(this))
-                    {
-                        diagnostic = RegistryError(
-                            CoCoDiagnosticCode.DuplicateIdentifier,
-                            "Host could not restore Router registration after Stop was rejected.");
-                        _runtime.TryLatchExternalFault(diagnostic);
-                    }
-                    else
-                    {
-                        _acceptsEventInput = true;
-                    }
-                }
-
+                _acceptsEventInput = true;
                 _lastDiagnostic = diagnostic;
                 return false;
             }
@@ -990,7 +932,7 @@ namespace CoCoFlow.Runtime.Core
                         CoCoDiagnostic synchronizationFailure = suspendDiagnostic.IsError
                             ? suspendDiagnostic
                             : LifecycleError(
-                                "Debug Step could not synchronize Runtime and Inbox back to Suspended.");
+                                "Debug Step could not synchronize Runtime back to Suspended.");
                         _runtime.TryLatchExternalFault(synchronizationFailure);
                     }
 
@@ -1271,7 +1213,7 @@ namespace CoCoFlow.Runtime.Core
             where TEvent : unmanaged
         {
             if (!CanAcceptEventInput || _bindings == null ||
-                (!_bindings.HasEvents && _stateInbox?.Find<TEvent>() == null))
+                _stateInbox?.Find<TEvent>() == null)
             {
                 return CoCoInboxEnqueueResult.MailboxUnavailable;
             }
@@ -1282,9 +1224,7 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoInboxEnqueueResult.InvalidPacket;
             }
 
-            CoCoInboxEnqueueResult result = _bindings.HasEvents
-                ? _bindings.TryEnqueueLocal(packet)
-                : TryReceiveStatePacket(in packet);
+            CoCoInboxEnqueueResult result = TryReceiveStatePacket(in packet);
             if (result == CoCoInboxEnqueueResult.ReliableOverflowFaultRequired)
             {
                 MarkReliableOverflowPending();
@@ -1777,7 +1717,6 @@ namespace CoCoFlow.Runtime.Core
             _stateEventAgent?.UnsubscribeAll();
             _stateEventAgent = null;
             _stateInbox = null;
-            _bindings?.UnregisterRouter();
             _temporal?.Dispose();
             _temporal = null;
             _transaction?.Dispose();
@@ -1804,9 +1743,7 @@ namespace CoCoFlow.Runtime.Core
                 return;
             }
 
-            // Router unregistration remains the first observable teardown action.
             _acceptsEventInput = false;
-            _bindings?.UnregisterRouter();
             DisposeInstance();
             _hasStoppedInstance = false;
             _isDisposed = true;
@@ -1823,7 +1760,6 @@ namespace CoCoFlow.Runtime.Core
             // Unity destruction cannot be rejected. It still closes a live instance through
             // the frozen Running/Suspended -> Stopped -> Disposed lifecycle edges.
             _acceptsEventInput = false;
-            _bindings?.UnregisterRouter();
             if (_runtime != null &&
                 (_runtime.Lifecycle == CoCoRuntimeLifecycleState.Running ||
                  _runtime.Lifecycle == CoCoRuntimeLifecycleState.Suspended))

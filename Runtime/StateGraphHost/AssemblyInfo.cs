@@ -9,3 +9,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.StateGraphHost")]
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Runtime.Pooling.Temporal")]
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Runtime.StateGraphHost")]
+[assembly: InternalsVisibleTo("CoCoFlow.Editor.StateGraph")]
+[assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.StateGraph")]

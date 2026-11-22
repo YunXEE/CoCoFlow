@@ -20,7 +20,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         public void SetUp()
         {
             CoCoStateGraphFixtureCounters.Reset();
-            CountingTestEventToIntentAdapter.Reset();
         }
 
         [Test]
@@ -50,8 +49,6 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.AreEqual(PrimaryIntentId, declaration.ProvidedIntentId);
             Assert.AreEqual(typeof(TestIntent), declaration.ProvidedIntentType);
 
-            Assert.AreEqual(0, CountingTestEventToIntentAdapter.Constructed);
-            Assert.AreEqual(0, CountingTestEventToIntentAdapter.Projected);
             Assert.AreEqual(
                 0,
                 typeof(CoCoCompiledEventToIntentDeclaration).GetConstructors().Length,

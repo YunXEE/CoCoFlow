@@ -2,8 +2,8 @@
     "name": "CoCoFlow.Runtime.Locomotion.Contracts",
     "rootNamespace": "CoCoFlow.Runtime.Locomotion.Contracts",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.Core.StateGraph"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

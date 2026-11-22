@@ -10,7 +10,7 @@ namespace CoCoFlow.Runtime.Pooling.Tests
     public sealed class PoolingPackageBoundaryTests
     {
         [Test]
-        public void BasePoolingReferencesOnlyContentContractsAndUniTask()
+        public void BasePoolingReferencesOnlyContentCoreAndUniTask()
         {
             string packagePath = PackageInfo.FindForAssembly(typeof(PoolId).Assembly).resolvedPath;
             AssemblyDefinition definition = ReadAssemblyDefinition(
@@ -20,7 +20,7 @@ namespace CoCoFlow.Runtime.Pooling.Tests
             CollectionAssert.AreEquivalent(
                 new[]
                 {
-                    "CoCoFlow.Runtime.Core.Contracts",
+                    "CoCoFlow.Runtime.Core",
                     "CoCoFlow.Runtime.Content",
                     "UniTask"
                 },
@@ -34,7 +34,7 @@ namespace CoCoFlow.Runtime.Pooling.Tests
         }
 
         [Test]
-        public void TemporalSidecarAddsOnlyPoolingStateGraphHostAndContracts()
+        public void TemporalSidecarReferencesPoolingAndStateGraphRuntime()
         {
             string packagePath = PackageInfo.FindForAssembly(typeof(PoolId).Assembly).resolvedPath;
             AssemblyDefinition definition = ReadAssemblyDefinition(
@@ -44,7 +44,8 @@ namespace CoCoFlow.Runtime.Pooling.Tests
             CollectionAssert.AreEquivalent(
                 new[]
                 {
-                    "CoCoFlow.Runtime.Core.Contracts",
+                    "CoCoFlow.Runtime.Core",
+                    "CoCoFlow.Runtime.Core.StateGraph",
                     "CoCoFlow.Runtime.StateGraphHost",
                     "CoCoFlow.Runtime.Pooling"
                 },

@@ -90,6 +90,15 @@ namespace UnityEngine
     }
 }
 
+namespace UnityEngine.Scripting.APIUpdating
+{
+    public sealed class MovedFromAttribute : Attribute
+    {
+        public MovedFromAttribute(bool autoUpdateAPI, string sourceNamespace = null,
+            string sourceAssembly = null, string sourceClassName = null) { }
+    }
+}
+
 namespace UnityEngine.Scripting
 {
     public sealed class PreserveAttribute : Attribute { }

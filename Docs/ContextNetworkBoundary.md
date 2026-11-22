@@ -436,7 +436,7 @@ StateLogic 和 Layer 的程序集/API 表面不得引用：
 
 Editor Analyze 与 Player build preflight 会从 Catalog 记录的全部作者类型 root
 遍历完整已解析程序集依赖闭包。每个可达自定义程序集都必须有 asmdef 且
-`noEngineReferences:true`；命中 Unity、Editor、legacy Core、StateGraphAuthoring、
+`noEngineReferences:true`；命中 Unity、Editor、StateGraphHost、
 Modules，或遇到无法证明安全的自定义 precompiled dependency 时失败关闭。
 Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；纯 Compiler 本身不
 扫描程序集。
@@ -447,8 +447,7 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 
 ## 10. 0.4 Core 边界
 
-- Contracts、StateFlow、StateGraph、StateGraphAuthoring Runtime 与
-  StateGraphHost 构成本次成熟的 Core Engine。
+- Core、StateGraph 和 StateGraphHost 构成本次成熟的 Core Engine。
 - StateGraph Editor 是当前可用工具，但不属于 Runtime API 成熟保证。
 - Persistence 通过 Durable Context projection 接入 Host；它独立负责 schema v2、
   StableEntityId、Container 和文件生命周期。

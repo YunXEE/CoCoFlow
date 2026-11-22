@@ -29,6 +29,22 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
+        public void HistoricalAnyStateRetainsItsManagedReferenceAfterTheAssemblyMove()
+        {
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/BeforeAnyState.asset.bytes";
+            var serialized = AssetDatabase.LoadAssetAtPath<TextAsset>(fixture);
+            System.IO.File.WriteAllBytes(AssetPath, serialized.bytes);
+            System.IO.File.WriteAllText(AssetPath + ".meta", "fileFormatVersion: 2\nguid: ec830e79067924b9794c3557fcb096fe\n");
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            var graph = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath);
+            Assert.That(SerializationUtility.HasManagedReferencesWithMissingTypes(graph), Is.False);
+            var any = graph.Layers[0].AnyState;
+            Assert.That(any, Is.Not.Null);
+            Assert.That(any.StateId, Is.EqualTo(new CoCoSerializedId128(73UL, 74UL)));
+            Assert.That(any.DisplayName, Is.EqualTo("Before AnyState"));
+        }
+
+        [Test]
         [TestCase(false)]
         [TestCase(true)]
         public void OptionalAnyStateSurvivesSaveReloadAndUndo(bool configured)

@@ -109,8 +109,7 @@ namespace CoCoFlow.Editor.StateGraph
                 "    \"name\": \"StateGraphScripts\",\n" +
                 "    \"rootNamespace\": \"\",\n" +
                 "    \"references\": [\n" +
-                "        \"CoCoFlow.Runtime.Core.Contracts\",\n" +
-                "        \"CoCoFlow.Runtime.Core.StateFlow\",\n" +
+                "        \"CoCoFlow.Runtime.Core\",\n" +
                 "        \"CoCoFlow.Runtime.Core.StateGraph\",\n" +
                 "        \"CoCoFlow.Runtime.Locomotion.Contracts\"\n" +
                 "    ],\n" +

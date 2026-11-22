@@ -335,7 +335,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(host == null, Is.True);
             Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.Zero);
             Assert.That(ContextAuthorityLogic.UpdateCount, Is.Zero);
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
         }
 
         [Test]
@@ -359,7 +358,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(host == null, Is.True);
             Assert.That(ContextAuthorityMemoryStateBinding.CaptureCount, Is.EqualTo(1));
             Assert.That(ContextAuthorityLogic.UpdateCount, Is.Zero);
-            Assert.That(CoCoStateGraphEventRouterRegistry.Count, Is.Zero);
         }
 
         [Test]

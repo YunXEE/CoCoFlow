@@ -33,7 +33,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
       <method signature=""System.Void .ctor()"" />
     </type>
   </assembly>
-  <assembly fullname=""CoCoFlow.Runtime.Core.StateFlow"">
+  <assembly fullname=""CoCoFlow.Runtime.Core.StateGraph"">
     <type fullname=""CoCoFlow.Runtime.Core.CoCoContextFrameArena"" preserve=""nothing"">
       <property name=""Capacity"" />
     </type>

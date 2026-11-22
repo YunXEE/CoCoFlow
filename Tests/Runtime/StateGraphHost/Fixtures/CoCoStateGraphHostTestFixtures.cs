@@ -75,11 +75,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public int Value;
     }
 
-    public struct SecondHostTestEvent
-    {
-        public int Value;
-    }
-
     public struct HostTestIntentReducer : ICoCoIntentReducer<HostTestIntent>
     {
         public HostTestIntent Reduce(
@@ -91,41 +86,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         ICoCoIntentReducerFactory<HostTestIntent, HostTestIntentReducer>
     {
         public HostTestIntentReducer Create(CoCoGraphInstanceId graphInstanceId) => default;
-    }
-
-    public struct OrderedHostTestIntentReducer : ICoCoIntentReducer<HostTestIntent>
-    {
-        public HostTestIntent Reduce(
-            in HostTestIntent current,
-            in HostTestIntent candidate) =>
-            new HostTestIntent { Value = (current.Value * 10) + candidate.Value };
-    }
-
-    public sealed class OrderedHostTestIntentReducerFactory :
-        ICoCoIntentReducerFactory<HostTestIntent, OrderedHostTestIntentReducer>
-    {
-        public OrderedHostTestIntentReducer Create(
-            CoCoGraphInstanceId graphInstanceId) => default;
-    }
-
-    public sealed class HostTestEventAdapter :
-        ICoCoEventToIntentAdapter<HostTestEvent, HostTestIntent>
-    {
-        public static int ProjectionCount { get; private set; }
-
-        public static void Reset()
-        {
-            ProjectionCount = 0;
-        }
-
-        public bool TryProject(
-            in CoCoEventPacket<HostTestEvent> packet,
-            out HostTestIntent intent)
-        {
-            ProjectionCount++;
-            intent = new HostTestIntent { Value = packet.Payload.Value };
-            return true;
-        }
     }
 
     public interface IHostTestDiscreteSection : ICoCoOperationSection
@@ -177,14 +137,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         ICoCoStateUpdate,
         ICoCoStateExit
     {
-        private static readonly Dictionary<CoCoGraphInstanceId, int> IntentByInstance =
+        private static readonly Dictionary<CoCoGraphInstanceId, int> EventByInstance =
             new Dictionary<CoCoGraphInstanceId, int>();
         private static readonly Dictionary<CoCoGraphInstanceId, int> UpdatesByInstance =
             new Dictionary<CoCoGraphInstanceId, int>();
         private static readonly Dictionary<CoCoGraphInstanceId, int> MemoryByInstance =
             new Dictionary<CoCoGraphInstanceId, int>();
         private readonly CoCoGraphInstanceId _graphInstanceId;
-        private readonly CoCoIntentHandle<HostTestIntent> _intent;
         private readonly CoCoOperationSectionHandle<IHostTestDiscreteSection> _operationHandle;
         private readonly CoCoOperationSectionField<int> _operationField;
 
@@ -194,12 +153,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public HostTestLogic(
             CoCoGraphInstanceId graphInstanceId,
-            CoCoIntentHandle<HostTestIntent> intent = default,
             CoCoOperationSectionHandle<IHostTestDiscreteSection> operationHandle = default,
             CoCoOperationSectionField<int> operationField = default)
         {
             _graphInstanceId = graphInstanceId;
-            _intent = intent;
             _operationHandle = operationHandle;
             _operationField = operationField;
         }
@@ -207,7 +164,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static int EnterCount { get; private set; }
         public static int UpdateCount { get; private set; }
         public static int ExitCount { get; private set; }
-        public static int LastIntentValue { get; private set; }
+        public static int EventCount { get; private set; }
+        public static int LastEventValue { get; private set; }
         public static Action UpdateCallback { get; set; }
         public static Action MemoryFingerprintCallback { get; set; }
 
@@ -216,16 +174,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             EnterCount = 0;
             UpdateCount = 0;
             ExitCount = 0;
-            LastIntentValue = 0;
+            EventCount = 0;
+            LastEventValue = 0;
             UpdateCallback = null;
             MemoryFingerprintCallback = null;
-            IntentByInstance.Clear();
+            EventByInstance.Clear();
             UpdatesByInstance.Clear();
             MemoryByInstance.Clear();
         }
 
-        public static int GetLastIntent(CoCoGraphInstanceId graphInstanceId) =>
-            IntentByInstance.TryGetValue(graphInstanceId, out int value) ? value : 0;
+        public static int GetLastEvent(CoCoGraphInstanceId graphInstanceId) =>
+            EventByInstance.TryGetValue(graphInstanceId, out int value) ? value : 0;
 
         public static int GetUpdateCount(CoCoGraphInstanceId graphInstanceId) =>
             UpdatesByInstance.TryGetValue(graphInstanceId, out int value) ? value : 0;
@@ -265,14 +224,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             {
                 MemoryByInstance[_graphInstanceId] = memory.Value;
             }
-            if (_intent.IsValid &&
-                context.Intents != null &&
-                context.Intents.TryGet(_intent, out HostTestIntent intent))
+            if (context.Inbox.TryGetBatch<HostTestEvent>(out var batch))
             {
-                LastIntentValue = intent.Value;
-                if (_graphInstanceId.IsValid)
+                for (int index = 0; batch.TryRead(index, out HostTestEvent payload); index++)
                 {
-                    IntentByInstance[_graphInstanceId] = intent.Value;
+                    EventCount++;
+                    LastEventValue = payload.Value;
+                    if (_graphInstanceId.IsValid)
+                        EventByInstance[_graphInstanceId] = payload.Value;
                 }
             }
 

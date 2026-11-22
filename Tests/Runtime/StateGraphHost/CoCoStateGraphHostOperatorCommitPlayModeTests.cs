@@ -147,6 +147,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             try
             {
                 Require(host.TryStart(out CoCoDiagnostic start), start);
+                runtimeOperator.PublishEvents = false;
+                Require(host.TryStep(0.02d, out CoCoDiagnostic empty), empty);
+                Assert.That(host.CurrentContext.Revision.Value, Is.EqualTo(1UL));
+                Assert.That(listener.Order, Is.Empty);
+                runtimeOperator.PublishEvents = true;
                 Require(host.TryStep(0.02d, out CoCoDiagnostic step), step);
             }
             finally
@@ -157,8 +162,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             CollectionAssert.AreEqual(new[] { "A", "B" }, listener.Order);
             CollectionAssert.AreEqual(new[] { 1UL, 2UL }, listener.Sequences);
-            Assert.That(listener.ObservedRevision, Is.EqualTo(1UL));
-            Assert.That(listener.ObservedTick, Is.EqualTo(1UL));
+            Assert.That(listener.ObservedRevision, Is.EqualTo(2UL));
+            Assert.That(listener.ObservedTick, Is.EqualTo(2UL));
             Assert.That(listener.ReentrantStepAccepted, Is.False);
             Assert.That(listener.StopAccepted, Is.True);
             Assert.That(listener.DisposeAccepted, Is.True);
@@ -2159,9 +2164,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 host);
             Require(provider.TryConfigure(builder, out CoCoDiagnostic configure), configure);
             Require(builder.TryFreeze(
-                host.EventLaneCapacity,
-                host.EventSourceCapacity,
-                host.EventDedupCapacity,
                 out CoCoStateGraphHostRuntimeBindings bindings,
                 out CoCoDiagnostic freeze), freeze);
 
@@ -3312,6 +3314,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             private CoCoEventOutboxRequirement _eventB;
 
             public int ExecuteCount { get; private set; }
+            public bool PublishEvents { get; set; } = true;
             public bool AttemptInvalidTarget { get; set; }
 
             public CoCoOperatorDescriptor Descriptor
@@ -3381,6 +3384,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 {
                     outcome = default;
                     return false;
+                }
+
+                if (!PublishEvents)
+                {
+                    outcome = CoCoOperatorOutcome.Success;
+                    return true;
                 }
 
                 if (AttemptInvalidTarget)

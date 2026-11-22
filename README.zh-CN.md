@@ -58,7 +58,7 @@ smoke 构建、完整 Umbra 动画和脚 IK 仍未验证。修复与兼容边界
 
 | 模块 | 状态 | 准确说明 |
 |---|---|---|
-| Core Engine | **成熟** | Contracts、StateFlow、StateGraph、StateGraphAuthoring Runtime、StateGraphHost；0.4 原生核心。 |
+| Core Engine | **成熟** | Core、StateGraph 和 StateGraphHost；0.4 原生核心。 |
 | Camera | **成熟** | 起源于 0.3.9，当前 Rig、priority、mode API 可稳定使用。 |
 | Persistence | **成熟** | 起源于 0.3.9，现已支持 schema v2、Container 与 StateGraph ContextFrame 持久化。 |
 | UI | **成熟** | 起源于 0.3.9，Panel、Widget、Input、Content ownership API 可用且稳定，但不是高效能 UI 框架。 |

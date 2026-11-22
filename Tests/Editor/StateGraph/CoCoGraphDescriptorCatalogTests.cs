@@ -275,11 +275,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         }
 
         [Test]
-        public void CatalogRejectsDescriptorAssembliesThatReferenceLegacyCore()
+        public void CatalogAcceptsDescriptorAssembliesThatUseCore()
         {
             var builder = new CoCoGraphDescriptorCatalogBuilder();
 
-            Assert.IsFalse(builder.TryRegisterState(
+            Assert.IsTrue(builder.TryRegisterState(
                 StateDescriptorId(21UL),
                 1U,
                 new LegacyCoreDependencyFreezer(),
@@ -292,8 +292,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 null,
                 out CoCoDiagnostic diagnostic));
 
-            Assert.AreEqual(CoCoDiagnosticCode.InvalidAuthoringDependency, diagnostic.Code);
-            Assert.IsTrue(diagnostic.IsError);
+            Assert.IsTrue(diagnostic.IsNone, diagnostic.Message);
         }
 
         [Test]

@@ -336,7 +336,7 @@ neither product module gains a reverse dependency on the other.
 
 The identity and storage boundaries stay separate:
 
-- `CoCoTemporalEntityId` is a pure Core Contracts value.
+- `CoCoTemporalEntityId` is a pure StateGraph value.
 - The sidecar keeps a Host-scoped, fixed-capacity presence history aligned with
   the Host history window.
 - History stores no GameObject, Component, `PooledHandle`, `ContentLease`,

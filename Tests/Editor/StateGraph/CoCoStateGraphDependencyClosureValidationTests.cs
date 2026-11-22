@@ -44,11 +44,11 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         {
             CoCoDiagnostic[] diagnostics = Validate(
                 new[] { "Author" },
-                Node("Author", references: new[] { "CoCoFlow.Runtime.Core" }));
+                Node("Author", references: new[] { "CoCoFlow.Runtime.StateGraphHost" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
-                "Graph author dependency closure Author -> CoCoFlow.Runtime.Core " +
+                "Graph author dependency closure Author -> CoCoFlow.Runtime.StateGraphHost " +
                 "references a forbidden framework boundary.");
         }
 
@@ -59,14 +59,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 new[] { "Author" },
                 Node("Helper", references: new[]
                 {
-                    "CoCoFlow.Runtime.Core.StateGraphAuthoring"
+                    "CoCoFlow.Runtime.StateGraphHost"
                 }),
                 Node("Author", references: new[] { "Helper" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
                 "Graph author dependency closure Author -> Helper -> " +
-                "CoCoFlow.Runtime.Core.StateGraphAuthoring " +
+                "CoCoFlow.Runtime.StateGraphHost " +
                 "references a forbidden framework boundary.");
         }
 
@@ -78,14 +78,14 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 Node("Author", references: new[] { "Helper.B", "Helper.A" }),
                 Node("Helper.A", references: new[] { "Shared" }),
                 Node("Helper.B", references: new[] { "Shared" }),
-                Node("Shared", references: new[] { "CoCoFlow.Runtime.Core" }));
+                Node("Shared", references: new[] { "CoCoFlow.Runtime.StateGraphHost" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
                 "Graph author dependency closure Author -> Helper.A -> Shared -> " +
-                "CoCoFlow.Runtime.Core references a forbidden framework boundary.",
+                "CoCoFlow.Runtime.StateGraphHost references a forbidden framework boundary.",
                 "Graph author dependency closure Author -> Helper.B -> Shared -> " +
-                "CoCoFlow.Runtime.Core references a forbidden framework boundary.");
+                "CoCoFlow.Runtime.StateGraphHost references a forbidden framework boundary.");
         }
 
         [Test]

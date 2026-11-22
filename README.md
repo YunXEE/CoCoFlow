@@ -68,7 +68,7 @@ marketplace certification.
 
 | Module | Status | Accurate scope |
 |---|---|---|
-| Core Engine | **Mature** | Contracts, StateFlow, StateGraph, StateGraphAuthoring Runtime, and StateGraphHost; the native 0.4 core. |
+| Core Engine | **Mature** | Core, StateGraph, and StateGraphHost; the native 0.4 core. |
 | Camera | **Mature** | Originated in 0.3.9; the current Rig, priority, and mode APIs are stable and usable. |
 | Persistence | **Mature** | Originated in 0.3.9; supports schema v2, Containers, and StateGraph ContextFrame persistence. |
 | UI | **Mature** | Originated in 0.3.9; Panel, Widget, Input, and Content-ownership APIs are stable and usable, but this is not a high-performance UI framework. |

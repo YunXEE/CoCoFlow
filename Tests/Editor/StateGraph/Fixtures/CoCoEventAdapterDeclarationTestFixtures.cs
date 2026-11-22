@@ -45,30 +45,4 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
             new AlternateTestIntentReducer();
     }
 
-    public sealed class CountingTestEventToIntentAdapter :
-        ICoCoEventToIntentAdapter<TestGraphEvent, TestIntent>
-    {
-        public CountingTestEventToIntentAdapter()
-        {
-            Constructed++;
-        }
-
-        public static int Constructed { get; private set; }
-        public static int Projected { get; private set; }
-
-        public static void Reset()
-        {
-            Constructed = 0;
-            Projected = 0;
-        }
-
-        public bool TryProject(
-            in CoCoEventPacket<TestGraphEvent> packet,
-            out TestIntent intent)
-        {
-            Projected++;
-            intent = new TestIntent(packet.Payload.Value);
-            return true;
-        }
-    }
 }

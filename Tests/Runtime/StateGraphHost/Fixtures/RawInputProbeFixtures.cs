@@ -11,6 +11,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public sealed class RawInputProbeCapture
     {
         public static List<RawInputRecord> Records;
+        public static bool RejectAfterReading;
     }
 
     public struct RawInputProbeReducer : ICoCoIntentReducer<InputIntentData>
@@ -58,6 +59,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                         RawInputProbeCapture.Records.Add(record);
                     }
                 }
+                if (RawInputProbeCapture.RejectAfterReading)
+                    throw new System.InvalidOperationException("Input probe rejects this sampled tick.");
+
             }
         }
     }

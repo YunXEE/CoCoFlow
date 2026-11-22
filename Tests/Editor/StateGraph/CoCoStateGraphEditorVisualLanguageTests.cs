@@ -94,7 +94,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
             // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
             StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
-                "Packages/com.yunxee.cocoflow/Editor/Common/CoCoEditorCommon.uss");
+                "Packages/com.yunxee.cocoflow/Editor/Core/Common/CoCoEditorCommon.uss");
             StyleSheet own = AssetDatabase.LoadAssetAtPath<StyleSheet>(
                 "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss");
             Assert.NotNull(shared);

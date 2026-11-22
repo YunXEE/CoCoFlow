@@ -1,5 +1,5 @@
 /* CoCoFlow StateGraphHost 模块补充样式（ccflow- BEM，D10）。
- * Token 基准与 Editor/Common/CoCoEditorCommon.uss 同源；本文件只承载
+ * Token 基准与 Editor/Core/Common/CoCoEditorCommon.uss 同源；本文件只承载
  * Host Inspector / Runtime Debugger 专属结构（键值行/时间环/链行）。
  * 深色（Pro）主题唯一支持形态（继承 P02 D15）。 */
 

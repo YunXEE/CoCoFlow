@@ -3,8 +3,7 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Animation",
     "references": [
         "CoCoFlow.Runtime.Animation.Contracts",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost"
     ],

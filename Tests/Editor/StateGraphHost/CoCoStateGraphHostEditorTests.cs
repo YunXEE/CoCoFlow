@@ -188,15 +188,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 results);
             Assert.That(results, Has.No.Member(outsideAdapter));
 
-            CoCoStateGraphHostBindingCandidates.FindEventAdapters(
-                host,
-                typeof(EditorHostEvent),
-                null,
-                results);
-            Assert.That(results, Has.Member(adapter));
-            Assert.That(results, Has.No.Member(wrongAdapter));
-            Assert.That(results, Has.No.Member(nestedAdapter));
-            Assert.That(results, Has.No.Member(outsideAdapter));
+            CoCoStateGraphHostBindingCandidates.FindIntentSources(host,
+                new MonoBehaviour[] { source }, results);
+            Assert.IsEmpty(results);
 
             serializedHost.Update();
             Assert.That(

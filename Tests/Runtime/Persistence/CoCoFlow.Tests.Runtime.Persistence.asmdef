@@ -2,7 +2,9 @@
     "name": "CoCoFlow.Tests.Runtime.Persistence",
     "rootNamespace": "CoCoFlow.Tests.Runtime.Persistence",
     "references": [
-        "CoCoFlow.Runtime.Modules.Persistence"
+        "CoCoFlow.Runtime.Modules.Persistence",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

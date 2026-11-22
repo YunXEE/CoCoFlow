@@ -890,13 +890,6 @@ namespace CoCoFlow.Editor.StateGraphHost
         card.Add(new PropertyField(
             serializedObject.FindProperty("eventLaneCapacity"),
             CoCoEditorLocalization.Text("Event Lanes", "事件通道容量")));
-        card.Add(new PropertyField(
-            serializedObject.FindProperty("eventSourceCapacity"),
-            CoCoEditorLocalization.Text("Event Sources", "事件源容量")));
-        card.Add(new PropertyField(
-            serializedObject.FindProperty("eventDedupCapacity"),
-            CoCoEditorLocalization.Text("Event Dedup", "事件去重容量")));
-
         var note = new Label(CoCoEditorLocalization.Text(
             "Trace capacity defaults to 0 and applies when the runtime starts; " +
             "it cannot change while the runtime is live",

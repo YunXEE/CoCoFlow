@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
 {
@@ -153,15 +152,6 @@ namespace CoCoFlow.Runtime.Core
             private EmptyDisposable() { }
             public void Dispose() { }
         }
-
-#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
-        /// <summary>
-        /// 兼容 "Enter Play Mode Options - Disable Domain Reload" 选项。
-        /// 在进入播放模式时重置静态数据。
-        /// </summary>
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetOnPlay() => ClearAll();
-#endif
 
         private static void RemoveWaiter(Type serviceType, WaiterEntry entry)
         {

@@ -44,6 +44,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
             Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
 
+            var service = new GameplayCoreService();
+            CoCoServices.Register(service);
             var started = new List<int>();
             var directed = new List<CoCoEventPacket<CombatContactEvent>>();
             var events = new CoCoEventAgent();
@@ -54,6 +56,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoEventBus.Publish(new Interaction { PlayerId = 8, Window = 99 });
                 CoCoEventBus.Publish(new Interaction { PlayerId = 7, Window = 23 });
                 Assert.IsTrue(host.TryStep(.05, out diagnostic), diagnostic.Message);
+                Assert.That(EnemyLogic.DirectService, Is.SameAs(service));
+                Assert.That(EnemyLogic.HelperService, Is.SameAs(service));
                 Assert.AreEqual("Sentinel-42", EnemyLogic.Target);
                 Assert.AreEqual(23, damage.LastWindow);
                 Assert.AreEqual(24, damage.LastPulse);
@@ -82,7 +86,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CollectionAssert.AreEqual(new[] { 23, 51 }, started);
                 Assert.AreEqual(2, directed.Count);
             }
-            finally { events.UnsubscribeAll(); }
+            finally {
+                CoCoServices.Unregister(service); events.UnsubscribeAll(); }
         }
 
         [UnityTest]

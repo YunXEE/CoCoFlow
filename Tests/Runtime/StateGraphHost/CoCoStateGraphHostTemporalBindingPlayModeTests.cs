@@ -20,7 +20,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
         }
 
         [TearDown]
@@ -38,7 +37,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoStateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
         }
 
         [Test]
@@ -254,11 +252,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(
                 scenario.Host.TemporalState.Mode,
                 Is.EqualTo(CoCoTemporalMode.Ready));
-            Assert.That(
-                TemporalHostTestHarness.GetBindings(scenario.Host).Inbox.State,
-                Is.EqualTo(CoCoActorEventInboxState.Running));
 
+            Assert.That(scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(scenario,
+                1UL, 83, scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch)),
+                Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
             StepWithActorValue(scenario, 30);
+            Assert.That(TemporalHostLogic.LastEventValue, Is.EqualTo(83));
         }
 
         [Test]
@@ -723,8 +722,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StepWithActorValue(scenario, 10);
             StepWithActorValue(scenario, 20);
             CoCoContextFrame authority = scenario.Host.CurrentContext;
-            CoCoActorEventInboxCore inbox =
-                TemporalHostTestHarness.GetBindings(scenario.Host).Inbox;
             if (destroyBinding)
             {
                 Object.DestroyImmediate(restoreOnly);
@@ -744,9 +741,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(
                 scenario.Host.TemporalState.Mode,
                 Is.EqualTo(CoCoTemporalMode.Ready));
-            Assert.That(inbox.State, Is.EqualTo(CoCoActorEventInboxState.Running));
 
+            Assert.That(scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(scenario,
+                1UL, 83, scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch)),
+                Is.EqualTo(CoCoInboxEnqueueResult.Accepted));
             StepWithActorValue(scenario, 30);
+            Assert.That(TemporalHostLogic.LastEventValue, Is.EqualTo(83));
         }
 
         private static void AssertDisabledControllerDoesNotRetainBinding(

@@ -3,7 +3,6 @@
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core.StateGraph"
     ],
     "includePlatforms": [

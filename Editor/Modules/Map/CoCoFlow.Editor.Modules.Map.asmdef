@@ -2,7 +2,7 @@
     "name": "CoCoFlow.Editor.Modules.Map",
     "rootNamespace": "CoCoFlow.Editor.Modules.Map",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Modules.Map"
     ],
