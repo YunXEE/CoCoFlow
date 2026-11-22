@@ -9,7 +9,7 @@ deployed and validated before its new job routing is claimed as active.
 
 | Check | Responsibility |
 | --- | --- |
-| `CI Static / gate` | Diff hygiene, accidentally tracked ignored files, result-reader tests, current release metadata, and change classification |
+| `CI Static / gate` | Diff hygiene, accidentally tracked ignored files, result-reader tests, required StateFlow APIs, current release metadata, and change classification |
 | `Unity / complete package` | A new host, complete dependencies, real Unity compilation, package EditMode and PlayMode, strict XML/suite checks, and seat cleanup |
 | `Player all / Windows Mono`, `Player all / Windows IL2CPP` | Complete Player-eligible tests with the existing Mono / Disabled and IL2CPP / Medium profiles; strict build, XML, assembly and seat-return checks |
 | `CI / gate` | Always summarizes applicable jobs; failed, cancelled, missing, or required-but-skipped Unity does not pass |
@@ -182,6 +182,14 @@ and its GitHub Actions integration.
 
     python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
     python3 .github/ci/cocoflow_ci.py release
+    python3 .github/ci/check_stateflow_api.py
+
+The StateFlow API check requires the .NET 10 SDK. It compiles package sources
+using the asmdef boundaries and builds a separate consumer without friend
+access. Compiler errors identify the unavailable call in the
+[required API list](stateflow-api/RequiredApi.cs). See the
+[API and assembly boundaries](stateflow-api/boundaries.md) for migration
+decisions and verification scope.
 
 These do not prove Unity tests. Persistent 03/05 hosts remain separate;
 temporary linkage requires exclusive use and exact manifest/lock restoration.
