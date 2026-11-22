@@ -18,6 +18,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// </summary>
     public sealed class RawInputEndToEndPlayModeTests : InputTestFixture
     {
+        private const string SubmitAction = "Submit";
         private static readonly ulong High = 0x524157494E505242UL; // "RAWINPRB"
 
         private readonly List<Object> _objects = new List<Object>();
@@ -61,7 +62,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var gameObject = new GameObject("RawInputE2E");
             _objects.Add(gameObject);
             var playerInput = gameObject.AddComponent<PlayerInput>();
-            playerInput.actions = CreateActions();
+            InputActionAsset actions = CreateActions();
+            _objects.Add(actions);
+            playerInput.actions = actions;
             playerInput.defaultActionMap = "Player";
             var reader = gameObject.AddComponent<InputReader>();
             var input = gameObject.AddComponent<InputIntent>();
@@ -85,46 +88,37 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 host.Lifecycle,
                 host.LastDiagnostic.Message);
 
-            // --- baseline tick: reader sampled, no records yet ---
-            RawInputProbeCapture.Records = new List<RawInputRecord>();
-            Require(host.TryStep(1f / 60f, out _));
-            yield return null;
+            var records = new List<RawInputRecord>();
+            RawInputProbeCapture.Records = records;
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic baseline), baseline.Message);
+            records.Clear();
 
-            // diagnostics: sample the reader directly
-            Require(input.TrySample(default(CoCoTickFrame), out InputIntentData directIntent));
-            Debug.Log($"[E2E] direct sample: enabled={reader.isActiveAndEnabled} count={directIntent.Count} map={directIntent.ActiveMap}");
-            for (int i = 0; i < directIntent.Count; i++)
-            {
-                if (directIntent.TryGet(i, out RawInputRecord rec))
-                {
-                    Debug.Log($"[E2E] direct[{i}] {rec.Action} {rec.Phase}");
-                }
-            }
-
-            // --- hold W: Move contributes a Held record every sample ---
             Press(keyboard.wKey);
             InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
-            Require(host.TryStep(1f / 60f, out _));
-            yield return null;
 
-            Debug.Log("[E2E] after W tick: " + RawInputProbeCapture.Records.Count + " records");
-            foreach (RawInputRecord record in RawInputProbeCapture.Records)
-            {
-                Debug.Log($"[E2E] {record.Action} {record.Phase} ({record.ValueX},{record.ValueY}) #{record.Sequence}");
-            }
+            // Both changes happen between Host ticks, with the button released at sampling time.
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
 
-            Assert.IsNotEmpty(
-                RawInputProbeCapture.Records,
-                "state logic should receive raw records");
-            Assert.IsTrue(
-                RawInputProbeCapture.Records.Exists(r => r.Action.ToString() == "Move"),
-                "Move record expected: " + Describe(RawInputProbeCapture.Records));
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic delivery), delivery.Message);
+            Assert.That(records.Exists(record => record.Action.ToString() == "Move"), Is.True,
+                "State logic should receive the Move record");
 
-            Object.Destroy(gameObject);
+            List<RawInputRecord> submitRecords =
+                records.FindAll(record => record.Action.ToString() == SubmitAction);
+            Assert.That(submitRecords, Has.Count.EqualTo(2),
+                "A short press should yield exactly two changes and no Held record");
+            Assert.That(submitRecords[0].Phase, Is.EqualTo(RawInputPhase.Performed));
+            Assert.That(submitRecords[1].Phase, Is.EqualTo(RawInputPhase.Canceled));
+            Assert.That(submitRecords[1].Sequence, Is.GreaterThan(submitRecords[0].Sequence));
+
+            records.Clear();
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic following), following.Message);
+            Assert.That(records.Exists(record => record.Action.ToString() == SubmitAction), Is.False,
+                "The next successful tick should not replay the committed short press");
         }
-
-        private static string Describe(List<RawInputRecord> records) =>
-            string.Join(", ", records.ConvertAll(r => r.Action + "/" + r.Phase));
 
         private static InputActionAsset CreateActions()
         {
@@ -132,6 +126,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InputActionMap map = asset.AddActionMap("Player");
             InputAction move = map.AddAction("Move", InputActionType.Value);
             move.AddBinding("<Keyboard>/w", null, null, "W");
+            map.AddAction(SubmitAction, InputActionType.Button, "<Keyboard>/space");
             return asset;
         }
 
