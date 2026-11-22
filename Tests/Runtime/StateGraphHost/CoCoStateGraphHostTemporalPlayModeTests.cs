@@ -470,6 +470,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(
                 scenario.Host.TryEnqueueLocal(duringPreview),
                 Is.EqualTo(CoCoInboxEnqueueResult.MailboxUnavailable));
+            Assert.That(scenario.Host.TemporalState.RewindRestoreDropped, Is.Zero);
 
             Require(
                 scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic cancel),

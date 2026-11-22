@@ -1,7 +1,7 @@
 using System;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.Tests
+namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
     public sealed class CoCoIntentMailboxContractTests
     {
@@ -946,6 +946,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 value: 1,
                 mode: CoCoEventDeliveryMode.DeclaredBroadcast);
             Assert.AreEqual(CoCoInboxEnqueueResult.SourceEchoRejected, inbox.TryEnqueue(handle, echo));
+            Assert.AreEqual(1UL, inbox.Counters.Rejected);
 
             CoCoEventPacket<TestEvent> external = Packet(
                 eventType,
@@ -1043,8 +1044,7 @@ namespace CoCoFlow.Runtime.Core.Tests
                 source,
                 owner,
                 epoch: 2UL,
-                sequence: 7UL,
-                value: 2);
+                sequence: 7UL);
             Assert.AreEqual(
                 CoCoInboxEnqueueResult.EventSequenceConflict,
                 inbox.TryEnqueue(secondHandle, reusedSequence));
@@ -1777,8 +1777,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             CoCoGraphInstanceId source,
             CoCoGraphInstanceId target,
             ulong epoch,
-            ulong sequence,
-            int value)
+            ulong sequence)
         {
             CoCoActorEventEnvelope envelope = Envelope(
                 eventType,
@@ -1789,10 +1788,9 @@ namespace CoCoFlow.Runtime.Core.Tests
                 sequence,
                 CoCoEventDeliveryMode.Targeted,
                 CoCoEventReliability.Unreliable);
-            var payload = new OtherTestEvent(value);
             Assert.IsTrue(CoCoEventPacket<OtherTestEvent>.TryCreate(
                 envelope,
-                payload,
+                default,
                 out CoCoEventPacket<OtherTestEvent> packet));
             return packet;
         }
@@ -1875,15 +1873,7 @@ namespace CoCoFlow.Runtime.Core.Tests
             public int Value { get; }
         }
 
-        private readonly struct OtherTestEvent
-        {
-            public OtherTestEvent(int value)
-            {
-                Value = value;
-            }
-
-            public int Value { get; }
-        }
+        private readonly struct OtherTestEvent { }
 
         private readonly struct OrderedIntentReducer : ICoCoIntentReducer<TestIntent>
         {

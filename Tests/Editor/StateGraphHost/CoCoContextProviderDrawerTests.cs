@@ -1,11 +1,12 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.StateGraphHost
 {
     public sealed class CoCoContextProviderDrawerTests
     {

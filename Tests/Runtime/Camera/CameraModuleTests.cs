@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Object = UnityEngine.Object;
 
-namespace CoCoFlow.Tests.Runtime.ContextLifecycle
+namespace CoCoFlow.Tests.Runtime.Camera
 {
     public class CameraModuleTests : InputTestFixture
     {

@@ -9,7 +9,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace CoCoFlow.Tests.Runtime.ContextLifecycle
+namespace CoCoFlow.Tests.Runtime.Persistence
 {
     public class PersistenceModuleTests
     {

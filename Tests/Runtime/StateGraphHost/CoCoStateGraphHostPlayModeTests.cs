@@ -1502,7 +1502,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoStateGraphHostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
-                CoCoIntentHandle<HostTestIntent> intent = default;
                 if (_withIntentSource)
                 {
                     if (!builder.TryRegisterIntent<
@@ -1512,7 +1511,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                             _ids.IntentId,
                             new HostTestIntentReducerFactory(),
                             ReducerFingerprint,
-                            out intent,
+                            out CoCoIntentHandle<HostTestIntent> intent,
                             out diagnostic) ||
                         !builder.TryBeginIntentBindings(out diagnostic) ||
                         !CoCoIntentSourceRequirement<HostTestIntent>.TryCreate(

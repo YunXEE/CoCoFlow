@@ -8,7 +8,7 @@ using NUnit.Framework;
 using UnityEditor.PackageManager;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.Tests
+namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
     public sealed class CoCoPackageBoundaryTests
     {

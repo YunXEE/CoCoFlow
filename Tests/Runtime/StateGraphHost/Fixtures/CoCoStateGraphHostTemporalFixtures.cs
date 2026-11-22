@@ -13,7 +13,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             CoCoStateSlotId graphStateSlotId,
             CoCoStateBlockId actorStateBlockId,
             CoCoStateSlotId actorStateSlotId,
-            CoCoIntentId intentId,
             CoCoEventDomainId eventDomainId,
             CoCoEventTypeId eventTypeId)
         {
@@ -24,7 +23,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             GraphStateSlotId = graphStateSlotId;
             ActorStateBlockId = actorStateBlockId;
             ActorStateSlotId = actorStateSlotId;
-            IntentId = intentId;
             EventDomainId = eventDomainId;
             EventTypeId = eventTypeId;
         }
@@ -36,7 +34,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public CoCoStateSlotId GraphStateSlotId { get; }
         public CoCoStateBlockId ActorStateBlockId { get; }
         public CoCoStateSlotId ActorStateSlotId { get; }
-        public CoCoIntentId IntentId { get; }
         public CoCoEventDomainId EventDomainId { get; }
         public CoCoEventTypeId EventTypeId { get; }
 
@@ -64,7 +61,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                     805UL,
                     2UL,
                     out CoCoStateSlotId actorStateSlotId) ||
-                !CoCoIntentId.TryCreate(806UL, 1UL, out CoCoIntentId intentId) ||
                 !CoCoEventDomainId.TryCreate(807UL, out CoCoEventDomainId eventDomainId) ||
                 !CoCoEventTypeId.TryCreate(808UL, 1UL, out CoCoEventTypeId eventTypeId))
             {
@@ -79,7 +75,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 graphStateSlotId,
                 actorStateBlockId,
                 actorStateSlotId,
-                intentId,
                 eventDomainId,
                 eventTypeId);
         }
@@ -90,7 +85,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public const ulong GraphStateFingerprint = 80901UL;
         public const ulong ActorStateFingerprint = 80902UL;
         public const ulong MemoryBindingFingerprint = 80903UL;
-        public const ulong IntentReducerFingerprint = 80904UL;
         public const int ActorStateValue = 7;
 
         public static CoCoGraphStateRecord<int> GraphState(TemporalHostTestIds ids)

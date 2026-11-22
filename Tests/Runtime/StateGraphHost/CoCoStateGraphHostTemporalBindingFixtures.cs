@@ -518,11 +518,5 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static CoCoSerializedId128 Serialize(CoCoStateDescriptorId id) =>
             new CoCoSerializedId128(id.High, id.Low);
-
-        private static CoCoSerializedId128 Serialize(CoCoEventTypeId id) =>
-            new CoCoSerializedId128(id.High, id.Low);
-
-        private static CoCoSerializedId128 Serialize(CoCoIntentId id) =>
-            new CoCoSerializedId128(id.High, id.Low);
     }
 }

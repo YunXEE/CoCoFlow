@@ -3,7 +3,6 @@ using System.Reflection;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyAuthor;
 using NUnit.Framework;
-using UnityEditor.Compilation;
 
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
@@ -43,9 +42,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                 freezeDiagnostic.Message);
 
             CoCoDiagnostic[] diagnostics =
-                CoCoStateGraphAuthoringDependencyClosureValidator.Validate(
-                    catalog,
-                    AssembliesType.Player);
+                CoCoStateGraphAuthoringDependencyClosureValidator.Validate(catalog);
 
             Assert.IsEmpty(diagnostics, string.Join("\n", Array.ConvertAll(diagnostics, item => item.Message)));
         }

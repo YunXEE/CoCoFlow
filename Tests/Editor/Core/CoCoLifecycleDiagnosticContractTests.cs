@@ -1,7 +1,8 @@
 using System;
+using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.Tests
+namespace CoCoFlow.Editor.Core.Tests
 {
     public sealed class CoCoLifecycleDiagnosticContractTests
     {

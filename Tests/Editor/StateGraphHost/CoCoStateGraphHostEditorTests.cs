@@ -20,11 +20,6 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         public int Value;
     }
 
-    internal struct OtherEditorHostEvent
-    {
-        public int Value;
-    }
-
     internal sealed class EditorHostIntentSourceComponent :
         MonoBehaviour,
         ICoCoIntentFrameSource<EditorHostIntent>
@@ -43,13 +38,6 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         ICoCoEventInboxAdapter<EditorHostEvent>
     {
         public bool Accept(in EditorHostEvent payload) => false;
-    }
-
-    internal sealed class OtherEditorHostEventAdapterComponent :
-        MonoBehaviour,
-        ICoCoEventInboxAdapter<OtherEditorHostEvent>
-    {
-        public bool Accept(in OtherEditorHostEvent payload) => false;
     }
 
     internal class EditorHostOperatorComponent :
@@ -151,22 +139,18 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             CoCoStateGraphHost host = CreateHost("Outer");
             var validObject = CreateChild(host.transform, "Valid", false);
             var source = validObject.AddComponent<EditorHostIntentSourceComponent>();
-            var adapter = validObject.AddComponent<EditorHostEventAdapterComponent>();
-            var wrongAdapter =
-                validObject.AddComponent<OtherEditorHostEventAdapterComponent>();
+            var validOperator = validObject.AddComponent<EditorHostOperatorComponent>();
 
             var nestedObject = CreateChild(host.transform, "Nested", false);
             nestedObject.AddComponent<CoCoStateGraphHost>();
             var nestedSource =
                 nestedObject.AddComponent<EditorHostIntentSourceComponent>();
-            var nestedAdapter =
-                nestedObject.AddComponent<EditorHostEventAdapterComponent>();
+            var nestedOperator = nestedObject.AddComponent<EditorHostOperatorComponent>();
 
             var outsideObject = CreateObject("Outside");
             var outsideSource =
                 outsideObject.AddComponent<EditorHostIntentSourceComponent>();
-            var outsideAdapter =
-                outsideObject.AddComponent<EditorHostEventAdapterComponent>();
+            var outsideOperator = outsideObject.AddComponent<EditorHostOperatorComponent>();
 
             var serializedHost = new SerializedObject(host);
             int sourceSize =
@@ -186,7 +170,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                 host,
                 null,
                 results);
-            Assert.That(results, Has.No.Member(outsideAdapter));
+            Assert.That(results, Has.Member(validOperator));
+            Assert.That(results, Has.No.Member(nestedOperator));
+            Assert.That(results, Has.No.Member(outsideOperator));
 
             CoCoStateGraphHostBindingCandidates.FindIntentSources(host,
                 new MonoBehaviour[] { source }, results);

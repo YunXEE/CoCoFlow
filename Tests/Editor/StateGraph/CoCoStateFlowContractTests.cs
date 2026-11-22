@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.Tests
+namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 {
     public sealed class CoCoStateFlowContractTests
     {

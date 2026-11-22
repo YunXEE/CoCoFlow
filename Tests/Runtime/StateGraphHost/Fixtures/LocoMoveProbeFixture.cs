@@ -1,4 +1,3 @@
-using System;
 using CoCoFlow.Runtime.Animation.Contracts;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Locomotion.Contracts;

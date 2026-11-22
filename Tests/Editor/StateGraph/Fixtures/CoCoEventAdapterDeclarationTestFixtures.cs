@@ -10,15 +10,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
         public int Value { get; }
     }
 
-    public readonly struct AlternateTestGraphEvent
-    {
-        public AlternateTestGraphEvent(int value)
-        {
-            Value = value;
-        }
-
-        public int Value { get; }
-    }
+    public readonly struct AlternateTestGraphEvent { }
 
     public readonly struct AlternateTestIntent
     {

@@ -10,10 +10,14 @@ namespace CoCoFlow.Runtime.Core
     {
         internal static string AssemblyName(Type type)
         {
-            while (type.HasElementType) type = type.GetElementType();
-            while (type.IsNested) type = type.DeclaringType;
-            while (type.HasElementType) type = type.GetElementType();
-            while (type.DeclaringType != null) type = type.DeclaringType;
+            while (type.GetElementType() is { } element)
+            {
+                type = element;
+            }
+            while (type.DeclaringType is { } owner)
+            {
+                type = owner;
+            }
             string current = type.Assembly.GetName().Name;
             if (type.Namespace != "CoCoFlow.Runtime.Core") return current;
             string name = type.Name;
@@ -40,14 +44,19 @@ namespace CoCoFlow.Runtime.Core
         {
             string name = type.FullName ?? type.Name;
             Type element = type;
-            while (element.HasElementType) element = element.GetElementType();
+            while (element.GetElementType() is { } inner)
+            {
+                element = inner;
+            }
             if (element.ContainsGenericParameters || !element.IsConstructedGenericType) return name;
             foreach (Type argument in element.GetGenericArguments())
             {
                 // CLR FullName embeds the assembly-qualified name of each generic argument.
+                string qualifiedName = argument.AssemblyQualifiedName;
+                if (qualifiedName == null) continue;
                 var assembly = argument.Assembly.GetName();
                 assembly.Name = AssemblyName(argument);
-                name = name.Replace(argument.AssemblyQualifiedName, FullName(argument) + ", " + assembly.FullName);
+                name = name.Replace(qualifiedName, FullName(argument) + ", " + assembly.FullName);
             }
             return name;
         }
