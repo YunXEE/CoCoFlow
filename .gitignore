@@ -90,3 +90,8 @@ crashlytics-build.properties
 # Local CoCo Workbench configuration
 /COCO.json
 /COCO.json.meta
+
+# StateFlow source generator project
+!/Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj
+/Tools~/StateFlowGenerator/bin/
+/Tools~/StateFlowGenerator/obj/

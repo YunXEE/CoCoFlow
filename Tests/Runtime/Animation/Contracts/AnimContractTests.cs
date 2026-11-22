@@ -59,7 +59,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
-        public void RootMotionFeedback_ProjectsThroughTypedEventAdapter()
+        public void RootMotionFeedback_PreservesTargetAndPayload()
         {
             Assert.IsTrue(
                 AnimFeedbackRecord.TryCreateRootMotion(
@@ -107,16 +107,9 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     envelope,
                     feedbackEvent,
                     out CoCoEventPacket<AnimFeedbackEvent> packet));
-            var adapter = new AnimFeedbackEventToIntentAdapter();
-
-            Assert.IsTrue(
-                adapter.TryProject(
-                    packet,
-                    out AnimFeedbackIntent intent));
-            Assert.That(intent.Count, Is.EqualTo(1));
-            Assert.IsTrue(intent.TryGetRecord(0, out AnimFeedbackRecord projected));
-            Assert.That(projected.Kind, Is.EqualTo(AnimFeedbackKind.RootMotion));
-            Assert.That(projected.PositionX, Is.EqualTo(1f));
+            Assert.That(packet.Envelope.TargetGraphInstanceId, Is.EqualTo(target));
+            Assert.That(packet.Payload.Record.Kind, Is.EqualTo(AnimFeedbackKind.RootMotion));
+            Assert.That(packet.Payload.Record.PositionX, Is.EqualTo(1f));
         }
 
         [Test]
@@ -169,7 +162,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void DirectOperator_RequiresOnlyParametersAndTriggers()
         {
             CoCoOperatorDescriptor descriptor =
-                AnimOperatorContracts.AutoDescriptor;
+                AnimOperatorContracts.Definition.Descriptor;
             Assert.IsTrue(
                 descriptor.Requires.Contains(
                     AnimOperatorContracts.ParameterRequirement));

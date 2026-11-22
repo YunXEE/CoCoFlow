@@ -70,7 +70,7 @@ namespace CoCoFlow.Runtime.Core
     /// <summary>
     /// Single-use candidate Tick. Pre5 accepts or rejects this token after Context finalization.
     /// </summary>
-    public readonly struct CoCoStagedGraphStep : IEquatable<CoCoStagedGraphStep>
+    internal readonly struct CoCoStagedGraphStep : IEquatable<CoCoStagedGraphStep>
     {
         private readonly CoCoStateGraphRuntime _runtime;
         private readonly ulong _token;
@@ -302,7 +302,7 @@ namespace CoCoFlow.Runtime.Core
     /// <summary>
     /// Per-Host, allocation-stable StateGraph instance. Compiled Graph data is shared; all execution state is local.
     /// </summary>
-    public sealed class CoCoStateGraphRuntime : IDisposable
+    internal sealed class CoCoStateGraphRuntime : IDisposable
     {
         internal bool TryGetStateLogicType(
             CoCoStateId stateId,
@@ -410,7 +410,7 @@ namespace CoCoFlow.Runtime.Core
         public CoCoActorClock Clock => _clock;
         public IReadOnlyList<CoCoActivePath> ActivePaths => _activePaths;
 
-        public static bool TryCreate(
+        internal static bool TryCreate(
             CoCoCompiledStateGraph graph,
             CoCoGraphInstanceId graphInstanceId,
             CoCoStateGraphLogicBindings bindings,
@@ -669,7 +669,7 @@ namespace CoCoFlow.Runtime.Core
                 out diagnostic);
         }
 
-        public bool TryStageStep(
+        internal bool TryStageStep(
             in CoCoTickFrame tickFrame,
             ICoCoIntentFrame intents,
             in CoCoContextFrameReadView previousContext,

@@ -12,6 +12,7 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     /// SetGravityScale / SetRotation / SetRotationInstant) plus a logic
     /// teleport override (respawn / cutscene placement).
     /// </summary>
+    [CoCoOperationSection(CoCoOperationSectionMode.Continuous)]
     public interface ILocomotionSection : ICoCoOperationSection
     {
         /// <summary>Desired horizontal velocity, world X. Final-conclusion

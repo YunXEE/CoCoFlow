@@ -140,6 +140,10 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
                 return;
             }
 
+            foreach (CoCoOperationViewFactoryAttribute generated in
+                     assembly.GetCustomAttributes(typeof(CoCoOperationViewFactoryAttribute), false))
+                AddEntry(generated.Factory, "all", entries);
+
             for (int index = 0; index < types.Length; index++)
             {
                 Type type = types[index];
@@ -188,9 +192,14 @@ namespace CoCoFlow.Editor.StateGraph.PlayerMetadata
             Type type,
             IDictionary<string, CoCoPlayerOperationMetadataEntry> entries)
         {
-            if (type == null || !type.IsClass ||
-                (!type.IsDefined(typeof(CoCoStateAttribute), false) &&
-                 !type.IsDefined(typeof(ConditionAttribute), false)))
+            if (type == null || !type.IsClass) return;
+            if (typeof(ICoCoOperator).IsAssignableFrom(type))
+            {
+                foreach (var property in type.GetProperties(BindingFlags.Static | BindingFlags.Public |
+                             BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                    if (property.IsDefined(typeof(CoCoOperatorDefinitionAttribute), false)) AddEntry(type, "all", entries);
+            }
+            if (!type.IsDefined(typeof(CoCoStateAttribute), false) && !type.IsDefined(typeof(ConditionAttribute), false))
             {
                 return;
             }

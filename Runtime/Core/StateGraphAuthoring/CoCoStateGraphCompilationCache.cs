@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public readonly struct CoCoStateGraphCompilationCacheKey :
+    internal readonly struct CoCoStateGraphCompilationCacheKey :
         IEquatable<CoCoStateGraphCompilationCacheKey>
     {
         public CoCoStateGraphCompilationCacheKey(
@@ -57,7 +57,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoStateGraphCompilationCacheKey right) => !left.Equals(right);
     }
 
-    public interface ICoCoStateGraphCompilationCache
+    internal interface ICoCoStateGraphCompilationCache
     {
         CoCoStateGraphAssetCompileResult GetOrAdd(
             CoCoStateGraphCompilationCacheKey key,
@@ -66,7 +66,7 @@ namespace CoCoFlow.Runtime.Core
         void Clear();
     }
 
-    public sealed class CoCoStateGraphCompilationCache : ICoCoStateGraphCompilationCache
+    internal sealed class CoCoStateGraphCompilationCache : ICoCoStateGraphCompilationCache
     {
         private readonly ConcurrentDictionary<
             CoCoStateGraphCompilationCacheKey,
@@ -75,7 +75,7 @@ namespace CoCoFlow.Runtime.Core
                 CoCoStateGraphCompilationCacheKey,
                 Lazy<CoCoStateGraphAssetCompileResult>>();
 
-        public static CoCoStateGraphCompilationCache Shared { get; } =
+        internal static CoCoStateGraphCompilationCache Shared { get; } =
             new CoCoStateGraphCompilationCache();
 
         public CoCoStateGraphAssetCompileResult GetOrAdd(

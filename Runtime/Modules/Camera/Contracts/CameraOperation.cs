@@ -7,6 +7,7 @@ namespace CoCoFlow.Runtime.Camera.Contracts
     /// <summary>Write all five properties for one Rig request in the current Tick.</summary>
     // The author-facing name is CameraOperation by the approved API contract.
     // ReSharper disable once InconsistentNaming
+    [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
     public interface CameraOperation : ICoCoOperationSection
     {
         int RigId { get; set; }
@@ -14,41 +15,6 @@ namespace CoCoFlow.Runtime.Camera.Contracts
         int Priority { get; set; }
         int CameraId { get; set; }
         bool SchedulingEnabled { get; set; }
-    }
-
-    public sealed class CameraOperationView : CameraOperation
-    {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<bool> _active, _schedulingEnabled;
-        private readonly CoCoOperationSectionField<int> _cameraId, _priority, _rigId;
-
-        internal CameraOperationView(in CoCoOperationSectionViewContext<CameraOperation> context)
-        {
-            _reader = context.Reader;
-            // Framework field order is ordinal by property name.
-            if (!context.TryGetField(0, out _active) ||
-                !context.TryGetField(1, out _cameraId) ||
-                !context.TryGetField(2, out _priority) ||
-                !context.TryGetField(3, out _rigId) ||
-                !context.TryGetField(4, out _schedulingEnabled))
-                throw new InvalidOperationException("CameraOperation fields could not be resolved.");
-        }
-
-        public int RigId { get => _reader.Read(_rigId); set => _reader.Write(_rigId, value); }
-        public bool Active { get => _reader.Read(_active); set => _reader.Write(_active, value); }
-        public int Priority { get => _reader.Read(_priority); set => _reader.Write(_priority, value); }
-        public int CameraId { get => _reader.Read(_cameraId); set => _reader.Write(_cameraId, value); }
-        public bool SchedulingEnabled
-        {
-            get => _reader.Read(_schedulingEnabled);
-            set => _reader.Write(_schedulingEnabled, value);
-        }
-    }
-
-    public sealed class CameraOperationViewFactory : ICoCoOperationSectionViewFactory<CameraOperation>
-    {
-        public CameraOperation Create(in CoCoOperationSectionViewContext<CameraOperation> context) =>
-            new CameraOperationView(context);
     }
 
     public struct CamRigState

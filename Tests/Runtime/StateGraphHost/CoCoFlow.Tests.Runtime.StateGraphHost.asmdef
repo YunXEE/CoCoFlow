@@ -2,6 +2,11 @@
     "name": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "rootNamespace": "CoCoFlow.Tests.Runtime.StateGraphHost",
     "references": [
+        "Unity.Cinemachine",
+        "CoCoFlow.Runtime.Modules.Camera",
+        "CoCoFlow.Runtime.Camera.Contracts",
+        "CoCoFlow.Tests.GameplayBinding.Contracts",
+        "CoCoFlow.Tests.GameplayBinding.Components",
         "CoCoFlow.Runtime.Animation.Contracts",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Core.Contracts",

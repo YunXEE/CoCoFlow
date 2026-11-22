@@ -224,6 +224,14 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+            if (provider is CoCoStandardBindingProvider && stateGraphAsset.EventAdapterDeclarations.Count != 0)
+            {
+                diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                    "Remove the old Event-to-Intent declarations from this graph and read events through State Inbox.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
             CoCoStateGraphAssetCompileResult compileResult;
             CoCoStateGraphAsset configuredGraph = null;
             try
@@ -486,7 +494,7 @@ namespace CoCoFlow.Runtime.Core
                 _lastAutomaticFrame = -1;
 
                 // Registration is deliberately last: no packet can reach a partially started Host.
-                StartStateEvents();
+                StartStateEvents(provider, compileResult.Graph);
                 if (!_bindings.RegisterRouter(this))
                 {
                     DisposeInstance();
@@ -1262,7 +1270,8 @@ namespace CoCoFlow.Runtime.Core
             in CoCoEventPacket<TEvent> packet)
             where TEvent : unmanaged
         {
-            if (!CanAcceptEventInput || _bindings == null || !_bindings.HasEvents)
+            if (!CanAcceptEventInput || _bindings == null ||
+                (!_bindings.HasEvents && _stateInbox?.Find<TEvent>() == null))
             {
                 return CoCoInboxEnqueueResult.MailboxUnavailable;
             }
@@ -1273,7 +1282,9 @@ namespace CoCoFlow.Runtime.Core
                 return CoCoInboxEnqueueResult.InvalidPacket;
             }
 
-            CoCoInboxEnqueueResult result = _bindings.TryEnqueueLocal(packet);
+            CoCoInboxEnqueueResult result = _bindings.HasEvents
+                ? _bindings.TryEnqueueLocal(packet)
+                : TryReceiveStatePacket(in packet);
             if (result == CoCoInboxEnqueueResult.ReliableOverflowFaultRequired)
             {
                 MarkReliableOverflowPending();

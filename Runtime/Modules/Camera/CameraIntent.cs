@@ -6,7 +6,6 @@ namespace CoCoFlow.Runtime.Modules.Camera
 {
     [DisallowMultipleComponent]
     [AddComponentMenu("CoCoFlow/Camera/Camera Intent")]
-    [CoCoIntentRegistration(typeof(CamIntentRegistration))]
     public sealed class CameraIntent : MonoBehaviour, ICoCoIntentFrameSource<CameraIntentData>
     {
         [SerializeField] private CameraDirector director;
@@ -27,10 +26,4 @@ namespace CoCoFlow.Runtime.Modules.Camera
         }
     }
 
-    public sealed class CamIntentRegistration :
-        CoCoStandardIntentRegistration<CameraIntentData, CamIntentReducer, CamIntentReducerFactory>
-    {
-        [UnityEngine.Scripting.Preserve]
-        public CamIntentRegistration() : base(CamContractIds.IntentId, 1, CamContractIds.Fingerprint) { }
-    }
 }

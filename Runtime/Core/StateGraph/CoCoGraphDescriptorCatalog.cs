@@ -393,7 +393,8 @@ namespace CoCoFlow.Runtime.Core
         /// The declaration records static identity and exact payload types only; Pre4 owns the
         /// concrete Adapter instance and its binding coverage.
         /// </summary>
-        public bool TryRegisterEventToIntentDeclaration<TEvent, TIntent>(
+#if UNITY_INCLUDE_TESTS
+        internal bool TryRegisterEventToIntentDeclaration<TEvent, TIntent>(
             CoCoEventDomainId domainId,
             CoCoEventTypeId eventTypeId,
             CoCoIntentId providedIntentId,
@@ -486,6 +487,7 @@ namespace CoCoFlow.Runtime.Core
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
+#endif
 
         public bool TryRegisterOperationSection<TSection, TFactory>(
             CoCoOperationSectionId sectionId,

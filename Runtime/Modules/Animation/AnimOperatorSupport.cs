@@ -10,89 +10,25 @@ namespace CoCoFlow.Runtime.Modules.Animation
         internal static readonly CoCoOperationSectionRequirement ParameterRequirement;
         internal static readonly CoCoOperationSectionRequirement TriggerRequirement;
         internal static readonly CoCoEventOutboxRequirement FeedbackRequirement;
-        internal static readonly CoCoOperatorDescriptor AutoDescriptor;
+        internal static readonly CoCoStandardOperatorDefinition Definition;
 
         static AnimOperatorContracts()
         {
-            Require(
-                AnimOperationSchema.TryCreateParameterRequirement(
-                    out ParameterRequirement,
-                    out CoCoDiagnostic parameterDiagnostic),
-                parameterDiagnostic);
-            Require(
-                AnimOperationSchema.TryCreateTriggerRequirement(
-                    out TriggerRequirement,
-                    out CoCoDiagnostic triggerDiagnostic),
-                triggerDiagnostic);
-            Require(
-                CoCoEventOutboxRequirement.TryCreate<AnimFeedbackEvent>(
-                    AnimContractIds.FeedbackEventTypeId,
-                    AnimContractIds.FeedbackEventDomainId,
-                    AnimContractLimits.FeedbackCapacity,
-                    out FeedbackRequirement,
-                    out CoCoDiagnostic feedbackDiagnostic),
-                feedbackDiagnostic);
-
-            AutoDescriptor = BuildAutoDescriptor();
+            var builder = new CoCoStandardOperatorBuilder();
+            ParameterRequirement = builder.Require<IAnimParameterOperationSection>(AnimContractIds.ParameterSectionId,
+                AnimContractIds.ParameterSectionSemanticFingerprint);
+            TriggerRequirement = builder.Require<IAnimTriggerOperationSection>(AnimContractIds.TriggerSectionId,
+                AnimContractIds.TriggerSectionSemanticFingerprint);
+            builder.OwnOutcome(AnimContractIds.SnapshotBlockId, AnimContractIds.SnapshotSlotId,
+                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
+                CoCoContextRestorePolicy.Stored, default(AnimSnapshotState), 1);
+            FeedbackRequirement = builder.Emit<AnimFeedbackEvent>(AnimContractIds.FeedbackEventTypeId,
+                AnimContractIds.FeedbackEventDomainId, AnimContractLimits.FeedbackCapacity);
+            Definition = builder.Freeze<AnimAutoOperator>(AnimContractIds.AutoOperatorId);
         }
 
-        internal static CoCoDiagnostic Error(string message)
-        {
-            return CoCoDiagnostic.Error(
-                CoCoDiagnosticDomain.Operator,
-                CoCoDiagnosticCode.OperatorExecutionFailed,
-                message);
-        }
-
-        private static CoCoOperatorDescriptor BuildAutoDescriptor()
-        {
-            var builder = new CoCoOperatorDescriptorBuilder();
-            Require(
-                builder.TryRequire<IAnimParameterOperationSection>(
-                    AnimContractIds.ParameterSectionId,
-                    CoCoOperationSectionMode.Continuous,
-                    out _,
-                    out CoCoDiagnostic parameters),
-                parameters);
-            Require(
-                builder.TryRequire<IAnimTriggerOperationSection>(
-                    AnimContractIds.TriggerSectionId,
-                    CoCoOperationSectionMode.Discrete,
-                    out _,
-                    out CoCoDiagnostic triggers),
-                triggers);
-            Require(
-                builder.TryOwnOutcome<AnimSnapshotState>(
-                    AnimContractIds.SnapshotSlotId,
-                    out CoCoDiagnostic snapshot),
-                snapshot);
-            Require(
-                builder.TryEmit<AnimFeedbackEvent>(
-                    AnimContractIds.FeedbackEventTypeId,
-                    AnimContractIds.FeedbackEventDomainId,
-                    AnimContractLimits.FeedbackCapacity,
-                    out _,
-                    out CoCoDiagnostic feedback),
-                feedback);
-            Require(
-                builder.TryFreeze<AnimAutoOperator>(
-                    AnimContractIds.AutoOperatorId,
-                    out CoCoOperatorDescriptor descriptor,
-                    out CoCoDiagnostic freeze),
-                freeze);
-            return descriptor;
-        }
-
-        private static void Require(bool succeeded, CoCoDiagnostic diagnostic)
-        {
-            if (!succeeded || diagnostic.IsError)
-            {
-                throw new InvalidOperationException(
-                    diagnostic.IsError
-                        ? diagnostic.Message
-                        : "Animation contract initialization failed.");
-            }
-        }
+        internal static CoCoDiagnostic Error(string message) => CoCoDiagnostic.Error(
+            CoCoDiagnosticDomain.Operator, CoCoDiagnosticCode.OperatorExecutionFailed, message);
     }
 
     /// <summary>

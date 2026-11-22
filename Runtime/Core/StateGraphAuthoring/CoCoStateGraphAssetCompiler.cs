@@ -153,7 +153,7 @@ namespace CoCoFlow.Runtime.Core
         {
         }
 
-        public CoCoStateGraphAssetCompiler(ICoCoStateGraphCompilationCache cache)
+        internal CoCoStateGraphAssetCompiler(ICoCoStateGraphCompilationCache cache)
         {
             this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
         }

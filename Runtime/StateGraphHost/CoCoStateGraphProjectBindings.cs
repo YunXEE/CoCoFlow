@@ -6,9 +6,9 @@ using UnityEngine;
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>
-    /// Project-owned, AOT-safe binding source. Install one immutable provider before any Host starts.
+    /// Internal setup contract for a frozen catalog and per-Host bindings.
     /// </summary>
-    public interface ICoCoStateGraphProjectBindingProvider
+    internal interface ICoCoStateGraphProjectBindingProvider
     {
         CoCoGraphDescriptorCatalog Catalog { get; }
 
@@ -23,7 +23,10 @@ namespace CoCoFlow.Runtime.Core
 
         public static bool IsInstalled => _provider != null;
 
-        public static bool TryInstall(
+        public static bool TryInstall(CoCoStandardBindingProvider provider, out CoCoDiagnostic diagnostic) =>
+            TryInstall((ICoCoStateGraphProjectBindingProvider)provider, out diagnostic);
+
+        internal static bool TryInstall(
             ICoCoStateGraphProjectBindingProvider provider,
             out CoCoDiagnostic diagnostic)
         {
@@ -193,13 +196,16 @@ namespace CoCoFlow.Runtime.Core
     /// Per-Graph setup builder. All generic calls are made by project code so IL2CPP never needs
     /// reflection to construct State, Condition, Intent, Adapter, or Operation factories.
     /// </summary>
-    public sealed class CoCoStateGraphHostBindingBuilder
+    internal sealed class CoCoStateGraphHostBindingBuilder
     {
         private readonly CoCoCompiledStateGraph _graph;
         private readonly CoCoGraphInstanceId _graphInstanceId;
         private readonly CoCoStateGraphHost _host;
         private readonly IReadOnlyList<MonoBehaviour> _intentSourceComponents;
+#if UNITY_INCLUDE_TESTS
         private readonly IReadOnlyList<MonoBehaviour> _eventAdapterComponents;
+#endif
+
         private readonly CoCoStateGraphLogicBindingsBuilder _logic;
         private readonly CoCoOperationSectionRegistryBuilder _operations;
         private readonly CoCoContextFrameLayoutBuilder _contextLayout;
@@ -209,8 +215,11 @@ namespace CoCoFlow.Runtime.Core
         private readonly bool[] _registeredIntents;
         private readonly int[] _intentProducerCounts;
         private readonly bool[] _boundIntentSourceSlots;
+#if UNITY_INCLUDE_TESTS
         private readonly bool[] _boundEventAdapterSlots;
         private readonly bool[] _boundEventDeclarations;
+#endif
+
         private readonly HashSet<EntityId> _boundIntentComponentIds;
         private readonly List<CoCoOperationSectionRequirement> _operationRequirements;
         private readonly List<ICoCoGraphContextProducerBinding> _graphContextProducers;
@@ -231,8 +240,11 @@ namespace CoCoFlow.Runtime.Core
             _graphInstanceId = graphInstanceId;
             _host = host;
             _intentSourceComponents = host?.IntentSources ?? Array.Empty<MonoBehaviour>();
+#if UNITY_INCLUDE_TESTS
             _eventAdapterComponents = (host?.EventAdapters ?? Array.Empty<MonoBehaviour>())
                 .Where(IsLegacyEventAdapter).ToArray();
+#endif
+
             _logic = new CoCoStateGraphLogicBindingsBuilder(graph);
             _operations = new CoCoOperationSectionRegistryBuilder();
             _contextLayout = new CoCoContextFrameLayoutBuilder();
@@ -261,21 +273,34 @@ namespace CoCoFlow.Runtime.Core
             _registeredIntents = new bool[graph.IntentRequirements.Count];
             _intentProducerCounts = new int[graph.IntentRequirements.Count];
             _boundIntentSourceSlots = new bool[_intentSourceComponents.Count];
+#if UNITY_INCLUDE_TESTS
             _boundEventAdapterSlots = new bool[_eventAdapterComponents.Count];
             _boundEventDeclarations = new bool[graph.IntentRequirements.AdapterCount];
+#endif
+
             _boundIntentComponentIds = new HashSet<EntityId>();
             _operationRequirements = new List<CoCoOperationSectionRequirement>(
                 graph.OperationProvides.Count);
             _graphContextProducers = new List<ICoCoGraphContextProducerBinding>();
             _intentContributions = new List<ICoCoHostIntentContribution>();
             _eventLanes = new List<ICoCoHostEventLane>();
+#if UNITY_INCLUDE_TESTS
             if (_eventAdapterComponents.Count != graph.IntentRequirements.AdapterCount)
             {
                 _setupFailure = RegistryError(
                     CoCoDiagnosticCode.ManifestConflict,
                     "Host Event Adapter references must match the compiled declaration manifest slot-for-slot.");
             }
+#endif
+
         }
+
+        private int IntentContributionCount =>
+#if UNITY_INCLUDE_TESTS
+            _intentSourceComponents.Count + _eventAdapterComponents.Count;
+#else
+            _intentSourceComponents.Count;
+#endif
 
         internal IReadOnlyList<MonoBehaviour> IntentSourceComponents => _intentSourceComponents;
         public CoCoCompiledStateGraph Graph => _graph;
@@ -293,6 +318,7 @@ namespace CoCoFlow.Runtime.Core
             return succeeded || LatchFailure(diagnostic);
         }
 
+#if UNITY_INCLUDE_TESTS
         private static bool IsLegacyEventAdapter(MonoBehaviour component)
         {
             if (component == null) return true;
@@ -302,6 +328,7 @@ namespace CoCoFlow.Runtime.Core
                    contracts.Any(type => type.IsGenericType &&
                        type.GetGenericTypeDefinition() == typeof(ICoCoEventToIntentAdapter<,>));
         }
+#endif
 
         public bool TryBindCondition(
             CoCoConditionDescriptorId descriptorId,
@@ -381,7 +408,7 @@ namespace CoCoFlow.Runtime.Core
             if (!_intentLayout.Freeze(out diagnostic) ||
                 !_intentLayout.TryCreateRuntime(
                     _graphInstanceId,
-                    _intentSourceComponents.Count + _eventAdapterComponents.Count,
+                    IntentContributionCount,
                     out _intentRuntime,
                     out diagnostic))
             {
@@ -426,6 +453,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+#if UNITY_INCLUDE_TESTS
         public bool TryBindEventAdapter<TEvent, TIntent>(
             int hostAdapterIndex,
             CoCoEventDomainId eventDomainId,
@@ -494,6 +522,7 @@ namespace CoCoFlow.Runtime.Core
             _intentProducerCounts[intentIndex]++;
             return true;
         }
+#endif
 
         public bool TryRegisterOperation<TSection>(
             CoCoOperationSectionId sectionId,
@@ -927,6 +956,7 @@ namespace CoCoFlow.Runtime.Core
                 return false;
             }
 
+#if UNITY_INCLUDE_TESTS
             for (int index = 0; index < _boundEventAdapterSlots.Length; index++)
             {
                 if (_boundEventAdapterSlots[index])
@@ -940,6 +970,7 @@ namespace CoCoFlow.Runtime.Core
                 DisposeIntentRuntime();
                 return false;
             }
+#endif
 
             if (_graph.IntentRequirements.Count > 0)
             {
@@ -964,6 +995,7 @@ namespace CoCoFlow.Runtime.Core
                 }
             }
 
+#if UNITY_INCLUDE_TESTS
             for (int index = 0; index < _boundEventDeclarations.Length; index++)
             {
                 if (!_boundEventDeclarations[index])
@@ -975,6 +1007,7 @@ namespace CoCoFlow.Runtime.Core
                     return false;
                 }
             }
+#endif
 
             if (!TryFinalizeIntentContributionOrder(
                     out ICoCoHostIntentContribution[] intentContributions,
@@ -1152,6 +1185,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+#if UNITY_INCLUDE_TESTS
         private bool TryResolveEventAdapter<TEvent, TIntent>(
             int hostAdapterIndex,
             out ICoCoEventToIntentAdapter<TEvent, TIntent> adapter,
@@ -1242,6 +1276,7 @@ namespace CoCoFlow.Runtime.Core
             diagnostic = CoCoDiagnostic.None;
             return lane;
         }
+#endif
 
         private bool TryFindIntent(CoCoIntentId intentId, out CoCoIntentRequirement requirement)
         {
@@ -1264,16 +1299,18 @@ namespace CoCoFlow.Runtime.Core
             out CoCoDiagnostic diagnostic)
         {
             contributions = new ICoCoHostIntentContribution[
-                _intentSourceComponents.Count + _eventAdapterComponents.Count];
+                IntentContributionCount];
             for (int index = 0; index < _intentContributions.Count; index++)
             {
                 ICoCoHostIntentContribution contribution = _intentContributions[index];
                 int targetIndex = contribution.IntentSourceHostIndex;
+#if UNITY_INCLUDE_TESTS
                 if (targetIndex < 0)
                 {
                     targetIndex = _intentSourceComponents.Count +
                                   contribution.EventAdapterAuthoringIndex;
                 }
+#endif
 
                 if (targetIndex < 0 ||
                     targetIndex >= contributions.Length ||
@@ -1304,6 +1341,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+#if UNITY_INCLUDE_TESTS
         private bool TryFindEventDeclaration(
             CoCoEventDomainId domainId,
             CoCoEventTypeId eventTypeId,
@@ -1331,6 +1369,7 @@ namespace CoCoFlow.Runtime.Core
             declarationIndex = -1;
             return false;
         }
+#endif
 
         private bool TryFindOperation(
             CoCoOperationSectionId sectionId,
@@ -1813,7 +1852,10 @@ namespace CoCoFlow.Runtime.Core
     internal interface ICoCoHostIntentContribution
     {
         int IntentSourceHostIndex { get; }
+#if UNITY_INCLUDE_TESTS
         int EventAdapterAuthoringIndex { get; }
+#endif
+
         CoCoIntentSourceCursor Cursor { get; }
 
         bool TryAssignRegistrationOrder(int registrationOrder);
@@ -1836,7 +1878,10 @@ namespace CoCoFlow.Runtime.Core
         }
 
         public int IntentSourceHostIndex => _hostIndex;
+#if UNITY_INCLUDE_TESTS
         public int EventAdapterAuthoringIndex => -1;
+#endif
+
         public CoCoIntentSourceCursor Cursor => _binding.Cursor;
 
         public bool TryAssignRegistrationOrder(int registrationOrder) =>
@@ -1850,6 +1895,7 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
+#if UNITY_INCLUDE_TESTS
     internal sealed class CoCoHostEventIntentContribution<TEvent, TIntent> : ICoCoHostIntentContribution
         where TEvent : unmanaged
     {
@@ -1886,4 +1932,5 @@ namespace CoCoFlow.Runtime.Core
                    result == CoCoIntentEventProjectionResult.NoValue;
         }
     }
+#endif
 }

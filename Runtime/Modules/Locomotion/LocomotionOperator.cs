@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using UnityEngine;
@@ -23,41 +22,24 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
     [AddComponentMenu("CoCoFlow/Locomotion/Locomotion Operator")]
-    [CoCoOperatorRegistration(typeof(LocomotionSectionRegistrar))]
     public sealed class LocomotionOperator :
         MonoBehaviour,
         ICoCoPersistenceRestoreOperator,
         ICoCoTemporalRestoreOperator
     {
         private static readonly CoCoOperationSectionRequirement SectionRequirement;
-        private static readonly CoCoOperatorDescriptor OperatorDescriptor;
+        [CoCoOperatorDefinition]
+        private static CoCoStandardOperatorDefinition Definition { get; }
 
         static LocomotionOperator()
         {
-            var builder = new CoCoOperatorDescriptorBuilder();
-            CoCoDiagnostic requirementDiagnostic = default;
-            CoCoDiagnostic outcomeDiagnostic = default;
-            CoCoDiagnostic freezeDiagnostic = default;
-            if (!builder.TryRequire<ILocomotionSection>(
-                    LocoContractIds.SectionId,
-                    CoCoOperationSectionMode.Continuous,
-                    out SectionRequirement,
-                    out requirementDiagnostic) ||
-                !builder.TryOwnOutcome<LocomotionState>(
-                    LocoContractIds.StateSlotId,
-                    out outcomeDiagnostic) ||
-                !builder.TryFreeze<LocomotionOperator>(
-                    LocoContractIds.OperatorId,
-                    out OperatorDescriptor,
-                    out freezeDiagnostic))
-            {
-                throw new InvalidOperationException(
-                    requirementDiagnostic.IsError
-                        ? requirementDiagnostic.Message
-                        : outcomeDiagnostic.IsError
-                            ? outcomeDiagnostic.Message
-                            : freezeDiagnostic.Message);
-            }
+            var builder = new CoCoStandardOperatorBuilder();
+            SectionRequirement = builder.Require<ILocomotionSection, LocomotionSectionViewFactory>(
+                LocoContractIds.SectionId, LocoContractIds.SectionSemanticFingerprint, new LocomotionSectionViewFactory());
+            builder.OwnOutcome(LocoContractIds.StateBlockId, LocoContractIds.StateSlotId,
+                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
+                CoCoContextRestorePolicy.Stored, default(LocomotionState), 1);
+            Definition = builder.Freeze<LocomotionOperator>(LocoContractIds.OperatorId);
         }
 
         [SerializeField] private LocomotionOperatorConfig config;
@@ -66,7 +48,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         private CharacterController _controller;
         private CoCoDiagnostic _lastDiagnostic;
 
-        public CoCoOperatorDescriptor Descriptor => OperatorDescriptor;
+        public CoCoOperatorDescriptor Descriptor => Definition.Descriptor;
 
         /// <summary>
         /// Restore projection (exception moment #2): the world adopts the
@@ -444,119 +426,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                     state.RotationQY,
                     state.RotationQZ,
                     state.RotationQW));
-        }
-    }
-
-    /// <summary>
-    /// Standard-path registration for the locomotion section and its
-    /// Operator-owned slot. Strong-typed end to end; mounted on
-    /// LocomotionOperator via CoCoOperatorRegistrationAttribute.
-    /// </summary>
-    public sealed class LocomotionSectionRegistrar :
-        ICoCoStandardOperatorRegistrar
-    {
-        [UnityEngine.Scripting.Preserve]
-        public LocomotionSectionRegistrar() { }
-
-        private static readonly CoCoStandardOperationRegistration[]
-            OperationRegistrations =
-            {
-                new CoCoStandardOperationRegistration(
-                    typeof(ILocomotionSection),
-                    LocoContractIds.SectionId),
-            };
-
-        private static readonly CoCoStateBlockId[] ContextBlockRegistrations =
-        {
-            LocoContractIds.StateBlockId,
-        };
-
-        public IReadOnlyList<CoCoStandardOperationRegistration> Operations =>
-            OperationRegistrations;
-
-        public IReadOnlyList<CoCoStateBlockId> ContextBlocks =>
-            ContextBlockRegistrations;
-
-        public bool RegisterCatalog(CoCoGraphDescriptorCatalogBuilder builder)
-        {
-            return builder.TryRegisterOperationSection<ILocomotionSection, LocomotionSectionViewFactory>(
-                       LocoContractIds.SectionId,
-                       CoCoOperationSectionMode.Continuous,
-                       new CoCoOperationSectionViewFactoryToken<
-                           ILocomotionSection,
-                           LocomotionSectionViewFactory>(
-                           LocoContractIds.SectionSemanticFingerprint),
-                       out _) &&
-                   builder.TryRegisterStateBlock(
-                       LocoContractIds.StateBlockId,
-                       CoCoStateBlockOwner.Operator,
-                       out _) &&
-                   builder.TryRegisterStateSlot<LocomotionState>(
-                       LocoContractIds.StateBlockId,
-                       LocoContractIds.StateSlotId,
-                       CoCoContextProjection.Temporal |
-                       CoCoContextProjection.Durable,
-                       CoCoContextRestorePolicy.Stored,
-                       default(LocomotionState),
-                       1UL,
-                       default,
-                       null,
-                       out _);
-        }
-
-        public bool TryBindOperation(
-            CoCoOperationSectionId sectionId,
-            CoCoStateGraphHostBindingBuilder bindingBuilder,
-            out CoCoDiagnostic diagnostic)
-        {
-            if (sectionId != LocoContractIds.SectionId)
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.MissingOperationBinding,
-                    "Locomotion registrar does not own the requested Operation Section.");
-                return false;
-            }
-
-            return bindingBuilder.TryRegisterOperation<ILocomotionSection>(
-                LocoContractIds.SectionId,
-                CoCoOperationSectionMode.Continuous,
-                new LocomotionSectionViewFactory(),
-                LocoContractIds.SectionSemanticFingerprint,
-                out _,
-                out diagnostic);
-        }
-
-        public bool TryBindContextSlot(
-            CoCoStateBlockId blockId,
-            CoCoStateSlotId slotId,
-            CoCoStateGraphHostBindingBuilder bindingBuilder,
-            out CoCoDiagnostic diagnostic)
-        {
-            if (blockId != LocoContractIds.StateBlockId ||
-                slotId != LocoContractIds.StateSlotId)
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.MissingDescriptor,
-                    "Locomotion registrar does not own the requested Context slot.");
-                return false;
-            }
-
-            return bindingBuilder.TryBindContextSlot<LocomotionState>(
-                LocoContractIds.StateBlockId,
-                LocoContractIds.StateSlotId,
-                default,
-                1UL,
-                out diagnostic);
-        }
-
-        private static CoCoDiagnostic Error(
-            CoCoDiagnosticCode code,
-            string message)
-        {
-            return CoCoDiagnostic.Error(
-                CoCoDiagnosticDomain.Registry,
-                code,
-                message);
         }
     }
 }

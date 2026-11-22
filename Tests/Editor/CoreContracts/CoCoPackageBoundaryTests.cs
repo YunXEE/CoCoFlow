@@ -281,16 +281,20 @@ namespace CoCoFlow.Runtime.Core.Tests
         }
 
         [Test]
-        public void StateFlowPublicSurfaceFreezesRuntimeOwnedIntentLifecycle()
+        public void StateFlowExposesIntentReadsAndKeepsRuntimeLifecycleInternal()
         {
             Assembly stateFlowAssembly = typeof(CoCoContextFrame).Assembly;
             Type reducerFactory = RequireExportedType(stateFlowAssembly, "ICoCoIntentReducerFactory`2");
-            Type runtimeType = RequireExportedType(stateFlowAssembly, "CoCoIntentFrameRuntime");
+            Type runtimeType = typeof(CoCoIntentFrameRuntime);
+            Type layoutType = typeof(CoCoIntentFrameLayout);
+            _ = RequireExportedType(stateFlowAssembly, nameof(ICoCoIntentFrame));
             Type projectionCodec = stateFlowAssembly.GetType(
                 "CoCoFlow.Runtime.Core.CoCoContextProjectionCodec",
                 false);
 
             Assert.IsTrue(reducerFactory.IsInterface);
+            Assert.IsFalse(runtimeType.IsVisible);
+            Assert.IsFalse(layoutType.IsVisible);
             Assert.IsNotNull(
                 runtimeType.GetMethod("CancelCollection", BindingFlags.Public | BindingFlags.Instance),
                 "The Host needs one explicit rollback boundary for a failed collection.");

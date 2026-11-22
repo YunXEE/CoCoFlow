@@ -14,6 +14,16 @@ namespace CoCoFlow.Runtime.Core
         TReducer Create(CoCoGraphInstanceId graphInstanceId);
     }
 
+    internal struct CoCoIntentPassThrough<T> : ICoCoIntentReducer<T>
+    {
+        public T Reduce(in T current, in T candidate) => candidate;
+    }
+
+    internal sealed class CoCoIntentPassThroughFactory<T> : ICoCoIntentReducerFactory<T, CoCoIntentPassThrough<T>>
+    {
+        public CoCoIntentPassThrough<T> Create(CoCoGraphInstanceId graphInstanceId) => default;
+    }
+
     public interface ICoCoIntentFrameSource<TIntent>
     {
         bool TrySample(in CoCoTickFrame tickFrame, out TIntent intent);
@@ -37,11 +47,13 @@ namespace CoCoFlow.Runtime.Core
         internal ulong Prepared;
     }
 
-    public interface ICoCoEventToIntentAdapter<TEvent, TIntent>
+#if UNITY_INCLUDE_TESTS
+    internal interface ICoCoEventToIntentAdapter<TEvent, TIntent>
         where TEvent : unmanaged
     {
         bool TryProject(in CoCoEventPacket<TEvent> packet, out TIntent intent);
     }
+#endif
 
     public interface ICoCoIntentFrame
     {
@@ -85,6 +97,7 @@ namespace CoCoFlow.Runtime.Core
         ContributionRejected = 6
     }
 
+#if UNITY_INCLUDE_TESTS
     public enum CoCoIntentEventProjectionResult
     {
         None = 0,
@@ -98,6 +111,7 @@ namespace CoCoFlow.Runtime.Core
         DuplicateContribution = 8,
         CapacityExceeded = 9
     }
+#endif
 
     public readonly struct CoCoIntentDescriptor : IEquatable<CoCoIntentDescriptor>
     {
@@ -202,7 +216,7 @@ namespace CoCoFlow.Runtime.Core
             !left.Equals(right);
     }
 
-    public readonly struct CoCoIntentSourceRequirement<TIntent> :
+    internal readonly struct CoCoIntentSourceRequirement<TIntent> :
         IEquatable<CoCoIntentSourceRequirement<TIntent>>
     {
         private CoCoIntentSourceRequirement(
@@ -257,7 +271,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoIntentSourceRequirement<TIntent> right) => !left.Equals(right);
     }
 
-    public sealed class CoCoIntentSourceBinding<TIntent>
+    internal sealed class CoCoIntentSourceBinding<TIntent>
     {
         private readonly CoCoIntentFrameRuntime _runtime;
         private readonly ICoCoIntentFrameSource<TIntent> _source;
@@ -336,7 +350,8 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public sealed class CoCoEventToIntentBinding<TEvent, TIntent>
+#if UNITY_INCLUDE_TESTS
+    internal sealed class CoCoEventToIntentBinding<TEvent, TIntent>
         where TEvent : unmanaged
     {
         private readonly CoCoIntentFrameRuntime _runtime;
@@ -413,6 +428,7 @@ namespace CoCoFlow.Runtime.Core
             return _adapter.TryProject(packet, out intent);
         }
     }
+#endif
 
     internal readonly struct CoCoIntentContribution<TIntent>
     {
@@ -573,7 +589,7 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public sealed class CoCoIntentFrameLayout
+    internal sealed class CoCoIntentFrameLayout
     {
         private readonly ICoCoIntentDefinition[] _definitions;
         private readonly Dictionary<CoCoGraphInstanceId, CoCoIntentFrameRuntime> _runtimes =
@@ -700,7 +716,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryCreateRuntime(
+        internal bool TryCreateRuntime(
             CoCoGraphInstanceId graphInstanceId,
             int bindingCapacity,
             out CoCoIntentFrameRuntime runtime,
@@ -801,7 +817,7 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
-    public sealed class CoCoIntentFrameRuntime : IDisposable
+    internal sealed class CoCoIntentFrameRuntime : IDisposable
     {
         private readonly CoCoIntentFrameLayout _layout;
         private readonly CoCoIntentFrame _frame;
@@ -844,7 +860,7 @@ namespace CoCoFlow.Runtime.Core
         internal bool IsReductionAbortRequested =>
             _disposeRequested || (_inbox != null && _inbox.HasDeferredLifecycle(this));
 
-        public bool TryBindSource<TIntent>(
+        internal bool TryBindSource<TIntent>(
             CoCoIntentSourceRequirement<TIntent> requirement,
             ICoCoIntentFrameSource<TIntent> source,
             out CoCoIntentSourceBinding<TIntent> binding,
@@ -866,7 +882,8 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryBindEventAdapter<TEvent, TIntent>(
+#if UNITY_INCLUDE_TESTS
+        internal bool TryBindEventAdapter<TEvent, TIntent>(
             CoCoEventDomainId eventDomainId,
             CoCoEventTypeId eventTypeId,
             CoCoIntentSourceRequirement<TIntent> requirement,
@@ -925,6 +942,7 @@ namespace CoCoFlow.Runtime.Core
                 manifestIndex);
             return true;
         }
+#endif
 
         public bool FreezeBindings(out CoCoDiagnostic diagnostic)
         {
@@ -1029,7 +1047,8 @@ namespace CoCoFlow.Runtime.Core
             return result;
         }
 
-        public CoCoIntentEventProjectionResult TryProject<TEvent, TIntent>(
+#if UNITY_INCLUDE_TESTS
+        internal CoCoIntentEventProjectionResult TryProject<TEvent, TIntent>(
             CoCoEventToIntentBinding<TEvent, TIntent> binding,
             in CoCoActorEventSealedBatch<TEvent> batch)
             where TEvent : unmanaged
@@ -1121,6 +1140,7 @@ namespace CoCoFlow.Runtime.Core
 
             return projectionResult;
         }
+#endif
 
         public bool TryFreeze(out CoCoDiagnostic diagnostic)
         {
@@ -1277,6 +1297,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
+#if UNITY_INCLUDE_TESTS
         private CoCoIntentEventProjectionResult TryProjectCore<TEvent, TIntent>(
             CoCoEventToIntentBinding<TEvent, TIntent> binding,
             in CoCoActorEventSealedBatch<TEvent> batch,
@@ -1355,6 +1376,7 @@ namespace CoCoFlow.Runtime.Core
                     return CoCoIntentEventProjectionResult.InvalidBinding;
             }
         }
+#endif
 
         private bool TryInspectEventAdapterManifest<TEvent>(
             CoCoEventDomainId eventDomainId,

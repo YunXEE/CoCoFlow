@@ -491,6 +491,10 @@ namespace CoCoFlow.Runtime.Core
         public static bool operator !=(CoCoOperatorOutcome left, CoCoOperatorOutcome right) => !left.Equals(right);
     }
 
+    /// <summary>Marks the static definition used by the standard StateGraph Host.</summary>
+    [AttributeUsage(AttributeTargets.Property, Inherited = false)]
+    public sealed class CoCoOperatorDefinitionAttribute : Attribute { }
+
     public interface ICoCoOperator
     {
         CoCoOperatorDescriptor Descriptor { get; }

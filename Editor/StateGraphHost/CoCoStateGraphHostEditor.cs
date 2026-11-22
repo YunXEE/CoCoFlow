@@ -501,19 +501,13 @@ namespace CoCoFlow.Editor.StateGraphHost
             menu.ShowAsContext();
         }
 
-        // ----- Event Adapters：有序列表 + 提示，不做槽位验证（B4/D4） -----
-
         private void BuildEventAdaptersSection()
         {
             _bindingsContent.Add(CreateSubsectionTitle(
-                CoCoEditorLocalization.Text("Event Adapters", "Event 适配器")));
-            _bindingsContent.Add(new PropertyField(
-                serializedObject.FindProperty("eventAdapters"),
-                CoCoEditorLocalization.Text("Event Adapters", "Event 适配器")));
+                CoCoEditorLocalization.Text("Event Inbox", "事件收件箱")));
             var note = new Label(CoCoEditorLocalization.Text(
-                "Direct mailbox adapters bind their event interfaces automatically; " +
-                    "legacy Event-to-Intent entries retain manifest order.",
-                "直接邮箱适配器按事件接口自动绑定；旧 Event→Intent 适配器保留清单顺序。"))
+                "The Host discovers receivers on its object and children. Implement ICoCoEventInboxAdapter for payload filters.",
+                "Host 自动发现自身及子物体上的收件组件。通过 ICoCoEventInboxAdapter 设置载荷过滤条件。"))
             {
                 name = "ccflow-adapters-note"
             };
