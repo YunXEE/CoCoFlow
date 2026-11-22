@@ -408,21 +408,4 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     {
         public AnimFeedbackIntentReducer Create(CoCoGraphInstanceId graphInstanceId) => default;
     }
-
-    public sealed class AnimFeedbackEventToIntentAdapter :
-        ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>
-    {
-        public bool TryProject(
-            in CoCoEventPacket<AnimFeedbackEvent> packet,
-            out AnimFeedbackIntent intent)
-        {
-            if (!packet.IsValid || !packet.Payload.IsValid)
-            {
-                intent = default;
-                return false;
-            }
-
-            return AnimFeedbackIntent.TryCreateSingle(packet.Payload.Record, out intent);
-        }
-    }
 }

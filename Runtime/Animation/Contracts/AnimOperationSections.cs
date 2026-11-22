@@ -3,6 +3,7 @@ using CoCoFlow.Runtime.Core;
 
 namespace CoCoFlow.Runtime.Animation.Contracts
 {
+    [CoCoOperationSection(CoCoOperationSectionMode.Continuous)]
     public interface IAnimParameterOperationSection : ICoCoOperationSection
     {
         AnimParameterCommand Slot00 { get; set; }
@@ -23,6 +24,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         AnimParameterCommand Slot15 { get; set; }
     }
 
+    [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
     public interface IAnimTriggerOperationSection : ICoCoOperationSection
     {
         AnimTriggerCommand Slot00 { get; set; }

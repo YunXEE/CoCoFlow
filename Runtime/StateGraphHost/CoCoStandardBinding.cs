@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace CoCoFlow.Runtime.Core
 {
@@ -17,17 +18,17 @@ namespace CoCoFlow.Runtime.Core
         internal IReadOnlyList<System.Reflection.Assembly> Assemblies { get; private set; }
         private readonly Dictionary<CoCoStateDescriptorId, Type> _stateTypes;
         private Dictionary<CoCoConditionDescriptorId, ICoCoConditionRuntimeFactory> _conditionFactories;
-        private readonly Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
+        private readonly Dictionary<CoCoOperationSectionId, CoCoStandardOperatorDefinition>
             _operationBinders;
-        private readonly Dictionary<CoCoStateBlockId, ICoCoStandardOperatorRegistrar>
+        private readonly Dictionary<CoCoStateBlockId, CoCoStandardOperatorDefinition>
             _contextBinders;
 
         private CoCoStandardBindingProvider(
             CoCoGraphDescriptorCatalog catalog,
             Dictionary<CoCoStateDescriptorId, Type> stateTypes,
-            Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>
+            Dictionary<CoCoOperationSectionId, CoCoStandardOperatorDefinition>
                 operationBinders,
-            Dictionary<CoCoStateBlockId, ICoCoStandardOperatorRegistrar>
+            Dictionary<CoCoStateBlockId, CoCoStandardOperatorDefinition>
                 contextBinders,
             Dictionary<CoCoIntentId, ICoCoStandardIntentRegistration> intentRegistrations)
         {
@@ -61,112 +62,69 @@ namespace CoCoFlow.Runtime.Core
             var builder = new CoCoGraphDescriptorCatalogBuilder();
             var operationIdsByType =
                 new Dictionary<Type, CoCoOperationSectionId>();
-            var registrarsBySectionType =
-                new Dictionary<Type, ICoCoStandardOperatorRegistrar>();
+            var operatorsBySectionType =
+                new Dictionary<Type, CoCoStandardOperatorDefinition>();
             var operationBinders =
-                new Dictionary<CoCoOperationSectionId, ICoCoStandardOperatorRegistrar>();
+                new Dictionary<CoCoOperationSectionId, CoCoStandardOperatorDefinition>();
             var contextBinders =
-                new Dictionary<CoCoStateBlockId, ICoCoStandardOperatorRegistrar>();
-            var seenRegistrars = new HashSet<Type>();
+                new Dictionary<CoCoStateBlockId, CoCoStandardOperatorDefinition>();
 
             // Operator modules carry their own registrations. Package module
             // assemblies are added to the caller's graph-author assemblies,
             // then sorted so discovery is independent of load order.
-            var registrarAssemblies =
+            var moduleAssemblies =
                 new List<System.Reflection.Assembly>(assemblies);
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 string assemblyName = assembly.GetName().Name ?? string.Empty;
                 if (assemblyName.StartsWith("CoCoFlow.Runtime.Modules", StringComparison.Ordinal) &&
-                    !registrarAssemblies.Contains(assembly))
+                    !moduleAssemblies.Contains(assembly))
                 {
-                    registrarAssemblies.Add(assembly);
+                    moduleAssemblies.Add(assembly);
                 }
             }
 
-            registrarAssemblies.Sort((left, right) => string.CompareOrdinal(
+            moduleAssemblies.Sort((left, right) => string.CompareOrdinal(
                 left.FullName,
                 right.FullName));
 
-            var intentRegistrations = RegisterIntents(registrarAssemblies, builder);
+            var intentRegistrations = RegisterIntents(moduleAssemblies, builder);
             var intentsByType = intentRegistrations.Values.ToDictionary(item => item.IntentType);
 
-            foreach (System.Reflection.Assembly assembly in registrarAssemblies)
+            foreach (System.Reflection.Assembly assembly in moduleAssemblies)
             {
                 foreach (Type type in GetLoadableTypes(assembly))
                 {
-                    if (type == null || !type.IsClass)
+                    if (type == null || !type.IsClass || !typeof(ICoCoOperator).IsAssignableFrom(type))
                     {
                         continue;
                     }
 
-                    foreach (CoCoOperatorRegistrationAttribute registration in
-                             type.GetCustomAttributes(
-                                 typeof(CoCoOperatorRegistrationAttribute),
-                                 false))
+                    foreach (var property in type.GetProperties(BindingFlags.Static | BindingFlags.Public |
+                                 BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                     {
-                        if (!seenRegistrars.Add(registration.RegistrarType))
-                        {
-                            continue;
-                        }
+                        if (!property.IsDefined(typeof(CoCoOperatorDefinitionAttribute), false)) continue;
+                        if (property.PropertyType != typeof(CoCoStandardOperatorDefinition) || property.GetMethod == null ||
+                            !(property.GetValue(null) is CoCoStandardOperatorDefinition definition) ||
+                            definition.Descriptor.OperatorType != type)
+                            throw new InvalidOperationException($"Invalid Operator definition {type.FullName}.{property.Name}.");
 
-                        var registrar = Activator.CreateInstance(
-                            registration.RegistrarType) as
-                            ICoCoStandardOperatorRegistrar;
-                        if (registrar == null || !registrar.RegisterCatalog(builder))
+                        definition.RegisterCatalog(builder);
+                        foreach (var operation in definition.Operations)
                         {
-                            throw new InvalidOperationException(
-                                "Operator registration failed: " +
-                                registration.RegistrarType.Name);
-                        }
-
-                        if (registrar.Operations == null ||
-                            registrar.Operations.Count == 0 ||
-                            registrar.ContextBlocks == null)
-                        {
-                            throw new InvalidOperationException(
-                                "Operator registrar must declare Operations and Context blocks: " +
-                                registration.RegistrarType.Name);
-                        }
-
-                        for (int operationIndex = 0;
-                             operationIndex < registrar.Operations.Count;
-                             operationIndex++)
-                        {
-                            CoCoStandardOperationRegistration operation =
-                                registrar.Operations[operationIndex];
-                            if (!operation.IsValid ||
-                                operationIdsByType.ContainsKey(operation.SectionType) ||
+                            if (!operation.IsValid || operationIdsByType.ContainsKey(operation.SectionType) ||
                                 operationBinders.ContainsKey(operation.SectionId))
-                            {
-                                throw new InvalidOperationException(
-                                    "Operator Sections must have unique valid types and ids: " +
-                                    registration.RegistrarType.Name);
-                            }
-
-                            operationIdsByType.Add(
-                                operation.SectionType,
-                                operation.SectionId);
-                            registrarsBySectionType.Add(
-                                operation.SectionType,
-                                registrar);
-                            operationBinders.Add(operation.SectionId, registrar);
+                                throw new InvalidOperationException($"Duplicate or invalid Operation Section {operation.SectionType.FullName}.");
+                            operationIdsByType.Add(operation.SectionType, operation.SectionId);
+                            operatorsBySectionType.Add(operation.SectionType, definition);
+                            operationBinders.Add(operation.SectionId, definition);
                         }
 
-                        for (int blockIndex = 0;
-                             blockIndex < registrar.ContextBlocks.Count;
-                             blockIndex++)
+                        foreach (var block in definition.ContextBlocks)
                         {
-                            CoCoStateBlockId blockId =
-                                registrar.ContextBlocks[blockIndex];
-                            if (!blockId.IsValid || contextBinders.ContainsKey(blockId))
-                            {
-                                throw new InvalidOperationException(
-                                    "Operator Context blocks must have unique valid ids: " +
-                                    registration.RegistrarType.Name);
-                            }
-
-                            contextBinders.Add(blockId, registrar);
+                            if (!block.IsValid || contextBinders.ContainsKey(block))
+                                throw new InvalidOperationException($"Duplicate or invalid Context block declared by {type.FullName}.");
+                            contextBinders.Add(block, definition);
                         }
                     }
                 }
@@ -223,8 +181,14 @@ namespace CoCoFlow.Runtime.Core
                     foreach (CoCoIntentConsumeAttribute consume in intentDeclarations)
                     {
                         if (!intentsByType.TryGetValue(consume.IntentType, out var registration))
-                            throw new InvalidOperationException("No standard Intent registration for " +
-                                consume.IntentType.Name + " in State " + type.Name + ".");
+                        {
+                            registration = CoCoStandardSingleIntent.For(consume.IntentType);
+                            if (intentRegistrations.ContainsKey(registration.IntentId))
+                                throw new InvalidOperationException("Duplicate Intent id for " + consume.IntentType.FullName + ".");
+                            registration.RegisterCatalog(builder);
+                            intentRegistrations.Add(registration.IntentId, registration);
+                            intentsByType.Add(consume.IntentType, registration);
+                        }
                         requiredIntents.Add(registration.IntentId);
                     }
                     CoCoIntentId[] consumedIntents = requiredIntents
@@ -241,9 +205,9 @@ namespace CoCoFlow.Runtime.Core
                         if (operationIdsByType.TryGetValue(
                                 provide.SectionType,
                                 out CoCoOperationSectionId providedId) &&
-                            registrarsBySectionType.TryGetValue(
+                            operatorsBySectionType.TryGetValue(
                                 provide.SectionType,
-                                out ICoCoStandardOperatorRegistrar owner))
+                                out CoCoStandardOperatorDefinition owner))
                         {
                             stateProvides.Add(providedId);
                             for (int blockIndex = 0;
@@ -329,8 +293,6 @@ namespace CoCoFlow.Runtime.Core
                     throw new InvalidOperationException("Intent registrations require unique valid types and ids.");
                 registrations.Add(registration.IntentId, registration);
             }
-            Add(new CoCoStandardIntentRegistration<InputIntentData, RawInputPassThroughReducer,
-                RawInputReducerFactory>(RawIntents.Player, 2, 1UL));
             foreach (var assembly in assemblies)
             foreach (var type in GetLoadableTypes(assembly))
             {
@@ -343,10 +305,36 @@ namespace CoCoFlow.Runtime.Core
             return registrations;
         }
 
-        public bool TryConfigure(
+        internal IEnumerable<Type> InboxEventTypes(CoCoCompiledStateGraph graph)
+        {
+            var usedLogic = new HashSet<Type>();
+            foreach (var layer in graph.Layers)
+            foreach (var state in layer.States)
+            {
+                for (var logic = state.Descriptor.LogicType; logic != null && typeof(CoCoStateLogic).IsAssignableFrom(logic); logic = logic.BaseType)
+                    usedLogic.Add(logic);
+            }
+
+            var result = new HashSet<Type>();
+            foreach (var assembly in usedLogic.Select(type => type.Assembly).Distinct())
+            foreach (var entry in assembly.GetCustomAttributes<CoCoStateInboxEventAttribute>())
+                if (usedLogic.Contains(entry.Logic)) result.Add(entry.Payload);
+            return result;
+        }
+
+        bool ICoCoStateGraphProjectBindingProvider.TryConfigure(CoCoStateGraphHostBindingBuilder host,
+            out CoCoDiagnostic diagnostic) => TryConfigure(host, out diagnostic);
+
+        internal bool TryConfigure(
             CoCoStateGraphHostBindingBuilder bindingBuilder,
             out CoCoDiagnostic diagnostic)
         {
+            if (bindingBuilder.Graph.IntentRequirements.AdapterCount != 0)
+            {
+                diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                    "This graph contains Event-to-Intent declarations. Migrate State reads to Inbox and remove the old declarations.");
+                return false;
+            }
             if (!TryBindRequiredIntent(bindingBuilder, out diagnostic) ||
                 !TryBindRequiredOperations(bindingBuilder, out diagnostic) ||
                 !TryBindRequiredContext(bindingBuilder, out diagnostic))
@@ -378,7 +366,7 @@ namespace CoCoFlow.Runtime.Core
                 if (!registration.TryRegisterHost(bindingBuilder, out bindings[i], out diagnostic)) return false;
             }
             if (!bindingBuilder.TryBeginIntentBindings(out diagnostic)) return false;
-            var matched = new bool[bindings.Length];
+            var matched = new int[bindings.Length];
             var sources = bindingBuilder.IntentSourceComponents;
             for (int sourceIndex = 0; sourceIndex < sources.Count; sourceIndex++)
             {
@@ -389,24 +377,32 @@ namespace CoCoFlow.Runtime.Core
                     if (match >= 0)
                     {
                         diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
-                            "One source matches multiple required Intent types.");
+                            $"Intent source {sources[sourceIndex].GetType().FullName} matches both " +
+                            $"{requirements[match].ValueType.FullName} and {requirements[i].ValueType.FullName}.");
                         return false;
                     }
                     match = i;
                 }
-                if (match < 0 || matched[match])
+                if (match < 0)
                 {
                     diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
-                        "Intent sources must each match one distinct required payload type.");
+                        $"Host Intent source at index {sourceIndex} matches no required payload type.");
+                    return false;
+                }
+                if (++matched[match] > requirements[match].MaxContributions)
+                {
+                    diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
+                        $"Too many Host sources for Intent {requirements[match].ValueType.FullName}. " +
+                        $"The declared source capacity is {requirements[match].MaxContributions}.");
                     return false;
                 }
                 if (!bindings[match].TryBind(bindingBuilder, sourceIndex, out diagnostic)) return false;
-                matched[match] = true;
             }
-            if (matched.Any(value => !value))
+            for (int index = 0; index < matched.Length; index++)
             {
+                if (matched[index] != 0) continue;
                 diagnostic = RegistryError(CoCoDiagnosticCode.ManifestConflict,
-                    "Every required Intent needs exactly one explicit Host source.");
+                    $"Host source is missing for Intent {requirements[index].ValueType.FullName}.");
                 return false;
             }
             return true;
@@ -423,7 +419,7 @@ namespace CoCoFlow.Runtime.Core
                 CoCoOperationSectionId sectionId = operations[index].SectionId;
                 if (!_operationBinders.TryGetValue(
                         sectionId,
-                        out ICoCoStandardOperatorRegistrar registrar))
+                        out CoCoStandardOperatorDefinition registrar))
                 {
                     diagnostic = RegistryError(
                         CoCoDiagnosticCode.MissingOperationBinding,
@@ -480,7 +476,7 @@ namespace CoCoFlow.Runtime.Core
                     CoCoContextStateSlotRequirement slot = block.Slots[slotIndex];
                     if (!_contextBinders.TryGetValue(
                             block.BlockId,
-                            out ICoCoStandardOperatorRegistrar registrar))
+                            out CoCoStandardOperatorDefinition registrar))
                     {
                         diagnostic = RegistryError(
                             CoCoDiagnosticCode.MissingDescriptor,

@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Tests.GameplayBinding.Components",
+    "references": [
+        "CoCoFlow.Tests.GameplayBinding.Contracts",
+        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.StateGraphHost"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

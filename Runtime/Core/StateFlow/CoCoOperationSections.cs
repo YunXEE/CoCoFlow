@@ -13,6 +13,49 @@ namespace CoCoFlow.Runtime.Core
     {
     }
 
+    [AttributeUsage(AttributeTargets.Interface, Inherited = false)]
+    public sealed class CoCoOperationSectionAttribute : Attribute
+    {
+        public CoCoOperationSectionAttribute(CoCoOperationSectionMode mode) => Mode = mode;
+        public CoCoOperationSectionMode Mode { get; }
+    }
+
+    /// <summary>Associates a Section with its compiler-generated View factory.</summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class CoCoOperationViewFactoryAttribute : Attribute
+    {
+        public CoCoOperationViewFactoryAttribute(Type section, Type factory)
+        {
+            Section = section;
+            Factory = factory;
+        }
+
+        public Type Section { get; }
+        public Type Factory { get; }
+    }
+
+    internal sealed class CoCoGeneratedOperationViewFactory<TSection> : ICoCoOperationSectionViewFactory<TSection>
+        where TSection : class, ICoCoOperationSection
+    {
+        private readonly ICoCoOperationSectionViewFactory<TSection> _factory;
+
+        internal CoCoGeneratedOperationViewFactory()
+        {
+            Type section = typeof(TSection);
+            foreach (CoCoOperationViewFactoryAttribute entry in
+                     section.Assembly.GetCustomAttributes(typeof(CoCoOperationViewFactoryAttribute), false))
+            {
+                if (entry.Section != section) continue;
+                _factory = (ICoCoOperationSectionViewFactory<TSection>)Activator.CreateInstance(entry.Factory);
+                return;
+            }
+
+            throw new InvalidOperationException($"No generated View for Operation Section {section.FullName}.");
+        }
+
+        public TSection Create(in CoCoOperationSectionViewContext<TSection> context) => _factory.Create(context);
+    }
+
     public enum CoCoOperationSectionMode
     {
         None = 0,
@@ -1234,7 +1277,7 @@ namespace CoCoFlow.Runtime.Core
     /// A fixed-layout, GraphInstance-owned OperationFrame arena.
     /// Begin, ranked writes, finalize and commit/cancel all reuse preallocated storage.
     /// </summary>
-    public sealed class CoCoOperationFrame
+    internal sealed class CoCoOperationFrame
     {
         private readonly CoCoOperationSectionRegistry _registry;
         private readonly CoCoGraphInstanceId _graphInstanceId;
@@ -1328,7 +1371,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryBegin(CoCoTickFrame tickFrame, out CoCoOperationFrameWriter writer) =>
+        internal bool TryBegin(CoCoTickFrame tickFrame, out CoCoOperationFrameWriter writer) =>
             TryBegin(null, tickFrame, out writer);
 
         internal bool TryBegin(
@@ -1672,7 +1715,7 @@ namespace CoCoFlow.Runtime.Core
     /// Read-only finalized OperationFrame candidate. Commit advances Tick and discrete Sequences;
     /// Cancel abandons the candidate without consuming either.
     /// </summary>
-    public readonly struct CoCoFinalizedOperationFrame : ICoCoOperationFrame
+    internal readonly struct CoCoFinalizedOperationFrame : ICoCoOperationFrame
     {
         private readonly CoCoOperationFrame _frame;
         private readonly ulong _token;
@@ -1730,8 +1773,8 @@ namespace CoCoFlow.Runtime.Core
             return _frame.TryGetHeader(_token, denseIndex, out header);
         }
 
-        public bool Commit() => _frame != null && _frame.Commit(_token);
-        public bool Cancel() => _frame != null && _frame.CancelFinalized(_token);
+        internal bool Commit() => _frame != null && _frame.Commit(_token);
+        internal bool Cancel() => _frame != null && _frame.CancelFinalized(_token);
 
         internal bool IsCommitReady => _frame != null && _frame.IsCommitReady(_token);
 
@@ -1771,7 +1814,7 @@ namespace CoCoFlow.Runtime.Core
             _frame.TryGet(handle, out entry);
     }
 
-    public readonly struct CoCoOperationFrameWriter
+    internal readonly struct CoCoOperationFrameWriter
     {
         private readonly CoCoOperationFrame _frame;
         private readonly ulong _token;
@@ -1841,7 +1884,7 @@ namespace CoCoFlow.Runtime.Core
                    _frame.TryEnableDiscrete(_token, rank, handle, activationId);
         }
 
-        public bool TryFinalize(out CoCoFinalizedOperationFrame finalized)
+        internal bool TryFinalize(out CoCoFinalizedOperationFrame finalized)
         {
             if (_frame == null)
             {
@@ -1852,7 +1895,7 @@ namespace CoCoFlow.Runtime.Core
             return _frame.TryFinalize(_token, out finalized);
         }
 
-        public bool Cancel() => _frame != null && _frame.CancelPrepared(_token);
+        internal bool Cancel() => _frame != null && _frame.CancelPrepared(_token);
     }
 
     internal interface IViewFactoryRegistration

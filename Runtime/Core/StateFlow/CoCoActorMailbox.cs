@@ -546,7 +546,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryBindIntentRuntime(
+        internal bool TryBindIntentRuntime(
             CoCoIntentFrameRuntime runtime,
             out CoCoDiagnostic diagnostic)
         {
@@ -1574,6 +1574,20 @@ namespace CoCoFlow.Runtime.Core
 
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>Records the event types used by compiled State Inbox reads.</summary>
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class CoCoStateInboxEventAttribute : Attribute
+    {
+        public CoCoStateInboxEventAttribute(Type logic, Type payload)
+        {
+            Logic = logic;
+            Payload = payload;
+        }
+
+        public Type Logic { get; }
+        public Type Payload { get; }
+    }
+
     internal interface ICoCoStateEventLane
     {
         void Seal();

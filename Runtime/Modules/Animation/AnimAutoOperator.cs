@@ -8,12 +8,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
     [AddComponentMenu("CoCoFlow/Animation/Anim Auto Operator")]
-    [CoCoOperatorRegistration(typeof(AnimSectionRegistrar))]
     public sealed class AnimAutoOperator :
         MonoBehaviour,
         ICoCoPersistenceRestoreOperator,
         ICoCoTemporalRestoreOperator,
-        ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>,
         IAnimEventReceiver,
         IAnimEventStateResolver
     {
@@ -25,14 +23,14 @@ namespace CoCoFlow.Runtime.Modules.Animation
             Array.Empty<AnimTriggerBinding>();
 
         private readonly AnimFeedbackBuffer _feedback = new AnimFeedbackBuffer();
-        private readonly AnimFeedbackEventToIntentAdapter _feedbackAdapter =
-            new AnimFeedbackEventToIntentAdapter();
         private AnimParameterTarget[] _parameterTargets = Array.Empty<AnimParameterTarget>();
         private AnimTriggerTarget[] _triggerTargets = Array.Empty<AnimTriggerTarget>();
         private CoCoDiagnostic _lastDiagnostic;
         private bool _isInitialized;
 
-        public CoCoOperatorDescriptor Descriptor => AnimOperatorContracts.AutoDescriptor;
+        [CoCoOperatorDefinition]
+        private static CoCoStandardOperatorDefinition Definition => AnimOperatorContracts.Definition;
+        public CoCoOperatorDescriptor Descriptor => Definition.Descriptor;
 
         public Animator Animator => animator;
         public CoCoStateGraphHost StateGraphHost => stateGraphHost;
@@ -222,13 +220,6 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             _lastDiagnostic = CoCoDiagnostic.None;
             return true;
-        }
-
-        public bool TryProject(
-            in CoCoEventPacket<AnimFeedbackEvent> packet,
-            out AnimFeedbackIntent intent)
-        {
-            return _feedbackAdapter.TryProject(packet, out intent);
         }
 
         bool IAnimEventReceiver.TryReceiveSmbSignal(in AnimSmbSignal signal)

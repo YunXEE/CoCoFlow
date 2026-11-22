@@ -40,28 +40,16 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
     internal sealed class EditorHostEventAdapterComponent :
         MonoBehaviour,
-        ICoCoEventToIntentAdapter<EditorHostEvent, EditorHostIntent>
+        ICoCoEventInboxAdapter<EditorHostEvent>
     {
-        public bool TryProject(
-            in CoCoEventPacket<EditorHostEvent> packet,
-            out EditorHostIntent intent)
-        {
-            intent = default;
-            return false;
-        }
+        public bool Accept(in EditorHostEvent payload) => false;
     }
 
     internal sealed class OtherEditorHostEventAdapterComponent :
         MonoBehaviour,
-        ICoCoEventToIntentAdapter<OtherEditorHostEvent, EditorHostIntent>
+        ICoCoEventInboxAdapter<OtherEditorHostEvent>
     {
-        public bool TryProject(
-            in CoCoEventPacket<OtherEditorHostEvent> packet,
-            out EditorHostIntent intent)
-        {
-            intent = default;
-            return false;
-        }
+        public bool Accept(in OtherEditorHostEvent payload) => false;
     }
 
     internal class EditorHostOperatorComponent :
@@ -203,7 +191,6 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             CoCoStateGraphHostBindingCandidates.FindEventAdapters(
                 host,
                 typeof(EditorHostEvent),
-                typeof(EditorHostIntent),
                 null,
                 results);
             Assert.That(results, Has.Member(adapter));

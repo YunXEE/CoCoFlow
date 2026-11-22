@@ -1,9 +1,10 @@
 using System;
+using System.Reflection;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public interface ICoCoStandardIntentRegistration
+    internal interface ICoCoStandardIntentRegistration
     {
         Type IntentType { get; }
         CoCoIntentId IntentId { get; }
@@ -12,7 +13,7 @@ namespace CoCoFlow.Runtime.Core
             out ICoCoStandardIntentSourceBinding binding, out CoCoDiagnostic diagnostic);
     }
 
-    public interface ICoCoStandardIntentSourceBinding
+    internal interface ICoCoStandardIntentSourceBinding
     {
         bool Accepts(MonoBehaviour component);
         bool TryBind(CoCoStateGraphHostBindingBuilder builder,
@@ -38,7 +39,7 @@ namespace CoCoFlow.Runtime.Core
             _fingerprint = semanticFingerprint;
         }
 
-        public bool RegisterCatalog(CoCoGraphDescriptorCatalogBuilder builder)
+        bool ICoCoStandardIntentRegistration.RegisterCatalog(CoCoGraphDescriptorCatalogBuilder builder)
         {
             if (!builder.TryRegisterIntent(IntentId, _maxContributions,
                     new CoCoIntentReducerFactoryToken<TIntent, TReducer, TFactory>(_fingerprint), out var diagnostic))
@@ -46,7 +47,7 @@ namespace CoCoFlow.Runtime.Core
             return true;
         }
 
-        public bool TryRegisterHost(CoCoStateGraphHostBindingBuilder builder,
+        bool ICoCoStandardIntentRegistration.TryRegisterHost(CoCoStateGraphHostBindingBuilder builder,
             out ICoCoStandardIntentSourceBinding binding, out CoCoDiagnostic diagnostic)
         {
             binding = null;
@@ -77,4 +78,29 @@ namespace CoCoFlow.Runtime.Core
         }
     }
 
+    internal static class CoCoStandardSingleIntent
+    {
+        private static readonly MethodInfo CreateRegistration = typeof(CoCoStandardSingleIntent)
+            .GetMethod(nameof(CreateTyped), BindingFlags.Static | BindingFlags.NonPublic);
+
+        internal static ICoCoStandardIntentRegistration For(Type payload) =>
+            (ICoCoStandardIntentRegistration)CreateRegistration.MakeGenericMethod(payload).Invoke(null, null);
+
+        private static ICoCoStandardIntentRegistration CreateTyped<T>()
+        {
+            CoCoIntentId.TryCreate(0x434F434F494E544EUL, CoCoStandardTypeIdentity.Hash(typeof(T)), out var id);
+            return new CoCoStandardIntentRegistration<T, CoCoIntentPassThrough<T>, CoCoIntentPassThroughFactory<T>>(id, 1, 1);
+        }
+
+    }
+
+    internal static class CoCoStandardTypeIdentity
+    {
+        internal static ulong Hash(Type type)
+        {
+            ulong hash = CoCoGraphCatalogHash.OffsetBasis;
+            CoCoGraphCatalogHash.Add(ref hash, type);
+            return hash;
+        }
+    }
 }

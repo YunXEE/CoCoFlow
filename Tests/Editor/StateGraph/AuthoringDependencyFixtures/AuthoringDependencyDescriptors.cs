@@ -32,7 +32,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures
 
     public sealed class AuthoringDependencyLogic : CoCoStateLogic
     {
-        public static Type ReferencedAuthoringType => typeof(CoCoStateGraphCompilationCache);
+        public static Type ReferencedAuthoringType => typeof(CoCoStateGraphAssetCompiler);
     }
 
     public sealed class AuthoringDependencyMemory : CoCoActivationMemory

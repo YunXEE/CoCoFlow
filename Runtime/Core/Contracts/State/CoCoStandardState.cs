@@ -82,24 +82,6 @@ namespace CoCoFlow.Runtime.Core
     public sealed class MemoryAttribute : CoCoStateMemoryAttribute { }
 
     /// <summary>
-    /// Declares the standard-path registrar carried by one Operator. The
-    /// registrar owns that Operator's Operation Sections and Context blocks;
-    /// new Operators therefore ship their own registration without editing a
-    /// package-wide central list.
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = true)]
-    public sealed class CoCoOperatorRegistrationAttribute : Attribute
-    {
-        public CoCoOperatorRegistrationAttribute(Type registrarType)
-        {
-            RegistrarType = registrarType ??
-                throw new ArgumentNullException(nameof(registrarType));
-        }
-
-        public Type RegistrarType { get; }
-    }
-
-    /// <summary>
     /// Declares that a State logic provides one Operation Section. This is
     /// the output-side mirror of CoCoIntentConsume: the State reads an Intent
     /// at the head of the graph and writes an Operation at its tail.
