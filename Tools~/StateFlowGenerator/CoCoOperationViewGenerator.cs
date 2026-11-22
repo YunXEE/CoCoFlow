@@ -29,7 +29,8 @@ namespace CoCoFlow.Generators
                 if (section == null || !section.GetAttributes().Any(item =>
                         SymbolEqualityComparer.Default.Equals(item.AttributeClass, attribute)) || !generated.Add(section))
                     continue;
-                if (section.IsGenericType || section.ContainingType != null) continue;
+                if (section.IsGenericType ||
+                    !context.Compilation.IsSymbolAccessibleWithin(section, context.Compilation.Assembly)) continue;
                 var members = section.GetMembers().Where(member => member.IsAbstract && !member.IsStatic).ToArray();
                 if (members.Any(member => !(member is IPropertySymbol) &&
                         (!(member is IMethodSymbol method) || method.AssociatedSymbol == null))) continue;

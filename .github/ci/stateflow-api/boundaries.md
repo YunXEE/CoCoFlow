@@ -26,6 +26,8 @@ A 持有图资产、序列化布局和无参资产编译器。H 负责 Unity 生
 | State 调用 `context.Outbox.Publish(in payload)`。Operator 以 `Emit<TEvent>(id, domain, capacity)` 声明通道，再用 `EventOutbox.TryWrite` 写目标和载荷。 | Host 在事务接受后发布，事务取消时丢弃暂存。 |
 | Operator 以 `OwnOutcome<T>(block, slot, projection, restorePolicy, defaultValue, fingerprint)` 声明拥有的槽。 | 标准目录登记形状，Host 按同一声明绑定默认值与恢复策略，写入仍经过事务与所有权检查。使用 Operator 的恢复投影时，在 Host 的 Operator Recovery 中启用相应模式。 |
 
+**Inbox 读取写法。** 在 `CoCoStateLogic` 的回调或同一 State 类的私有方法里调用 `TryGetBatch<TEvent>`。不要把这一步放进独立工具类或扩展方法。生成器不会追踪这些调用。如果没有其他声明或收件适配器登记该事件类型，Host 就不会订阅，`TryGetBatch<TEvent>` 会一直返回 `false`。需要复用玩法逻辑时，先在 State 内读出事件，再把事件值交给辅助方法处理。
+
 玩家和相机均使用标准 Intent 匹配。`InputIntentData` 保留 `ActiveMap`、`Changes`、`Current`、`Count`、`FenceGeneration`、`TryGet` 和两种 `TryFind`；`RawInputRecord` 保留 `InputTime` 与 `Sequence`。`Changes`、`Current` 允许托管 `ReadOnlyMemory<RawInputRecord>`，采样游标仍在 Tick 接受后提交。
 
 `CoCoStateGraphProjectBindings.TryInstall` 可安装 `CoCoStandardBindingProvider.Build(...)` 或 `BuildForAssemblyOf<T>()` 构建的标准目录。`CoCoStateGraphAssetCompiler().Compile(asset, catalog)` 保留图、结果和诊断。`Host.TryStart`、`TryStep(double, out CoCoDiagnostic)`、`TrySuspend`、`TryResume`、`TryStop`、`TryDispose`、Temporal/Persistence 入口和 `CurrentContext` 保持公开。Context 帧的引用寿命仍由 `Retain`、`Release` 配对管理。

@@ -15,10 +15,13 @@ namespace CoCoFlow.Tests.GameplayBinding
         int Window { get; set; }
     }
 
-    [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
-    public interface IDamagePulseSection : ICoCoOperationSection
+    public static class DamageSections
     {
-        int Pulse { get; set; }
+        [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
+        public interface IDamagePulseSection : ICoCoOperationSection
+        {
+            int Pulse { get; set; }
+        }
     }
 
     public interface IMissingModeSection : ICoCoOperationSection
@@ -47,7 +50,7 @@ namespace CoCoFlow.Tests.GameplayBinding
     {
         [Intent] public EnemyIntentData Enemy { get; private set; }
         [Operation] public IDamageWindowSection Damage { get; private set; }
-        [Operation] public IDamagePulseSection Pulse { get; private set; }
+        [Operation] public DamageSections.IDamagePulseSection Pulse { get; private set; }
         public static string Target { get; private set; }
         public static CoCoStateEventBatch<Interaction> LastBatch { get; private set; }
         public static int RepeatedRead { get; private set; }

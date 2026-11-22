@@ -25,7 +25,7 @@ namespace CoCoFlow.Tests.GameplayBinding
 
             var builder = new CoCoStandardOperatorBuilder();
             Damage = builder.Require<IDamageWindowSection>();
-            Pulse = builder.Require<IDamagePulseSection>();
+            Pulse = builder.Require<DamageSections.IDamagePulseSection>();
             builder.OwnOutcome(block, slot, CoCoContextProjection.Temporal, CoCoContextRestorePolicy.Stored, 0, 1);
             Contact = builder.Emit<CombatContactEvent>(contact, domain, 3 * 32 + 2);
             Definition = builder.Freeze<DamageOperator>(id);
@@ -42,7 +42,7 @@ namespace CoCoFlow.Tests.GameplayBinding
         {
             outcome = CoCoOperatorOutcome.NoOp;
             if (!context.TryGet(Damage, out CoCoOperationSectionEntry<IDamageWindowSection> damage) ||
-                !context.TryGet(Pulse, out CoCoOperationSectionEntry<IDamagePulseSection> pulse) ||
+                !context.TryGet(Pulse, out CoCoOperationSectionEntry<DamageSections.IDamagePulseSection> pulse) ||
                 !context.PreviousContext.Layout.TryResolveSlot(Ledger, out CoCoStateSlot<int> ledger)) return false;
 
             PreviousLedger = context.PreviousContext.Read(ledger);
