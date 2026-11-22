@@ -1,13 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-[assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.CoreContracts")]
-[assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.StateGraph")]
-[assembly: InternalsVisibleTo("CoCoFlow.Runtime.Core.StateGraph")]
-[assembly: InternalsVisibleTo("CoCoFlow.Runtime.StateGraphHost")]
 
 namespace CoCoFlow.Runtime.Core
 {

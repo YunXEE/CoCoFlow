@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor.PackageManager;
@@ -52,6 +53,25 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
                     name.StartsWith("Unity", StringComparison.Ordinal) ||
                     name.StartsWith("CoCoFlow.", StringComparison.Ordinal)));
             }
+        }
+
+        [Test]
+        public void StateGraphGrantsInternalAccessOnlyToItsDeclaredConsumers()
+        {
+            var friends = typeof(CoCoStateLogic).Assembly
+                .GetCustomAttributes<InternalsVisibleToAttribute>()
+                .Select(attribute => attribute.AssemblyName);
+
+            CollectionAssert.AreEquivalent(new[]
+            {
+                "CoCoFlow.Editor.StateGraph",
+                "CoCoFlow.Runtime.StateGraphHost",
+                "CoCoFlow.Tests.Editor.StateGraph",
+                "CoCoFlow.Tests.Runtime.StateGraphHost",
+                "CoCoFlow.Runtime.Modules.Input",
+                "CoCoFlow.Tests.StateGraphAuthoringFixtures",
+                "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
+            }, friends);
         }
 
         [Test]
