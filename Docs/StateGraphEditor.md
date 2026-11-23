@@ -18,7 +18,7 @@ never translated.
 
 ## Authoring surface
 
-The Editor works on one `CoCoStateGraphAsset` and one selected Layer at a time:
+The Editor works on one `StateGraphAsset` and one selected Layer at a time:
 
 ```text
 Graph Asset
@@ -153,7 +153,7 @@ Analyze always analyzes the saved asset, including while a draft is pending.
 
 ### Configuring AnyState
 
-Write an attributed project Logic deriving from `CoCoAnyStateLogic`, overriding
+Write an attributed project Logic deriving from `AnyStateLogic`, overriding
 `Update`. It uses the normal Config/Memory/Intent/Operation and mailbox binding
 paths. Do not implement Enter or Exit. The normal **Add Logic** script wizard
 still creates ordinary Logic; AnyState requires the explicit special base class.
@@ -258,9 +258,9 @@ public label, category, discovery, or reflection-based runtime API.
 
 The overlay shows only the three manifests already produced by compilation:
 
-- `CoCoIntentRequirementManifest`;
-- `CoCoGraphOperationProvisionManifest`;
-- `CoCoContextFrameStateRequirementManifest`.
+- `IntentRequirementManifest`;
+- `GraphOperationProvisionManifest`;
+- `ContextFrameStateRequirementManifest`.
 
 Event-to-Intent declarations remain part of the Intent manifest and do not form
 a fourth Manifest or a ContextGraph.
@@ -281,7 +281,7 @@ persistent Asset is created.
 
 ## Host assembly and validation
 
-The Graph Asset stores no scene references. `CoCoStateGraphHost` is the single
+The Graph Asset stores no scene references. `StateGraphHost` is the single
 Actor assembly surface and owns the user-confirmed ordered references for Intent
 Sources, Event-to-Intent Adapters, and Operators, plus the Actor Context and
 Restore references when their manifests require them. Driver, TimeScale, Clock,

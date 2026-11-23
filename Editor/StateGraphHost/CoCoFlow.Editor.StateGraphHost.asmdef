@@ -2,14 +2,11 @@
     "name": "CoCoFlow.Editor.StateGraphHost",
     "rootNamespace": "CoCoFlow.Editor.StateGraphHost",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
-        "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Runtime.Modules.Persistence",
-        "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Editor.Common"
+        "CoCoFlow.Editor.Core"
     ],
     "includePlatforms": [
         "Editor"

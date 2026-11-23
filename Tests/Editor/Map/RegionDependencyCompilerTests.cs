@@ -30,9 +30,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllAcceptsTransitiveDependencyDag()
         {
-            CoCoRegionBinding wilderness =
+            RegionBinding wilderness =
                 Binding("world.wilderness");
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -40,7 +40,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         "world.wilderness",
                         RegionCoverageKind.All,
                         RegionCapabilityId.Represented));
-            CoCoRegionBinding mine =
+            RegionBinding mine =
                 Binding(
                     "world.mine",
                     Rule(
@@ -69,7 +69,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsUnknownTarget()
         {
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -94,9 +94,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 RegionCapabilityId.TryCreate(
                     "project.weather",
                     out RegionCapabilityId weather));
-            CoCoRegionBinding wilderness =
+            RegionBinding wilderness =
                 Binding("world.wilderness");
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -125,9 +125,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 RegionChunkId.TryCreate(
                     "world.wilderness.missing",
                     out RegionChunkId missingChunk));
-            CoCoRegionBinding wilderness =
+            RegionBinding wilderness =
                 Binding("world.wilderness");
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -156,7 +156,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                     "world.wilderness",
                     RegionCoverageKind.All,
                     RegionCapabilityId.Represented);
-            CoCoRegionBinding duplicate =
+            RegionBinding duplicate =
                 Binding(
                     "world.castle",
                     first,
@@ -165,7 +165,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         "world.wilderness",
                         RegionCoverageKind.All,
                         RegionCapabilityId.Represented));
-            CoCoRegionBinding self =
+            RegionBinding self =
                 Binding(
                     "world.wilderness",
                     Rule(
@@ -197,7 +197,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsGlobalRegionCycle()
         {
-            CoCoRegionBinding wilderness =
+            RegionBinding wilderness =
                 Binding(
                     "world.wilderness",
                     Rule(
@@ -205,7 +205,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         "world.castle",
                         RegionCoverageKind.All,
                         RegionCapabilityId.Represented));
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -234,9 +234,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 RegionCapabilityId.TryCreate(
                     "project.weather",
                     out RegionCapabilityId weather));
-            CoCoRegionBinding wilderness =
+            RegionBinding wilderness =
                 Binding("world.wilderness");
-            CoCoRegionBinding castle =
+            RegionBinding castle =
                 Binding(
                     "world.castle",
                     Rule(
@@ -244,7 +244,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         "world.wilderness",
                         RegionCoverageKind.All,
                         weather));
-            CoCoRegionBinding mine =
+            RegionBinding mine =
                 Binding(
                     "world.mine",
                     Rule(
@@ -269,7 +269,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         }
 
         private IReadOnlyList<RegionCompileResult> CompileAll(
-            params CoCoRegionBinding[] bindings) =>
+            params RegionBinding[] bindings) =>
             new RegionBindingCompiler().CompileAll(
                 bindings,
                 Catalog());
@@ -293,7 +293,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             return catalog;
         }
 
-        private CoCoRegionBinding Binding(
+        private RegionBinding Binding(
             string regionValue,
             params RegionDependencyRule[] rules)
         {
@@ -301,8 +301,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 RegionId.TryCreate(
                     regionValue,
                     out RegionId regionId));
-            CoCoRegionProfile profile =
-                ScriptableObject.CreateInstance<CoCoRegionProfile>();
+            RegionProfile profile =
+                ScriptableObject.CreateInstance<RegionProfile>();
             owned.Add(profile);
             string profileValue =
                 "profile." +
@@ -316,8 +316,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 "profileId",
                 profileId);
 
-            CoCoRegionBinding binding =
-                ScriptableObject.CreateInstance<CoCoRegionBinding>();
+            RegionBinding binding =
+                ScriptableObject.CreateInstance<RegionBinding>();
             owned.Add(binding);
             SetField(
                 binding,

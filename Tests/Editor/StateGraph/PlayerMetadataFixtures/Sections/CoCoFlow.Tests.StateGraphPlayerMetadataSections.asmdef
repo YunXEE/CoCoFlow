@@ -2,7 +2,7 @@
     "name": "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
     "rootNamespace": "CoCoFlow.Tests.StateGraphPlayerMetadataFixtures",
     "references": [
-        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Tests.StateGraphPlayerMetadataValues"
     ],
     "includePlatforms": [

@@ -1,13 +1,17 @@
 using System;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Pooling;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     internal sealed class PoolTemporalRecord
     {
-        internal CoCoTemporalEntityId EntityId;
+        internal TemporalEntityId EntityId;
         internal PoolTemporalToken Token;
         internal IPoolTemporalApply[] ApplyCallbacks =
             Array.Empty<IPoolTemporalApply>();
@@ -23,14 +27,14 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
     internal sealed class PoolTemporalRuntime : IDisposable
     {
-        private readonly CoCoStateGraphHost _stateGraphHost;
+        private readonly StateGraphHost _stateGraphHost;
         private readonly PoolRuntime _poolRuntime;
         private readonly PoolTemporalSidecar _history;
         private PoolTemporalRecord[] _records = Array.Empty<PoolTemporalRecord>();
         private int _recordCount;
-        private CoCoContextRestoreApplyKind _preparedApplyKind;
-        private CoCoTemporalFrameInfo _preparedSource;
-        private CoCoTickFrame _preparedTargetTickFrame;
+        private ContextRestoreApplyKind _preparedApplyKind;
+        private TemporalFrameInfo _preparedSource;
+        private TickFrame _preparedTargetTickFrame;
         private int _preparedDepth;
         private bool _projectionPrepared;
         private bool _authorityResetPrepared;
@@ -40,7 +44,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         private CoCoDiagnostic _lastDiagnostic;
 
         internal PoolTemporalRuntime(
-            CoCoStateGraphHost stateGraphHost,
+            StateGraphHost stateGraphHost,
             PoolRuntime poolRuntime,
             int historyCapacity)
         {
@@ -55,7 +59,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool IsAuthorityResetPrepared => _authorityResetPrepared;
 
         internal bool TryAdopt(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             ref PooledHandle handle,
             out CoCoDiagnostic diagnostic)
         {
@@ -81,7 +85,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryAdoptCore(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             ref PooledHandle handle,
             out CoCoDiagnostic diagnostic)
         {
@@ -141,7 +145,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryActivate(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterExternalMutation(
@@ -163,7 +167,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryActivateCore(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
             PoolTemporalRecord record = FindRecord(entityId);
@@ -197,7 +201,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryDespawn(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterExternalMutation(
@@ -219,7 +223,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryDespawnCore(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             out CoCoDiagnostic diagnostic)
         {
             PoolTemporalRecord record = FindRecord(entityId);
@@ -254,7 +258,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryResolveInstance(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             out GameObject instance,
             out CoCoDiagnostic diagnostic)
         {
@@ -295,7 +299,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareForwardCapture(
-            in CoCoTemporalFrameInfo candidate,
+            in TemporalFrameInfo candidate,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -370,7 +374,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareAuthorityReset(
-            in CoCoTemporalFrameInfo targetAuthority,
+            in TemporalFrameInfo targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -497,15 +501,15 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareProjection(
-            CoCoContextRestoreApplyKind applyKind,
+            ContextRestoreApplyKind applyKind,
             int historyDepth,
-            in CoCoTemporalFrameInfo source,
-            in CoCoTickFrame targetTickFrame,
+            in TemporalFrameInfo source,
+            in TickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
                 (!_isPreviewing &&
-                 applyKind != CoCoContextRestoreApplyKind.Correction) ||
+                 applyKind != ContextRestoreApplyKind.Correction) ||
                 _projectionPrepared ||
                 _authorityResetPrepared ||
                 !source.IsValid ||
@@ -716,7 +720,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 if (!_history.TryGetEntityAtDepth(
                         historyDepth,
                         index,
-                        out CoCoTemporalEntityId entityId))
+                        out TemporalEntityId entityId))
                 {
                     return false;
                 }
@@ -747,7 +751,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         internal bool TryPrepareBranchCapture(
             int historyDepth,
-            in CoCoTemporalFrameInfo branchHead,
+            in TemporalFrameInfo branchHead,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -806,7 +810,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal void CompletePreviewNoFail(
-            CoCoContextRestoreApplyKind applyKind)
+            ContextRestoreApplyKind applyKind)
         {
             if (_isDisposed)
             {
@@ -824,7 +828,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 record.ProjectedPresent = record.AuthorityPresent;
                 record.BaselinePresent = record.AuthorityPresent;
                 record.PreparedInactive = false;
-                if (applyKind == CoCoContextRestoreApplyKind.Confirm &&
+                if (applyKind == ContextRestoreApplyKind.Confirm &&
                     !record.AuthorityPresent)
                 {
                     record.PendingActivation = false;
@@ -921,7 +925,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryEnterExternalMutation(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             bool requiresOpenPoolRuntime,
             out CoCoDiagnostic diagnostic)
         {
@@ -936,7 +940,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             if (_isDisposed ||
                 !entityId.IsValid ||
                 _stateGraphHost == null ||
-                _stateGraphHost.Lifecycle != CoCoRuntimeLifecycleState.Running ||
+                _stateGraphHost.Lifecycle != RuntimeLifecycleState.Running ||
                 _stateGraphHost.IsRuntimeFaulted ||
                 _isPreviewing ||
                 _projectionPrepared ||
@@ -958,15 +962,15 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryValidateProjectionDepth(
-            CoCoContextRestoreApplyKind applyKind,
+            ContextRestoreApplyKind applyKind,
             int historyDepth)
         {
-            if (applyKind == CoCoContextRestoreApplyKind.Preview)
+            if (applyKind == ContextRestoreApplyKind.Preview)
             {
                 return historyDepth >= 0 && historyDepth < _history.Count;
             }
 
-            if (applyKind == CoCoContextRestoreApplyKind.Confirm)
+            if (applyKind == ContextRestoreApplyKind.Confirm)
             {
                 return historyDepth > 0 && historyDepth < _history.Count;
             }
@@ -985,7 +989,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                     if (!_history.TryGetEntityAtDepth(
                             _preparedDepth,
                             index,
-                            out CoCoTemporalEntityId entityId) ||
+                            out TemporalEntityId entityId) ||
                         FindRecord(entityId) == null)
                     {
                         diagnostic = Error(
@@ -1115,7 +1119,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                     record.EntityId);
             }
 
-            return _preparedApplyKind == CoCoContextRestoreApplyKind.Cancel
+            return _preparedApplyKind == ContextRestoreApplyKind.Cancel
                 ? record.BaselinePresent
                 : record.AuthorityPresent;
         }
@@ -1133,12 +1137,12 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             record != null &&
             !desiredPresent &&
             !record.AuthorityPresent &&
-            (_preparedApplyKind == CoCoContextRestoreApplyKind.Cancel ||
-             _preparedApplyKind == CoCoContextRestoreApplyKind.Correction);
+            (_preparedApplyKind == ContextRestoreApplyKind.Cancel ||
+             _preparedApplyKind == ContextRestoreApplyKind.Correction);
 
         private bool UsesHistoryFrame =>
-            (_preparedApplyKind == CoCoContextRestoreApplyKind.Preview ||
-             _preparedApplyKind == CoCoContextRestoreApplyKind.Confirm) &&
+            (_preparedApplyKind == ContextRestoreApplyKind.Preview ||
+             _preparedApplyKind == ContextRestoreApplyKind.Confirm) &&
             _preparedDepth > 0;
 
         private bool TryInvokeApplyCallbacks(
@@ -1215,7 +1219,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             return false;
         }
 
-        private PoolTemporalRecord FindRecord(CoCoTemporalEntityId entityId)
+        private PoolTemporalRecord FindRecord(TemporalEntityId entityId)
         {
             for (int index = 0; index < _recordCount; index++)
             {

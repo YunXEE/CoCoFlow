@@ -1,0 +1,649 @@
+using System;
+using CoCoFlow.Runtime.Pooling;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
+using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
+
+namespace CoCoFlow.Runtime.Pooling.Temporal
+{
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
+    [DisallowMultipleComponent]
+    [MovedFrom(true, sourceClassName: "CoCoPoolTemporalBinding")]
+    public sealed class PoolTemporalBinding :
+        MonoBehaviour,
+        IContextRestoreBinding,
+        IStateGraphTemporalParticipant,
+        ITemporalDecoratorBinding
+    {
+        [SerializeField] private StateGraphHost stateGraphHost;
+        [SerializeField] private PoolHost poolHost;
+        [SerializeField] private MonoBehaviour downstreamRestoreBinding;
+
+        private PoolTemporalRuntime _runtime;
+        private StateGraphHost _attachedStateGraphHost;
+        private PoolRuntime _attachedPoolRuntime;
+        private bool _resetOnlyAttachment;
+        private bool _resetOnlyAuthorityResetPrepared;
+        private bool _downstreamWasConfigured;
+        private MonoBehaviour _attachedDownstreamComponent;
+        private IContextRestoreBinding _attachedDownstreamBinding;
+        private CoCoDiagnostic _lastDiagnostic;
+
+        public StateGraphHost StateGraphHost => stateGraphHost;
+        public PoolHost PoolHost => poolHost;
+        MonoBehaviour ITemporalDecoratorBinding
+            .DownstreamRestoreBinding => downstreamRestoreBinding;
+
+        public CoCoDiagnostic LastDiagnostic
+        {
+            get
+            {
+                CoCoDiagnostic runtimeDiagnostic = _runtime == null
+                    ? CoCoDiagnostic.None
+                    : _runtime.LastDiagnostic;
+                return runtimeDiagnostic.IsError
+                    ? runtimeDiagnostic
+                    : _lastDiagnostic;
+            }
+        }
+
+        public bool TryAdopt(
+            TemporalEntityId entityId,
+            ref PooledHandle handle,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireMutationRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            bool adopted = _runtime.TryAdopt(
+                entityId,
+                ref handle,
+                out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return adopted;
+        }
+
+        public bool TryActivate(
+            TemporalEntityId entityId,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireMutationRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            bool activated = _runtime.TryActivate(entityId, out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return activated;
+        }
+
+        public bool TryDespawn(
+            TemporalEntityId entityId,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireMutationRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            bool despawned = _runtime.TryDespawn(entityId, out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return despawned;
+        }
+
+        public bool TryResolveInstance(
+            TemporalEntityId entityId,
+            out GameObject instance,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                instance = null;
+                return false;
+            }
+
+            bool resolved = _runtime.TryResolveInstance(
+                entityId,
+                out instance,
+                out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return resolved;
+        }
+
+        public bool TryApply(
+            in ContextRestoreBindingContext context,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireAttachment(out diagnostic) ||
+                !context.IsValid ||
+                (_resetOnlyAttachment
+                    ? !_resetOnlyAuthorityResetPrepared ||
+                      context.ApplyKind !=
+                      ContextRestoreApplyKind.Confirm
+                    : (_runtime.IsAuthorityResetPrepared &&
+                       context.ApplyKind !=
+                       ContextRestoreApplyKind.Confirm)) ||
+                !TryValidateFrozenDownstream(
+                    _attachedStateGraphHost,
+                    out diagnostic) ||
+                (!_resetOnlyAttachment &&
+                 !_runtime.TryApplyPreparedBeforeRestore(
+                     out diagnostic)))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = ProjectionError(
+                        "Pool Temporal Restore Binding received an invalid projection context.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (!TryValidateFrozenDownstream(
+                    _attachedStateGraphHost,
+                    out diagnostic))
+            {
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_downstreamWasConfigured)
+            {
+                bool applied;
+                try
+                {
+                    applied = _attachedDownstreamBinding.TryApply(
+                        context,
+                        out diagnostic);
+                }
+                catch (Exception)
+                {
+                    applied = false;
+                    diagnostic = ProjectionError(
+                        "The downstream Restore Binding threw during Pool Temporal projection.");
+                }
+
+                if (!TryValidateFrozenDownstream(
+                        _attachedStateGraphHost,
+                        out CoCoDiagnostic livenessDiagnostic))
+                {
+                    diagnostic = livenessDiagnostic;
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                if (!applied || diagnostic.IsError)
+                {
+                    if (!diagnostic.IsError)
+                    {
+                        diagnostic = ProjectionError(
+                            "The downstream Restore Binding rejected Pool Temporal projection.");
+                    }
+
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+            }
+
+            bool completed = _resetOnlyAttachment ||
+                             _runtime.TryApplyPreparedAfterRestore(
+                                 out diagnostic);
+            if (_resetOnlyAttachment)
+            {
+                diagnostic = CoCoDiagnostic.None;
+            }
+
+            _lastDiagnostic = diagnostic;
+            return completed;
+        }
+
+        private void OnDestroy()
+        {
+            DetachTemporalHostNoFail();
+        }
+
+        bool IStateGraphTemporalParticipant.TryAttachTemporalHost(
+            StateGraphHost host,
+            int historyCapacity,
+            out CoCoDiagnostic diagnostic)
+        {
+            diagnostic = CoCoDiagnostic.None;
+            if (_runtime != null ||
+                _attachedStateGraphHost != null ||
+                _attachedPoolRuntime != null ||
+                _resetOnlyAttachment ||
+                _resetOnlyAuthorityResetPrepared ||
+                host == null ||
+                !ReferenceEquals(host, stateGraphHost) ||
+                historyCapacity < 0 ||
+                historyCapacity == 1 ||
+                poolHost == null ||
+                poolHost.Runtime == null ||
+                poolHost.Runtime.IsDisposed ||
+                !StateGraphHostBoundary.Contains(host, this) ||
+                !TemporalDecoratorChain.TryValidate(
+                    host,
+                    this,
+                    out diagnostic) ||
+                !TryFreezeDownstream(host, out diagnostic))
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = ConflictError(
+                        "Pool Temporal Binding requires exact live StateGraph and Pool Hosts plus one valid optional downstream Restore Binding.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            try
+            {
+                _attachedStateGraphHost = host;
+                _attachedPoolRuntime = poolHost.Runtime;
+                _resetOnlyAttachment = historyCapacity == 0;
+                if (_resetOnlyAttachment)
+                {
+                    diagnostic = CoCoDiagnostic.None;
+                    _lastDiagnostic = diagnostic;
+                    return true;
+                }
+
+                _runtime = new PoolTemporalRuntime(
+                    host,
+                    _attachedPoolRuntime,
+                    historyCapacity);
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+            catch (Exception)
+            {
+                _runtime?.Dispose();
+                _runtime = null;
+                _attachedStateGraphHost = null;
+                _attachedPoolRuntime = null;
+                _resetOnlyAttachment = false;
+                _resetOnlyAuthorityResetPrepared = false;
+                ClearFrozenDownstream();
+                diagnostic = ProjectionError(
+                    "Pool Temporal sidecar allocation failed during Host startup.");
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+        }
+
+        bool IStateGraphTemporalParticipant.IsTemporalParticipantLive(
+            StateGraphHost host) =>
+            (_resetOnlyAttachment ||
+             (_runtime != null && !_runtime.IsDisposed)) &&
+            _attachedStateGraphHost != null &&
+            ReferenceEquals(host, _attachedStateGraphHost) &&
+            ReferenceEquals(stateGraphHost, _attachedStateGraphHost) &&
+            _attachedPoolRuntime != null &&
+            !_attachedPoolRuntime.IsDisposed &&
+            poolHost != null &&
+            ReferenceEquals(poolHost.Runtime, _attachedPoolRuntime) &&
+            StateGraphHostBoundary.Contains(
+                _attachedStateGraphHost,
+                this) &&
+            TryValidateFrozenDownstream(
+                _attachedStateGraphHost,
+                out _);
+
+        bool IStateGraphTemporalParticipant.TryPrepareForwardCapture(
+            in TemporalFrameInfo candidate,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareForwardCapture(
+                candidate,
+                out diagnostic);
+        }
+
+        void IStateGraphTemporalParticipant.PublishForwardCaptureNoFail() =>
+            _runtime?.PublishForwardCaptureNoFail();
+
+        void IStateGraphTemporalParticipant.CancelPreparedCaptureNoFail() =>
+            _runtime?.CancelPreparedCaptureNoFail();
+
+        bool IStateGraphTemporalParticipant.TryPrepareAuthorityReset(
+            in TemporalFrameInfo targetAuthority,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireAttachment(out diagnostic) ||
+                !targetAuthority.IsValid)
+            {
+                if (!diagnostic.IsError)
+                {
+                    diagnostic = ConflictError(
+                        "Pool Temporal authority reset requires one valid target authority.");
+                }
+
+                _lastDiagnostic = diagnostic;
+                return false;
+            }
+
+            if (_resetOnlyAttachment)
+            {
+                if (_resetOnlyAuthorityResetPrepared)
+                {
+                    diagnostic = ConflictError(
+                        "Pool Temporal authority reset is already prepared.");
+                    _lastDiagnostic = diagnostic;
+                    return false;
+                }
+
+                _resetOnlyAuthorityResetPrepared = true;
+                diagnostic = CoCoDiagnostic.None;
+                _lastDiagnostic = diagnostic;
+                return true;
+            }
+
+            bool prepared = _runtime.TryPrepareAuthorityReset(
+                targetAuthority,
+                out diagnostic);
+            _lastDiagnostic = diagnostic;
+            return prepared;
+        }
+
+        void IStateGraphTemporalParticipant
+            .CommitPreparedAuthorityResetNoFail()
+        {
+            if (_resetOnlyAttachment)
+            {
+                _resetOnlyAuthorityResetPrepared = false;
+                return;
+            }
+
+            _runtime?.CommitPreparedAuthorityResetNoFail();
+        }
+
+        void IStateGraphTemporalParticipant
+            .CancelPreparedAuthorityResetNoFail()
+        {
+            if (_resetOnlyAttachment)
+            {
+                _resetOnlyAuthorityResetPrepared = false;
+                return;
+            }
+
+            _runtime?.CancelPreparedAuthorityResetNoFail();
+        }
+
+        bool IStateGraphTemporalParticipant.TryBeginPreview(
+            int historyCount,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryBeginPreview(historyCount, out diagnostic);
+        }
+
+        bool IStateGraphTemporalParticipant.TryPrepareProjection(
+            ContextRestoreApplyKind applyKind,
+            int historyDepth,
+            in TemporalFrameInfo source,
+            in TickFrame targetTickFrame,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareProjection(
+                applyKind,
+                historyDepth,
+                source,
+                targetTickFrame,
+                out diagnostic);
+        }
+
+        void IStateGraphTemporalParticipant.FinishProjectionNoFail(
+            bool succeeded) =>
+            _runtime?.FinishProjectionNoFail(succeeded);
+
+        bool IStateGraphTemporalParticipant.CanConfirmPreview(
+            int historyDepth) =>
+            _runtime != null &&
+            _runtime.CanConfirmPreview(historyDepth);
+
+        bool IStateGraphTemporalParticipant.TryPrepareBranchCapture(
+            int historyDepth,
+            in TemporalFrameInfo branchHead,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!TryRequireRuntime(out diagnostic))
+            {
+                return false;
+            }
+
+            return _runtime.TryPrepareBranchCapture(
+                historyDepth,
+                branchHead,
+                out diagnostic);
+        }
+
+        void IStateGraphTemporalParticipant.PublishBranchCaptureNoFail() =>
+            _runtime?.PublishBranchCaptureNoFail();
+
+        void IStateGraphTemporalParticipant.CompletePreviewNoFail(
+            ContextRestoreApplyKind applyKind) =>
+            _runtime?.CompletePreviewNoFail(applyKind);
+
+        void IStateGraphTemporalParticipant.DrainPublishedCleanupNoFail() =>
+            _runtime?.DrainPublishedCleanupNoFail();
+
+        void IStateGraphTemporalParticipant.DetachTemporalHostNoFail() =>
+            DetachTemporalHostNoFail();
+
+        private bool TryRequireRuntime(out CoCoDiagnostic diagnostic)
+        {
+            if (!_resetOnlyAttachment &&
+                _runtime != null &&
+                !_runtime.IsDisposed &&
+                TryRequireAttachment(out diagnostic))
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            diagnostic = ConflictError(
+                "Pool Temporal Binding is not attached to live StateGraph and Pool Hosts.");
+            _lastDiagnostic = diagnostic;
+            return false;
+        }
+
+        private bool TryRequireAttachment(
+            out CoCoDiagnostic diagnostic)
+        {
+            if ((_resetOnlyAttachment ||
+                 (_runtime != null && !_runtime.IsDisposed)) &&
+                _attachedStateGraphHost != null &&
+                ReferenceEquals(
+                    stateGraphHost,
+                    _attachedStateGraphHost) &&
+                _attachedPoolRuntime != null &&
+                !_attachedPoolRuntime.IsDisposed &&
+                poolHost != null &&
+                ReferenceEquals(
+                    poolHost.Runtime,
+                    _attachedPoolRuntime) &&
+                StateGraphHostBoundary.Contains(
+                    _attachedStateGraphHost,
+                    this))
+            {
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            diagnostic = ConflictError(
+                "Pool Temporal Binding is not attached to live StateGraph and Pool Hosts.");
+            _lastDiagnostic = diagnostic;
+            return false;
+        }
+
+        private bool TryRequireMutationRuntime(
+            out CoCoDiagnostic diagnostic)
+        {
+            if (TryRequireRuntime(out diagnostic) &&
+                TryValidateFrozenDownstream(
+                    _attachedStateGraphHost,
+                    out diagnostic))
+            {
+                return true;
+            }
+
+            _lastDiagnostic = diagnostic;
+            return false;
+        }
+
+        private bool TryFreezeDownstream(
+            StateGraphHost host,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (ReferenceEquals(downstreamRestoreBinding, null))
+            {
+                ClearFrozenDownstream();
+                diagnostic = CoCoDiagnostic.None;
+                return true;
+            }
+
+            if (ReferenceEquals(downstreamRestoreBinding, this) ||
+                downstreamRestoreBinding == null ||
+                !(downstreamRestoreBinding is IContextRestoreBinding downstream) ||
+                !StateGraphHostBoundary.Contains(
+                    host,
+                    downstreamRestoreBinding))
+            {
+                diagnostic = ConflictError(
+                    "Downstream Restore Binding must be a different live component inside the same Host boundary.");
+                return false;
+            }
+
+            if (downstreamRestoreBinding is
+                IStateGraphTemporalParticipant)
+            {
+                diagnostic = ConflictError(
+                    "Downstream Restore Binding must not own a " +
+                    "StateGraph Temporal participant lifecycle.");
+                return false;
+            }
+
+            _downstreamWasConfigured = true;
+            _attachedDownstreamComponent = downstreamRestoreBinding;
+            _attachedDownstreamBinding = downstream;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool TryValidateFrozenDownstream(
+            StateGraphHost host,
+            out CoCoDiagnostic diagnostic)
+        {
+            bool configuredNow =
+                !ReferenceEquals(downstreamRestoreBinding, null);
+            if (configuredNow != _downstreamWasConfigured)
+            {
+                diagnostic = ProjectionError(
+                    "The downstream Restore Binding assignment changed after Host attachment.");
+                return false;
+            }
+
+            if (!_downstreamWasConfigured)
+            {
+                bool remainsEmpty =
+                    ReferenceEquals(_attachedDownstreamComponent, null) &&
+                    ReferenceEquals(_attachedDownstreamBinding, null);
+                diagnostic = remainsEmpty
+                    ? CoCoDiagnostic.None
+                    : ProjectionError(
+                        "The optional downstream Restore Binding lost its frozen attachment state.");
+                return remainsEmpty;
+            }
+
+            if (!ReferenceEquals(
+                    downstreamRestoreBinding,
+                    _attachedDownstreamComponent) ||
+                ReferenceEquals(_attachedDownstreamComponent, null) ||
+                _attachedDownstreamComponent == null ||
+                ReferenceEquals(_attachedDownstreamComponent, this) ||
+                ReferenceEquals(_attachedDownstreamBinding, null) ||
+                !(_attachedDownstreamComponent is
+                    IContextRestoreBinding currentBinding) ||
+                !ReferenceEquals(currentBinding, _attachedDownstreamBinding) ||
+                !StateGraphHostBoundary.Contains(
+                    host,
+                    _attachedDownstreamComponent))
+            {
+                diagnostic = ProjectionError(
+                    "The original downstream Restore Binding is no longer live inside the Host boundary.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private void ClearFrozenDownstream()
+        {
+            _downstreamWasConfigured = false;
+            _attachedDownstreamComponent = null;
+            _attachedDownstreamBinding = null;
+        }
+
+        private void DetachTemporalHostNoFail()
+        {
+            try
+            {
+                _runtime?.Dispose();
+            }
+            catch (Exception)
+            {
+                _lastDiagnostic = CleanupError(
+                    "Pool Temporal Binding required a terminal teardown fallback.");
+            }
+            finally
+            {
+                _runtime = null;
+                _attachedStateGraphHost = null;
+                _attachedPoolRuntime = null;
+                _resetOnlyAttachment = false;
+                _resetOnlyAuthorityResetPrepared = false;
+                ClearFrozenDownstream();
+            }
+        }
+
+        private static CoCoDiagnostic ConflictError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Pooling,
+                CoCoDiagnosticCode.PoolTemporalConflict,
+                message);
+
+        private static CoCoDiagnostic ProjectionError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Pooling,
+                CoCoDiagnosticCode.PoolTemporalProjectionFailed,
+                message);
+
+        private static CoCoDiagnostic CleanupError(string message) =>
+            CoCoDiagnostic.Error(
+                CoCoDiagnosticDomain.Pooling,
+                CoCoDiagnosticCode.PoolTemporalCleanupFailed,
+                message);
+    }
+}

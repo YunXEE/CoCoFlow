@@ -3,7 +3,7 @@
     "rootNamespace": "CoCoFlow.Tests.Runtime.Map.PublicSdk",
     "references": [
         "CoCoFlow.Fixtures.ExternalMapTa",
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Modules.Map",
         "UniTask"
     ],

@@ -47,7 +47,7 @@ maturity statement.
 
 ### AnyState and submachine folding
 
-Each Layer may bind one `CoCoAnyStateLogic`, updating after the ordinary active
+Each Layer may bind one `AnyStateLogic`, updating after the ordinary active
 path with eligible transition priority and the full Logic binding surface.
 Its Memory survives leaf changes; self-reentry resets the current leaf while
 preserving ancestors and AnyState. Graphs without AnyState need no migration.
@@ -88,7 +88,7 @@ unverified.
 ## State mailboxes and automatic binding
 
 Host-local Intent sources are sampled each Tick. External struct events instead
-pass through `ICoCoEventInboxAdapter<TEvent>.Accept(in payload)` into the Host's
+pass through `IEventInboxAdapter<TEvent>.Accept(in payload)` into the Host's
 typed inbox; a Tick may contain no mail or several messages. Reference Adapters
 in the Host list and read the frozen batch with
 `context.Inbox.TryGetBatch<TEvent>(out var mails)` and `mails.TryRead(index, out var mail)`.
@@ -101,10 +101,10 @@ a serialized zero capacity retains no direct mail only if the Graph has no legac
 Event declarations. Legacy or mixed Graphs require positive capacity, and the Host
 Inspector keeps its minimum of 1. Failed Temporal calls preserve pending mail.
 
-Mark a State with `[CoCoState("Attack", ProvidesActionProgress = true)]` and call
+Mark a State with `[State("Attack", ProvidesActionProgress = true)]` and call
 `context.TrySetActionProgress(value)` to supply its normalized progress.
 Each `[Condition]` class must be concrete and non-generic, derive from
-`CoCoStateCondition`, implement `ICoCoStateConditionEvaluator`, and have a public
+`StateCondition`, implement `IStateConditionEvaluator`, and have a public
 parameterless constructor. An implicit default constructor already satisfies
 that requirement; several classes may share one file. Add the desired condition
 in the Graph. It evaluates a requested transition and does not request one itself.
@@ -115,12 +115,12 @@ for a compilable Condition example and the existing legacy Event-to-Intent bound
 ## Operator recovery
 
 In the Host's Operators list, each component exposes only the recovery switches
-supported by its interfaces: `ICoCoPersistenceRestoreOperator` for save/load and
-`ICoCoTemporalRestoreOperator` for history. Both switches start off and are independent.
+supported by its interfaces: `IPersistenceRestoreOperator` for save/load and
+`ITemporalRestoreOperator` for history. Both switches start off and are independent.
 Configure them before starting the Host; running Hosts keep their startup settings.
 Reordering the list keeps settings with the component, not the row number.
 
-Implement `TryRestore(in CoCoContextRestoreBindingContext, out CoCoDiagnostic)`
+Implement `TryRestore(in ContextRestoreBindingContext, out CoCoDiagnostic)`
 and read committed state through `context.Reader` during that callback only.
 The Host dispatches enabled Operators in binding order. Normal execution and
 Context capture continue whether recovery is enabled or disabled.
@@ -171,7 +171,7 @@ numeric, boolean, enum or pure data struct elements, with add/remove and orderin
 Missing overrides use the field initializer; zero, false and empty collections
 are valid overrides. See [Config collections](../Docs/StateGraphCompiler.md#standard-config-collections).
 Memory must remain unmanaged; it is captured with Context and restored with
-the saved activation state. StateLogic still requires `ICoCoStateUpdate`.
+the saved activation state. StateLogic still requires `IStateUpdate`.
 Standard runtime generic binding is covered by the Windows IL2CPP / Medium
 Player suite above. Game-specific reflected types and build settings still need
 their own validation.

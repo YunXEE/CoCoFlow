@@ -1,14 +1,16 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures
+namespace CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures
 {
     [Serializable]
-    public sealed class LegacyCoreDependencyAuthoringConfig : CoCoStateConfig
+    public sealed class LegacyCoreDependencyAuthoringConfig : StateConfig
     {
         public int Value;
     }
 
-    public readonly struct LegacyCoreDependencyConfigSchema : ICoCoFrozenConfigSchema
+    public readonly struct LegacyCoreDependencyConfigSchema : IFrozenConfigSchema
     {
     }
 
@@ -16,9 +18,9 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures
     {
         static LegacyCoreDependencySchemas()
         {
-            var builder = new CoCoFrozenConfigSchemaBuilder<LegacyCoreDependencyConfigSchema>();
+            var builder = new FrozenConfigSchemaBuilder<LegacyCoreDependencyConfigSchema>();
             if (!builder.TryFreeze(
-                    out CoCoFrozenConfigSchema<LegacyCoreDependencyConfigSchema> schema,
+                    out FrozenConfigSchema<LegacyCoreDependencyConfigSchema> schema,
                     out CoCoDiagnostic diagnostic))
             {
                 throw new InvalidOperationException(diagnostic.Message);
@@ -27,26 +29,26 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures
             Schema = schema;
         }
 
-        public static readonly CoCoFrozenConfigSchema<LegacyCoreDependencyConfigSchema> Schema;
+        public static readonly FrozenConfigSchema<LegacyCoreDependencyConfigSchema> Schema;
     }
 
-    public sealed class LegacyCoreDependencyLogic : CoCoStateLogic
+    public sealed class LegacyCoreDependencyLogic : StateLogic
     {
         public static Type ReferencedLegacyCoreType => typeof(CoCoServices);
     }
 
-    public sealed class LegacyCoreDependencyMemory : CoCoActivationMemory
+    public sealed class LegacyCoreDependencyMemory : ActivationMemory
     {
     }
 
     public sealed class LegacyCoreDependencyFreezer :
-        ICoCoConfigFreezer<
+        IConfigFreezer<
             LegacyCoreDependencyAuthoringConfig,
             LegacyCoreDependencyConfigSchema>
     {
         public bool TryFreeze(
             LegacyCoreDependencyAuthoringConfig source,
-            CoCoFrozenConfigWriter<LegacyCoreDependencyConfigSchema> writer,
+            FrozenConfigWriter<LegacyCoreDependencyConfigSchema> writer,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = source == null

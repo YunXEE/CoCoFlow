@@ -1,5 +1,5 @@
 ﻿using System;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Animation.Contracts
 {
@@ -25,35 +25,35 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public const ulong FeedbackReducerSemanticFingerprint = 0x414E494D00002001UL;
         public const ulong FeedbackAdapterSemanticFingerprint = 0x414E494D00002002UL;
 
-        public static CoCoOperationSectionId ParameterSectionId { get; } =
+        public static OperationSectionId ParameterSectionId { get; } =
             CreateOperationSectionId(0x414E494D00000001UL);
 
-        public static CoCoOperationSectionId TriggerSectionId { get; } =
+        public static OperationSectionId TriggerSectionId { get; } =
             CreateOperationSectionId(0x414E494D00000002UL);
 
-        public static CoCoOperatorId OperatorId { get; } =
+        public static OperatorId OperatorId { get; } =
             CreateOperatorId(0x414E494D00000102UL);
 
-        public static CoCoOperatorId AutoOperatorId => OperatorId;
+        public static OperatorId AutoOperatorId => OperatorId;
 
-        public static CoCoIntentId FeedbackIntentId { get; } =
+        public static IntentId FeedbackIntentId { get; } =
             CreateIntentId(0x414E494D00000201UL);
 
-        public static CoCoEventDomainId FeedbackEventDomainId { get; } =
+        public static EventDomainId FeedbackEventDomainId { get; } =
             CreateEventDomainId(0x434F434F414E494DUL);
 
-        public static CoCoEventTypeId FeedbackEventTypeId { get; } =
+        public static EventTypeId FeedbackEventTypeId { get; } =
             CreateEventTypeId(0x414E494D00000301UL);
 
-        public static CoCoStateBlockId SnapshotBlockId { get; } =
+        public static StateBlockId SnapshotBlockId { get; } =
             CreateStateBlockId(0x414E494D00000401UL);
 
-        public static CoCoStateSlotId SnapshotSlotId { get; } =
+        public static StateSlotId SnapshotSlotId { get; } =
             CreateStateSlotId(0x414E494D00000402UL);
 
-        private static CoCoStateBlockId CreateStateBlockId(ulong low)
+        private static StateBlockId CreateStateBlockId(ulong low)
         {
-            if (!CoCoStateBlockId.TryCreate(CoCoFlowHigh, low, out CoCoStateBlockId id))
+            if (!StateBlockId.TryCreate(CoCoFlowHigh, low, out StateBlockId id))
             {
                 throw new InvalidOperationException("The fixed Animation Context Block id is invalid.");
             }
@@ -61,9 +61,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoStateSlotId CreateStateSlotId(ulong low)
+        private static StateSlotId CreateStateSlotId(ulong low)
         {
-            if (!CoCoStateSlotId.TryCreate(CoCoFlowHigh, low, out CoCoStateSlotId id))
+            if (!StateSlotId.TryCreate(CoCoFlowHigh, low, out StateSlotId id))
             {
                 throw new InvalidOperationException("The fixed Animation Context Slot id is invalid.");
             }
@@ -71,9 +71,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoOperationSectionId CreateOperationSectionId(ulong low)
+        private static OperationSectionId CreateOperationSectionId(ulong low)
         {
-            if (!CoCoOperationSectionId.TryCreate(CoCoFlowHigh, low, out CoCoOperationSectionId id))
+            if (!OperationSectionId.TryCreate(CoCoFlowHigh, low, out OperationSectionId id))
             {
                 throw new InvalidOperationException("The fixed Animation Operation Section id is invalid.");
             }
@@ -81,9 +81,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoOperatorId CreateOperatorId(ulong low)
+        private static OperatorId CreateOperatorId(ulong low)
         {
-            if (!CoCoOperatorId.TryCreate(CoCoFlowHigh, low, out CoCoOperatorId id))
+            if (!OperatorId.TryCreate(CoCoFlowHigh, low, out OperatorId id))
             {
                 throw new InvalidOperationException("The fixed Animation Operator id is invalid.");
             }
@@ -91,9 +91,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoIntentId CreateIntentId(ulong low)
+        private static IntentId CreateIntentId(ulong low)
         {
-            if (!CoCoIntentId.TryCreate(CoCoFlowHigh, low, out CoCoIntentId id))
+            if (!IntentId.TryCreate(CoCoFlowHigh, low, out IntentId id))
             {
                 throw new InvalidOperationException("The fixed Animation Intent id is invalid.");
             }
@@ -101,9 +101,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoEventDomainId CreateEventDomainId(ulong value)
+        private static EventDomainId CreateEventDomainId(ulong value)
         {
-            if (!CoCoEventDomainId.TryCreate(value, out CoCoEventDomainId id))
+            if (!EventDomainId.TryCreate(value, out EventDomainId id))
             {
                 throw new InvalidOperationException("The fixed Animation Event Domain id is invalid.");
             }
@@ -111,9 +111,9 @@ namespace CoCoFlow.Runtime.Animation.Contracts
             return id;
         }
 
-        private static CoCoEventTypeId CreateEventTypeId(ulong low)
+        private static EventTypeId CreateEventTypeId(ulong low)
         {
-            if (!CoCoEventTypeId.TryCreate(CoCoFlowHigh, low, out CoCoEventTypeId id))
+            if (!EventTypeId.TryCreate(CoCoFlowHigh, low, out EventTypeId id))
             {
                 throw new InvalidOperationException("The fixed Animation Event Type id is invalid.");
             }
@@ -260,7 +260,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         private AnimTriggerCommand(
             AnimTriggerCommandKind kind,
             AnimBindingId bindingId,
-            CoCoActivationId sourceActivationId)
+            ActivationId sourceActivationId)
         {
             Kind = kind;
             BindingId = bindingId;
@@ -269,7 +269,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public AnimTriggerCommandKind Kind { get; }
         public AnimBindingId BindingId { get; }
-        public CoCoActivationId SourceActivationId { get; }
+        public ActivationId SourceActivationId { get; }
         public bool IsValid => Kind >= AnimTriggerCommandKind.Set &&
                                Kind <= AnimTriggerCommandKind.Reset &&
                                BindingId.IsValid &&
@@ -278,7 +278,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public static bool TryCreate(
             AnimTriggerCommandKind kind,
             AnimBindingId bindingId,
-            CoCoActivationId sourceActivationId,
+            ActivationId sourceActivationId,
             out AnimTriggerCommand command)
         {
             if (kind < AnimTriggerCommandKind.Set ||

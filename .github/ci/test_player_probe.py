@@ -153,10 +153,10 @@ class PlayerProbeTests(unittest.TestCase):
                 self.assertEqual(expected, json.loads((root / "prepared.json").read_text())["playerProbe"])
                 self.assertIn(f"scriptingBackend:\n    Standalone: {backend_value}\n", settings.read_text())
                 self.assertIn(f"managedStrippingLevel:\n    Standalone: {stripping_value}\n", settings.read_text())
-                self.assertTrue((root / "host/Assets/Editor/CoCoFlowCiPlayerBuild.cs").is_file())
+                self.assertTrue((root / "host/Assets/Editor/FlowCiPlayerBuild.cs").is_file())
                 link = root / "host/Assets/PlayerProbe/link.xml"
                 self.assertEqual(preserve, link.is_file())
-                guard = (root / "host/Assets/PlayerProbe/CoCoFlowCiPlayerProbe.cs").read_text()
+                guard = (root / "host/Assets/PlayerProbe/FlowCiPlayerProbe.cs").read_text()
                 self.assertNotIn("__COCOFLOW_EXPECTED_BACKEND__", guard)
                 self.assertIn('"' + expected["backend"] + '"', guard)
                 if scope == "all":

@@ -1,14 +1,14 @@
 using System;
 using System.Runtime.InteropServices;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Camera.Contracts
 {
     /// <summary>Write all five properties for one Rig request in the current Tick.</summary>
     // The author-facing name is CameraOperation by the approved API contract.
     // ReSharper disable once InconsistentNaming
-    [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
-    public interface CameraOperation : ICoCoOperationSection
+    [OperationSection(OperationSectionMode.Discrete)]
+    public interface CameraOperation : IOperationSection
     {
         int RigId { get; set; }
         bool Active { get; set; }
@@ -102,19 +102,19 @@ namespace CoCoFlow.Runtime.Camera.Contracts
     {
         private const ulong High = 0x434F434F43414D45UL; // COCOCAME
         public const ulong Fingerprint = 1UL;
-        public static CoCoIntentId IntentId { get; }
-        public static CoCoOperationSectionId OperationId { get; }
-        public static CoCoOperatorId OperatorId { get; }
-        public static CoCoStateBlockId SnapshotBlockId { get; }
-        public static CoCoStateSlotId SnapshotSlotId { get; }
+        public static IntentId IntentId { get; }
+        public static OperationSectionId OperationId { get; }
+        public static OperatorId OperatorId { get; }
+        public static StateBlockId SnapshotBlockId { get; }
+        public static StateSlotId SnapshotSlotId { get; }
 
         static CamContractIds()
         {
-            if (!CoCoIntentId.TryCreate(High, 1, out var intent) ||
-                !CoCoOperationSectionId.TryCreate(High, 2, out var operation) ||
-                !CoCoOperatorId.TryCreate(High, 3, out var executor) ||
-                !CoCoStateBlockId.TryCreate(High, 4, out var block) ||
-                !CoCoStateSlotId.TryCreate(High, 5, out var slot))
+            if (!IntentId.TryCreate(High, 1, out var intent) ||
+                !OperationSectionId.TryCreate(High, 2, out var operation) ||
+                !OperatorId.TryCreate(High, 3, out var executor) ||
+                !StateBlockId.TryCreate(High, 4, out var block) ||
+                !StateSlotId.TryCreate(High, 5, out var slot))
                 throw new InvalidOperationException("Camera contract identifiers are invalid.");
             IntentId = intent;
             OperationId = operation;

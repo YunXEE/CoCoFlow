@@ -1,0 +1,18 @@
+{
+    "name": "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
+    "references": [
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

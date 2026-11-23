@@ -13,7 +13,7 @@ namespace CoCoFlow.Editor.Modules.Map
             new HashSet<string>(StringComparer.Ordinal);
         private Vector2 scroll;
 
-        internal void Draw(CoCoMapHost host)
+        internal void Draw(MapHost host)
         {
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(

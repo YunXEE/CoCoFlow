@@ -2,8 +2,8 @@
     "name": "CoCoFlow.Tests.GameplayBinding.Components",
     "references": [
         "CoCoFlow.Tests.GameplayBinding.Contracts",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost"
     ],
     "autoReferenced": false,

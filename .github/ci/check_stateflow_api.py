@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -11,13 +12,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = Path(__file__).with_name("stateflow-api")
 CONSUMER = "CoCoFlow.CI.ExternalStateFlowConsumer"
+CORE_CONSUMER = "CoCoFlow.CI.CoreConsumer"
+GAME_CONSUMER = "CoCoFlow.CI.GameplayConsumer"
+# Each expression is checked in an otherwise compiling external Host consumer.
+DENIED = (
+    ("StateGraphProjectBindings.ResetForTests()", "CS0117", "ResetForTests"),
+    ("StateGraphRuntime.TryCreate(null, default, null, null, null, out _, out _)",
+     "CS0122", "StateGraphRuntime"),
+    ("default(FinalizedContextCommit).CommitNoFailUnchecked()", "CS1061", "CommitNoFailUnchecked"),
+)
 ENGINE = "UnityEngine.CoreModule"
 RUNTIME = (
     "CoCoFlow.Runtime.Core",
-    "CoCoFlow.Runtime.Core.Contracts",
-    "CoCoFlow.Runtime.Core.StateFlow",
-    "CoCoFlow.Runtime.Core.StateGraph",
-    "CoCoFlow.Runtime.Core.StateGraphAuthoring",
+    "CoCoFlow.Runtime.StateGraph",
     "CoCoFlow.Runtime.StateGraphHost",
 )
 
@@ -103,16 +110,36 @@ def main():
                 engine if uses_engine else None,
                 unsafe=definition["allowUnsafeCode"],
             )
+        write_project(directory, CORE_CONSUMER, args.framework, [CHECK / "CoreApi.cs"], [RUNTIME[0]])
+        write_project(directory, GAME_CONSUMER, args.framework, [CHECK / "GameplayApi.cs"],
+                      [*RUNTIME[:2], CORE_CONSUMER])
+        probe = directory / "Denied.cs"
+        probe.write_text("", encoding="utf-8")
         consumer = write_project(
-            directory, CONSUMER, args.framework, [CHECK / "RequiredApi.cs"],
-            (*RUNTIME, ENGINE) if not engine else RUNTIME, engine,
+            directory, CONSUMER, args.framework, [CHECK / "RequiredApi.cs", probe],
+            [*RUNTIME, GAME_CONSUMER] + ([] if engine else [ENGINE]), engine,
         )
         # Isolate CLI first-run files from the user's .dotnet directory.
         env = dict(os.environ, DOTNET_CLI_HOME=temporary, DOTNET_NOLOGO="1", DOTNET_CLI_TELEMETRY_OPTOUT="1")
-        return subprocess.run(
-            ["dotnet", "build", str(consumer), "--nologo", "-v", "quiet", "-warnaserror", "--disable-build-servers"],
-            cwd=directory, env=env, check=False,
-        ).returncode
+        command = ["dotnet", "build", str(consumer), "--nologo", "-v", "quiet", "-warnaserror",
+                   "--disable-build-servers", "-m:1"]
+        build = subprocess.run(command, cwd=directory, env=env)
+        if build.returncode:
+            return build.returncode
+        for expression, code, symbol in DENIED:
+            probe.write_text(
+                "using CoCoFlow.Runtime.StateGraph;\n"
+                "using CoCoFlow.Runtime.StateGraphHost;\n"
+                "class Denied { void Probe() {\n" + expression + ";\n} }\n", encoding="utf-8")
+            build = subprocess.run([*command, "--no-restore"], cwd=directory, env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            errors = {line.strip() for line in build.stdout.splitlines() if ": error " in line}
+            expected = re.compile(r"Denied\.cs\(\d+,\d+\): error " + code + r": .*'" + symbol + "'")
+            if not build.returncode or not errors or any(not expected.search(line) for line in errors):
+                print(f"Expected only {code} for {symbol}.\n{build.stdout}")
+                return 1
+            print(f"Denied {symbol}: {code}", flush=True)
+        return 0
 
 
 if __name__ == "__main__":

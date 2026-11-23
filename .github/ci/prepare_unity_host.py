@@ -143,7 +143,7 @@ def prepare(work: Path, dotween_archive: Path | None = None,
     (host / "CiRequirements.json").write_text(json.dumps(requirements, indent=2) + "\n")
     fixture = host / "Assets/Editor/CoCoFlowCI"
     fixture.mkdir(parents=True)
-    shutil.copy2(ROOT / ".github/ci/CoCoFlowCiDependencies.cs", fixture)
+    shutil.copy2(ROOT / ".github/ci/FlowCiDependencies.cs", fixture)
     (fixture / "CoCoFlow.CI.Tests.Editor.asmdef").write_text(json.dumps({
         "name": "CoCoFlow.CI.Tests.Editor", "includePlatforms": ["Editor"],
         "references": [], "optionalUnityReferences": ["TestAssemblies"]

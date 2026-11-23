@@ -8,7 +8,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 
 ## 0.4.6 AnyState 增量
 
-- [ ] One optional `CoCoAnyStateLogic` per Layer; Update only, outside ordinary
+- [ ] One optional `AnyStateLogic` per Layer; Update only, outside ordinary
       parent/child topology. Ordinary States and transition targets exclude AnyState.
 - [ ] Ordinary path Update completes before AnyState.Update; eligible AnyState
       requests arbitrate first, with one winner per Layer and Tick.
@@ -67,8 +67,8 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 - [ ] Compiled graph data is immutable and shared only as read-only topology;
       per-Host activation, lifecycle, Inbox, and Context state is never cached in
       the Asset result.
-- [ ] The only required Actor component is `CoCoStateGraphHost` with one
-      `CoCoStateGraphAsset`; Runtime, Clock, Inbox, Router, Logic, Condition, and
+- [ ] The only required Actor component is `StateGraphHost` with one
+      `StateGraphAsset`; Runtime, Clock, Inbox, Router, Logic, Condition, and
       Memory are not components, and Host performs no scene/child/legacy scan.
 - [ ] Runtime binding coverage is immutable and exact for every State,
       Condition, Memory, Intent Source, and Event Adapter; a mismatch leaves the
@@ -132,7 +132,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       duplicate, and type-exact runtime coverage and binding.
 - [ ] One Graph uses at most one EventDomain; no declarations create no
       Inbox/Router, local ingress bypasses Router, and cross-Actor routing uses
-      atomic `CoCoEventPacket<TEvent>` rather than `PublishWithEnvelope`.
+      atomic `EventPacket<TEvent>` rather than `PublishWithEnvelope`.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.
@@ -235,8 +235,8 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 
 ## Pre9 Object Pool ownership and Temporal entities
 
-- [ ] `PoolRuntime` is an explicit project/world instance and `CoCoPoolHost`
-      references the intended `CoCoContentHost`; there is no global Pool
+- [ ] `PoolRuntime` is an explicit project/world instance and `PoolHost`
+      references the intended `ContentHost`; there is no global Pool
       singleton or implicit Host lookup.
 - [ ] One prepared Pool Entry owns exactly one Prefab Source `ContentLease`
       while any idle, rented, pending-destroy, or Temporal-retained physical
@@ -270,7 +270,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       identity/count-only; they retain no Unity Object, Lease, Handle, delegate,
       backend handle, or exception object. Monitor actions are manual and do not
       alter domain capacity policy.
-- [ ] `CoCoTemporalEntityId` remains a pure Core Contracts identity. Temporal
+- [ ] `TemporalEntityId` remains a pure Core Contracts identity. Temporal
       history stores no GameObject, Component, `PooledHandle`, `ContentLease`,
       backend handle, Transform, or arbitrary domain payload.
 - [ ] The optional `Pooling.Temporal` sidecar is Host-scoped and one-way
@@ -310,7 +310,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       transition generation; only update/dispose of the same Lease supersedes
       an older revision, and readiness is exactly Ready/Cancelled/Superseded/
       Failed/Disposed.
-- [ ] `CoCoRegionProfile` uses `[SerializeReference]` extension configuration;
+- [ ] `RegionProfile` uses `[SerializeReference]` extension configuration;
       an explicit Catalog/Provider registers config freezers, immutable plans,
       modes, and participant types. Registered types are snapshotted; plans are
       exact sealed pure-data types and copied collections use
@@ -334,11 +334,11 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       remaining commits, and preserves old/candidate ownership for Host
       shutdown. Cleanup timeout uses unscaled time, reports `BlockedCleanup`,
       observes late completion, and explicit retry resolves cleanup first.
-- [ ] `CoCoMapHost` references Content Host, bootstrap bindings, and catalog
+- [ ] `MapHost` references Content Host, bootstrap bindings, and catalog
       provider explicitly. It uses no singleton, `FindObjects*`, implicit
       registration, runtime Profile write-back, or unloaded-Scene scanning.
 - [ ] A managed Chunk Scene cold-starts with one metadata-only
-      `CoCoRegionChunkAnchor` root and inactive managed roots. Runtime scans only
+      `RegionChunkAnchor` root and inactive managed roots. Runtime scans only
       the exact leased Scene, and public participant context exposes no raw
       `ContentScope`.
 - [ ] Built-in participants cover Content, GameObject, Collider, Renderer,

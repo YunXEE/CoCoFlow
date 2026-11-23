@@ -1,22 +1,26 @@
 ﻿using System;
 using CoCoFlow.Runtime.Animation.Contracts;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Animation
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
     [AddComponentMenu("CoCoFlow/Animation/Anim Auto Operator")]
     public sealed class AnimAutoOperator :
         MonoBehaviour,
-        ICoCoPersistenceRestoreOperator,
-        ICoCoTemporalRestoreOperator,
+        IPersistenceRestoreOperator,
+        ITemporalRestoreOperator,
         IAnimEventReceiver,
         IAnimEventStateResolver
     {
         [SerializeField] private Animator animator;
-        [SerializeField] private CoCoStateGraphHost stateGraphHost;
+        [SerializeField] private StateGraphHost stateGraphHost;
         [SerializeField] private AnimParameterBinding[] parameterBindings =
             Array.Empty<AnimParameterBinding>();
         [SerializeField] private AnimTriggerBinding[] triggerBindings =
@@ -28,12 +32,12 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private CoCoDiagnostic _lastDiagnostic;
         private bool _isInitialized;
 
-        [CoCoOperatorDefinition]
-        private static CoCoStandardOperatorDefinition Definition => AnimOperatorContracts.Definition;
-        public CoCoOperatorDescriptor Descriptor => Definition.Descriptor;
+        [OperatorDefinition]
+        private static StandardOperatorDefinition Definition => AnimOperatorContracts.Definition;
+        public OperatorDescriptor Descriptor => Definition.Descriptor;
 
         public Animator Animator => animator;
-        public CoCoStateGraphHost StateGraphHost => stateGraphHost;
+        public StateGraphHost StateGraphHost => stateGraphHost;
         public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
         /// <summary>
@@ -45,7 +49,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         private void Reset()
         {
             animator = GetComponent<Animator>();
-            stateGraphHost = GetComponentInParent<CoCoStateGraphHost>();
+            stateGraphHost = GetComponentInParent<StateGraphHost>();
         }
 
         private void Awake()
@@ -60,10 +64,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
             // feedback overflow. Never carry a staged batch across bindings.
             _feedback.Clear();
             animator ??= GetComponent<Animator>();
-            stateGraphHost ??= GetComponentInParent<CoCoStateGraphHost>();
+            stateGraphHost ??= GetComponentInParent<StateGraphHost>();
             if (animator == null ||
                 stateGraphHost == null ||
-                !CoCoStateGraphHostBoundary.Contains(stateGraphHost, this) ||
+                !StateGraphHostBoundary.Contains(stateGraphHost, this) ||
                 !AnimBindingRuntime.TryBuildParameters(
                     animator,
                     parameterBindings,
@@ -94,8 +98,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         public bool TryExecute(
-            in CoCoOperatorExecutionContext context,
-            out CoCoOperatorOutcome outcome)
+            in OperatorExecutionContext context,
+            out OperatorOutcome outcome)
         {
             _feedback.PrepareForExecution(context, stateGraphHost);
             if (_feedback.Overflowed)
@@ -110,13 +114,13 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 !_isInitialized ||
                 animator == null ||
                 stateGraphHost == null ||
-                !CoCoStateGraphHostBoundary.Contains(stateGraphHost, this) ||
+                !StateGraphHostBoundary.Contains(stateGraphHost, this) ||
                 !context.TryGet(
                     AnimOperatorContracts.ParameterRequirement,
-                    out CoCoOperationSectionEntry<IAnimParameterOperationSection> parameters) ||
+                    out OperationSectionEntry<IAnimParameterOperationSection> parameters) ||
                 !context.TryGet(
                     AnimOperatorContracts.TriggerRequirement,
-                    out CoCoOperationSectionEntry<IAnimTriggerOperationSection> triggers) ||
+                    out OperationSectionEntry<IAnimTriggerOperationSection> triggers) ||
                 !AnimBindingRuntime.ValidateParameters(
                     parameters.View,
                     _parameterTargets) ||
@@ -163,7 +167,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
 
             // The snapshot write above is an outcome write — a tick that
             // reached this point always owns at least that write.
-            outcome = CoCoOperatorOutcome.Success;
+            outcome = OperatorOutcome.Success;
             _lastDiagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -175,7 +179,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
         /// correction all read the same slot and write the same world.
         /// </summary>
         public bool TryRestore(
-            in CoCoContextRestoreBindingContext context,
+            in ContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
         {
             if (animator == null || !context.IsValid)
@@ -327,10 +331,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
             return wrote;
         }
 
-        private bool Reject(string message, out CoCoOperatorOutcome outcome)
+        private bool Reject(string message, out OperatorOutcome outcome)
         {
             _lastDiagnostic = AnimOperatorContracts.Error(message);
-            outcome = CoCoOperatorOutcome.Rejected(_lastDiagnostic);
+            outcome = OperatorOutcome.Rejected(_lastDiagnostic);
             return true;
         }
 

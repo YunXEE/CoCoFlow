@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence;
 using CoCoFlow.Runtime.Modules.Persistence.Container;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
@@ -33,10 +34,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
             PersistenceContextRegistry.Clear();
             PersistenceSession.ClearPendingDocument();
             _previousDirectory = PersistenceFileStore.SaveDirectoryOverride;
@@ -55,10 +55,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             PersistenceSession.ClearPendingDocument();
             PersistenceFileStore.SaveDirectoryOverride = _previousDirectory;
             if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
-            TemporalHostEventAdapter.Reset();
         }
 
         [TestCase(false, false)]

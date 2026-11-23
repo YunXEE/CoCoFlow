@@ -2,7 +2,6 @@
     "name": "CoCoFlow.Runtime.Modules.UI",
     "rootNamespace": "CoCoFlow.Runtime.Modules.UI",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Modules.Input",

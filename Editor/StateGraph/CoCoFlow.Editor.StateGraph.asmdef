@@ -2,13 +2,11 @@
     "name": "CoCoFlow.Editor.StateGraph",
     "rootNamespace": "CoCoFlow.Editor.StateGraph",
     "references": [
-        "CoCoFlow.Editor.Common",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
-        "CoCoFlow.Runtime.Core.StateGraph",
-        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
-        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Editor.Core",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Editor.PlayerMetadata"
     ],
     "includePlatforms": [
         "Editor"

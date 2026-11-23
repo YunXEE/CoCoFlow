@@ -1,6 +1,5 @@
-using System;
 using CoCoFlow.Runtime.Animation.Contracts;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
@@ -10,13 +9,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// typed field resolver. It deliberately consumes no Intent so the test
     /// also proves that an Operation-only graph needs no Intent source.
     /// </summary>
-    [CoCoState("LocoMoveProbe")]
-    [CoCoOperationProvide(typeof(ILocomotionSection))]
-    public sealed class LocoMoveProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("LocoMoveProbe")]
+    [OperationProvide(typeof(ILocomotionSection))]
+    public sealed class LocoMoveProbeLogic : StateLogic, IStateUpdate
     {
         public static float? LastDelta;
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             var moveZ = context.Operations.ResolveField<ILocomotionSection, float>(
                 LocomotionSectionFields.MoveZ);
@@ -39,14 +38,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// not need to write commands for the registration test; its descriptor
     /// is sufficient to freeze both Sections into the compiled manifest.
     /// </summary>
-    [CoCoState("AnimOperationProbe")]
-    [CoCoOperationProvide(typeof(IAnimParameterOperationSection))]
-    [CoCoOperationProvide(typeof(IAnimTriggerOperationSection))]
+    [State("AnimOperationProbe")]
+    [OperationProvide(typeof(IAnimParameterOperationSection))]
+    [OperationProvide(typeof(IAnimTriggerOperationSection))]
     public sealed class AnimOperationProbeLogic :
-        CoCoStateLogic,
-        ICoCoStateUpdate
+        StateLogic,
+        IStateUpdate
     {
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
         }
     }

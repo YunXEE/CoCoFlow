@@ -27,7 +27,7 @@ namespace CoCoFlow.Runtime.Modules.UI
         [SerializeField] private Transform popupRoot;
 
         [Header("Content")]
-        [SerializeField] private CoCoContentHost contentHost;
+        [SerializeField] private ContentHost contentHost;
 
         [Header("Input Integration")]
         [SerializeField] private InputReader inputReader;
@@ -125,7 +125,7 @@ namespace CoCoFlow.Runtime.Modules.UI
 
             if (contentHost == null)
             {
-                CoCoLog.Error("[UIManager] A CoCoContentHost reference is required.");
+                CoCoLog.Error("[UIManager] A ContentHost reference is required.");
                 return;
             }
 

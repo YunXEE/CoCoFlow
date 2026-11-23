@@ -1,0 +1,404 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using CoCoFlow.Runtime.Core;
+
+namespace CoCoFlow.Runtime.StateGraph
+{
+    // Instances belong to one Logic; cached delegates keep reflection out of callbacks.
+    internal sealed class StatePropertyBindings
+    {
+        private readonly Action<IIntentFrame>[] _intents;
+
+        internal static PropertyInfo[] Properties(Type logicType)
+        {
+            var result = new List<PropertyInfo>();
+            foreach (PropertyInfo property in logicType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (property.IsDefined(typeof(IntentAttribute), false) ||
+                    property.IsDefined(typeof(OperationAttribute), false))
+                {
+                    result.Add(property);
+                }
+            }
+            if (result.Count != 0 &&
+                (logicType.IsDefined(typeof(IntentConsumeAttribute), false) ||
+                 logicType.IsDefined(typeof(OperationProvideAttribute), false)))
+            {
+                throw new InvalidOperationException("Use either property or class dependency declarations: " + logicType);
+            }
+            return result.ToArray();
+        }
+
+        internal StatePropertyBindings(StateLogic logic,
+            OperationSectionRegistry registry, StateExecutionContext context)
+        {
+            var intents = new List<Action<IIntentFrame>>();
+            foreach (PropertyInfo property in Properties(logic.GetType()))
+            {
+                if (property.IsDefined(typeof(IntentAttribute), false))
+                {
+                    var factory = typeof(StatePropertyBindings).GetMethod(
+                        nameof(CreateIntentSetter), BindingFlags.Static | BindingFlags.NonPublic);
+                    intents.Add((Action<IIntentFrame>)factory.MakeGenericMethod(property.PropertyType)
+                        .Invoke(null, new object[] { logic, property }));
+                }
+                else
+                {
+                    property.SetValue(logic, registry.CreateWriteView(property.PropertyType, context));
+                }
+            }
+            _intents = intents.ToArray();
+        }
+
+        private static Action<IIntentFrame> CreateIntentSetter<TIntent>(
+            StateLogic logic, PropertyInfo property)
+        {
+            var setter = (Action<TIntent>)Delegate.CreateDelegate(typeof(Action<TIntent>), logic, property.SetMethod);
+            return frame =>
+            {
+                TIntent value = default;
+                frame?.TryFirst(out value);
+                setter(value);
+            };
+        }
+
+        internal void Refresh(IIntentFrame frame)
+        {
+            for (int index = 0; index < _intents.Length; index++)
+            {
+                _intents[index](frame);
+            }
+        }
+    }
+
+    public interface IStateRuntimeFactory
+    {
+        Type LogicType { get; }
+        Type ActivationMemoryType { get; }
+
+        StateLogic CreateLogic(StateFactoryContext context);
+        ActivationMemory CreateMemory();
+        void CopyMemory(ActivationMemory source, ActivationMemory destination);
+        void ResetMemory(ActivationMemory memory);
+        ulong GetMemoryFingerprint(ActivationMemory memory);
+    }
+
+    /// <summary>
+    /// AOT-safe typed factory adapter installed by the project before any Host starts.
+    /// </summary>
+    public sealed class StateRuntimeFactory<TLogic, TMemory> : IStateRuntimeFactory
+        where TLogic : StateLogic, IStateUpdate
+        where TMemory : ActivationMemory
+    {
+        private readonly Func<StateFactoryContext, TLogic> _logicFactory;
+        private readonly Func<TMemory> _memoryFactory;
+        private readonly Action<TMemory, TMemory> _memoryCopier;
+        private readonly Action<TMemory> _memoryResetter;
+        private readonly Func<TMemory, ulong> _memoryFingerprinter;
+
+        public StateRuntimeFactory(
+            Func<StateFactoryContext, TLogic> logicFactory,
+            Func<TMemory> memoryFactory,
+            Action<TMemory, TMemory> memoryCopier,
+            Action<TMemory> memoryResetter,
+            Func<TMemory, ulong> memoryFingerprinter)
+        {
+            _logicFactory = logicFactory ?? throw new ArgumentNullException(nameof(logicFactory));
+            _memoryFactory = memoryFactory ?? throw new ArgumentNullException(nameof(memoryFactory));
+            _memoryCopier = memoryCopier ?? throw new ArgumentNullException(nameof(memoryCopier));
+            _memoryResetter = memoryResetter ?? throw new ArgumentNullException(nameof(memoryResetter));
+            _memoryFingerprinter = memoryFingerprinter ??
+                                   throw new ArgumentNullException(nameof(memoryFingerprinter));
+        }
+
+        public Type LogicType => typeof(TLogic);
+        public Type ActivationMemoryType => typeof(TMemory);
+
+        public StateLogic CreateLogic(StateFactoryContext context) =>
+            _logicFactory(context) ??
+            throw new InvalidOperationException("A State runtime factory returned null logic.");
+
+        public ActivationMemory CreateMemory() =>
+            _memoryFactory() ??
+            throw new InvalidOperationException("A State runtime factory returned null memory.");
+
+        public void CopyMemory(ActivationMemory source, ActivationMemory destination)
+        {
+            if (!(source is TMemory typedSource) || !(destination is TMemory typedDestination))
+            {
+                throw new InvalidOperationException("State memory does not match its runtime factory.");
+            }
+
+            _memoryCopier(typedSource, typedDestination);
+        }
+
+        public void ResetMemory(ActivationMemory memory)
+        {
+            if (!(memory is TMemory typedMemory))
+            {
+                throw new InvalidOperationException("State memory does not match its runtime factory.");
+            }
+
+            _memoryResetter(typedMemory);
+        }
+
+        public ulong GetMemoryFingerprint(ActivationMemory memory)
+        {
+            if (!(memory is TMemory typedMemory))
+            {
+                throw new InvalidOperationException("State memory does not match its runtime factory.");
+            }
+
+            return _memoryFingerprinter(typedMemory);
+        }
+    }
+
+    public interface IConditionRuntimeFactory
+    {
+        Type ConditionType { get; }
+        StateCondition CreateCondition(ConditionFactoryContext context);
+    }
+
+    public sealed class ConditionRuntimeFactory<TCondition> : IConditionRuntimeFactory
+        where TCondition : StateCondition, IStateConditionEvaluator
+    {
+        private readonly Func<ConditionFactoryContext, TCondition> _factory;
+
+        public ConditionRuntimeFactory(Func<ConditionFactoryContext, TCondition> factory)
+        {
+            _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        }
+
+        public Type ConditionType => typeof(TCondition);
+
+        public StateCondition CreateCondition(ConditionFactoryContext context) =>
+            _factory(context) ??
+            throw new InvalidOperationException("A Condition runtime factory returned null.");
+    }
+
+    public sealed class StateGraphLogicBindingsBuilder
+    {
+        private readonly CompiledStateGraph _graph;
+        private readonly Dictionary<StateDescriptorId, StateDescriptor> _requiredStates;
+        private readonly Dictionary<ConditionDescriptorId, ConditionDescriptor> _requiredConditions;
+        private readonly Dictionary<StateDescriptorId, IStateRuntimeFactory> _stateFactories;
+        private readonly Dictionary<ConditionDescriptorId, IConditionRuntimeFactory> _conditionFactories;
+        private bool _isFrozen;
+
+        public StateGraphLogicBindingsBuilder(CompiledStateGraph graph)
+        {
+            _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+            _requiredStates = new Dictionary<StateDescriptorId, StateDescriptor>();
+            _requiredConditions = new Dictionary<ConditionDescriptorId, ConditionDescriptor>();
+            _stateFactories = new Dictionary<StateDescriptorId, IStateRuntimeFactory>();
+            _conditionFactories = new Dictionary<ConditionDescriptorId, IConditionRuntimeFactory>();
+            CollectRequirements(graph, _requiredStates, _requiredConditions);
+        }
+
+        public CompiledStateGraph Graph => _graph;
+        public bool IsFrozen => _isFrozen;
+        public int RequiredStateFactoryCount => _requiredStates.Count;
+        public int RequiredConditionFactoryCount => _requiredConditions.Count;
+
+        public bool TryBindState(
+            StateDescriptorId descriptorId,
+            IStateRuntimeFactory factory,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!CanBind(out diagnostic))
+            {
+                return false;
+            }
+
+            if (!_requiredStates.TryGetValue(descriptorId, out StateDescriptor descriptor) || factory == null)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "State runtime bindings may contain only descriptors required by this Graph.");
+                return false;
+            }
+
+            if (_stateFactories.ContainsKey(descriptorId))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.DuplicateIdentifier,
+                    "A Graph may bind each State descriptor exactly once.");
+                return false;
+            }
+
+            if (factory.LogicType != descriptor.LogicType ||
+                factory.ActivationMemoryType != descriptor.ActivationMemoryType ||
+                !typeof(IStateUpdate).IsAssignableFrom(factory.LogicType))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "State logic or ActivationMemory factory type does not match the compiled descriptor.");
+                return false;
+            }
+
+            _stateFactories.Add(descriptorId, factory);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        public bool TryBindCondition(
+            ConditionDescriptorId descriptorId,
+            IConditionRuntimeFactory factory,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (!CanBind(out diagnostic))
+            {
+                return false;
+            }
+
+            if (!_requiredConditions.TryGetValue(
+                    descriptorId,
+                    out ConditionDescriptor descriptor) ||
+                factory == null)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "Condition runtime bindings may contain only descriptors required by this Graph.");
+                return false;
+            }
+
+            if (_conditionFactories.ContainsKey(descriptorId))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.DuplicateIdentifier,
+                    "A Graph may bind each Condition descriptor exactly once.");
+                return false;
+            }
+
+            if (factory.ConditionType != descriptor.ConditionType ||
+                !typeof(IStateConditionEvaluator).IsAssignableFrom(factory.ConditionType))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.DescriptorTypeMismatch,
+                    "Condition factory type does not match the compiled descriptor.");
+                return false;
+            }
+
+            _conditionFactories.Add(descriptorId, factory);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        public bool TryFreeze(
+            out StateGraphLogicBindings bindings,
+            out CoCoDiagnostic diagnostic)
+        {
+            if (_isFrozen)
+            {
+                bindings = null;
+                diagnostic = Error(
+                    CoCoDiagnosticCode.RegistryFrozen,
+                    "StateGraph logic bindings are already frozen.");
+                return false;
+            }
+
+            _isFrozen = true;
+            if (_stateFactories.Count != _requiredStates.Count ||
+                _conditionFactories.Count != _requiredConditions.Count)
+            {
+                bindings = null;
+                diagnostic = Error(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "StateGraph runtime bindings must exactly cover every compiled State and Condition descriptor.");
+                return false;
+            }
+
+            bindings = new StateGraphLogicBindings(
+                _graph,
+                _stateFactories,
+                _conditionFactories);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private bool CanBind(out CoCoDiagnostic diagnostic)
+        {
+            if (_isFrozen)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.RegistryFrozen,
+                    "StateGraph logic bindings are frozen.");
+                return false;
+            }
+
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        private static void CollectRequirements(
+            CompiledStateGraph graph,
+            Dictionary<StateDescriptorId, StateDescriptor> states,
+            Dictionary<ConditionDescriptorId, ConditionDescriptor> conditions)
+        {
+            for (int layerIndex = 0; layerIndex < graph.Layers.Count; layerIndex++)
+            {
+                CompiledStateLayer layer = graph.Layers[layerIndex];
+                for (int stateIndex = 0; stateIndex < layer.States.Count; stateIndex++)
+                {
+                    StateDescriptor descriptor = layer.States[stateIndex].Descriptor;
+                    if (!states.ContainsKey(descriptor.DescriptorId))
+                    {
+                        states.Add(descriptor.DescriptorId, descriptor);
+                    }
+                }
+
+                for (int transitionIndex = 0;
+                     transitionIndex < layer.Transitions.Count;
+                     transitionIndex++)
+                {
+                    CompiledTransition transition = layer.Transitions[transitionIndex];
+                    for (int conditionIndex = 0;
+                         conditionIndex < transition.Conditions.Count;
+                         conditionIndex++)
+                    {
+                        ConditionDescriptor descriptor = transition.Conditions[conditionIndex].Descriptor;
+                        if (!conditions.ContainsKey(descriptor.DescriptorId))
+                        {
+                            conditions.Add(descriptor.DescriptorId, descriptor);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static CoCoDiagnostic Error(CoCoDiagnosticCode code, string message) =>
+            CoCoDiagnostic.Error(CoCoDiagnosticDomain.Registry, code, message);
+    }
+
+    public sealed class StateGraphLogicBindings
+    {
+        private readonly Dictionary<StateDescriptorId, IStateRuntimeFactory> _stateFactories;
+        private readonly Dictionary<ConditionDescriptorId, IConditionRuntimeFactory> _conditionFactories;
+
+        internal StateGraphLogicBindings(
+            CompiledStateGraph graph,
+            Dictionary<StateDescriptorId, IStateRuntimeFactory> stateFactories,
+            Dictionary<ConditionDescriptorId, IConditionRuntimeFactory> conditionFactories)
+        {
+            Graph = graph;
+            _stateFactories = new Dictionary<StateDescriptorId, IStateRuntimeFactory>(stateFactories);
+            _conditionFactories =
+                new Dictionary<ConditionDescriptorId, IConditionRuntimeFactory>(conditionFactories);
+        }
+
+        public CompiledStateGraph Graph { get; }
+        public int StateFactoryCount => _stateFactories.Count;
+        public int ConditionFactoryCount => _conditionFactories.Count;
+
+        internal bool TryGetStateFactory(
+            StateDescriptorId descriptorId,
+            out IStateRuntimeFactory factory) =>
+            _stateFactories.TryGetValue(descriptorId, out factory);
+
+        internal bool TryGetConditionFactory(
+            ConditionDescriptorId descriptorId,
+            out IConditionRuntimeFactory factory) =>
+            _conditionFactories.TryGetValue(descriptorId, out factory);
+    }
+}

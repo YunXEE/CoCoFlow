@@ -2,7 +2,7 @@
 
 > Runtime contract baseline: `0.4.0` · AnyState increment: `0.4.6`
 >
-> The Compiler and StateGraphAuthoring Runtime are included in the Core Engine
+> The pure compiler and the Unity graph asset runtime are included in the Core Engine
 > maturity statement. The StateGraph Editor is current tooling, but it is not
 > part of the Runtime API maturity guarantee.
 
@@ -18,7 +18,7 @@ package does not expose an automatic migration path for non-v1 graph Assets.
 
 ## Authoring authority
 
-`CoCoStateGraphAsset` is the sole serialized authoring truth. Its public
+`StateGraphAsset` is the sole serialized authoring truth. Its public
 topology is:
 
 ```text
@@ -85,31 +85,20 @@ workflow.
 
 ## Standard attributed authoring path
 
-The package also exposes a small standard path for projects that do not need a
-fully custom binding provider:
+Declare a concrete `[State("Name")]` on a `StateLogic` with a public
+parameterless constructor and `IStateUpdate`. The attribute name supplies
+the stable descriptor identity. Use `[Intent]` for a payload, `[Operation]` for
+a section interface, and `[Config]` or `[Memory]` for public instance fields.
+The standard binding creates the graph-owned state slot and its Temporal and
+Durable projections. States with no config or memory fields use
+`EmptyStateConfig` and `StatelessMemory`. An attributed `AnyStateLogic`
+belongs in the layer's optional AnyState slot.
 
-- a concrete `CoCoStateLogic` that implements `ICoCoStateUpdate`, has a public
-  parameterless constructor, and is marked with `CoCoStateAttribute` becomes a
-  Catalog State; its descriptor ID is derived deterministically from the
-  attribute name;
-- `[Intent]` properties declare registered payload types, including
-  `InputIntentData` and `CameraIntentData`;
-- `[Operation]` properties declare Operation Sections whose owning
-  `ICoCoStandardOperatorRegistrar` must be discoverable from an Operator's
-  `CoCoOperatorRegistrationAttribute`;
-- each standard State receives one deterministic Graph-owned Context block and
-  Stored state slot marked for Temporal and Durable projection;
-- `[Config]` and `[Memory]` public instance fields use the standard automatic
-  binding path. States without these fields use `EmptyStateConfig` and
-  `StatelessMemory`.
-- A concrete `CoCoAnyStateLogic` uses the same attributed registration and
-  bindings, but can only occupy the Layer's optional AnyState slot.
-
-The builder rejects abstract or non-State types, unsupported Intent types,
-unknown Operation Sections, duplicate descriptor IDs, missing registrars, and
-Catalog freeze failures. The Editor catalog bootstrap and Add State wizard use
-the same attributed State surface; Runtime binding is described in
-[StateGraph Runtime and Host](StateGraphRuntime.md).
+A section carries `[OperationSection]`. An operator declares a static
+`[OperatorDefinition]` and calls `StandardOperatorBuilder.Require<TSection>()`.
+The source generator supplies the top-level or accessible nested interface's view.
+The Editor and the standard Host read these declarations from the same catalog.
+[StateGraph Runtime and Host](StateGraphRuntime.md)
 
 ### Standard Config collections
 
@@ -129,7 +118,7 @@ Numeric text is committed on confirmation or focus loss. Intermediate text such
 as `2.` or `-` is kept in the active control; invalid submissions show an error
 and preserve the last saved value. Value commits keep the active Config controls.
 
-`CoCoFieldConfig.Values`, `Set(string, object)`, and `Apply(CoCoStateLogic)` retain
+`FieldConfig.Values`, `Set(string, object)`, and `Apply(StateLogic)` retain
 their signatures. Old scalar entries such as `Speed=2.5` remain readable.
 Collections use a length entry (`Windows.$count=2`) and indexed leaves
 (`Windows[0].StartSeconds=0.25`). `Set` replaces the entire supplied path,
@@ -137,8 +126,8 @@ including old descendants, and Apply restores lengths before indexed values.
 
 ## Optional AnyState source
 
-`CoCoStateLayerSource` retains its four-argument constructor. A five-argument
-overload appends `CoCoStateSource anyState`; `AnyState == null` preserves the
+`StateLayerSource` retains its four-argument constructor. A five-argument
+overload appends `StateSource anyState`; `AnyState == null` preserves the
 ordinary model. The Asset stores this optional record in a nullable
 `[SerializeReference]` slot. Existing `states`, constructors and field paths keep
 their meaning; opening an old Asset neither creates a binding nor migrates it.
@@ -146,7 +135,7 @@ their meaning; opening an old Asset neither creates a binding nor migrates it.
 AnyState has its own valid stable State ID, descriptor and Config. It is not a
 member of the ordinary tree: it cannot have a parent/initial child or serve as
 a Layer initial State, transition target, subtree root or paste parent. Its
-descriptor must derive from `CoCoAnyStateLogic` without Enter/Exit interfaces;
+descriptor must derive from `AnyStateLogic` without Enter/Exit interfaces;
 ordinary States cannot use that special Logic type.
 
 Compiled States expose `IsAnyState`; each compiled Layer exposes
@@ -193,12 +182,12 @@ original operation.
 Compilation follows one direction:
 
 ```text
-CoCoStateGraphAsset
+StateGraphAsset
   -> immutable authoring snapshot
   + frozen descriptor catalog
-  -> CoCoStateGraphCompiler
-  -> CoCoStateGraphCompileResult
-  -> immutable CoCoCompiledStateGraph
+  -> StateGraphCompiler
+  -> StateGraphCompileResult
+  -> immutable CompiledStateGraph
 ```
 
 The snapshot boundary validates the serialized envelope without evaluating
@@ -235,7 +224,7 @@ reinterpret rejected data.
 State and Condition behavior is represented by stable descriptor identities
 registered before compilation. Compilation verifies and freezes those
 descriptors; creating StateLogic, Condition, Memory, Adapter, or Reducer
-instances is a Host runtime boundary. The pure `CoCoStateGraphCompiler` itself
+instances is a Host runtime boundary. The pure `StateGraphCompiler` itself
 does not invoke a Freezer, StateLogic, Condition, Reducer, Factory, or
 Event-to-Intent Adapter.
 
@@ -254,17 +243,14 @@ select an Adapter implementation,
 instance, priority, broadcast policy, projection capacity, Inbox, or
 reliability policy.
 
-The Asset declaration list is the authoritative Adapter execution order. The
-compiler preserves that declaration index in the immutable manifest. The Host
-binding Provider must cover the manifest exactly, but it cannot sort or otherwise
-change the declared runtime order.
+Existing graph assets keep their serialized event declarations, diagnostic
+locations and fingerprint data. Remove these declarations when migrating to
+the standard Host. States read the typed Inbox in their callbacks.
 
 Descriptor logic, Conditions, Freezers, and token implementations must live in
 `noEngineReferences` author assemblies whose complete dependency closure is
-engine-independent. That closure may use the BCL and the pure Contracts,
-StateFlow, and StateGraph assemblies, but it must not reference the legacy
-Unity-facing `CoCoFlow.Runtime.Core`, StateGraphAuthoring, Editor,
-Modules, or Unity assemblies. Runtime registration retains its direct-reference
+engine-independent. It may depend on the BCL, Core, StateGraph and pure
+gameplay helpers. Host, Editor, Unity and engine-facing modules are forbidden. Runtime registration retains its direct-reference
 guard as a fast boundary check. Editor Analyze and the Player build preflight
 then walk the complete resolved assembly dependency graph from every registered
 Logic, Condition, Config, Schema, Memory, Freezer, Intent, Reducer, Factory,
@@ -282,7 +268,7 @@ This distinguishes different bindings implemented by the same type without
 catalog and CompiledGraph retain only copied token metadata, so mutating a
 later Host-owned factory cannot change an existing compiled result.
 
-`CoCoCompiledStateGraph` contains immutable per-Layer State and Transition
+`CompiledStateGraph` contains immutable per-Layer State and Transition
 tables, hierarchy and adjacency lookups, and the data required to reconstruct
 an active path. It is not generated C# and is not a second serialized authoring
 Asset.
@@ -291,13 +277,13 @@ Asset.
 
 One successful compile produces three deterministic, deduplicated manifests:
 
-- `CoCoIntentRequirementManifest`: the Intents the Graph can read, including
+- `IntentRequirementManifest`: the Intents the Graph can read, including
   stable identity, value and Reducer types, capacity, and dense index. It also
   carries a non-null collection of the Graph's static Event-to-Intent
   declarations; this does not create a fourth Manifest.
-- `CoCoGraphOperationProvisionManifest`: the OperationFrame Sections the Graph
+- `GraphOperationProvisionManifest`: the OperationFrame Sections the Graph
   can produce, including each Section's complete immutable Shape.
-- `CoCoContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
+- `ContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
   Slot state required to resume graph evaluation deterministically.
 
 State descriptors may contribute to all three manifests. Conditions may declare
@@ -313,7 +299,7 @@ Compiler does not retain factories/rebuilders or materialize runtime layouts
 from a CompiledGraph. Host binding must explicitly match each AOT token's type
 and semantic fingerprint before it can supply executable instances.
 
-The Compiler does not synthesize Context Slots. Instead, the Project Provider
+The Compiler does not synthesize Context Slots. Instead, the standard binding provider
 maps the existing requirements to exactly
 one producer per direct Slot: a concrete compiled State's Graph-state record, a
 Graph auxiliary producer, canonical Claim arbitration, one Operator Outcome, or
@@ -321,7 +307,7 @@ the Host's single Actor binding. Existing Derived rebuilders remain the only
 Derived producers. Missing, extra, duplicate, owner/type/policy-incompatible, or
 multiply classified bindings reject Host startup.
 
-For Context bindings, the Project Provider supplies the actual Layout default
+For Context bindings, the standard binding provider supplies the actual Layout default
 and a nonzero semantic fingerprint. That fingerprint is a trusted declaration
 token compared with the Manifest; it is not a canonical hash that the framework
 recomputes from `defaultValue`. Adding canonical value hashing would change this
@@ -336,15 +322,14 @@ alone. The Editor linker step emits temporary `Library/` preservation metadata
 for the validated Section interfaces and recursively used unmanaged value
 metadata so High Managed Stripping does not erase the static Shape contract.
 
-StateGraphHost owns the actual Source, Event-to-Intent Adapter instances, Inbox,
+StateGraphHost owns the scene sources, typed Inbox adapters,
 and runtime binding coverage. Transaction preflight includes Context producer,
 Operator, Claim, Actor-binding, and Outbox coverage. This preflight
-runs before Clock creation and before `CoCoStateGraphRuntime.TryCreate`, so an
+runs before Clock creation and before `StateGraphRuntime.TryCreate`, so an
 invalid setup keeps the Host in `Created` without invoking Runtime factories,
 reset/fingerprint work, Graph capture, or Router registration. Runtime binding
 remains outside graph compilation: a missing project Factory does not turn the
-immutable Asset compile result into a scene-dependent error. A valid Provider
-binds compiled Adapter declarations without changing their Asset-defined order.
+immutable Asset compile result into a scene-dependent error.
 
 All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent

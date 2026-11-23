@@ -10,6 +10,12 @@ namespace UnityEngine
         public static implicit operator EntityId(int instanceId) => throw new NotSupportedException();
     }
 
+    public interface ISerializationCallbackReceiver
+    {
+        void OnBeforeSerialize();
+        void OnAfterDeserialize();
+    }
+
     public class Object
     {
         public string name { get; set; }
@@ -87,6 +93,23 @@ namespace UnityEngine
         public static void LogWarning(object message) => throw new NotSupportedException();
         public static void LogException(Exception exception, Object context) => throw new NotSupportedException();
         public static void LogError(object message) => throw new NotSupportedException();
+    }
+}
+
+namespace UnityEngine.Serialization
+{
+    public sealed class FormerlySerializedAsAttribute : Attribute
+    {
+        public FormerlySerializedAsAttribute(string oldName) { }
+    }
+}
+
+namespace UnityEngine.Scripting.APIUpdating
+{
+    public sealed class MovedFromAttribute : Attribute
+    {
+        public MovedFromAttribute(bool autoUpdateAPI, string sourceNamespace = null,
+            string sourceAssembly = null, string sourceClassName = null) { }
     }
 }
 

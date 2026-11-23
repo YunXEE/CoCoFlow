@@ -36,8 +36,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         public void DefaultFiveTiersAndDirectSceneCompileToPureImmutablePlan()
         {
             RegionParticipantCatalog catalog = CreateCatalog();
-            CoCoRegionProfile profile = CreateProfile();
-            CoCoRegionBinding binding = CreateBinding(
+            RegionProfile profile = CreateProfile();
+            RegionBinding binding = CreateBinding(
                 "world.wilderness",
                 profile,
                 "terrain",
@@ -91,7 +91,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 "project.weather.simulated",
                 out RegionCapabilityId custom));
             RegionParticipantCatalog catalog = CreateCatalog(custom);
-            CoCoRegionProfile profile = CreateProfile();
+            RegionProfile profile = CreateProfile();
             SetField(
                 profile,
                 "tiers",
@@ -120,7 +120,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         RegionCapabilityId.Full)
                 });
             profile.SynchronizeParticipantTierSettings();
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.castle",
                 profile,
                 "keep",
@@ -137,7 +137,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void ProfileCanMergeAllStandardCapabilitiesIntoOneActiveTier()
         {
-            CoCoRegionProfile profile = CreateProfile();
+            RegionProfile profile = CreateProfile();
             SetField(
                 profile,
                 "tiers",
@@ -152,7 +152,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         RegionCapabilityId.Full)
                 });
             profile.SynchronizeParticipantTierSettings();
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.merged",
                 profile,
                 "terrain",
@@ -178,7 +178,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void ParticipantRequiresExactlyOneCellForEveryTier()
         {
-            CoCoRegionProfile profile = CreateProfile();
+            RegionProfile profile = CreateProfile();
             var settings =
                 new List<RegionParticipantTierSetting>(
                     profile.Participants[0].TierSettings);
@@ -187,7 +187,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 profile.Participants[0],
                 "tierSettings",
                 settings);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.missing-cell",
                 profile,
                 "terrain",
@@ -212,7 +212,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void EnabledParticipantRequiresDependencyInSameTier()
         {
-            CoCoRegionProfile profile =
+            RegionProfile profile =
                 CreateMarkerProfile(true);
             var ownerSettings =
                 new List<RegionParticipantTierSetting>(
@@ -224,7 +224,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 profile.Participants[0],
                 "tierSettings",
                 ownerSettings);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.tier-dependency",
                 profile,
                 "terrain",
@@ -254,8 +254,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void DirectSceneShortNameIsRejectedFailClosed()
         {
-            CoCoRegionProfile profile = CreateProfile();
-            CoCoRegionBinding binding = CreateBinding(
+            RegionProfile profile = CreateProfile();
+            RegionBinding binding = CreateBinding(
                 "world.mine",
                 profile,
                 "entrance",
@@ -280,7 +280,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 contentId,
                 "world/chapel/interior",
                 out ContentReference scene));
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.chapel",
                 CreateProfile(),
                 "interior",
@@ -300,16 +300,16 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsOneSceneOwnedByTwoRegions()
         {
-            CoCoRegionProfile profileA = CreateProfile();
-            CoCoRegionProfile profileB = CreateProfile();
-            CoCoRegionBinding bindingA = CreateBinding(
+            RegionProfile profileA = CreateProfile();
+            RegionProfile profileB = CreateProfile();
+            RegionBinding bindingA = CreateBinding(
                 "world.castle",
                 profileA,
                 "keep",
                 CreateDirectScene(
                     "world.castle.keep",
                     "Assets/World/SharedInterior.unity"));
-            CoCoRegionBinding bindingB = CreateBinding(
+            RegionBinding bindingB = CreateBinding(
                 "world.chapel",
                 profileB,
                 "interior",
@@ -333,14 +333,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsDuplicateRegionIdAcrossBindings()
         {
-            CoCoRegionBinding first = CreateBinding(
+            RegionBinding first = CreateBinding(
                 "world.wilderness",
                 CreateProfile(),
                 "west",
                 CreateDirectScene(
                     "world.wilderness.west",
                     "Assets/World/WildernessWest.unity"));
-            CoCoRegionBinding second = CreateBinding(
+            RegionBinding second = CreateBinding(
                 "world.wilderness",
                 CreateProfile(),
                 "east",
@@ -363,14 +363,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsDuplicateContentIdAcrossBindings()
         {
-            CoCoRegionBinding first = CreateBinding(
+            RegionBinding first = CreateBinding(
                 "world.castle",
                 CreateProfile(),
                 "keep",
                 CreateDirectScene(
                     "world.shared.interior",
                     "Assets/World/CastleKeep.unity"));
-            CoCoRegionBinding second = CreateBinding(
+            RegionBinding second = CreateBinding(
                 "world.chapel",
                 CreateProfile(),
                 "nave",
@@ -393,14 +393,14 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllRejectsDuplicateChunkIdAcrossRegions()
         {
-            CoCoRegionBinding first = CreateBinding(
+            RegionBinding first = CreateBinding(
                 "world.castle",
                 CreateProfile(),
                 "shared-interior",
                 CreateDirectScene(
                     "world.castle.shared-interior",
                     "Assets/World/CastleSharedInterior.unity"));
-            CoCoRegionBinding second = CreateBinding(
+            RegionBinding second = CreateBinding(
                 "world.chapel",
                 CreateProfile(),
                 "shared-interior",
@@ -429,21 +429,21 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompileAllReportsChunkConflictForEveryOwnerWhenOneBindingIsInvalid()
         {
-            CoCoRegionBinding valid = CreateBinding(
+            RegionBinding valid = CreateBinding(
                 "world.castle",
                 CreateProfile(),
                 "shared-interior",
                 CreateDirectScene(
                     "world.castle.shared-interior",
                     "Assets/World/CastleSharedInterior.unity"));
-            CoCoRegionBinding locallyInvalid = CreateBinding(
+            RegionBinding locallyInvalid = CreateBinding(
                 "world.chapel",
                 CreateProfile(),
                 "shared-interior",
                 CreateDirectScene(
                     "world.chapel.shared-interior",
                     "Assets/World/ChapelSharedInterior.unity"));
-            SetField<CoCoRegionBinding, CoCoRegionProfile>(
+            SetField<RegionBinding, RegionProfile>(
                 locallyInvalid,
                 "profile",
                 null);
@@ -552,16 +552,16 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void AmbiguousDisplayPathsKeepCompiledCacheEntriesSeparate()
         {
-            CoCoRegionProfile profile = CreateProfile();
+            RegionProfile profile = CreateProfile();
             ContentReference scene = CreateDirectScene(
                 "world.shared",
                 "Assets/World/Shared.unity");
-            CoCoRegionBinding first = CreateBinding(
+            RegionBinding first = CreateBinding(
                 "world",
                 profile,
                 "a/b",
                 scene);
-            CoCoRegionBinding second = CreateBinding(
+            RegionBinding second = CreateBinding(
                 "world/a",
                 profile,
                 "b",
@@ -601,7 +601,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 CreateCatalogWithFreezer(
                     new TestFreezer(),
                     false);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.mine",
                 CreateProfile(),
                 "entrance",
@@ -621,9 +621,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void ChunkResourceParticipantRequiresDirectOwningContentDependency()
         {
-            CoCoRegionProfile profile =
+            RegionProfile profile =
                 CreateMarkerProfile(false);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.castle",
                 profile,
                 "keep",
@@ -653,9 +653,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void GlobalResourceParticipantDoesNotRequireChunkOwner()
         {
-            CoCoRegionProfile profile =
+            RegionProfile profile =
                 CreateMarkerProfile(false);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.wilderness",
                 profile,
                 "terrain",
@@ -681,9 +681,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void ChunkResourceParticipantAcceptsDirectOwningContentDependency()
         {
-            CoCoRegionProfile profile =
+            RegionProfile profile =
                 CreateMarkerProfile(true);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.mine",
                 profile,
                 "entrance",
@@ -716,7 +716,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         typeof(MutableFieldPlan),
                         new MutableFieldPlan()),
                     true);
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.castle",
                 CreateProfile(),
                 "keep",
@@ -854,7 +854,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 (System.Collections.ICollection)catalog.RegisteredTypes,
                 typeof(AlternateTestPlan));
 
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.wilderness",
                 CreateProfile(),
                 "terrain",
@@ -872,7 +872,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
         [Test]
         public void CompilerRejectsUnregisteredDerivedConfigurationType()
         {
-            CoCoRegionProfile profile = CreateProfile();
+            RegionProfile profile = CreateProfile();
             for (int tierIndex = 0;
                  tierIndex <
                  profile.Participants[0].TierSettings.Count;
@@ -888,7 +888,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                         new DerivedTestConfig());
                 }
             }
-            CoCoRegionBinding binding = CreateBinding(
+            RegionBinding binding = CreateBinding(
                 "world.chapel",
                 profile,
                 "nave",
@@ -909,10 +909,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 FirstError(result).Code);
         }
 
-        private CoCoRegionProfile CreateProfile()
+        private RegionProfile CreateProfile()
         {
-            CoCoRegionProfile profile =
-                ScriptableObject.CreateInstance<CoCoRegionProfile>();
+            RegionProfile profile =
+                ScriptableObject.CreateInstance<RegionProfile>();
             assets.Add(profile);
             AssignProfileId(profile);
             SetField(
@@ -932,11 +932,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             return profile;
         }
 
-        private CoCoRegionProfile CreateMarkerProfile(
+        private RegionProfile CreateMarkerProfile(
             bool markerDependsOnOwner)
         {
-            CoCoRegionProfile profile =
-                ScriptableObject.CreateInstance<CoCoRegionProfile>();
+            RegionProfile profile =
+                ScriptableObject.CreateInstance<RegionProfile>();
             assets.Add(profile);
             AssignProfileId(profile);
             SetField(
@@ -966,7 +966,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             return profile;
         }
 
-        private void AssignProfileId(CoCoRegionProfile profile)
+        private void AssignProfileId(RegionProfile profile)
         {
             profileSequence++;
             Assert.IsTrue(
@@ -1001,9 +1001,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             };
         }
 
-        private CoCoRegionBinding CreateBinding(
+        private RegionBinding CreateBinding(
             string regionValue,
-            CoCoRegionProfile profile,
+            RegionProfile profile,
             string chunkValue,
             ContentReference scene)
         {
@@ -1023,8 +1023,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 "participants",
                 new List<RegionParticipantSlotBinding> { slotBinding });
 
-            CoCoRegionBinding binding =
-                ScriptableObject.CreateInstance<CoCoRegionBinding>();
+            RegionBinding binding =
+                ScriptableObject.CreateInstance<RegionBinding>();
             assets.Add(binding);
             SetField(binding, "regionId", regionId);
             SetField(binding, "profile", profile);

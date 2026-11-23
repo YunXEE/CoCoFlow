@@ -21,7 +21,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             new RegionProfileCompiler();
 
         public RegionCompileResult Compile(
-            CoCoRegionBinding binding,
+            RegionBinding binding,
             RegionParticipantCatalog catalog,
             IRegionAddressableSceneResolver addressableSceneResolver = null)
         {
@@ -214,15 +214,15 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
 
         public IReadOnlyList<RegionCompileResult> CompileAll(
-            IEnumerable<CoCoRegionBinding> bindings,
+            IEnumerable<RegionBinding> bindings,
             RegionParticipantCatalog catalog,
             IRegionAddressableSceneResolver addressableSceneResolver = null)
         {
             if (bindings == null) throw new ArgumentNullException(nameof(bindings));
 
-            var sourceBindings = new List<CoCoRegionBinding>();
+            var sourceBindings = new List<RegionBinding>();
             var results = new List<RegionCompileResult>();
-            foreach (CoCoRegionBinding binding in bindings)
+            foreach (RegionBinding binding in bindings)
             {
                 sourceBindings.Add(binding);
                 results.Add(Compile(binding, catalog, addressableSceneResolver));
@@ -242,7 +242,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                  resultIndex++)
             {
                 RegionCompileResult result = results[resultIndex];
-                CoCoRegionBinding sourceBinding =
+                RegionBinding sourceBinding =
                     sourceBindings[resultIndex];
                 if (sourceBinding != null &&
                     sourceBinding.RegionId.IsValid)
@@ -473,7 +473,7 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
 
         private static List<RegionCompiledChunk> CompileChunks(
-            CoCoRegionBinding binding,
+            RegionBinding binding,
             IRegionAddressableSceneResolver addressableSceneResolver,
             IList<RegionCompileDiagnostic> diagnostics,
             out Dictionary<RegionChunkId, RegionCompiledSceneReference>

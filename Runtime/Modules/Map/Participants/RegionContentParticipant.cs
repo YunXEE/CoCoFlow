@@ -116,7 +116,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                     new CancellationTokenSource();
             private ContentScope scope;
             private ContentLease<Scene> lease;
-            private CoCoRegionChunkAnchor anchor;
+            private RegionChunkAnchor anchor;
             private bool registered;
             private bool prepared;
             private bool cleaned;
@@ -197,7 +197,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 InterruptPendingCleanupForTerminalFallback() =>
                 InterruptPendingCleanupForTerminalFallback();
 
-            public bool TryGetAnchor(out CoCoRegionChunkAnchor result)
+            public bool TryGetAnchor(out RegionChunkAnchor result)
             {
                 result = !cleaned && anchor != null ? anchor : null;
                 return result != null;
@@ -426,7 +426,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             private static bool TryFindUniqueAnchor(
                 Scene scene,
-                out CoCoRegionChunkAnchor anchor,
+                out RegionChunkAnchor anchor,
                 out CoCoDiagnostic diagnostic)
             {
                 anchor = null;
@@ -435,15 +435,15 @@ namespace CoCoFlow.Runtime.Modules.Map
                      rootIndex < roots.Length;
                      rootIndex++)
                 {
-                    CoCoRegionChunkAnchor[] matches =
+                    RegionChunkAnchor[] matches =
                         roots[rootIndex]
                             .GetComponentsInChildren<
-                                CoCoRegionChunkAnchor>(true);
+                                RegionChunkAnchor>(true);
                     for (int matchIndex = 0;
                          matchIndex < matches.Length;
                          matchIndex++)
                     {
-                        CoCoRegionChunkAnchor candidate =
+                        RegionChunkAnchor candidate =
                             matches[matchIndex];
                         if (candidate == null ||
                             candidate.gameObject.scene != scene)
@@ -547,7 +547,7 @@ namespace CoCoFlow.Runtime.Modules.Map
     }
 
     [DisallowMultipleComponent]
-    public sealed class CoCoDefaultRegionCatalogProvider :
+    public sealed class DefaultRegionCatalogProvider :
         MonoBehaviour,
         IRegionParticipantCatalogProvider
     {
@@ -581,12 +581,12 @@ namespace CoCoFlow.Runtime.Modules.Map
         bool TryRegisterChunkAnchor(
             RegionPlanNodeId nodeId,
             long transitionGeneration,
-            CoCoRegionChunkAnchor anchor,
+            RegionChunkAnchor anchor,
             out CoCoDiagnostic diagnostic);
 
         void UnregisterChunkAnchor(
             RegionPlanNodeId nodeId,
-            CoCoRegionChunkAnchor anchor);
+            RegionChunkAnchor anchor);
 
         UniTask<CoCoDiagnostic> ObserveContentReleaseAsync(
             ContentId contentId,
@@ -596,7 +596,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
     internal interface IRegionChunkAnchorSource
     {
-        bool TryGetAnchor(out CoCoRegionChunkAnchor anchor);
+        bool TryGetAnchor(out RegionChunkAnchor anchor);
     }
 
     internal static class RegionContentReleaseObserver

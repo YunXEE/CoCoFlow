@@ -29,7 +29,7 @@ StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownersh
 
 ## 0.4.6 功能概览
 
-- 每个 Layer 可绑定一个 `CoCoAnyStateLogic`，在普通活跃枝之后执行，
+- 每个 Layer 可绑定一个 `AnyStateLogic`，在普通活跃枝之后执行，
   请求的转移满足条件时优先。保留完整 Config/Memory/Intent/Operation 和邮箱
   能力，沿用事务与恢复规则。AnyState Memory 跨换叶保留；重入当前叶只重置
   该叶的 Activation、Memory 和时钟，祖先与 AnyState 保持，作者可每 Tick 请求。
@@ -58,7 +58,7 @@ smoke 构建、完整 Umbra 动画和脚 IK 仍未验证。修复与兼容边界
 
 | 模块 | 状态 | 准确说明 |
 |---|---|---|
-| Core Engine | **成熟** | Contracts、StateFlow、StateGraph、StateGraphAuthoring Runtime、StateGraphHost；0.4 原生核心。 |
+| Core Engine | **成熟** | Core、StateGraph 和 StateGraphHost；0.4 原生核心。 |
 | Camera | **成熟** | 起源于 0.3.9，当前 Rig、priority、mode API 可稳定使用。 |
 | Persistence | **成熟** | 起源于 0.3.9，现已支持 schema v2、Container 与 StateGraph ContextFrame 持久化。 |
 | UI | **成熟** | 起源于 0.3.9，Panel、Widget、Input、Content ownership API 可用且稳定，但不是高效能 UI 框架。 |

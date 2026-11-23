@@ -1,4 +1,6 @@
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal
 {
@@ -13,10 +15,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
     public readonly struct PoolTemporalApplyContext
     {
         internal PoolTemporalApplyContext(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             PoolTemporalApplyKind applyKind,
-            in CoCoTemporalFrameInfo source,
-            in CoCoTickFrame targetTickFrame,
+            in TemporalFrameInfo source,
+            in TickFrame targetTickFrame,
             bool isPresent)
         {
             EntityId = entityId;
@@ -26,10 +28,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             IsPresent = isPresent;
         }
 
-        public CoCoTemporalEntityId EntityId { get; }
+        public TemporalEntityId EntityId { get; }
         public PoolTemporalApplyKind ApplyKind { get; }
-        public CoCoTemporalFrameInfo Source { get; }
-        public CoCoTickFrame TargetTickFrame { get; }
+        public TemporalFrameInfo Source { get; }
+        public TickFrame TargetTickFrame { get; }
         public bool IsPresent { get; }
 
         public bool IsValid =>

@@ -22,14 +22,15 @@ version is in `[2.9.1,3.0.0)`.
 
 | Assembly | Direct package/module references | Unity engine reference |
 |---|---|---|
-| `CoCoFlow.Runtime.Core.Contracts` | none | no |
-| `CoCoFlow.Runtime.Core.StateFlow` | Core Contracts | no |
-| `CoCoFlow.Runtime.Core.StateGraph` | Core Contracts + StateFlow | no |
-| `CoCoFlow.Runtime.Core.StateGraphAuthoring` | Core Contracts + StateFlow + StateGraph | yes |
-| `CoCoFlow.Runtime.StateGraphHost` | Core Contracts + StateFlow + StateGraph + StateGraphAuthoring + legacy Core compatibility assembly | yes |
+| `CoCoFlow.Runtime.Core` | None | No |
+| `CoCoFlow.Runtime.StateGraph` | Core | No |
+| `CoCoFlow.Runtime.StateGraphHost` | Core, StateGraph | Yes |
 
-The older `CoCoFlow.Runtime.Core` assembly is a separate Unity-facing
-compatibility surface and is not part of the mature Core Engine declaration.
+Use Core for services, diagnostics, logging and the event bus. Add StateGraph for
+gameplay logic and frame contracts. Add StateGraphHost for graph assets, scene
+components, compilation and Unity lifecycle integration. The corresponding
+Editor directories are Core, StateGraph and StateGraphHost. PlayerMetadata stays
+in its own engine-free Editor assembly for isolated Player DLL inspection.
 
 ## Optional integrations
 

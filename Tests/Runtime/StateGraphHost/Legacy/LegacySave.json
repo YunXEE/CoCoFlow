@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "metadata": {
+    "slotIndex": 0,
+    "displayName": "Slot 0",
+    "createdUtc": "2026-11-22T14:44:05.9758260Z",
+    "updatedUtc": "2026-11-22T14:44:05.9763990Z",
+    "unityVersion": "6000.3.27f2"
+  },
+  "contextSection": {
+    "records": [
+      {
+        "stableEntityId": "pre13.stategraph.actor",
+        "contextType": "CoCoFlow.StateGraph.ContextFrame",
+        "ownerId": "",
+        "entityTypeId": "",
+        "prefabKey": "pre13.stategraph.actor",
+        "lifecycleState": 0,
+        "semanticStateId": 0,
+        "actionStateId": 0,
+        "lastEventSequence": 0,
+        "StringFacts": {},
+        "IntFacts": {},
+        "FloatFacts": {},
+        "BoolFacts": {},
+        "Vector3Facts": {},
+        "QuaternionFacts": {},
+        "stateGraphContextPayload": "UEdTQwEAAAAST709qLtZNuEAZKGeV3WXmpmZmZmZuT+amZmZmZnJPygBAABQRkNDAgAAAAIAAACTNWCQtxw0kjHVkTFk6KLjAQAAAADmqLFVlSp2AQAAAAAAAAABAAAAAAAAAPNP2Zw27CyhAwAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAlAwAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACOwVR/EvVZu1gAAAAhAwAAAAAAAAEAAAAAAAAAIgMAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAACamZmZmZnJPwAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAJQMAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHjILA8L7/YAEAAAAFAAAAA=="
+      }
+    ]
+  },
+  "containerSection": {
+    "formatVersion": 1,
+    "records": []
+  }
+}

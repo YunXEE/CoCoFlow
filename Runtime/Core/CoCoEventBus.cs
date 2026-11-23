@@ -110,6 +110,8 @@ namespace CoCoFlow.Runtime.Core
     // Non-thread-safe. Do not call from jobs or background threads.
     public static class CoCoEventBus
     {
+        internal static Predicate<object> IsDestroyedListener { get; set; }
+
         #region Public API
 
         public static void Subscribe<T>(ICoCoEventListener<T> listener, int priority = 0)
@@ -182,13 +184,11 @@ namespace CoCoFlow.Runtime.Core
 
                     if (node.ListenerRef.TryGetTarget(out var listener))
                     {
-                        #if UNITY_5_3_OR_NEWER
-                        if (listener is UnityEngine.Object unityObj && unityObj == null)
+                        if (IsDestroyedListener?.Invoke(listener) == true)
                         {
                             MarkNodeForRemoval(i, ref node);
                             continue;
                         }
-                        #endif
                         try
                         {
                             listener.OnEvent(ref eventData);
