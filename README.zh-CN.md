@@ -1,11 +1,18 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.9 · **Unity**：6000+
+> **版本**：0.4.10 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
+
+## 0.4.10 更新
+
+- 统一 StateGraph 声明式玩法接入，将必备 Runtime 程序集收为 Core、
+  StateGraph 和 StateGraphHost。
+- 升级时调整包外程序集引用、命名空间和已改名的 API 类型。冻结 Config
+  指纹变化可能影响旧档恢复，详见 [Changelog](CHANGELOG.md#0410---2026-11-23)。
 
 ## 0.4.9 更新
 
@@ -101,7 +108,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.9
+https://github.com/YunXEE/CoCoFlow.git#v0.4.10
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -109,7 +116,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.9
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.9"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
   }
 }
 ```

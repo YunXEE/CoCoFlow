@@ -6,6 +6,29 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.10] - 2026-11-23
+
+### Changed
+
+- Route declarative StateGraph gameplay bindings through the standard Host and
+  retire the legacy Event-to-Intent projection. Use typed Inbox events for
+  event delivery.
+- Consolidate the required Runtime assemblies into `CoCoFlow.Runtime.Core`,
+  `CoCoFlow.Runtime.StateGraph`, and `CoCoFlow.Runtime.StateGraphHost`. Update
+  external assembly references, namespaces, and renamed API types before
+  recompiling. See the [API and assembly migration guide](.github/ci/stateflow-api/boundaries.md).
+
+### Compatibility
+
+- The frozen Config schema fingerprint changes for the confirmed nested generic
+  shape `Schema<StateId, FrozenArray<StateId>>`. Saves written by earlier
+  versions with the old fingerprint for an affected schema may fail to restore.
+
+### Tests
+
+- Add a StateFlow gameplay regression set covering the standard Host, including
+  ordered short presses and releases through Player Intent.
+
 ## [0.4.9] - 2026-11-19
 
 ### Fixed
