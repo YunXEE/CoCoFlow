@@ -2,6 +2,7 @@ using System.Collections;
 using System.IO;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence.Container;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
@@ -465,7 +466,7 @@ namespace CoCoFlow.Tests.Runtime.Persistence
         private static System.Type ResolveStateGraphHostType()
         {
             System.Type type = System.Type.GetType(
-                "CoCoFlow.Runtime.Core.CoCoStateGraphHost, CoCoFlow.Runtime.StateGraphHost");
+                "CoCoFlow.Runtime.StateGraphHost.CoCoStateGraphHost, CoCoFlow.Runtime.StateGraphHost");
             Assert.IsNotNull(type, "CoCoStateGraphHost runtime type could not be resolved.");
             return type;
         }
@@ -473,8 +474,8 @@ namespace CoCoFlow.Tests.Runtime.Persistence
         private static void SetHostLifecycleToRunning(Component host)
         {
             System.Type runtimeType = System.Type.GetType(
-                "CoCoFlow.Runtime.Core.CoCoStateGraphRuntime, " +
-                "CoCoFlow.Runtime.Core.StateGraph");
+                "CoCoFlow.Runtime.StateGraph.CoCoStateGraphRuntime, " +
+                "CoCoFlow.Runtime.StateGraph");
             Assert.IsNotNull(runtimeType, "CoCoStateGraphRuntime type could not be resolved.");
             object runtime =
                 System.Runtime.Serialization.FormatterServices.GetUninitializedObject(

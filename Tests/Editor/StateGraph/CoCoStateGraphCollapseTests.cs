@@ -1,12 +1,14 @@
 using System;
 using System.Linq;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphCollapseTests
     {

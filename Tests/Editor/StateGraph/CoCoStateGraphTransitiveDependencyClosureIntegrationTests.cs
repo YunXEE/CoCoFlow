@@ -1,10 +1,12 @@
 using System;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Editor.StateGraph;
-using CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyAuthor;
+using CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphTransitiveDependencyClosureIntegrationTests
     {

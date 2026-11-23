@@ -2,7 +2,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using CoCoFlow.Editor.Common;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Editor.Core;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -10,7 +13,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphEditorAuthoringTests
     {

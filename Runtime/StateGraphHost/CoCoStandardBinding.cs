@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     /// <summary>Builds the standard catalog and binds module-declared Intents,
     /// Operations and graph state to each Host's explicit scene references.</summary>
@@ -884,7 +886,7 @@ namespace CoCoFlow.Runtime.Core
                     type.GetConstructor(Type.EmptyTypes) == null)
                     throw new InvalidOperationException("Invalid standard Condition: " + type.FullName);
                 CoCoConditionDescriptorId.TryCreate(0x434F434F434F4E44UL,
-                    StandardDescriptors.DeriveLow(type.FullName), out var id);
+                    StandardDescriptors.DeriveLow(CoCoGraphTypeIdentity.FullName(type)), out var id);
                 var factory = (ICoCoConditionRuntimeFactory)typeof(CoCoStandardBindingProvider)
                     .GetMethod(nameof(RegisterCondition),
                         System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!

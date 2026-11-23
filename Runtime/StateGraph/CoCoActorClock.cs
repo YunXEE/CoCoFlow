@@ -1,6 +1,7 @@
 using System;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Single-use proof that an Actor Clock restore target passed every fallible check.

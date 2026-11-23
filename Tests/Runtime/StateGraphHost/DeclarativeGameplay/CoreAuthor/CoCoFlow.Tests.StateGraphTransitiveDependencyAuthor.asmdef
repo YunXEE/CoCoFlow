@@ -1,9 +1,9 @@
 {
     "name": "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
-    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyAuthor",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper"
     ],
     "includePlatforms": [],

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
@@ -14,7 +15,7 @@ namespace CoCoFlow.Editor.StateGraph
         private static readonly string[] AllowedFrameworkAssemblies =
         {
             "CoCoFlow.Runtime.Core",
-            "CoCoFlow.Runtime.Core.StateGraph"
+            "CoCoFlow.Runtime.StateGraph"
         };
 
         private static readonly string[] ForbiddenExactAssemblies =

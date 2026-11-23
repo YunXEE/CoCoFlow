@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     public enum CoCoTransitionWindowMode
     {

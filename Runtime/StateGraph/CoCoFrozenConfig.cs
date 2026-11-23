@@ -3,8 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Marks the stable field schema used by one family of frozen configuration snapshots.

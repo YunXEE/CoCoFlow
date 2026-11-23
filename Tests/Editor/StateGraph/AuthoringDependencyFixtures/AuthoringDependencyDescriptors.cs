@@ -1,6 +1,9 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures
+namespace CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures
 {
     [Serializable]
     public sealed class AuthoringDependencyConfig : CoCoStateConfig

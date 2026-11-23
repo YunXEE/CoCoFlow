@@ -1,7 +1,7 @@
 {
     "name": "CoCoFlow.Tests.GameplayBinding.Contracts",
     "references": [
-        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.Camera.Contracts",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper"

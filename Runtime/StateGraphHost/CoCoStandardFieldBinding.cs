@@ -1,8 +1,10 @@
 using System;
 using System.Linq;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     public sealed partial class CoCoStandardBindingProvider
     {

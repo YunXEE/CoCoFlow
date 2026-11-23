@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;

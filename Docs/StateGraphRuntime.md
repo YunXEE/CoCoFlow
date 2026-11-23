@@ -198,7 +198,7 @@ The example assumes a registered project `LifeIntent` with `IsDead`, an ordinary
 The Host explicitly binds that Intent source and the Locomotion Operator.
 
 ```csharp
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 
 [CoCoState("PlayerLifeAny")]
@@ -640,7 +640,7 @@ public parameterless constructor. The implicit constructor in this example is
 sufficient; no explicit constructor is needed:
 
 ```csharp
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 [Condition]
 public sealed class AttackProgressReadyCondition : CoCoStateCondition,

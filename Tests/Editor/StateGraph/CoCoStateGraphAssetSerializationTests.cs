@@ -1,12 +1,14 @@
 using System.Collections.Generic;
 using System.Linq;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphAssetSerializationTests
     {
@@ -42,6 +44,39 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.That(any, Is.Not.Null);
             Assert.That(any.StateId, Is.EqualTo(new CoCoSerializedId128(73UL, 74UL)));
             Assert.That(any.DisplayName, Is.EqualTo("Before AnyState"));
+            Assert.That(any.Config, Is.TypeOf<EmptyStateConfig>());
+        }
+
+        [TestCase("BeforeNamespaceMigration.asset.bytes")]
+        [TestCase("BeforeNamespaceMigrationPR96.asset.bytes")]
+        public void HistoricalSharedConfigAndConditionSurviveNamespaceMigrationAndResave(string fileName)
+        {
+            const string folder = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/";
+            var original = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + fileName);
+            System.IO.File.WriteAllBytes(AssetPath, original.bytes);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            var graph = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath);
+            CheckConfig(graph);
+
+            EditorUtility.SetDirty(graph);
+            AssetDatabase.SaveAssetIfDirty(graph);
+            Assert.That(System.IO.File.ReadAllText(AssetPath), Does.Not.Contain("CoCoLegacy"));
+            Resources.UnloadAsset(graph);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            CheckConfig(AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>(AssetPath));
+
+            static void CheckConfig(CoCoStateGraphAsset asset)
+            {
+                Assert.That(SerializationUtility.HasManagedReferencesWithMissingTypes(asset), Is.False);
+                var layer = asset.Layers[0];
+                Assert.That(layer.AnyState, Is.TypeOf<CoCoStateGraphStateRecord>());
+                Assert.That(layer.AnyState.Config, Is.TypeOf<EmptyStateConfig>());
+                Assert.That(layer.States[0].Config, Is.TypeOf<CoCoFieldConfig>());
+                Assert.That(layer.States[1].Config, Is.SameAs(layer.States[0].Config));
+                Assert.That(((CoCoFieldConfig)layer.States[0].Config).Values,
+                    Is.EqualTo(new[] { "Distance=2.5", "Enabled=True" }));
+                Assert.That(layer.Transitions[0].Conditions[0].Config, Is.TypeOf<CoCoEmptyConditionConfig>());
+            }
         }
 
         [Test]

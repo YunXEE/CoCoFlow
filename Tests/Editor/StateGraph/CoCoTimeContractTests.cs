@@ -1,6 +1,8 @@
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoTimeContractTests
     {

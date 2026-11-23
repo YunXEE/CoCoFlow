@@ -1,5 +1,6 @@
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 
 namespace CoCoFlow.Editor.StateGraph
 {

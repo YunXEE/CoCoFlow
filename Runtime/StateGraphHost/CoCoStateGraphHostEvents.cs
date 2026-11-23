@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     public sealed partial class CoCoStateGraphHost
     {

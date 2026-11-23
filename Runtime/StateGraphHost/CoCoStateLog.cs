@@ -1,7 +1,7 @@
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     /// <summary>
     /// Installs the engine-side sink for CoCoStateLog: state scripts in

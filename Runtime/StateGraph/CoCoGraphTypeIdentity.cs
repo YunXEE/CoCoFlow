@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
-    // Fingerprints in published graphs and saves include CLR type and assembly names.
-    // Keep the identity of types shipped before the assembly consolidation. Only the
-    // original types have aliases. New types use their declaring assembly as usual.
+    // Graphs and saves hash type names. Keep the original identity of the package
+    // modules on disk while exposing their current CLR identities to callers.
     internal static class CoCoGraphTypeIdentity
     {
+        private const string Core = "CoCoFlow.Runtime.Core";
+        private const string Graph = "CoCoFlow.Runtime.StateGraph";
+        private const string Host = "CoCoFlow.Runtime.StateGraphHost";
+
         internal static string AssemblyName(Type type)
         {
             while (type.GetElementType() is { } element)
@@ -19,18 +22,18 @@ namespace CoCoFlow.Runtime.Core
                 type = owner;
             }
             string current = type.Assembly.GetName().Name;
-            if (type.Namespace != "CoCoFlow.Runtime.Core") return current;
+            if (type.Namespace != current) return current;
             string name = type.Name;
             switch (current)
             {
-                case "CoCoFlow.Runtime.Core.StateGraph":
+                case Graph:
                     if (Contracts.Contains(name)) return "CoCoFlow.Runtime.Core.Contracts";
                     if (StateFlow.Contains(name)) return "CoCoFlow.Runtime.Core.StateFlow";
-                    break;
-                case "CoCoFlow.Runtime.Core":
+                    return "CoCoFlow.Runtime.Core.StateGraph";
+                case Core:
                     if (Contracts.Contains(name)) return "CoCoFlow.Runtime.Core.Contracts";
                     break;
-                case "CoCoFlow.Runtime.StateGraphHost":
+                case Host:
                     if (Authoring.Contains(name)) return "CoCoFlow.Runtime.Core.StateGraphAuthoring";
                     if (name == "CoCoEntityIdentity" || name == "CoCoEntityContext" ||
                         name == "CoCoContextProviderAttribute" || name == "CoCoLifecycleContext")
@@ -48,6 +51,9 @@ namespace CoCoFlow.Runtime.Core
             {
                 element = inner;
             }
+            string ns = element.Namespace;
+            if ((ns == Graph || ns == Host) && element.Assembly.GetName().Name == ns)
+                name = Core + name.Substring(ns.Length);
             if (element.ContainsGenericParameters || !element.IsConstructedGenericType) return name;
             foreach (Type argument in element.GetGenericArguments())
             {

@@ -1,6 +1,8 @@
 using System;
 using CoCoFlow.Runtime.Pooling;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal

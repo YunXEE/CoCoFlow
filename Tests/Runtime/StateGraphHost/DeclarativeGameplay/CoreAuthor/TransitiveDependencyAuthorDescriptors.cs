@@ -1,7 +1,9 @@
 using System;
-using CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Tests.StateGraphTransitiveDependencyHelper;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyAuthor
+namespace CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor
 {
     [Serializable]
     public sealed class TransitiveDependencyAuthoringConfig : CoCoStateConfig

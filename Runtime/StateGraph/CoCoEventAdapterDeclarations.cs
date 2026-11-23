@@ -1,6 +1,6 @@
 using System;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Identifies one graph-level Event-to-Intent declaration without naming a concrete Adapter.

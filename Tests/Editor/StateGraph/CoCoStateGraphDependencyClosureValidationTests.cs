@@ -2,11 +2,12 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
 using CoCoFlow.Editor.StateGraph;
 using NUnit.Framework;
 using UnityEditor.Compilation;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphDependencyClosureValidationTests
     {

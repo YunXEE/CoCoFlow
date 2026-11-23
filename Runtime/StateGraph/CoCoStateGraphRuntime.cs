@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     public readonly struct CoCoRuntimeFault : IEquatable<CoCoRuntimeFault>
     {

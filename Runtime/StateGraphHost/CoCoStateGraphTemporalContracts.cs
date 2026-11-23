@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     public enum CoCoTemporalMode
     {

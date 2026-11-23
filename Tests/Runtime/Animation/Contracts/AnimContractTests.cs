@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using CoCoFlow.Runtime.Animation.Contracts;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Modules.Animation;
 using NUnit.Framework;
 using UnityEngine;

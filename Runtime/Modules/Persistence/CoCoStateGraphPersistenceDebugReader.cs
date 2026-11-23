@@ -2,6 +2,7 @@
 using System;
 using System.Globalization;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
 

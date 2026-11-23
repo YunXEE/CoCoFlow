@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;

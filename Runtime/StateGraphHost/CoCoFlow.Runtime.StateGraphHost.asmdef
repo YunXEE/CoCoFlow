@@ -1,9 +1,9 @@
 {
     "name": "CoCoFlow.Runtime.StateGraphHost",
-    "rootNamespace": "CoCoFlow.Runtime.Core",
+    "rootNamespace": "CoCoFlow.Runtime.StateGraphHost",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.StateGraph"
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

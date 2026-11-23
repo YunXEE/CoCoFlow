@@ -1,6 +1,8 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures
+namespace CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures
 {
     [Serializable]
     public sealed class LegacyCoreDependencyAuthoringConfig : CoCoStateConfig

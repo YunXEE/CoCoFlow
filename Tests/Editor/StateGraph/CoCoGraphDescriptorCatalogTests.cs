@@ -2,12 +2,14 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
-using CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures;
+using CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures;
 using NUnit.Framework;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoGraphDescriptorCatalogTests
     {

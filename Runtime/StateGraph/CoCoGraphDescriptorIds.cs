@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     public readonly struct CoCoStateDescriptorId : IEquatable<CoCoStateDescriptorId>
     {

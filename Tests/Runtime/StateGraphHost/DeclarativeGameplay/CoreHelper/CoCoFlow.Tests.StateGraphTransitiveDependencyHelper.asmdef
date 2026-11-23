@@ -1,6 +1,6 @@
 {
     "name": "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
-    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
     "references": [
         "CoCoFlow.Runtime.Core"
     ],

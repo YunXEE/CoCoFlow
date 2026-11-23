@@ -1,5 +1,6 @@
 using System;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraphHost;
 using NUnit.Framework;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost

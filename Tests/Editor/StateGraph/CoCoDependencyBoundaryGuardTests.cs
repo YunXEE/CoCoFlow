@@ -7,7 +7,7 @@ using NUnit.Framework;
 using UnityEditor.PackageManager;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     /// <summary>
     /// Plan PR15.10 deliverable 7: asmdef structural boundary guard.

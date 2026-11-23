@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Xml;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
-using CoCoFlow.Editor.StateGraph.PlayerMetadata;
+using CoCoFlow.Editor.PlayerMetadata;
 using CoCoFlow.Tests.StateGraphPlayerMetadataFixtures;
 using NUnit.Framework;
 using UnityEditor;
@@ -11,7 +14,7 @@ using UnityEditor.Build;
 using UnityEditor.Compilation;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphBuildValidationTests
     {

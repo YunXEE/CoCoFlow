@@ -5,11 +5,14 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using NUnit.Framework;
 using UnityEditor.PackageManager;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoPackageBoundaryTests
     {
@@ -29,20 +32,26 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         public void CoreAndStateGraphHaveOnlyTheirDeclaredRuntimeDependencies()
         {
             const string coreName = "CoCoFlow.Runtime.Core";
-            const string graphName = "CoCoFlow.Runtime.Core.StateGraph";
+            const string graphName = "CoCoFlow.Runtime.StateGraph";
             const string hostName = "CoCoFlow.Runtime.StateGraphHost";
             string root = PackageInfo.FindForAssembly(typeof(CoCoServices).Assembly).resolvedPath;
-            AssertDefinition("Core", coreName, true);
-            AssertDefinition("StateGraph", graphName, true, coreName);
-            AssertDefinition("StateGraphHost", hostName, false, coreName, graphName);
+            AssertDefinition("Core", coreName, typeof(CoCoServices).Assembly, true);
+            AssertDefinition("StateGraph", graphName, typeof(CoCoStateLogic).Assembly, true, coreName);
+            AssertDefinition("StateGraphHost", hostName, typeof(CoCoStateGraphAsset).Assembly, false, coreName, graphName);
             AssertReferences(typeof(CoCoServices).Assembly);
             AssertReferences(typeof(CoCoStateLogic).Assembly, coreName);
             Assert.That(typeof(CoCoContextFrame).Assembly, Is.SameAs(typeof(CoCoStateLogic).Assembly));
             Assert.That(typeof(CoCoStateGraphAsset).Assembly.GetName().Name, Is.EqualTo(hostName));
 
-            void AssertDefinition(string folder, string name, bool engineFree, params string[] references)
+            void AssertDefinition(string folder, string name, Assembly assembly, bool engineFree, params string[] references)
             {
                 AssemblyDefinition definition = ReadAssemblyDefinition(root, $"Runtime/{folder}/{name}.asmdef");
+                Assert.That(name, Is.EqualTo($"CoCoFlow.Runtime.{folder}"));
+                Assert.That(definition.name, Is.EqualTo(name));
+                Assert.That(definition.rootNamespace, Is.EqualTo(name));
+                Assert.That(assembly.GetName().Name, Is.EqualTo(name));
+                CollectionAssert.AreEquivalent(new[] { name }, assembly.GetExportedTypes()
+                    .Select(type => type.Namespace).Distinct());
                 CollectionAssert.AreEquivalent(references, definition.references);
                 Assert.That(definition.noEngineReferences, Is.EqualTo(engineFree));
             }
@@ -90,7 +99,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
 
             string[] independentAssemblyPaths =
             {
-                "Runtime/StateGraph/CoCoFlow.Runtime.Core.StateGraph.asmdef",
+                "Runtime/StateGraph/CoCoFlow.Runtime.StateGraph.asmdef",
                 "Runtime/Core/CoCoFlow.Runtime.Core.asmdef",
                 "Runtime/StateGraphHost/CoCoFlow.Runtime.StateGraphHost.asmdef",
                 "Runtime/Modules/Persistence/CoCoFlow.Runtime.Modules.Persistence.asmdef"
@@ -232,7 +241,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Type layoutType = typeof(CoCoIntentFrameLayout);
             _ = RequireExportedType(stateFlowAssembly, nameof(ICoCoIntentFrame));
             Type projectionCodec = stateFlowAssembly.GetType(
-                "CoCoFlow.Runtime.Core.CoCoContextProjectionCodec",
+                "CoCoFlow.Runtime.StateGraph.CoCoContextProjectionCodec",
                 false);
 
             Assert.IsTrue(reducerFactory.IsInterface);

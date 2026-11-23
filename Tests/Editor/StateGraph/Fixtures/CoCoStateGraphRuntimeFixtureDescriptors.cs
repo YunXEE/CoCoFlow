@@ -1,4 +1,6 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
 {

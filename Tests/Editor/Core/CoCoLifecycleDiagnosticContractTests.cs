@@ -2,7 +2,7 @@ using System;
 using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.Core
 {
     public sealed class CoCoLifecycleDiagnosticContractTests
     {

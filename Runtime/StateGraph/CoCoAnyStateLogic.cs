@@ -1,4 +1,4 @@
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Layer-owned logic that updates after the ordinary active path.

@@ -1,5 +1,5 @@
 using System;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using UnityEngine;
 

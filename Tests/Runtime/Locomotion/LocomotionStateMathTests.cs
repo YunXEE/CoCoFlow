@@ -1,5 +1,6 @@
 using System;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using NUnit.Framework;

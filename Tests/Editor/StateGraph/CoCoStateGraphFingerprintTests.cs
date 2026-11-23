@@ -1,10 +1,13 @@
+using System.Collections.Generic;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphFingerprintTests
     {
@@ -28,6 +31,16 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Undo.ClearAll();
             AssetDatabase.DeleteAsset(TestRoot);
             AssetDatabase.Refresh();
+        }
+
+        [Test]
+        public void NestedFingerprintTypeNamesKeepTheirPublishedModuleIdentities()
+        {
+            string name = CoCoGraphTypeIdentity.FullName(typeof(Dictionary<CoCoStateId, CoCoStateGraphAsset[]>));
+            Assert.That(name, Does.Contain("CoCoFlow.Runtime.Core.CoCoStateId, CoCoFlow.Runtime.Core.Contracts,"));
+            Assert.That(name, Does.Contain("CoCoFlow.Runtime.Core.CoCoStateGraphAsset[], CoCoFlow.Runtime.Core.StateGraphAuthoring,"));
+            Assert.That(CoCoGraphTypeIdentity.FullName(typeof(TestStateAuthoringConfig)),
+                Is.EqualTo(typeof(TestStateAuthoringConfig).FullName));
         }
 
         [Test]

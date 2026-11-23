@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     /// <summary>
     /// Matches compiled requirements to state factories, scene input sources and context producers.

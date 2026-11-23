@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.StateGraph;
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
 {
     public readonly struct TestGraphEvent

@@ -1,9 +1,9 @@
 {
     "name": "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
-    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.AuthoringDependencyFixtures",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [

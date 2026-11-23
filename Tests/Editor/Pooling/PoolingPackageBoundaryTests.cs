@@ -45,7 +45,7 @@ namespace CoCoFlow.Runtime.Pooling.Tests
                 new[]
                 {
                     "CoCoFlow.Runtime.Core",
-                    "CoCoFlow.Runtime.Core.StateGraph",
+                    "CoCoFlow.Runtime.StateGraph",
                     "CoCoFlow.Runtime.StateGraphHost",
                     "CoCoFlow.Runtime.Pooling"
                 },

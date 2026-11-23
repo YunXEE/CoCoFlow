@@ -3,6 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -12,7 +15,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     public sealed class CoCoStateGraphEditorInteractionTests
     {
@@ -31,8 +34,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
         public void SetUp()
         {
             // 语言自钉：反馈文案断言依赖英文态；EditorPrefs 机器级共享。
-            CoCoFlow.Editor.Common.CoCoEditorLocalization.SetLanguage(
-                CoCoFlow.Editor.Common.CoCoEditorLanguage.English);
+            CoCoFlow.Editor.Core.CoCoEditorLocalization.SetLanguage(
+                CoCoFlow.Editor.Core.CoCoEditorLanguage.English);
         }
 
         [TearDown]

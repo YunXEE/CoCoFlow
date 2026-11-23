@@ -5,10 +5,16 @@ CoCoFlow 0.4.10 的玩法入口由三个 Runtime 程序集提供。
 | 程序集 | 源码路径 | 包内直接引用 | noEngineReferences / unsafe |
 | --- | --- | --- | --- |
 | CoCoFlow.Runtime.Core | `Runtime/Core` | 无 | true / false |
-| CoCoFlow.Runtime.Core.StateGraph | `Runtime/StateGraph` | Core | true / true |
+| CoCoFlow.Runtime.StateGraph | `Runtime/StateGraph` | Core | true / true |
 | CoCoFlow.Runtime.StateGraphHost | `Runtime/StateGraphHost` | Core、StateGraph | false / true |
 
-Core 提供服务、日志、事件和诊断。StateGraph 提供玩法契约、图编译和帧执行。图资产与 Unity 生命周期归 Host。三个 Editor 主目录与 Runtime 对应，PlayerMetadata 单独维持无引擎的隔离扫描程序集。原 `Core.Contracts` 引用按所用类型替换，`Core.StateFlow` 迁至 StateGraph，`Core.StateGraphAuthoring` 迁至 Host。更新外部 asmdef 的名称或 GUID 后重新编译，预编译 DLL 也需要重建。
+三个模块的目录、程序集名称和 C# 根命名空间逐一对应。服务、日志、事件和诊断使用 `CoCoFlow.Runtime.Core`。纯玩法的 State、Condition、Intent、Section 和帧类型使用 `CoCoFlow.Runtime.StateGraph`。图资产、Host 组件及 Unity 绑定使用 `CoCoFlow.Runtime.StateGraphHost`。需要多类 API 的外部程序集分别添加相应的引用和 `using`。
+
+原先按名称引用 `CoCoFlow.Runtime.Core.StateGraph` 的 asmdef 改用 `CoCoFlow.Runtime.StateGraph`。该定义保留了 GUID，已有 GUID 引用仍然有效。原 `Core.Contracts` 的引用按所用类型拆分，`Core.StateFlow` 迁至 StateGraph，`Core.StateGraphAuthoring` 迁至 Host。外部源码需要重新编译，预编译 DLL 也需要重建。
+
+三个 Editor 主目录使用对应的 `CoCoFlow.Editor.Core`、`CoCoFlow.Editor.StateGraph` 和 `CoCoFlow.Editor.StateGraphHost`。单独编译的 `CoCoFlow.Editor.PlayerMetadata` 用于隔离扫描 Player DLL。原 Editor.Common 的公用工具现归 Editor.Core。
+
+旧图中的 `SerializeReference` 使用写入文件时的程序集、命名空间和类型名。Host 可读取由 `CoCoFlow.Runtime.Core.StateGraphAuthoring` 或 `CoCoFlow.Runtime.StateGraphHost` 写入旧命名空间的 AnyState，也会还原状态和条件的配置类型，保留字段值及共享引用。重新保存的图使用当前类型，图和存档的类型指纹仍使用原有身份。
 
 ## 标准玩法接入
 
@@ -43,7 +49,7 @@ Core 提供服务、日志、事件和诊断。StateGraph 提供玩法契约、�
 
 Unity 的 `DeclarativeGameplayPlayModeTests` 驱动标准 Host，包外示例代码位于 `Tests/Runtime/StateGraphHost/DeclarativeGameplay`。`StandardBindingPlayModeTests` 继续覆盖完整玩家路径和包内 Operator。完整 EditMode 与 PlayMode 由版本分支的 Unity CI 执行。
 
-Section View 源码生成器位于 `Tools~/StateFlowGenerator`。修改后以 .NET SDK 执行 `dotnet build Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj -c Release`，将 DLL 放回 `Runtime/StateGraph/StateFlow`。`RoslynAnalyzer` 标签让 Unity 将它作为构建工具加载。
+Section View 源码生成器位于 `Tools~/StateFlowGenerator`。修改后以 .NET SDK 执行 `dotnet build Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj -c Release`，将 DLL 放回 `Runtime/StateGraph`。`RoslynAnalyzer` 标签让 Unity 将它作为构建工具加载。
 
 ## Umbra 升级清单
 

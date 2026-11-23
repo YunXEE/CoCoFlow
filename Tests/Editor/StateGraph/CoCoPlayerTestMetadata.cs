@@ -33,22 +33,22 @@ namespace CoCoFlow.Tests.Editor.StateGraph
       <method signature=""System.Void .ctor()"" />
     </type>
   </assembly>
-  <assembly fullname=""CoCoFlow.Runtime.Core.StateGraph"">
-    <type fullname=""CoCoFlow.Runtime.Core.CoCoContextFrameArena"" preserve=""nothing"">
+  <assembly fullname=""CoCoFlow.Runtime.StateGraph"">
+    <type fullname=""CoCoFlow.Runtime.StateGraph.CoCoContextFrameArena"" preserve=""nothing"">
       <property name=""Capacity"" />
     </type>
-    <type fullname=""CoCoFlow.Runtime.Core.CoCoContextFrameStorage"" preserve=""nothing"">
+    <type fullname=""CoCoFlow.Runtime.StateGraph.CoCoContextFrameStorage"" preserve=""nothing"">
       <property name=""Buffer"" />
       <property name=""RetainCount"" />
     </type>
-    <type fullname=""CoCoFlow.Runtime.Core.CoCoTemporalHistory"" preserve=""nothing"">
+    <type fullname=""CoCoFlow.Runtime.StateGraph.CoCoTemporalHistory"" preserve=""nothing"">
       <property name=""MaxEncodedSize"" />
       <property name=""AllocatedPayloadBytes"" />
     </type>
-    <type fullname=""CoCoFlow.Runtime.Core.CoCoTemporalHistory/Entry"" preserve=""nothing"">
+    <type fullname=""CoCoFlow.Runtime.StateGraph.CoCoTemporalHistory/Entry"" preserve=""nothing"">
       <property name=""Payload"" />
     </type>
-    <type fullname=""CoCoFlow.Runtime.Core.CoCoContextFrameLayout"" preserve=""nothing"">
+    <type fullname=""CoCoFlow.Runtime.StateGraph.CoCoContextFrameLayout"" preserve=""nothing"">
       <property name=""ByteSize"" />
     </type>
   </assembly>

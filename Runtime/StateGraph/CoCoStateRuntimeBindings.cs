@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     // Instances belong to one Logic; cached delegates keep reflection out of callbacks.
     internal sealed class CoCoStatePropertyBindings

@@ -1,5 +1,5 @@
 ﻿using System;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Animation.Contracts
 {

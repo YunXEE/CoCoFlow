@@ -1,7 +1,9 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     internal static class CoCoStateGraphTestFactory
     {

@@ -1,10 +1,11 @@
 using System;
 using System.Reflection;
+using CoCoFlow.Editor.Core;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Build;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.Core
 {
     public sealed class CoCoFlowUtilityModuleTests
     {

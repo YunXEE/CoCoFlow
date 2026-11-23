@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Deterministic descriptor ids for CoCoStateAttribute-declared states.

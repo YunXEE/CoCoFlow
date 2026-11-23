@@ -10,7 +10,7 @@ namespace CoCoFlow.Generators
     [Generator]
     public sealed class CoCoOperationViewGenerator : ISourceGenerator
     {
-        private const string Core = "global::CoCoFlow.Runtime.Core.";
+        private const string StateGraph = "global::CoCoFlow.Runtime.StateGraph.";
         private const string GeneratedNamespace = "CoCoFlowGeneratedStateFlow";
 
         public void Initialize(GeneratorInitializationContext context) =>
@@ -19,7 +19,7 @@ namespace CoCoFlow.Generators
         public void Execute(GeneratorExecutionContext context)
         {
             if (!(context.SyntaxReceiver is Sections sections)) return;
-            var attribute = context.Compilation.GetTypeByMetadataName("CoCoFlow.Runtime.Core.CoCoOperationSectionAttribute");
+            var attribute = context.Compilation.GetTypeByMetadataName("CoCoFlow.Runtime.StateGraph.CoCoOperationSectionAttribute");
             if (attribute == null) return;
             var generated = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             foreach (var declaration in sections.Declarations)
@@ -55,15 +55,15 @@ namespace CoCoFlow.Generators
             {
                 var model = context.Compilation.GetSemanticModel(read.SyntaxTree);
                 var method = model.GetSymbolInfo(read, context.CancellationToken).Symbol as IMethodSymbol;
-                if (method?.ContainingType.ToDisplayString() != "CoCoFlow.Runtime.Core.CoCoStateEventReadView" ||
+                if (method?.ContainingType.ToDisplayString() != "CoCoFlow.Runtime.StateGraph.CoCoStateEventReadView" ||
                     method.TypeArguments.Length != 1 || !(method.TypeArguments[0] is INamedTypeSymbol payload)) continue;
                 var logic = model.GetEnclosingSymbol(read.SpanStart, context.CancellationToken)?.ContainingType;
                 if (!CanReference(logic) || !CanReference(payload)) continue;
                 var stateType = logic;
-                while (stateType != null && stateType.ToDisplayString() != "CoCoFlow.Runtime.Core.CoCoStateLogic")
+                while (stateType != null && stateType.ToDisplayString() != "CoCoFlow.Runtime.StateGraph.CoCoStateLogic")
                     stateType = stateType.BaseType;
                 if (stateType == null) continue;
-                entries.Add($"[assembly: {Core}CoCoStateInboxEventAttribute(" +
+                entries.Add($"[assembly: {StateGraph}CoCoStateInboxEventAttribute(" +
                     $"typeof({logic.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), " +
                     $"typeof({payload.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}))]");
             }
@@ -83,23 +83,23 @@ namespace CoCoFlow.Generators
         private static string Emit(string name, string type, IPropertySymbol[] properties, bool canPreserve)
         {
             var code = new StringBuilder();
-            code.AppendLine($"[assembly: {Core}CoCoOperationViewFactoryAttribute(typeof({type}), typeof({GeneratedNamespace}.{name}))]");
+            code.AppendLine($"[assembly: {StateGraph}CoCoOperationViewFactoryAttribute(typeof({type}), typeof({GeneratedNamespace}.{name}))]");
             code.AppendLine($"namespace {GeneratedNamespace} {{");
-            code.AppendLine($"internal sealed class {name} : {Core}ICoCoOperationSectionViewFactory<{type}> {{");
+            code.AppendLine($"internal sealed class {name} : {StateGraph}ICoCoOperationSectionViewFactory<{type}> {{");
             if (canPreserve) code.AppendLine("[global::UnityEngine.Scripting.Preserve]");
             code.AppendLine($"public {name}() {{ }}");
-            code.AppendLine($"public {type} Create(in {Core}CoCoOperationSectionViewContext<{type}> context) => new View(in context);");
+            code.AppendLine($"public {type} Create(in {StateGraph}CoCoOperationSectionViewContext<{type}> context) => new View(in context);");
             code.AppendLine($"private sealed class View : {type} {{");
-            code.AppendLine($"private readonly {Core}CoCoOperationSectionReader _reader;");
+            code.AppendLine($"private readonly {StateGraph}CoCoOperationSectionReader _reader;");
             for (int index = 0; index < properties.Length; index++)
             {
                 var property = properties[index];
                 string value = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                code.AppendLine($"private readonly {Core}CoCoOperationSectionField<{value}> _field{index};");
+                code.AppendLine($"private readonly {StateGraph}CoCoOperationSectionField<{value}> _field{index};");
                 code.AppendLine($"public {value} @{property.Name} {{ get => _reader.Read(_field{index});" +
                     (property.SetMethod != null ? $" set => _reader.Write(_field{index}, value); }}" : " }"));
             }
-            code.AppendLine($"public View(in {Core}CoCoOperationSectionViewContext<{type}> context) {{");
+            code.AppendLine($"public View(in {StateGraph}CoCoOperationSectionViewContext<{type}> context) {{");
             code.AppendLine("_reader = context.Reader;");
             for (int index = 0; index < properties.Length; index++)
                 code.AppendLine($"if (!context.TryGetField({index}, out _field{index})) throw new global::System.InvalidOperationException(\"Cannot resolve {properties[index].Name} in the Operation Section.\");");

@@ -23,7 +23,7 @@ version is in `[2.9.1,3.0.0)`.
 | Assembly | Direct package/module references | Unity engine reference |
 |---|---|---|
 | `CoCoFlow.Runtime.Core` | None | No |
-| `CoCoFlow.Runtime.Core.StateGraph` | Core | No |
+| `CoCoFlow.Runtime.StateGraph` | Core | No |
 | `CoCoFlow.Runtime.StateGraphHost` | Core, StateGraph | Yes |
 
 Use Core for services, diagnostics, logging and the event bus. Add StateGraph for

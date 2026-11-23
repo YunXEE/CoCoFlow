@@ -1,6 +1,7 @@
 using System;
+using CoCoFlow.Runtime.Core;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     public enum CoCoGraphElementKind
     {

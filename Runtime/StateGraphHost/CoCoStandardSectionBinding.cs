@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     /// <summary>
     /// One Operation Section consumed by an Operator.

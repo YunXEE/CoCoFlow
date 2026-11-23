@@ -1,7 +1,9 @@
 using System;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     internal sealed class CoCoStateGraphTemporalController :
         ICoCoContextRestoreReadSource,

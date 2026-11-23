@@ -1,6 +1,8 @@
 using System.Linq;
 using System.Text.RegularExpressions;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEditor;

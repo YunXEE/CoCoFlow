@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     internal enum CoCoStateGraphDriver
     {
@@ -11,6 +14,7 @@ namespace CoCoFlow.Runtime.Core
         Manual = 2
     }
 
+    [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core")]
     [DisallowMultipleComponent]
     public sealed partial class CoCoStateGraphHost : MonoBehaviour
     {

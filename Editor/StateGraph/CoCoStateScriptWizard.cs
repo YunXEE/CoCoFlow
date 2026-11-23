@@ -2,7 +2,6 @@
 using System;
 using System.IO;
 using System.Text;
-using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -63,7 +62,7 @@ namespace CoCoFlow.Editor.StateGraph
         internal static string BuildScript(string name)
         {
             return
-                "using CoCoFlow.Runtime.Core;\n" +
+                "using CoCoFlow.Runtime.StateGraph;\n" +
                 "\n" +
                 "[CoCoState(\"" + name + "\")]\n" +
                 "public class " + name + "Logic : CoCoStateLogic, ICoCoStateUpdate\n" +
@@ -110,7 +109,7 @@ namespace CoCoFlow.Editor.StateGraph
                 "    \"rootNamespace\": \"\",\n" +
                 "    \"references\": [\n" +
                 "        \"CoCoFlow.Runtime.Core\",\n" +
-                "        \"CoCoFlow.Runtime.Core.StateGraph\",\n" +
+                "        \"CoCoFlow.Runtime.StateGraph\",\n" +
                 "        \"CoCoFlow.Runtime.Locomotion.Contracts\"\n" +
                 "    ],\n" +
                 "    \"includePlatforms\": [],\n" +

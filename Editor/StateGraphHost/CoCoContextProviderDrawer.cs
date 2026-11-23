@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.Core
+namespace CoCoFlow.Editor.StateGraphHost
 {
     [CustomPropertyDrawer(typeof(CoCoContextProviderAttribute))]
     public class CoCoContextProviderDrawer : PropertyDrawer

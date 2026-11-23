@@ -1,4 +1,5 @@
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper
+using CoCoFlow.Runtime.Core;
+namespace CoCoFlow.Tests.StateGraphTransitiveDependencyHelper
 {
     /// <summary>Reads Core through a helper without exposing its type in the consumer API.</summary>
     public readonly struct TransitiveDependencyHelperToken

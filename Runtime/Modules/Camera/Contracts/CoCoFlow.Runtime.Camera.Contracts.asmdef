@@ -2,7 +2,7 @@
     "name": "CoCoFlow.Runtime.Camera.Contracts",
     "rootNamespace": "CoCoFlow.Runtime.Camera.Contracts",
     "references": [
-        "CoCoFlow.Runtime.Core.StateGraph"
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

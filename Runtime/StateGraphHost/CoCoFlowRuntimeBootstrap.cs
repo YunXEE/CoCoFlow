@@ -1,7 +1,8 @@
 using System;
+using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraphHost
 {
     /// <summary>
     /// Automatic installation for the standard binding provider. Scans all

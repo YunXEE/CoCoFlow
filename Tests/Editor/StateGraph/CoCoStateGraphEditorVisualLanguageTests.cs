@@ -2,7 +2,10 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Reflection;
-using CoCoFlow.Editor.Common;
+using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Editor.Core;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -12,7 +15,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Runtime.Core.StateGraph.Tests
+namespace CoCoFlow.Tests.Editor.StateGraph
 {
     /// <summary>
     /// P03 视觉语言与 D8 边交互测试：
@@ -94,7 +97,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
             // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
             StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
-                "Packages/com.yunxee.cocoflow/Editor/Core/Common/CoCoEditorCommon.uss");
+                "Packages/com.yunxee.cocoflow/Editor/Core/CoCoEditorCommon.uss");
             StyleSheet own = AssetDatabase.LoadAssetAtPath<StyleSheet>(
                 "Packages/com.yunxee.cocoflow/Editor/StateGraph/CoCoStateGraphEditor.uss");
             Assert.NotNull(shared);

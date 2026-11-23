@@ -1,6 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Camera.Contracts
 {

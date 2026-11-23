@@ -1,12 +1,12 @@
 {
     "name": "CoCoFlow.Tests.Editor.StateGraph",
-    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests",
+    "rootNamespace": "CoCoFlow.Tests.Editor.StateGraph",
     "references": [
         "CoCoFlow.Editor.Core",
         "CoCoFlow.Editor.StateGraph",
-        "CoCoFlow.Editor.StateGraph.PlayerMetadata",
+        "CoCoFlow.Editor.PlayerMetadata",
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
         "CoCoFlow.Tests.StateGraphAuthoringFixtures",

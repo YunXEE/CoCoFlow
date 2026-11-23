@@ -1,4 +1,6 @@
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 namespace CoCoFlow.Tests.GameplayBinding

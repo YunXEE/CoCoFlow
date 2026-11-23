@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 [CoCoState("ConfigMemoryProbeLogic")]
 public sealed class ConfigMemoryProbeLogic : CoCoStateLogic, ICoCoStateUpdate

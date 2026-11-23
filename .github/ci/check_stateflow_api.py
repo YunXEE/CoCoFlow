@@ -24,7 +24,7 @@ DENIED = (
 ENGINE = "UnityEngine.CoreModule"
 RUNTIME = (
     "CoCoFlow.Runtime.Core",
-    "CoCoFlow.Runtime.Core.StateGraph",
+    "CoCoFlow.Runtime.StateGraph",
     "CoCoFlow.Runtime.StateGraphHost",
 )
 
@@ -128,12 +128,13 @@ def main():
             return build.returncode
         for expression, code, symbol in DENIED:
             probe.write_text(
-                "using CoCoFlow.Runtime.Core;\n"
+                "using CoCoFlow.Runtime.StateGraph;\n"
+                "using CoCoFlow.Runtime.StateGraphHost;\n"
                 "class Denied { void Probe() {\n" + expression + ";\n} }\n", encoding="utf-8")
             build = subprocess.run([*command, "--no-restore"], cwd=directory, env=env,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             errors = {line.strip() for line in build.stdout.splitlines() if ": error " in line}
-            expected = re.compile(r"Denied\.cs\(3,\d+\): error " + code + r": .*'" + symbol + "'")
+            expected = re.compile(r"Denied\.cs\(\d+,\d+\): error " + code + r": .*'" + symbol + "'")
             if not build.returncode or not errors or any(not expected.search(line) for line in errors):
                 print(f"Expected only {code} for {symbol}.\n{build.stdout}")
                 return 1

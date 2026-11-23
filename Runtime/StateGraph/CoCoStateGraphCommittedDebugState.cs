@@ -1,6 +1,6 @@
 using System;
 
-namespace CoCoFlow.Runtime.Core
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal readonly struct CoCoStateGraphCommittedDebugActiveState
     {

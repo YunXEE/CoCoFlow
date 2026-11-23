@@ -3,7 +3,7 @@
     "rootNamespace": "CoCoFlow.Runtime.Animation.Contracts",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.StateGraph"
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

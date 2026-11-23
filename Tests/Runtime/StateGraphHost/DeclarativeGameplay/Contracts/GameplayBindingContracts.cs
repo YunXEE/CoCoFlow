@@ -1,6 +1,7 @@
-using CoCoFlow.Runtime.Core.StateGraph.Tests.TransitiveDependencyHelper;
+using CoCoFlow.Tests.StateGraphTransitiveDependencyHelper;
 using CoCoFlow.Runtime.Camera.Contracts;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Tests.GameplayBinding
 {
