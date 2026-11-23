@@ -1,8 +1,9 @@
-// 同步派发按类型注册的本地事件并维护回调顺序与订阅生命周期。
-
 using System;
 using System.Collections.Generic;
 
+// 这个文件是 CoCoFlow 各模块发布和订阅本地事件的入口。
+// 日志入口和 Host 用它发布事件，Logger Console 等监听者接收事件。
+// 总线在主线程按事件类型同步派发，并按订阅优先级决定回调顺序。
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>同步处理按引用传递的事件值。</summary>

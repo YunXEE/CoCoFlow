@@ -1,8 +1,9 @@
-// 按确切泛型类型管理全局当前服务，并兑现可取消的一次性就绪回调。
-
 using System;
 using System.Collections.Generic;
 
+// 这个文件负责按类型注册和查找当前服务，并让依赖方等待服务就绪。
+// CameraDirector 启用时注册、停用时注销，CameraRig 可以立即取到服务，也可以等待注册并取消等待。
+// Host 开始新的 Play 会话时清空服务和等待队列。
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>在主线程按确切类型管理服务实例及一次性就绪回调。</summary>

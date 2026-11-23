@@ -1,7 +1,7 @@
-// 持有委托包装并集中退订。
-
 using System.Collections.Generic;
 
+// 这个文件为需要订阅多个类型事件的对象管理回调。
+// UI 和 StateGraphHost 可以经由代理向事件总线注册回调。代理持有这些回调，供使用方在结束订阅时一起退订。
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>集中持有和退订调用方注册的事件回调。</summary>

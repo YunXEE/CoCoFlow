@@ -1,7 +1,8 @@
-// 表示带领域、稳定代码、严重度和可读文本的操作结果。
-
 using System;
 
+// 这个文件定义 CoCoFlow 各模块共用的诊断结果，包括领域、代码、严重级别和消息。
+// StateGraph、Host、Content、Pooling 和 Map 用它返回操作结果，Editor 读取这些结果用于展示。
+// 构造诊断只生成结果值。调用方需要记录日志时，由调用方决定何时输出。
 namespace CoCoFlow.Runtime.Core
 {
     /// <summary>诊断所属的领域。</summary>

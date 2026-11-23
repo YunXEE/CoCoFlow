@@ -1,14 +1,15 @@
-// 生成带来源和级别的日志事件，并按级别交给已安装的输出端。
-
 using System;
-using System.IO;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.CompilerServices;
 
+// 这个文件是 CoCoFlow 各模块记录运行信息、警告和错误的统一入口。
+// 它定义日志记录的结构，并通过事件总线发布日志，供 Logger Console 订阅。
+// 警告和错误还会交给 Unity 侧安装的输出端，写入 Unity 原生 Console。
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>日志的严重级别。</summary>
+    /// <summary>表示 CoCoFlow 日志的级别。</summary>
     public enum CoCoLogLevel
     {
         Log,
@@ -16,7 +17,7 @@ namespace CoCoFlow.Runtime.Core
         Error
     }
 
-    /// <summary>供日志监控订阅者读取的单条日志。</summary>
+    /// <summary>携带单条日志的内容、来源及产生时间。</summary>
     public struct CoCoLogEvent
     {
         public CoCoLogLevel Level;
@@ -26,24 +27,30 @@ namespace CoCoFlow.Runtime.Core
         public DateTime Timestamp;
     }
 
-    /// <summary>发布日志事件，并将警告和错误转交给已安装的输出端。</summary>
+    /// <summary>在主线程发布日志事件，并转发警告和错误。</summary>
     public static class CoCoLog
     {
         #region Public API
 
-        /// <summary>发布普通日志。调用程序集未定义 COCOFLOW_LOG 时，调用及参数求值会被编译器移除。</summary>
-        /// <param name="message">要输出的日志文本。</param>
-        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
+        /// <summary>
+        /// 发布普通日志事件。调用方未定义 COCOFLOW_LOG 时，
+        /// 编译器会省略调用及参数求值。普通日志不写入 Unity Console。
+        /// </summary>
         [Conditional("COCOFLOW_LOG")]
-        public static void Log(string message, [CallerFilePath] string sourceFilePath = "")
+        public static void Log(
+            string message,
+            [CallerFilePath] string sourceFilePath = "")
         {
             DispatchLog(CoCoLogLevel.Log, message, sourceFilePath);
         }
 
-        /// <summary>发布警告事件，随后转发给已安装的警告输出端。</summary>
-        /// <param name="message">要输出的日志文本。</param>
-        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
-        public static void Warning(string message, [CallerFilePath] string sourceFilePath = "")
+        /// <summary>
+        /// 发布警告日志事件，再调用已安装的警告输出端。
+        /// 此方法在 COCOFLOW_LOG 开关两态下均生效。
+        /// </summary>
+        public static void Warning(
+            string message,
+            [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(CoCoLogLevel.Warning, message, info);
@@ -51,10 +58,13 @@ namespace CoCoFlow.Runtime.Core
             WarningSink?.Invoke($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
 
-        /// <summary>发布错误事件，随后转发给已安装的错误输出端。</summary>
-        /// <param name="message">要输出的日志文本。</param>
-        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
-        public static void Error(string message, [CallerFilePath] string sourceFilePath = "")
+        /// <summary>
+        /// 发布错误日志事件，再调用已安装的错误输出端。
+        /// 此方法在 COCOFLOW_LOG 开关两态下均生效。
+        /// </summary>
+        public static void Error(
+            string message,
+            [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(CoCoLogLevel.Error, message, info);
@@ -66,12 +76,16 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
-        private static readonly Dictionary<string, (string Module, string Class)> PathCache = new Dictionary<string, (string, string)>();
+        private static readonly Dictionary<string, (string Module, string Class)> PathCache =
+            new Dictionary<string, (string, string)>();
 
         internal static Action<string> WarningSink { get; set; }
         internal static Action<string> ErrorSink { get; set; }
 
-        private static void DispatchLog(CoCoLogLevel level, string message, (string Module, string Class) info)
+        private static void DispatchLog(
+            CoCoLogLevel level,
+            string message,
+            (string Module, string Class) info)
         {
             var logEvent = new CoCoLogEvent
             {
@@ -85,7 +99,10 @@ namespace CoCoFlow.Runtime.Core
             CoCoEventBus.Publish(ref logEvent);
         }
 
-        private static void DispatchLog(CoCoLogLevel level, string message, string sourceFilePath)
+        private static void DispatchLog(
+            CoCoLogLevel level,
+            string message,
+            string sourceFilePath)
         {
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(level, message, info);
@@ -93,7 +110,10 @@ namespace CoCoFlow.Runtime.Core
 
         private static (string Module, string Class) GetFileInfo(string filePath)
         {
-            if (string.IsNullOrEmpty(filePath)) return ("Unknown", "Unknown");
+            if (string.IsNullOrEmpty(filePath))
+            {
+                return ("Unknown", "Unknown");
+            }
 
             if (!PathCache.TryGetValue(filePath, out var info))
             {
@@ -101,7 +121,10 @@ namespace CoCoFlow.Runtime.Core
                 string directoryPath = Path.GetDirectoryName(filePath);
                 string moduleName = Path.GetFileName(directoryPath);
 
-                if (string.IsNullOrEmpty(moduleName)) moduleName = "Global";
+                if (string.IsNullOrEmpty(moduleName))
+                {
+                    moduleName = "Global";
+                }
 
                 info = (moduleName, className);
                 PathCache[filePath] = info;
