@@ -15,7 +15,7 @@ namespace CoCoFlow.Runtime.Modules.Map
         };
 
         internal bool TryCompile(
-            CoCoRegionProfile profile,
+            RegionProfile profile,
             RegionParticipantCatalog catalog,
             IList<RegionCompileDiagnostic> diagnostics,
             out RegionCompiledProfileBlueprint blueprint)
@@ -37,7 +37,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             }
 
             if (profile.SchemaVersion !=
-                CoCoRegionProfile.CurrentSchemaVersion)
+                RegionProfile.CurrentSchemaVersion)
             {
                 AddError(
                     diagnostics,
@@ -86,7 +86,7 @@ namespace CoCoFlow.Runtime.Modules.Map
         }
 
         private static List<RegionCompiledTier> CompileTiers(
-            CoCoRegionProfile profile,
+            RegionProfile profile,
             RegionParticipantCatalog catalog,
             IList<RegionCompileDiagnostic> diagnostics)
         {
@@ -219,7 +219,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         private static List<RegionCompiledParticipantDefinition>
             CompileParticipants(
-                CoCoRegionProfile profile,
+                RegionProfile profile,
                 IReadOnlyList<RegionCompiledTier> tiers,
                 RegionParticipantCatalog catalog,
                 IList<RegionCompileDiagnostic> diagnostics)

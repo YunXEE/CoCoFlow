@@ -2,7 +2,7 @@
     "name": "CoCoFlow.Runtime.Content",
     "rootNamespace": "CoCoFlow.Runtime.Content",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "UniTask"
     ],
     "includePlatforms": [],

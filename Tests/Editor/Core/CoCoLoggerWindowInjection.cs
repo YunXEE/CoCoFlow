@@ -2,7 +2,7 @@ using CoCoFlow.Runtime.Core;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.Core
 {
     /// <summary>
     /// 验收注入器（方案 §2.5，D16=A）：仅存在于测试程序集，

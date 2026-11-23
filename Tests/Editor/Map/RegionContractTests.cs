@@ -130,15 +130,15 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             try
             {
-                CoCoRegionChunkAnchor[] anchors = scene.GetRootGameObjects()
+                RegionChunkAnchor[] anchors = scene.GetRootGameObjects()
                     .SelectMany(root =>
-                        root.GetComponentsInChildren<CoCoRegionChunkAnchor>(true))
+                        root.GetComponentsInChildren<RegionChunkAnchor>(true))
                     .ToArray();
                 Assert.AreEqual(
                     1,
                     anchors.Length,
                     "The saved ColdStart fixture must contain one Anchor.");
-                CoCoRegionChunkAnchor anchor = anchors[0];
+                RegionChunkAnchor anchor = anchors[0];
                 var child = new GameObject("Escaped Managed Content");
                 child.transform.SetParent(anchor.transform, false);
                 child.SetActive(childActive);

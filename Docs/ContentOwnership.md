@@ -31,7 +31,7 @@ owns physical instances and rental generations.
 ## Runtime and backend boundary
 
 `ContentRuntime` is created explicitly by a project/world composition root.
-`CoCoContentHost` is the package MonoBehaviour for that role; it is not a
+`ContentHost` is the package MonoBehaviour for that role; it is not a
 singleton, and consumers reference the intended Host explicitly. Runtime
 creation must start on the Unity main thread; worker-thread factory calls fail
 with a structured `ContentMainThreadRequired` diagnostic before backend
@@ -104,7 +104,7 @@ normally available in Editor/Development builds and disabled in Release builds.
   context does not expose raw `ContentScope`, so project and TA participants
   cannot acquire or release the managed Scene out of band.
 - A managed Chunk Scene cold-starts with exactly one metadata-only
-  `CoCoRegionChunkAnchor` root; all other managed roots begin inactive. Map
+  `RegionChunkAnchor` root; all other managed roots begin inactive. Map
   resolves fragments only after Content returns the exact Scene lease and scans
   only that leased Scene. A Map Direct Scene locator must be a full asset path;
   an Addressables locator must resolve to one unique Scene asset at authoring

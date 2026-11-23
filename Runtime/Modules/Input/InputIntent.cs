@@ -1,11 +1,11 @@
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Input
 {
     [DisallowMultipleComponent]
     public sealed class InputIntent : MonoBehaviour,
-        ICoCoIntentFrameSource<InputIntentData>, ICoCoCursorIntentSource<InputIntentData>
+        IIntentFrameSource<InputIntentData>, ICursorIntentSource<InputIntentData>
     {
         [SerializeField] private InputReader reader;
 
@@ -15,14 +15,14 @@ namespace CoCoFlow.Runtime.Modules.Input
         }
 
         public bool TrySample(
-            in CoCoTickFrame tickFrame,
+            in TickFrame tickFrame,
             out InputIntentData intent) => TrySample(0UL, out intent);
 
-        void ICoCoCursorIntentSource<InputIntentData>.AttachCursor(CoCoIntentSourceCursor cursor) =>
+        void ICursorIntentSource<InputIntentData>.AttachCursor(IntentSourceCursor cursor) =>
             AttachCursor(cursor);
 
-        bool ICoCoCursorIntentSource<InputIntentData>.TrySample(
-            CoCoIntentSourceCursor cursor, out InputIntentData intent)
+        bool ICursorIntentSource<InputIntentData>.TrySample(
+            IntentSourceCursor cursor, out InputIntentData intent)
         {
             AttachCursor(cursor);
             bool sampled = TrySample(cursor.Committed, out intent);
@@ -32,7 +32,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             return sampled;
         }
 
-        private void AttachCursor(CoCoIntentSourceCursor cursor)
+        private void AttachCursor(IntentSourceCursor cursor)
         {
             if (reader != null)
             {

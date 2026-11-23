@@ -93,7 +93,7 @@ objects or resolve the optional Prefab Key by itself.
 
 ## StateGraph ContextFrame path
 
-When `PersistenceContext` finds a `CoCoStateGraphHost` on the same GameObject,
+When `PersistenceContext` finds a `StateGraphHost` on the same GameObject,
 StateGraph is the preferred capture path:
 
 1. `TryCapturePersistencePayload` captures the committed ContextFrame payload.
@@ -126,7 +126,7 @@ when the project no longer wants late registrants to consume the loaded save.
 
 ## Compatibility Context adapters
 
-If no `CoCoStateGraphHost` is present, `PersistenceContext` tries the registered
+If no `StateGraphHost` is present, `PersistenceContext` tries the registered
 `IPersistenceContextAdapter` implementations against an `ICoCoContext` on the
 same object. The package supplies no built-in Character or Item adapter.
 Projects implement `IPersistenceContextAdapter` and register their adapters

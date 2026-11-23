@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using CoCoFlow.Runtime.Animation.Contracts;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Modules.Animation;
 using NUnit.Framework;
 using UnityEngine;
@@ -59,7 +59,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
         }
 
         [Test]
-        public void RootMotionFeedback_ProjectsThroughTypedEventAdapter()
+        public void RootMotionFeedback_PreservesTargetAndPayload()
         {
             Assert.IsTrue(
                 AnimFeedbackRecord.TryCreateRootMotion(
@@ -76,47 +76,40 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     record,
                     out AnimFeedbackEvent feedbackEvent));
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     801UL,
-                    out CoCoGraphInstanceId source));
+                    out GraphInstanceId source));
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     802UL,
-                    out CoCoGraphInstanceId target));
+                    out GraphInstanceId target));
             Assert.IsTrue(
-                CoCoEventSequence.TryCreate(
+                EventSequence.TryCreate(
                     1UL,
-                    out CoCoEventSequence sequence));
+                    out EventSequence sequence));
             Assert.IsTrue(
-                CoCoActorEventEnvelope.TryCreate(
+                ActorEventEnvelope.TryCreate(
                     AnimContractIds.FeedbackEventTypeId,
                     AnimContractIds.FeedbackEventDomainId,
                     source,
                     target,
-                    new CoCoTimelineEpoch(0UL),
-                    new CoCoTimelineTick(1UL),
+                    new TimelineEpoch(0UL),
+                    new TimelineTick(1UL),
                     sequence,
-                    CoCoEventDeliveryMode.Targeted,
-                    CoCoEventReliability.Reliable,
+                    EventDeliveryMode.Targeted,
+                    EventReliability.Reliable,
                     default,
                     default,
                     default,
-                    out CoCoActorEventEnvelope envelope));
+                    out ActorEventEnvelope envelope));
             Assert.IsTrue(
-                CoCoEventPacket<AnimFeedbackEvent>.TryCreate(
+                EventPacket<AnimFeedbackEvent>.TryCreate(
                     envelope,
                     feedbackEvent,
-                    out CoCoEventPacket<AnimFeedbackEvent> packet));
-            var adapter = new AnimFeedbackEventToIntentAdapter();
-
-            Assert.IsTrue(
-                adapter.TryProject(
-                    packet,
-                    out AnimFeedbackIntent intent));
-            Assert.That(intent.Count, Is.EqualTo(1));
-            Assert.IsTrue(intent.TryGetRecord(0, out AnimFeedbackRecord projected));
-            Assert.That(projected.Kind, Is.EqualTo(AnimFeedbackKind.RootMotion));
-            Assert.That(projected.PositionX, Is.EqualTo(1f));
+                    out EventPacket<AnimFeedbackEvent> packet));
+            Assert.That(packet.Envelope.TargetGraphInstanceId, Is.EqualTo(target));
+            Assert.That(packet.Payload.Record.Kind, Is.EqualTo(AnimFeedbackKind.RootMotion));
+            Assert.That(packet.Payload.Record.PositionX, Is.EqualTo(1f));
         }
 
         [Test]
@@ -168,8 +161,8 @@ namespace CoCoFlow.Tests.Runtime.Animation
         [Test]
         public void DirectOperator_RequiresOnlyParametersAndTriggers()
         {
-            CoCoOperatorDescriptor descriptor =
-                AnimOperatorContracts.AutoDescriptor;
+            OperatorDescriptor descriptor =
+                AnimOperatorContracts.Definition.Descriptor;
             Assert.IsTrue(
                 descriptor.Requires.Contains(
                     AnimOperatorContracts.ParameterRequirement));
@@ -386,15 +379,15 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackBuffer_SeventeenthRecordPoisonsWholeBatchAndBoundariesRecover()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     401UL,
-                    out CoCoGraphInstanceId graphInstanceId));
+                    out GraphInstanceId graphInstanceId));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     graphInstanceId,
-                    new CoCoTimelineEpoch(0UL),
-                    new CoCoTimelineTick(1UL),
-                    new CoCoExecutionSequence(1UL),
+                    new TimelineEpoch(0UL),
+                    new TimelineTick(1UL),
+                    new ExecutionSequence(1UL),
                     out AnimFeedbackSourceStamp source));
             var buffer = new AnimFeedbackBuffer();
 
@@ -433,11 +426,11 @@ namespace CoCoFlow.Tests.Runtime.Animation
 
             buffer.PrepareForTimeline(
                 graphInstanceId,
-                new CoCoTimelineEpoch(0UL));
+                new TimelineEpoch(0UL));
             Assert.IsTrue(buffer.Overflowed);
             buffer.PrepareForTimeline(
                 graphInstanceId,
-                new CoCoTimelineEpoch(1UL));
+                new TimelineEpoch(1UL));
             Assert.That(buffer.Count, Is.Zero);
             Assert.IsFalse(buffer.Overflowed);
             Assert.IsTrue(buffer.TryAppend(overflow, source));
@@ -450,26 +443,26 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackBuffer_NewTimelineCallbackBeforeExecutionStartsFreshBatch()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     501UL,
-                    out CoCoGraphInstanceId oldGraph));
+                    out GraphInstanceId oldGraph));
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     502UL,
-                    out CoCoGraphInstanceId newGraph));
+                    out GraphInstanceId newGraph));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     oldGraph,
-                    new CoCoTimelineEpoch(0UL),
-                    new CoCoTimelineTick(1UL),
-                    new CoCoExecutionSequence(1UL),
+                    new TimelineEpoch(0UL),
+                    new TimelineTick(1UL),
+                    new ExecutionSequence(1UL),
                     out AnimFeedbackSourceStamp oldSource));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     newGraph,
-                    new CoCoTimelineEpoch(1UL),
-                    new CoCoTimelineTick(1UL),
-                    new CoCoExecutionSequence(1UL),
+                    new TimelineEpoch(1UL),
+                    new TimelineTick(1UL),
+                    new ExecutionSequence(1UL),
                     out AnimFeedbackSourceStamp newSource));
             var buffer = new AnimFeedbackBuffer();
             Assert.IsTrue(
@@ -503,25 +496,25 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackBuffer_NewerCommittedFrameDropsStaleDirectCapacity()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     601UL,
-                    out CoCoGraphInstanceId graph));
-            var epoch = new CoCoTimelineEpoch(0UL);
+                    out GraphInstanceId graph));
+            var epoch = new TimelineEpoch(0UL);
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCommitted(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(1UL),
-                    new CoCoExecutionSequence(1UL),
-                    new CoCoContextRevision(1UL),
+                    new TimelineTick(1UL),
+                    new ExecutionSequence(1UL),
+                    new ContextRevision(1UL),
                     out AnimFeedbackSourceStamp staleSource));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCommitted(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(8UL),
-                    new CoCoExecutionSequence(8UL),
-                    new CoCoContextRevision(8UL),
+                    new TimelineTick(8UL),
+                    new ExecutionSequence(8UL),
+                    new ContextRevision(8UL),
                     out AnimFeedbackSourceStamp currentSource));
             Assert.IsTrue(
                 AnimFeedbackRecord.TryCreateRootMotion(
@@ -550,23 +543,23 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackBuffer_NewerCandidateDropsStaleCandidateCapacity()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     701UL,
-                    out CoCoGraphInstanceId graph));
-            var epoch = new CoCoTimelineEpoch(0UL);
+                    out GraphInstanceId graph));
+            var epoch = new TimelineEpoch(0UL);
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(1UL),
-                    new CoCoExecutionSequence(1UL),
+                    new TimelineTick(1UL),
+                    new ExecutionSequence(1UL),
                     out AnimFeedbackSourceStamp staleSource));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(8UL),
-                    new CoCoExecutionSequence(8UL),
+                    new TimelineTick(8UL),
+                    new ExecutionSequence(8UL),
                     out AnimFeedbackSourceStamp currentSource));
             Assert.IsTrue(
                 AnimFeedbackRecord.TryCreateRootMotion(
@@ -595,24 +588,24 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackBuffer_DirectAndCandidateShareOneAtomicCapacity()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     751UL,
-                    out CoCoGraphInstanceId graph));
-            var epoch = new CoCoTimelineEpoch(0UL);
+                    out GraphInstanceId graph));
+            var epoch = new TimelineEpoch(0UL);
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCommitted(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(7UL),
-                    new CoCoExecutionSequence(7UL),
-                    new CoCoContextRevision(7UL),
+                    new TimelineTick(7UL),
+                    new ExecutionSequence(7UL),
+                    new ContextRevision(7UL),
                     out AnimFeedbackSourceStamp directSource));
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     graph,
                     epoch,
-                    new CoCoTimelineTick(8UL),
-                    new CoCoExecutionSequence(8UL),
+                    new TimelineTick(8UL),
+                    new ExecutionSequence(8UL),
                     out AnimFeedbackSourceStamp candidateSource));
             Assert.IsTrue(
                 AnimFeedbackRecord.TryCreateRootMotion(
@@ -653,16 +646,16 @@ namespace CoCoFlow.Tests.Runtime.Animation
         public void FeedbackSourceStamp_RejectsOtherGraphEpochTickAndRevision()
         {
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     701UL,
-                    out CoCoGraphInstanceId firstGraph));
+                    out GraphInstanceId firstGraph));
             Assert.IsTrue(
-                CoCoGraphInstanceId.TryCreate(
+                GraphInstanceId.TryCreate(
                     702UL,
-                    out CoCoGraphInstanceId secondGraph));
-            var epoch = new CoCoTimelineEpoch(0UL);
-            var tick = new CoCoTimelineTick(8UL);
-            var sequence = new CoCoExecutionSequence(9UL);
+                    out GraphInstanceId secondGraph));
+            var epoch = new TimelineEpoch(0UL);
+            var tick = new TimelineTick(8UL);
+            var sequence = new ExecutionSequence(9UL);
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCandidate(
                     firstGraph,
@@ -685,17 +678,17 @@ namespace CoCoFlow.Tests.Runtime.Animation
             Assert.IsFalse(
                 candidate.MatchesCandidate(
                     firstGraph,
-                    new CoCoTimelineEpoch(1UL),
+                    new TimelineEpoch(1UL),
                     tick,
                     sequence));
             Assert.IsFalse(
                 candidate.MatchesCandidate(
                     firstGraph,
                     epoch,
-                    new CoCoTimelineTick(9UL),
+                    new TimelineTick(9UL),
                     sequence));
 
-            var revision = new CoCoContextRevision(4UL);
+            var revision = new ContextRevision(4UL);
             Assert.IsTrue(
                 AnimFeedbackSourceStamp.TryCreateCommitted(
                     firstGraph,
@@ -717,7 +710,7 @@ namespace CoCoFlow.Tests.Runtime.Animation
                     epoch,
                     tick,
                     sequence,
-                    new CoCoContextRevision(5UL)));
+                    new ContextRevision(5UL)));
             Assert.IsFalse(
                 committed.MatchesCommitted(
                     secondGraph,
@@ -746,16 +739,16 @@ namespace CoCoFlow.Tests.Runtime.Animation
             return config;
         }
 
-        private static CoCoStateFlowFrameIdentity CreateContextIdentity(
-            CoCoGraphInstanceId graph,
+        private static StateFlowFrameIdentity CreateContextIdentity(
+            GraphInstanceId graph,
             ulong tick)
         {
-            return new CoCoStateFlowFrameIdentity(
+            return new StateFlowFrameIdentity(
                 graph,
-                new CoCoTimelineEpoch(0UL),
-                new CoCoTimelineTick(tick),
-                new CoCoExecutionSequence(tick),
-                CoCoStateFlowFrameKind.Context);
+                new TimelineEpoch(0UL),
+                new TimelineTick(tick),
+                new ExecutionSequence(tick),
+                StateFlowFrameKind.Context);
         }
 
         private sealed class RecordingReceiver : IAnimEventReceiver

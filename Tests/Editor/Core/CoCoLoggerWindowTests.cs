@@ -1,11 +1,11 @@
 using System;
 using System.Linq;
-using CoCoFlow.Editor.Common;
+using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.Core;
 using NUnit.Framework;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.Core
 {
     /// <summary>
     /// CoCoLog 试点迁移的 focused 测试（方案 §2.5：只写不跑，W01 集成执行）。

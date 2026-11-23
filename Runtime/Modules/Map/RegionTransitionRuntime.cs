@@ -266,9 +266,9 @@ namespace CoCoFlow.Runtime.Modules.Map
             private readonly RegionTransitionRuntime owner;
             private readonly RegionState state;
             private readonly RegionDemandResolution resolution;
-            private readonly Dictionary<RegionChunkId, CoCoRegionChunkAnchor>
+            private readonly Dictionary<RegionChunkId, RegionChunkAnchor>
                 anchors =
-                    new Dictionary<RegionChunkId, CoCoRegionChunkAnchor>();
+                    new Dictionary<RegionChunkId, RegionChunkAnchor>();
 
             internal TransitionAttempt(
                 RegionTransitionRuntime owner,
@@ -290,7 +290,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             {
                 if (!(node.Candidate is IRegionChunkAnchorSource source) ||
                     !source.TryGetAnchor(
-                        out CoCoRegionChunkAnchor anchor) ||
+                        out RegionChunkAnchor anchor) ||
                     anchor == null)
                 {
                     diagnostic = RegionErrors.SceneContract(
@@ -315,7 +315,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 if (!nodeId.HasChunkId ||
                     !anchors.TryGetValue(
                         nodeId.ChunkId,
-                        out CoCoRegionChunkAnchor anchor) ||
+                        out RegionChunkAnchor anchor) ||
                     anchor == null)
                 {
                     diagnostic = RegionErrors.SceneContract(
@@ -367,7 +367,7 @@ namespace CoCoFlow.Runtime.Modules.Map
             private bool TryRegisterChunkAnchor(
                 RegionPlanNodeId nodeId,
                 long transitionGeneration,
-                CoCoRegionChunkAnchor anchor,
+                RegionChunkAnchor anchor,
                 out CoCoDiagnostic diagnostic)
             {
                 if (nodeId.RegionId != state.Plan.RegionId ||
@@ -385,7 +385,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
                 if (anchors.TryGetValue(
                         nodeId.ChunkId,
-                        out CoCoRegionChunkAnchor current))
+                        out RegionChunkAnchor current))
                 {
                     if (current == anchor)
                     {
@@ -405,12 +405,12 @@ namespace CoCoFlow.Runtime.Modules.Map
 
             private void UnregisterChunkAnchor(
                 RegionPlanNodeId nodeId,
-                CoCoRegionChunkAnchor anchor)
+                RegionChunkAnchor anchor)
             {
                 if (nodeId.HasChunkId &&
                     anchors.TryGetValue(
                         nodeId.ChunkId,
-                        out CoCoRegionChunkAnchor current) &&
+                        out RegionChunkAnchor current) &&
                     current == anchor)
                 {
                     anchors.Remove(nodeId.ChunkId);
@@ -466,7 +466,7 @@ namespace CoCoFlow.Runtime.Modules.Map
                 public bool TryRegisterChunkAnchor(
                     RegionPlanNodeId requestedNodeId,
                     long transitionGeneration,
-                    CoCoRegionChunkAnchor anchor,
+                    RegionChunkAnchor anchor,
                     out CoCoDiagnostic diagnostic)
                 {
                     if (requestedNodeId != nodeId)
@@ -485,7 +485,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
                 public void UnregisterChunkAnchor(
                     RegionPlanNodeId requestedNodeId,
-                    CoCoRegionChunkAnchor anchor)
+                    RegionChunkAnchor anchor)
                 {
                     if (requestedNodeId == nodeId)
                     {

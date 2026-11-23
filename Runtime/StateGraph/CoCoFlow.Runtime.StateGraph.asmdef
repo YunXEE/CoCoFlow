@@ -1,0 +1,16 @@
+{
+    "name": "CoCoFlow.Runtime.StateGraph",
+    "rootNamespace": "CoCoFlow.Runtime.StateGraph",
+    "references": [
+        "CoCoFlow.Runtime.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

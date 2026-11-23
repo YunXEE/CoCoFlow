@@ -188,11 +188,11 @@ namespace CoCoFlow.Tests.Runtime.Map
                 var hostObject =
                     new GameObject("Terminal Map Host");
                 hostObject.SetActive(false);
-                CoCoMapHost host =
-                    hostObject.AddComponent<CoCoMapHost>();
+                MapHost host =
+                    hostObject.AddComponent<MapHost>();
                 PropertyInfo runtimeProperty =
-                    typeof(CoCoMapHost).GetProperty(
-                        nameof(CoCoMapHost.Runtime),
+                    typeof(MapHost).GetProperty(
+                        nameof(MapHost.Runtime),
                         BindingFlags.Instance |
                         BindingFlags.Public);
                 Assert.That(runtimeProperty, Is.Not.Null);

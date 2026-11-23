@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -61,7 +61,7 @@ namespace CoCoFlow.Runtime.Modules.Input
         private bool _hasStarted;
 
         private readonly List<RawInputRecord> _pendingInput = new();
-        private readonly List<WeakReference<CoCoIntentSourceCursor>> _inputCursors = new();
+        private readonly List<WeakReference<IntentSourceCursor>> _inputCursors = new();
         private ulong _fenceGeneration;
         private ulong _rawSequence;
 
@@ -207,7 +207,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             TrimDeliveredInput();
         }
 
-        internal void AttachCursor(CoCoIntentSourceCursor cursor)
+        internal void AttachCursor(IntentSourceCursor cursor)
         {
             if (ReferenceEquals(cursor.Reader, this))
             {
@@ -216,7 +216,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             cursor.Reader = this;
             cursor.Committed = 0;
-            _inputCursors.Add(new WeakReference<CoCoIntentSourceCursor>(cursor));
+            _inputCursors.Add(new WeakReference<IntentSourceCursor>(cursor));
         }
 
         private void TrimDeliveredInput()
@@ -224,7 +224,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             ulong delivered = _rawSequence;
             for (int index = _inputCursors.Count - 1; index >= 0; index--)
             {
-                if (_inputCursors[index].TryGetTarget(out CoCoIntentSourceCursor cursor) &&
+                if (_inputCursors[index].TryGetTarget(out IntentSourceCursor cursor) &&
                     cursor.IsActive && ReferenceEquals(cursor.Reader, this))
                 {
                     delivered = Math.Min(delivered, cursor.Committed);
@@ -264,7 +264,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             var changes = count == 0 ? Array.Empty<RawInputRecord>() : new RawInputRecord[count];
             _pendingInput.CopyTo(first, changes, 0, count);
             intent = new InputIntentData(
-                CoCoFixedString64.FromString(playerInput.currentActionMap?.name),
+                FixedString64.FromString(playerInput.currentActionMap?.name),
                 changes, SampleCurrent(), _fenceGeneration);
             return true;
         }
@@ -319,7 +319,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             {
                 current[count] = new RawInputRecord
                 {
-                    Action = CoCoFixedString64.FromString(action.name),
+                    Action = FixedString64.FromString(action.name),
                     ValueX = value.x,
                     ValueY = value.y,
                     Phase = RawInputPhase.Held
@@ -339,7 +339,7 @@ namespace CoCoFlow.Runtime.Modules.Input
 
             _pendingInput.Add(new RawInputRecord
             {
-                Action = CoCoFixedString64.FromString(context.action.name),
+                Action = FixedString64.FromString(context.action.name),
                 ValueY = phase == RawInputPhase.Performed ? 1f : 0f,
                 Phase = phase,
                 Sequence = ++_rawSequence,

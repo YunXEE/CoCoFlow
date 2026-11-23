@@ -1,10 +1,9 @@
 {
     "name": "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
-    "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.LegacyCoreDependencyFixtures",
+    "rootNamespace": "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateGraph"
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "includePlatforms": [
         "Editor"

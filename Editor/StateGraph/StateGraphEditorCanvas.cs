@@ -1,0 +1,2162 @@
+using System;
+using System.Collections.Generic;
+using CoCoFlow.Editor.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace CoCoFlow.Editor.StateGraph
+{
+    /// <summary>
+    /// StateGraph 自研画布（P03 重做，D2：不迁 GraphView）。
+    /// 指针语义与既有交互测试逐条锚定：中键平移、滚轮缩放(0.25–2)、
+    /// 卡片拖动（错误指针忽略/取消还原/捕获丢失还原/单次提交）、
+    /// 过渡拖拽（捕获/取消/恰完成一次）、右键上下文菜单。
+    /// D8：边呈现照搬 Animator——中心锚定、双向平行偏移、方向三角、
+    /// 自环回环、点击线选中 Transition、双击 Composite 下钻。
+    /// </summary>
+    internal sealed class StateGraphEditorCanvas : VisualElement, IDisposable
+    {
+        private const float CanvasSize = 4096f;
+        private const float CardWidth = 188f;
+        private const float CardHeight = 96f;
+        private const float CompositeCardHeight = 126f;
+        private const float ParallelSpacing = 16f;
+        private const float TriangleLength = 18f;
+        private const float TriangleWidth = 14f;
+        private const float LoopHeight = 44f;
+        private const float LoopRadius = 30f;
+        private const float ScreenGridBaseStep = 24f;
+        private const float ScreenGridMinStep = 16f;
+        private const float ScreenGridMaxStep = 96f;
+        private const float ScreenGridDotSize = 2.6f;
+        // 维护者裁决：滚轮缩放灵敏度降至原 1/4（原每档 ±6% → 现 ±1.5%）。
+        private const float WheelZoomInFactor = 1.015f;
+        private const float WheelZoomOutFactor = 1f / 1.015f;
+
+        private static Color EdgeColor => new Color(0.44f, 0.68f, 0.86f, 0.9f);
+        private static Color SelectedEdgeColor => new Color(1f, 0.72f, 0.2f, 1f);
+        private static Color OutgoingEdgeColor => new Color(184f / 255f, 122f / 255f, 1f, 1f);
+        private static Color GridDotColor => new Color(0.48f, 0.51f, 0.55f, 0.25f);
+        // D9：谱系线（父子结构）默认白；血统链点亮时变黄（与 Transition 选中色一致）。
+        private static Color GenealogyColor => new Color(1f, 1f, 1f, 0.33f);
+        private static Color ChainColor => new Color(1f, 0.72f, 0.2f, 0.6f);
+        // 流转状态外环（维护者裁决）：橙=可达但死端；红=拓扑不可达（或 Default 无出边）。
+        // 50% 不透明度虚线，不喧宾夺主；血统高亮（实线外描边）绘制在其上可覆盖。
+        private static Color DeadEndRingColor => new Color(1f, 0.55f, 0f, 0.5f);
+        private static Color UnreachableRingColor => new Color(0.9f, 0.24f, 0.24f, 0.5f);
+
+        private readonly StateGraphEditorController controller;
+        private readonly VisualElement gridLayer;
+        private readonly VisualElement content;
+        private readonly VisualElement edgeLayer;
+        private readonly Dictionary<SerializedId128, Rect> stateRects =
+            new Dictionary<SerializedId128, Rect>();
+        private readonly Dictionary<SerializedId128, StateGraphStateRecord> visibleStates =
+            new Dictionary<SerializedId128, StateGraphStateRecord>();
+        private readonly Dictionary<SerializedId128, StateGraphStateCard> stateCards =
+            new Dictionary<SerializedId128, StateGraphStateCard>();
+        private readonly List<EdgeHit> edgeHits = new List<EdgeHit>();
+        private readonly HashSet<SerializedId128> chainStates =
+            new HashSet<SerializedId128>();
+        private readonly HashSet<SerializedId128> chainGenealogyChildren =
+            new HashSet<SerializedId128>();
+        private readonly HashSet<SerializedId128> _outgoingTargets =
+            new HashSet<SerializedId128>();
+        private readonly Dictionary<SerializedId128, LeafFlowState> leafFlowStates =
+            new Dictionary<SerializedId128, LeafFlowState>();
+
+        private Slider zoomSlider;
+        private StateGraphCanvasProjection _projection;
+        private Label zoomLabel;
+
+        private bool panning;
+        private int panPointerId;
+        private Vector2 panPointerStart;
+        private StateGraphCanvasView panStartView;
+        private bool transitionDragging;
+        private int transitionPointerId;
+        private SerializedId128 transitionSourceStateId;
+        private Vector2 transitionPointerPosition;
+        private Vector2 transitionDragStartPanel;
+
+        internal StateGraphEditorCanvas(StateGraphEditorController controller)
+        {
+            this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
+            name = "state-graph-canvas";
+            focusable = true;
+            style.flexGrow = 1f;
+            style.position = Position.Relative;
+            style.overflow = Overflow.Hidden;
+
+            // 视口锚定点阵层：屏幕空间无限网格（覆盖永远是整个视口；平移取模滚动、
+            // 缩放调步距）。不放在 content 内——generateVisualContent 产物会被缓存并
+            // 随变换整体搬运，平移/缩放后新露出的区域将永远无点（维护者反馈根因）。
+            gridLayer = new VisualElement { name = "state-graph-canvas-grid", pickingMode = PickingMode.Ignore };
+            gridLayer.style.position = Position.Absolute;
+            gridLayer.style.left = 0f;
+            gridLayer.style.top = 0f;
+            gridLayer.style.right = 0f;
+            gridLayer.style.bottom = 0f;
+            gridLayer.generateVisualContent += DrawScreenGrid;
+            Add(gridLayer);
+            RegisterCallback<GeometryChangedEvent>(_ => gridLayer.MarkDirtyRepaint());
+
+            content = new VisualElement { name = "state-graph-canvas-content", pickingMode = PickingMode.Ignore };
+            content.style.position = Position.Absolute;
+            content.style.left = 0f;
+            content.style.top = 0f;
+            content.style.width = CanvasSize;
+            content.style.height = CanvasSize;
+            content.style.transformOrigin = new TransformOrigin(0f, 0f, 0f);
+            Add(content);
+
+            edgeLayer = new VisualElement { name = "state-graph-edges", pickingMode = PickingMode.Ignore };
+            edgeLayer.style.position = Position.Absolute;
+            edgeLayer.style.left = 0f;
+            edgeLayer.style.top = 0f;
+            edgeLayer.style.width = CanvasSize;
+            edgeLayer.style.height = CanvasSize;
+            edgeLayer.generateVisualContent += DrawEdges;
+            content.Add(edgeLayer);
+
+            RegisterCallback<PointerDownEvent>(OnPointerDown);
+            RegisterCallback<PointerMoveEvent>(OnPointerMove);
+            RegisterCallback<PointerUpEvent>(OnPointerUp);
+            RegisterCallback<PointerCancelEvent>(OnPointerCancel);
+            RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
+            RegisterCallback<WheelEvent>(OnWheel);
+            controller.Changed += OnControllerChanged;
+            BuildZoomControls();
+            Refresh();
+        }
+
+        /// <summary>维护者反馈：显式缩放滑条（Animator 同款右下角），防滚轮过灵敏。</summary>
+        private void BuildZoomControls()
+        {
+            var host = new VisualElement { name = "state-graph-canvas-zoom" };
+            host.AddToClassList("sg-canvas-zoom");
+
+            zoomLabel = new Label("100%");
+            zoomLabel.AddToClassList("sg-canvas-zoom__label");
+            host.Add(zoomLabel);
+
+            var slider = new Slider(0.25f, 2f)
+            {
+                value = 1f,
+                showInputField = false,
+                tooltip = CoCoEditorLocalization.Text("Canvas zoom", "画布缩放")
+            };
+            slider.AddToClassList("sg-canvas-zoom__slider");
+            slider.RegisterValueChangedCallback(evt =>
+                SetView(new StateGraphCanvasView(CurrentView.Pan, evt.newValue), save: true));
+            zoomSlider = slider;
+            host.Add(slider);
+            Add(host);
+        }
+
+        private void SyncZoomControls()
+        {
+            float zoom = CurrentView.Zoom;
+            zoomSlider?.SetValueWithoutNotify(zoom);
+            if (zoomLabel != null)
+            {
+                zoomLabel.text = Mathf.RoundToInt(zoom * 100f) + "%";
+            }
+        }
+
+        internal event Action<Vector2> ContextRequested;
+
+        /// <summary>卡片右键（无拖拽位移）：请求该 State 的上下文菜单（建子级/下钻入口）。</summary>
+        internal event Action<SerializedId128> CardContextRequested;
+
+        /// <summary>当前边命中几何数（重绘后更新；测试/诊断用）。</summary>
+        internal int EdgeHitCount => edgeHits.Count;
+
+        /// <summary>叶子流转状态（维护者裁决：可达性外环）。</summary>
+        internal enum LeafFlowState
+        {
+            /// <summary>有进有出 / LayerDefault 有出——合法，无外环。</summary>
+            None,
+
+            /// <summary>可达但无出边（死端，如 Dead 状态）——橙色虚线外环。</summary>
+            DeadEnd,
+
+            /// <summary>从 LayerDefault 拓扑不可达（或 Default 自身无出边）——红色虚线外环。</summary>
+            Unreachable
+        }
+
+        /// <summary>叶子流转状态表（测试断言用）。</summary>
+        internal IReadOnlyDictionary<SerializedId128, LeafFlowState> LeafFlowStates =>
+            leafFlowStates;
+
+        /// <summary>链条高亮中的谱系段子 State 集合（测试断言用）。</summary>
+        internal System.Collections.Generic.IReadOnlyCollection<SerializedId128>
+            ChainGenealogyChildren => chainGenealogyChildren;
+
+        public void Dispose()
+        {
+            controller.Changed -= OnControllerChanged;
+            CancelTransitionDrag(releasePointer: true);
+            CancelPan(releasePointer: true);
+            edgeLayer.generateVisualContent -= DrawEdges;
+            gridLayer.generateVisualContent -= DrawScreenGrid;
+        }
+
+        private void OnControllerChanged(StateGraphEditorInvalidation invalidation)
+        {
+            if ((invalidation & StateGraphEditorInvalidation.Canvas) != 0)
+            {
+                Refresh();
+            }
+        }
+
+        internal void Refresh()
+        {
+            CancelTransitionDrag(releasePointer: true);
+            CancelPan(releasePointer: true);
+            content.Clear();
+            content.Add(edgeLayer);
+            stateRects.Clear();
+            visibleStates.Clear();
+            stateCards.Clear();
+            edgeHits.Clear();
+            leafFlowStates.Clear();
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            _projection = StateGraphCanvasProjection.Build(layer, controller.Session.CanvasCollapsedStateIds);
+            BuildChainHighlight();
+            BuildOutgoingHighlight();
+            BuildLeafFlowStates();
+
+            if (layer == null)
+            {
+                ApplyView();
+                edgeLayer.MarkDirtyRepaint();
+                return;
+            }
+
+            // D9 flat canvas with session-only visibility; authored positions remain local.
+            foreach (StateGraphStateRecord state in layer.AllStates)
+            {
+                if (state == null || !_projection.IsVisible(state.StateId))
+                {
+                    continue;
+                }
+
+                visibleStates[state.StateId] = state;
+            }
+
+            foreach (StateGraphStateRecord state in layer.AllStates)
+            {
+                if (state == null || !_projection.IsVisible(state.StateId))
+                {
+                    continue;
+                }
+
+                Vector2 position = ComputeAbsolutePosition(layer, state);
+                var card = new StateGraphStateCard(
+                    controller,
+                    state,
+                    position,
+                    inAncestryChain: chainStates.Contains(state.StateId),
+                    isOutgoingTarget: _outgoingTargets.Contains(state.StateId),
+                    OnCardMoved,
+                    BeginTransitionDrag,
+                    stateId => CardContextRequested?.Invoke(stateId),
+                    TidySubtree);
+                content.Add(card);
+                stateCards[state.StateId] = card;
+                stateRects[state.StateId] = new Rect(position, new Vector2(CardWidth, GetCardHeight(layer, state.StateId)));
+            }
+
+            if (visibleStates.Count == 0)
+            {
+                var hint = new Label(CoCoEditorLocalization.Text(
+                    "Right-click: add State / add Composite (sub-state machine) / paste; right-drag from a State to add a Transition.",
+                    "右键菜单：添加 State / 添加 Composite（子状态机）/ 粘贴；右键拖拽 State 卡拉出 Transition。"))
+                {
+                    name = "state-graph-canvas-hint"
+                };
+                hint.AddToClassList("sg-muted");
+                content.Add(hint);
+            }
+
+            ApplyView();
+            edgeLayer.MarkDirtyRepaint();
+        }
+
+        /// <summary>
+        /// 绝对位置 = 祖先链本地位置之和（EditorLayout 每 scope 一条本地坐标，契约不变；
+        /// 拖动父 State 只写它自己的本地记录，后代随合成自动跟随）。
+        /// </summary>
+        private Vector2 ComputeAbsolutePosition(
+            StateGraphLayerRecord layer,
+            StateGraphStateRecord state)
+        {
+            Vector2 absolute = Vector2.zero;
+            var visited = new HashSet<SerializedId128>();
+            StateGraphStateRecord current = state;
+            int index = ReferenceEquals(current, layer.AnyState) ? layer.States.Count : layer.States.IndexOf(current);
+            while (current != null && visited.Add(current.StateId))
+            {
+                absolute += controller.GetPosition(current, Mathf.Max(index, 0));
+                if (!current.ParentStateId.IsValid)
+                {
+                    break;
+                }
+
+                current = FindStateRecord(layer, current.ParentStateId);
+                index = current != null ? layer.States.IndexOf(current) : 0;
+            }
+
+            return absolute;
+        }
+
+        private static StateGraphStateRecord FindStateRecord(
+            StateGraphLayerRecord layer,
+            SerializedId128 stateId)
+        {
+            foreach (StateGraphStateRecord candidate in layer.AllStates)
+            {
+                if (candidate != null && candidate.StateId == stateId)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 整理子级（维护者裁决）：把以 rootId 为根的全部后代排成等距谱系树——
+        /// 代际一行（y=根y+depth*行距），叶子从左到右等距占槽，父居中于子。
+        /// 各 State 只写自己的本地位置记录（多条命令折叠为一组 Undo）。
+        /// </summary>
+        internal void TidySubtree(SerializedId128 rootId)
+        {
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            StateGraphStateRecord root = layer == null ? null : FindStateRecord(layer, rootId);
+            if (root == null || !HasChildren(layer, rootId))
+            {
+                return;
+            }
+
+            if (!stateRects.TryGetValue(rootId, out Rect rootRect))
+            {
+                return;
+            }
+
+            // 收集后代 + 深度。
+            var depth = new Dictionary<SerializedId128, int> { [rootId] = 0 };
+            var childrenOf = new Dictionary<SerializedId128, List<StateGraphStateRecord>>();
+            var queue = new List<SerializedId128> { rootId };
+            while (queue.Count > 0)
+            {
+                SerializedId128 parent = queue[0];
+                queue.RemoveAt(0);
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate == null || candidate.ParentStateId != parent)
+                    {
+                        continue;
+                    }
+
+                    depth[candidate.StateId] = depth[parent] + 1;
+                    if (!childrenOf.TryGetValue(parent, out List<StateGraphStateRecord> list))
+                    {
+                        list = new List<StateGraphStateRecord>();
+                        childrenOf[parent] = list;
+                    }
+
+                    list.Add(candidate);
+                    queue.Add(candidate.StateId);
+                }
+            }
+
+            // 自底向上分配 x：叶子按访问顺序占槽，父=子均值；y=代际行距。
+            const float xSpacing = 230f;
+            float ySpacing = GetCardHeight(layer, rootId) + 79f;
+            var absolute = new Dictionary<SerializedId128, Vector2>
+            {
+                [rootId] = rootRect.position
+            };
+            int leafSlot = 0;
+
+            float Assign(SerializedId128 id)
+            {
+                if (absolute.TryGetValue(id, out Vector2 position))
+                {
+                    return position.x;
+                }
+
+                if (childrenOf.TryGetValue(id, out List<StateGraphStateRecord> children))
+                {
+                    float sum = 0f;
+                    int count = 0;
+                    foreach (StateGraphStateRecord child in children)
+                    {
+                        sum += Assign(child.StateId);
+                        count++;
+                    }
+
+                    float x = sum / Mathf.Max(count, 1);
+                    absolute[id] = new Vector2(x, rootRect.y + depth[id] * ySpacing);
+                    return x;
+                }
+
+                float leafX = rootRect.x + leafSlot * xSpacing;
+                leafSlot++;
+                absolute[id] = new Vector2(leafX, rootRect.y + depth[id] * ySpacing);
+                return leafX;
+            }
+
+            if (childrenOf.TryGetValue(rootId, out List<StateGraphStateRecord> rootChildren))
+            {
+                foreach (StateGraphStateRecord child in rootChildren)
+                {
+                    Assign(child.StateId);
+                }
+            }
+
+            // 写本地位置：local = 新绝对 − 父新绝对（父在子树内的用新值；根的父用现值）。
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            foreach (KeyValuePair<SerializedId128, Vector2> entry in absolute)
+            {
+                if (entry.Key == rootId)
+                {
+                    continue;
+                }
+
+                StateGraphStateRecord record = FindStateRecord(layer, entry.Key);
+                if (record == null)
+                {
+                    continue;
+                }
+
+                Vector2 parentAbsolute = absolute.TryGetValue(
+                    record.ParentStateId,
+                    out Vector2 fromTidy)
+                    ? fromTidy
+                    : ComputeAbsolutePosition(layer, FindStateRecord(layer, record.ParentStateId));
+                if (StateId.TryCreate(entry.Key.High, entry.Key.Low, out StateId stateId))
+                {
+                    controller.SetPosition(stateId, entry.Value - parentAbsolute);
+                }
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+        }
+
+        /// <summary>
+        /// 血统链高亮集（维护者裁决）：选中 State → 自己 + 全部祖先卡外描边高亮，
+        /// 及「父的父-父-自己」沿途谱系线段点亮（继承关系：子机继承父机全部 Logic）。
+        /// Transition 选中只亮 Transition 线本身，不点亮任何卡片。
+        /// </summary>
+        private void BuildChainHighlight()
+        {
+            chainStates.Clear();
+            chainGenealogyChildren.Clear();
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            StateId selected = controller.Session.SelectedStateId;
+            if (layer == null || !selected.IsValid)
+            {
+                return;
+            }
+
+            var visited = new HashSet<SerializedId128>();
+            SerializedId128 current = new SerializedId128(selected.High, selected.Low);
+            while (current.IsValid && visited.Add(current))
+            {
+                chainStates.Add(current);
+                StateGraphStateRecord record = FindStateRecord(layer, current);
+                if (record == null || !record.ParentStateId.IsValid)
+                {
+                    break;
+                }
+
+                chainGenealogyChildren.Add(current); // 谱系段：current ← 其父
+                current = record.ParentStateId;
+            }
+        }
+
+        private void BuildOutgoingHighlight()
+        {
+            _outgoingTargets.Clear();
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            StateId selected = controller.Session.SelectedStateId;
+            if (layer == null || !selected.IsValid) return;
+            foreach (StateGraphTransitionRecord transition in layer.Transitions)
+            {
+                if (transition != null && IsOutgoingTransition(transition))
+                    _outgoingTargets.Add(_projection.VisibleId(transition.TargetStateId));
+            }
+        }
+
+        internal Color GetTransitionColor(StateGraphTransitionRecord transition)
+        {
+            if (Matches(transition.TransitionId, controller.Session.SelectedTransitionId))
+                return SelectedEdgeColor;
+            return IsOutgoingTransition(transition) ? OutgoingEdgeColor : EdgeColor;
+        }
+
+        private bool IsOutgoingTransition(StateGraphTransitionRecord transition)
+        {
+            StateId selected = controller.Session.SelectedStateId;
+            return Matches(transition.SourceStateId, selected) ||
+                (_projection != null && Matches(_projection.VisibleId(transition.SourceStateId), selected));
+        }
+
+        /// <summary>
+        /// 叶子流转状态（维护者裁决）：从 LayerDefault 叶（沿 Initial 链下钻解析）出发，
+        /// 沿 Transition BFS 得可达集 R。判定：Default 自身=有出→None / 无出→Unreachable；
+        /// 其余叶子 ∈R 有出→None、∈R 无出→DeadEnd（橙）、∉R→Unreachable（红）。
+        /// </summary>
+        private void BuildLeafFlowStates()
+        {
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            if (layer == null)
+            {
+                return;
+            }
+
+            foreach (StateGraphStateRecord state in layer.States)
+            {
+                if (state != null && !HasChildren(layer, state.StateId))
+                {
+                    leafFlowStates[state.StateId] = LeafFlowState.Unreachable; // 先全部置红，再逐个点亮
+                }
+            }
+
+            SerializedId128? defaultLeaf = ResolveDefaultLeaf(layer);
+            if (defaultLeaf == null)
+            {
+                return; // 无有效 Initial 链：无默认入口，全部叶子保持不可达。
+            }
+
+            // BFS 可达集（Transition 只连叶子）。
+            var reachable = new HashSet<SerializedId128> { defaultLeaf.Value };
+            var queue = new List<SerializedId128> { defaultLeaf.Value };
+            if (layer.AnyState != null)
+            {
+                queue.Add(layer.AnyState.StateId);
+            }
+            while (queue.Count > 0)
+            {
+                SerializedId128 current = queue[0];
+                queue.RemoveAt(0);
+                foreach (StateGraphTransitionRecord transition in layer.Transitions)
+                {
+                    if (transition == null || transition.SourceStateId != current)
+                    {
+                        continue;
+                    }
+
+                    if (leafFlowStates.ContainsKey(transition.TargetStateId) &&
+                        reachable.Add(transition.TargetStateId))
+                    {
+                        queue.Add(transition.TargetStateId);
+                    }
+                }
+            }
+
+            bool HasOutgoing(SerializedId128 id)
+            {
+                foreach (StateGraphTransitionRecord transition in layer.Transitions)
+                {
+                    if (transition != null && transition.SourceStateId == id)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            var snapshots = new List<SerializedId128>(leafFlowStates.Keys);
+            foreach (SerializedId128 leafId in snapshots)
+            {
+                bool isDefaultLeaf = leafId == defaultLeaf.Value;
+                bool reachableFromDefault = reachable.Contains(leafId);
+                bool hasOut = HasOutgoing(leafId);
+
+                LeafFlowState flowState;
+                if (isDefaultLeaf)
+                {
+                    flowState = hasOut ? LeafFlowState.None : LeafFlowState.Unreachable;
+                }
+                else if (reachableFromDefault)
+                {
+                    flowState = hasOut ? LeafFlowState.None : LeafFlowState.DeadEnd;
+                }
+                else
+                {
+                    flowState = LeafFlowState.Unreachable;
+                }
+
+                leafFlowStates[leafId] = flowState;
+            }
+        }
+
+        /// <summary>LayerDefault 叶：Layer Initial 沿 InitialChildStateId 链下钻到叶。</summary>
+        private static SerializedId128? ResolveDefaultLeaf(StateGraphLayerRecord layer)
+        {
+            SerializedId128 current = layer.InitialStateId;
+            var visited = new HashSet<SerializedId128>();
+            while (current.IsValid && visited.Add(current))
+            {
+                StateGraphStateRecord record = null;
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.StateId == current)
+                    {
+                        record = candidate;
+                        break;
+                    }
+                }
+
+                if (record == null)
+                {
+                    return null;
+                }
+
+                bool hasChildren = false;
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.ParentStateId == current)
+                    {
+                        hasChildren = true;
+                        break;
+                    }
+                }
+
+                if (!hasChildren)
+                {
+                    return current;
+                }
+
+                current = record.InitialChildStateId;
+            }
+
+            return null;
+        }
+
+        private void OnCardMoved(SerializedId128 serializedId, Vector2 position, bool commit)
+        {
+            MoveStateSubtree(serializedId, position, commit);
+        }
+
+        /// <summary>
+        /// 拖动 State（含子树联动）：实时同步后代卡片与包围盒；
+        /// 提交时只写被拖 State 自己的本地位置记录（一次手势一组 Undo，EditorLayout 契约不变）。
+        /// </summary>
+        private void MoveStateSubtree(SerializedId128 stateId, Vector2 absolutePosition, bool commit)
+        {
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            StateGraphStateRecord state = layer == null ? null : FindStateRecord(layer, stateId);
+            if (state == null)
+            {
+                return;
+            }
+
+            Vector2 delta = absolutePosition -
+                (stateRects.TryGetValue(stateId, out Rect existing) ? existing.position : absolutePosition);
+
+            void ApplyPosition(SerializedId128 id, Vector2 absolute)
+            {
+                if (!stateRects.TryGetValue(id, out Rect rect)) return;
+                stateRects[id] = new Rect(absolute, rect.size);
+                if (stateCards.TryGetValue(id, out StateGraphStateCard card))
+                {
+                    card.SetCanvasPosition(absolute);
+                }
+            }
+
+            ApplyPosition(stateId, absolutePosition);
+
+            // 后代：随拖动同位移（拖动中父的本地记录未写，重算会回到旧位置；
+            // 提交后本地记录更新，合成结果与本位移一致）。
+            var queue = new List<SerializedId128> { stateId };
+            var visited = new HashSet<SerializedId128> { stateId };
+            while (queue.Count > 0)
+            {
+                SerializedId128 parent = queue[0];
+                queue.RemoveAt(0);
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate == null || candidate.ParentStateId != parent || !visited.Add(candidate.StateId))
+                    {
+                        continue;
+                    }
+
+                    Vector2 childAbsolute =
+                        (stateRects.TryGetValue(candidate.StateId, out Rect childRect)
+                            ? childRect.position
+                            : ComputeAbsolutePosition(layer, candidate)) + delta;
+                    ApplyPosition(candidate.StateId, childAbsolute);
+                    queue.Add(candidate.StateId);
+                }
+            }
+
+            edgeLayer.MarkDirtyRepaint();
+            if (commit &&
+                StateId.TryCreate(stateId.High, stateId.Low, out StateId movedId))
+            {
+                // 本地位置 = 绝对位置 − 父绝对位置（根作用域则即绝对位置）。
+                Vector2 parentAbsolute = Vector2.zero;
+                if (state.ParentStateId.IsValid)
+                {
+                    StateGraphStateRecord parentRecord = FindStateRecord(layer, state.ParentStateId);
+                    if (parentRecord != null)
+                    {
+                        parentAbsolute = ComputeAbsolutePosition(layer, parentRecord);
+                    }
+                }
+
+                controller.SetPosition(movedId, absolutePosition - parentAbsolute);
+            }
+        }
+
+        /// <summary>
+        /// 流转状态虚线外环（维护者裁决）：橙=可达死端，红=拓扑不可达。
+        /// 与 USS 外描边同位（卡外缘）、50% 不透明度；位于卡片层之下，
+        /// 血统高亮实线外描边绘制于其上可覆盖。
+        /// </summary>
+        private void DrawFlowRings(Painter2D painter)
+        {
+            const float dashLength = 7f;
+            const float gapLength = 5f;
+            const float ringWidth = 1.5f;
+            foreach (KeyValuePair<SerializedId128, LeafFlowState> entry in leafFlowStates)
+            {
+                if (entry.Value == LeafFlowState.None ||
+                    !stateRects.TryGetValue(entry.Key, out Rect rect))
+                {
+                    continue;
+                }
+
+                painter.strokeColor = entry.Value == LeafFlowState.DeadEnd
+                    ? DeadEndRingColor
+                    : UnreachableRingColor;
+                painter.lineWidth = ringWidth;
+                DrawDashedRect(painter, rect, dashLength, gapLength);
+            }
+        }
+
+        private static void DrawDashedRect(
+            Painter2D painter,
+            Rect rect,
+            float dashLength,
+            float gapLength)
+        {
+            Vector2 a = rect.min;
+            Vector2 b = rect.max;
+            DrawDashedLine(painter, new Vector2(a.x, a.y), new Vector2(b.x, a.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(b.x, a.y), new Vector2(b.x, b.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(b.x, b.y), new Vector2(a.x, b.y), dashLength, gapLength);
+            DrawDashedLine(painter, new Vector2(a.x, b.y), new Vector2(a.x, a.y), dashLength, gapLength);
+        }
+
+        private static void DrawDashedLine(
+            Painter2D painter,
+            Vector2 start,
+            Vector2 end,
+            float dashLength,
+            float gapLength)
+        {
+            Vector2 delta = end - start;
+            float length = delta.magnitude;
+            if (length <= 0f)
+            {
+                return;
+            }
+
+            Vector2 direction = delta / length;
+            float position = 0f;
+            bool dash = true;
+            while (position < length)
+            {
+                float step = Mathf.Min(dash ? dashLength : gapLength, length - position);
+                if (dash)
+                {
+                    Vector2 from = start + direction * position;
+                    Vector2 to = start + direction * (position + step);
+                    painter.BeginPath();
+                    painter.MoveTo(from);
+                    painter.LineTo(to);
+                    painter.Stroke();
+                }
+
+                position += step;
+                dash = !dash;
+            }
+        }
+
+        /// <summary>
+        /// 谱系线（维护者命名）：父子结构以流程图式折线表示（父底中心 → 垂直 → 水平 → 垂直 →
+        /// 子顶中心），默认白；选中 State 的血统链段（父的父-父-自己）变黄。不参与命中。
+        /// </summary>
+        private void DrawGenealogy(Painter2D painter)
+        {
+            StateGraphLayerRecord layer = controller.SelectedLayer;
+            if (layer == null)
+            {
+                return;
+            }
+
+            painter.lineWidth = 1.5f;
+            foreach (StateGraphStateRecord state in layer.States)
+            {
+                if (state == null || !state.ParentStateId.IsValid)
+                {
+                    continue;
+                }
+
+                if (!stateRects.TryGetValue(state.StateId, out Rect child) ||
+                    !stateRects.TryGetValue(state.ParentStateId, out Rect parent))
+                {
+                    continue;
+                }
+
+                bool inChain = chainGenealogyChildren.Contains(state.StateId);
+                painter.strokeColor = inChain ? ChainColor : GenealogyColor;
+                painter.lineWidth = inChain ? 2.5f : 1.5f;
+
+                Vector2 start = new Vector2(parent.center.x, parent.yMax);
+                Vector2 end = new Vector2(child.center.x, child.yMin);
+                float midY = (start.y + end.y) * 0.5f;
+                painter.BeginPath();
+                painter.MoveTo(start);
+                painter.LineTo(new Vector2(start.x, midY));
+                painter.LineTo(new Vector2(end.x, midY));
+                painter.LineTo(end);
+                painter.Stroke();
+            }
+        }
+
+        /// <summary>
+        /// 屏幕空间点阵网格（视口锚定）：步距随缩放缩放（限幅），平移按步距取模滚动。
+        /// 覆盖恒等于当前视口；仅在平移/缩放/尺寸变化时重绘（SetView/GeometryChanged）。
+        /// </summary>
+        private void DrawScreenGrid(MeshGenerationContext context)
+        {
+            Rect rect = gridLayer.contentRect;
+            if (rect.width <= 0f || rect.height <= 0f)
+            {
+                return;
+            }
+
+            StateGraphCanvasView view = CurrentView;
+            float step = Mathf.Clamp(
+                ScreenGridBaseStep * Mathf.Max(view.Zoom, 0.01f),
+                ScreenGridMinStep,
+                ScreenGridMaxStep);
+            float offsetX = ((view.Pan.x % step) + step) % step;
+            float offsetY = ((view.Pan.y % step) + step) % step;
+
+            Painter2D painter = context.painter2D;
+            painter.fillColor = GridDotColor;
+            float half = ScreenGridDotSize * 0.5f;
+            for (float y = offsetY - step; y < rect.height + step; y += step)
+            {
+                for (float x = offsetX - step; x < rect.width + step; x += step)
+                {
+                    Vector2 center = new Vector2(x, y);
+                    painter.BeginPath();
+                    painter.MoveTo(center + new Vector2(-half, -half));
+                    painter.LineTo(center + new Vector2(half, -half));
+                    painter.LineTo(center + new Vector2(half, half));
+                    painter.LineTo(center + new Vector2(-half, half));
+                    painter.ClosePath();
+                    painter.Fill();
+                }
+            }
+        }
+
+        // ── D8：边几何（Animator 对齐） ────────────────────
+
+        /// <summary>一次点击命中的边几何缓存（图空间）。</summary>
+        private struct EdgeHit
+        {
+            internal SerializedId128 TransitionId;
+            internal Vector2 Start;
+            internal Vector2 End;
+            internal bool IsTriangle;
+            internal Vector2 TriangleTip;
+            internal Vector2 TriangleLeft;
+            internal Vector2 TriangleRight;
+            internal bool IsLoop;
+            internal Vector2 LoopCenter;
+            internal float LoopRadius;
+        }
+
+        private void DrawEdges(MeshGenerationContext context)
+        {
+            Painter2D painter = context.painter2D;
+            edgeHits.Clear();
+            DrawGenealogy(painter);
+            DrawFlowRings(painter);
+
+            // 按无序端点对分组：同对多条 Transition（含双向）渲染为平行线。
+            var groups = new Dictionary<(ulong, ulong, ulong, ulong), List<StateGraphTransitionRecord>>();
+            var ordinaryIds = new HashSet<SerializedId128>(_projection.OrdinaryTransitionIds);
+            foreach (StateGraphTransitionRecord transition in controller.VisibleTransitions)
+            {
+                if (transition == null ||
+                    !ordinaryIds.Contains(transition.TransitionId) ||
+                    !stateRects.ContainsKey(transition.SourceStateId) ||
+                    !stateRects.ContainsKey(transition.TargetStateId))
+                {
+                    continue;
+                }
+
+                (ulong ah, ulong al, ulong bh, ulong bl) key = transition.SourceStateId.High < transition.TargetStateId.High ||
+                    (transition.SourceStateId.High == transition.TargetStateId.High &&
+                     transition.SourceStateId.Low < transition.TargetStateId.Low)
+                    ? (transition.SourceStateId.High, transition.SourceStateId.Low,
+                       transition.TargetStateId.High, transition.TargetStateId.Low)
+                    : (transition.TargetStateId.High, transition.TargetStateId.Low,
+                       transition.SourceStateId.High, transition.SourceStateId.Low);
+                if (!groups.TryGetValue(key, out List<StateGraphTransitionRecord> list))
+                {
+                    list = new List<StateGraphTransitionRecord>();
+                    groups[key] = list;
+                }
+
+                list.Add(transition);
+            }
+
+            foreach (List<StateGraphTransitionRecord> group in groups.Values)
+            {
+                // 稳定排序：组内按端点+优先级，保证偏移分布确定性。
+                SerializedId128 orientationSource = group[0].SourceStateId;
+                group.Sort((left, right) =>
+                {
+                    bool leftForward = left.SourceStateId == orientationSource;
+                    bool rightForward = right.SourceStateId == orientationSource;
+                    if (leftForward != rightForward)
+                    {
+                        return leftForward ? -1 : 1;
+                    }
+
+                    return left.Priority.CompareTo(right.Priority);
+                });
+
+                // 组共享法线：以组内首条边方向为基准；反向边若用自身方向算法线，
+                // 偏移会在世界空间翻转导致两线重叠（Animator 双向平行线要求同侧基准）。
+                if (!stateRects.TryGetValue(group[0].SourceStateId, out Rect canonicalSource) ||
+                    !stateRects.TryGetValue(group[0].TargetStateId, out Rect canonicalTarget))
+                {
+                    continue;
+                }
+
+                Vector2 canonicalDirection =
+                    (canonicalTarget.center - canonicalSource.center).normalized;
+                Vector2 sharedNormal = new Vector2(-canonicalDirection.y, canonicalDirection.x);
+
+                int count = group.Count;
+                for (int index = 0; index < count; index++)
+                {
+                    StateGraphTransitionRecord transition = group[index];
+                    float offset = (index - (count - 1) * 0.5f) * ParallelSpacing;
+                    DrawEdge(painter, transition, offset, sharedNormal);
+                }
+            }
+
+            foreach (StateGraphCanvasProjection.TransitionGroup group in _projection.TransitionGroups)
+            {
+                if (!stateRects.TryGetValue(group.SourceId, out Rect source) ||
+                    !stateRects.TryGetValue(group.TargetId, out Rect target)) continue;
+                bool reverse = false;
+                foreach (StateGraphCanvasProjection.TransitionGroup other in _projection.TransitionGroups)
+                    if (other.SourceId == group.TargetId && other.TargetId == group.SourceId) reverse = true;
+                Vector2 direction = (target.center - source.center).normalized;
+                DrawEdge(painter, FindTransition(group.TransitionIds[0]), reverse ? ParallelSpacing * 0.5f : 0f,
+                    new Vector2(-direction.y, direction.x), group);
+            }
+
+            if (transitionDragging && stateRects.TryGetValue(transitionSourceStateId, out Rect sourceRect))
+            {
+                // 维护者反馈：预览线从源卡中心出（与已提交边的中心锚定一致）。
+                Vector2 previewStart = sourceRect.center;
+                painter.strokeColor = SelectedEdgeColor;
+                painter.lineWidth = 2f;
+                painter.fillColor = SelectedEdgeColor;
+                painter.BeginPath();
+                painter.MoveTo(previewStart);
+                painter.LineTo(transitionPointerPosition);
+                painter.Stroke();
+                DrawDirectionTriangle(
+                    painter,
+                    Vector2.Lerp(previewStart, transitionPointerPosition, 0.5f),
+                    (transitionPointerPosition - previewStart).normalized);
+            }
+        }
+
+        private void DrawEdge(
+            Painter2D painter,
+            StateGraphTransitionRecord transition,
+            float offset,
+            Vector2 sharedNormal,
+            StateGraphCanvasProjection.TransitionGroup group = null)
+        {
+            if (transition == null ||
+                !stateRects.TryGetValue(group?.SourceId ?? transition.SourceStateId, out Rect source) ||
+                !stateRects.TryGetValue(group?.TargetId ?? transition.TargetStateId, out Rect target))
+            {
+                return;
+            }
+
+            bool selected = Matches(transition.TransitionId, controller.Session.SelectedTransitionId);
+            bool outgoing = IsOutgoingTransition(transition);
+            if (group != null)
+                foreach (SerializedId128 id in group.TransitionIds)
+                {
+                    selected |= Matches(id, controller.Session.SelectedTransitionId);
+                    StateGraphTransitionRecord member = FindTransition(id);
+                    outgoing |= member != null && IsOutgoingTransition(member);
+                }
+            painter.strokeColor = selected ? SelectedEdgeColor : outgoing ? OutgoingEdgeColor : EdgeColor;
+            painter.fillColor = painter.strokeColor;
+            painter.lineWidth = selected || outgoing ? 3f : 2f;
+
+            if (transition.SourceStateId == transition.TargetStateId)
+            {
+                DrawSelfLoop(painter, transition, source);
+                return;
+            }
+
+            // 中心锚定：两端取卡中心，整体沿组共享法线平移（双向=平行线，Animator 同款）。
+            Vector2 a = source.center + sharedNormal * offset;
+            Vector2 b = target.center + sharedNormal * offset;
+
+            // 视觉段在卡片边界出/入（线不穿卡身）；两分支均赋值，无冗余初值。
+            Vector2 start;
+            Vector2 end;
+            if (ClipSegmentToRectExit(a, b, source, out float tExit) &&
+                ClipSegmentToRectEnter(a, b, target, out float tEnter) &&
+                tEnter > tExit)
+            {
+                start = Vector2.Lerp(a, b, tExit);
+                end = Vector2.Lerp(a, b, tEnter);
+            }
+            else
+            {
+                Vector2 fallbackDirection = (target.center - source.center).normalized;
+                start = source.center + fallbackDirection * (source.width * 0.5f);
+                end = target.center - fallbackDirection * (target.width * 0.5f);
+            }
+
+            painter.BeginPath();
+            painter.MoveTo(start);
+            painter.LineTo(end);
+            painter.Stroke();
+            if (group == null)
+                DrawDirectionTriangle(painter, Vector2.Lerp(start, end, 0.5f), (end - start).normalized);
+            else
+                DrawGroupTriangles(painter, group, start, end);
+
+            edgeHits.Add(new EdgeHit
+            {
+                TransitionId = transition.TransitionId,
+                Start = start,
+                End = end
+            });
+        }
+
+        private void DrawGroupTriangles(Painter2D painter,
+            StateGraphCanvasProjection.TransitionGroup group, Vector2 start, Vector2 end)
+        {
+            Vector2 direction = (end - start).normalized;
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            int columns = Mathf.Max(1, Mathf.Min(group.TransitionIds.Count,
+                Mathf.FloorToInt(Vector2.Distance(start, end) / 28f)));
+            for (int index = 0; index < group.TransitionIds.Count; index++)
+            {
+                int row = index / columns;
+                int rowCount = Mathf.Min(columns, group.TransitionIds.Count - row * columns);
+                Vector2 center = (start + end) * 0.5f +
+                    direction * ((index % columns - (rowCount - 1) * 0.5f) * 28f) + normal * (row * 24f);
+                DrawDirectionTriangle(painter, center, direction, group.TransitionIds[0]);
+            }
+        }
+
+        private StateGraphTransitionRecord FindTransition(SerializedId128 id)
+        {
+            if (controller.SelectedLayer != null)
+                foreach (StateGraphTransitionRecord edge in controller.SelectedLayer.Transitions)
+                    if (edge != null && edge.TransitionId == id) return edge;
+            return null;
+        }
+
+        internal string TransitionMenuLabel(StateGraphCanvasProjection projection,
+            StateGraphTransitionRecord edge) =>
+            $"{projection.StatePath(edge.SourceStateId)} → {projection.StatePath(edge.TargetStateId)}".Replace('/', '∕') +
+            $"  | Priority {edge.Priority} | {edge.TransitionId.High:x16}{edge.TransitionId.Low:x16}";
+
+        private void SelectEdgeOrShowMenu(SerializedId128 transitionId)
+        {
+            var projection = StateGraphCanvasProjection.Build(controller.SelectedLayer,
+                controller.Session.CanvasCollapsedStateIds);
+            foreach (StateGraphCanvasProjection.TransitionGroup group in projection.TransitionGroups)
+            {
+                if (!ContainsTransition(group, transitionId)) continue;
+                if (group.TransitionIds.Count == 1) break;
+                var menu = new GenericMenu();
+                foreach (SerializedId128 id in group.TransitionIds)
+                {
+                    StateGraphTransitionRecord edge = FindTransition(id);
+                    if (edge == null) continue;
+                    menu.AddItem(new GUIContent(TransitionMenuLabel(projection, edge)),
+                        Matches(id, controller.Session.SelectedTransitionId),
+                        () => SelectGroupTransition(group.SourceId, group.TargetId, id));
+                }
+                menu.ShowAsContext();
+                return;
+            }
+            if (FindTransition(transitionId) != null &&
+                TransitionId.TryCreate(transitionId.High, transitionId.Low, out TransitionId selected))
+                controller.SelectTransition(selected);
+        }
+
+        internal void SelectGroupTransition(SerializedId128 source, SerializedId128 target,
+            SerializedId128 transitionId)
+        {
+            // A menu can outlive Undo, a Layer switch or a topology edit. Resolve IDs again.
+            var projection = StateGraphCanvasProjection.Build(controller.SelectedLayer,
+                controller.Session.CanvasCollapsedStateIds);
+            foreach (StateGraphCanvasProjection.TransitionGroup group in projection.TransitionGroups)
+                if (group.SourceId == source && group.TargetId == target && ContainsTransition(group, transitionId) &&
+                    TransitionId.TryCreate(transitionId.High, transitionId.Low, out TransitionId selected))
+                {
+                    controller.SelectTransition(selected);
+                    return;
+                }
+        }
+
+        private static bool ContainsTransition(StateGraphCanvasProjection.TransitionGroup group,
+            SerializedId128 id)
+        {
+            foreach (SerializedId128 member in group.TransitionIds)
+                if (member == id) return true;
+            return false;
+        }
+
+        private void DrawSelfLoop(Painter2D painter, StateGraphTransitionRecord transition, Rect rect)
+        {
+            Vector2 topRight = new Vector2(rect.center.x + rect.width * 0.22f, rect.yMin);
+            Vector2 topLeft = new Vector2(rect.center.x - rect.width * 0.22f, rect.yMin);
+            Vector2 controlRight = topRight + new Vector2(20f, -LoopHeight);
+            Vector2 controlLeft = topLeft + new Vector2(-20f, -LoopHeight);
+
+            painter.BeginPath();
+            painter.MoveTo(topRight);
+            painter.BezierCurveTo(controlRight, controlLeft, topLeft);
+            painter.Stroke();
+
+            // 自环三角：贝塞尔中点，方向取中点切线。
+            Vector2 loopMid = CubicBezierPoint(0.5f, topRight, controlRight, controlLeft, topLeft);
+            Vector2 loopTangent = CubicBezierTangent(0.5f, topRight, controlRight, controlLeft, topLeft);
+            DrawDirectionTriangle(painter, loopMid, loopTangent.normalized);
+
+            edgeHits.Add(new EdgeHit
+            {
+                TransitionId = transition.TransitionId,
+                IsLoop = true,
+                LoopCenter = new Vector2(rect.center.x, rect.yMin - LoopHeight * 0.62f),
+                LoopRadius = LoopRadius,
+                Start = topRight,
+                End = topLeft
+            });
+        }
+
+        /// <summary>维护者反馈 1：实心小三角，画在连线中间，指向行进方向。</summary>
+        private void DrawDirectionTriangle(Painter2D painter, Vector2 center, Vector2 direction,
+            SerializedId128 transitionId = default)
+        {
+            if (direction.sqrMagnitude <= 0f)
+            {
+                return;
+            }
+
+            direction.Normalize();
+            Vector2 normal = new Vector2(-direction.y, direction.x);
+            Vector2 tip = center + direction * (TriangleLength * 0.5f);
+            Vector2 left = center - direction * (TriangleLength * 0.5f) + normal * (TriangleWidth * 0.5f);
+            Vector2 right = center - direction * (TriangleLength * 0.5f) - normal * (TriangleWidth * 0.5f);
+            painter.BeginPath();
+            painter.MoveTo(tip);
+            painter.LineTo(left);
+            painter.LineTo(right);
+            painter.ClosePath();
+            painter.Fill();
+            if (transitionId.IsValid)
+                edgeHits.Add(new EdgeHit
+                {
+                    TransitionId = transitionId, IsTriangle = true,
+                    TriangleTip = tip, TriangleLeft = left, TriangleRight = right
+                });
+        }
+
+        private static Vector2 CubicBezierPoint(
+            float t,
+            Vector2 p0,
+            Vector2 p1,
+            Vector2 p2,
+            Vector2 p3) =>
+            (1f - t) * (1f - t) * (1f - t) * p0 +
+            3f * (1f - t) * (1f - t) * t * p1 +
+            3f * (1f - t) * t * t * p2 +
+            t * t * t * p3;
+
+        private static Vector2 CubicBezierTangent(
+            float t,
+            Vector2 p0,
+            Vector2 p1,
+            Vector2 p2,
+            Vector2 p3) =>
+            3f * (1f - t) * (1f - t) * (p1 - p0) +
+            6f * (1f - t) * t * (p2 - p1) +
+            3f * t * t * (p3 - p2);
+
+        /// <summary>线段 a→b 从内部离开矩形 clip 的参数 t（a 在矩形内）。</summary>
+        private static bool ClipSegmentToRectExit(Vector2 a, Vector2 b, Rect clip, out float tExit)
+        {
+            if (!ClipSegmentToRect(a, b, clip, out _, out float tLeave))
+            {
+                tExit = 0f;
+                return false;
+            }
+
+            tExit = tLeave;
+            return tLeave > 0f && tLeave <= 1f;
+        }
+
+        /// <summary>线段 a→b 进入矩形 clip 的参数 t（b 在矩形内）。</summary>
+        private static bool ClipSegmentToRectEnter(Vector2 a, Vector2 b, Rect clip, out float tEnter)
+        {
+            if (!ClipSegmentToRect(a, b, clip, out float enter, out _))
+            {
+                tEnter = 1f;
+                return false;
+            }
+
+            tEnter = enter;
+            return enter >= 0f && enter < 1f;
+        }
+
+        /// <summary>Liang-Barsky：线段与 AABB 的相交参数区间。</summary>
+        private static bool ClipSegmentToRect(
+            Vector2 a,
+            Vector2 b,
+            Rect rect,
+            out float tEnter,
+            out float tLeave)
+        {
+            tEnter = 0f;
+            tLeave = 1f;
+            Vector2 delta = b - a;
+            float[] p = { -delta.x, delta.x, -delta.y, delta.y };
+            float[] q =
+            {
+                a.x - rect.xMin,
+                rect.xMax - a.x,
+                a.y - rect.yMin,
+                rect.yMax - a.y
+            };
+
+            for (int index = 0; index < 4; index++)
+            {
+                if (Mathf.Approximately(p[index], 0f))
+                {
+                    if (q[index] < 0f)
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                float t = q[index] / p[index];
+                if (p[index] < 0f)
+                {
+                    if (t > tLeave)
+                    {
+                        return false;
+                    }
+
+                    if (t > tEnter)
+                    {
+                        tEnter = t;
+                    }
+                }
+                else
+                {
+                    if (t < tEnter)
+                    {
+                        return false;
+                    }
+
+                    if (t < tLeave)
+                    {
+                        tLeave = t;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>D8：点击线=选中该 Transition（距离命中，阈值随缩放换算）。</summary>
+        internal bool TryHitEdge(Vector2 graphPosition, float threshold, out SerializedId128 transitionId)
+        {
+            transitionId = default;
+            float best = threshold;
+            bool found = false;
+            foreach (EdgeHit hit in edgeHits)
+            {
+                float distance;
+                if (hit.IsLoop)
+                {
+                    distance = Mathf.Abs(Vector2.Distance(graphPosition, hit.LoopCenter) - hit.LoopRadius);
+                    // 回环中心区域也算命中（环内部点击）。
+                    if (Vector2.Distance(graphPosition, hit.LoopCenter) <= hit.LoopRadius)
+                    {
+                        distance = 0f;
+                    }
+                }
+                else if (hit.IsTriangle)
+                {
+                    distance = DistancePointToTriangle(graphPosition,
+                        hit.TriangleTip, hit.TriangleLeft, hit.TriangleRight);
+                }
+                else
+                {
+                    distance = DistancePointToSegment(graphPosition, hit.Start, hit.End);
+                }
+
+                if (distance <= best)
+                {
+                    best = distance;
+                    transitionId = hit.TransitionId;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        private static float DistancePointToTriangle(Vector2 point, Vector2 a, Vector2 b, Vector2 c)
+        {
+            float ab = Cross(b - a, point - a);
+            float bc = Cross(c - b, point - b);
+            float ca = Cross(a - c, point - c);
+            if ((ab >= 0f && bc >= 0f && ca >= 0f) || (ab <= 0f && bc <= 0f && ca <= 0f))
+                return 0f;
+            return Mathf.Min(DistancePointToSegment(point, a, b),
+                Mathf.Min(DistancePointToSegment(point, b, c), DistancePointToSegment(point, c, a)));
+        }
+
+        private static float Cross(Vector2 first, Vector2 second) => first.x * second.y - first.y * second.x;
+
+        private static float DistancePointToSegment(Vector2 point, Vector2 start, Vector2 end)
+        {
+            Vector2 segment = end - start;
+            float lengthSquared = segment.sqrMagnitude;
+            if (lengthSquared <= 0f)
+            {
+                return Vector2.Distance(point, start);
+            }
+
+            float t = Mathf.Clamp01(Vector2.Dot(point - start, segment) / lengthSquared);
+            return Vector2.Distance(point, start + segment * t);
+        }
+
+        // ── 指针交互（语义与既有测试逐条锚定） ────────────
+
+        private void BeginTransitionDrag(
+            SerializedId128 sourceStateId,
+            int pointerId,
+            Vector2 panelPosition)
+        {
+            if (!StateGraphAuthoringOperations.CanEdit(out _))
+            {
+                return;
+            }
+
+            if (transitionDragging || panning)
+            {
+                return;
+            }
+
+            transitionDragging = true;
+            transitionPointerId = pointerId;
+            transitionSourceStateId = sourceStateId;
+            transitionPointerPosition = ToGraphPosition(PanelToLocal(panelPosition));
+            transitionDragStartPanel = panelPosition;
+            this.CapturePointer(pointerId);
+            edgeLayer.MarkDirtyRepaint();
+        }
+
+        private void OnPointerDown(PointerDownEvent evt)
+        {
+            if (evt.target != this && evt.target != content && evt.target != edgeLayer)
+            {
+                return;
+            }
+
+            if (evt.button == 0)
+            {
+                // D8：左键点击边=选中 Transition；未命中维持现状（不启动任何手势）。
+                // 坐标用 panel→canvas 换算，与事件 target 无关（content 已不可拾取，
+                // 但保持 target 无关可防御任何子层命中路径；此前 evt.localPosition
+                // 在 content 命中时是图坐标，二次变换导致真实编辑器点不中——
+                // 测试直接发事件给 canvas 才碰巧正确）。
+                Vector2 clickGraph = ToGraphPosition(PanelToLocal(evt.position));
+                if (TryHitEdge(
+                        clickGraph,
+                        6f / Mathf.Max(CurrentView.Zoom, 0.01f),
+                        out SerializedId128 hitId))
+                {
+                    SelectEdgeOrShowMenu(hitId);
+                    evt.StopPropagation();
+                    return;
+                }
+
+                // 维护者裁决：点击画布空白处（未命中任何边）清除高亮/选中。
+                if (controller.Session.SelectedStateId.IsValid ||
+                    controller.Session.SelectedTransitionId.IsValid)
+                {
+                    controller.SelectState(default); // 同步清除 State/Transition 选中并全量刷新
+                    evt.StopPropagation();
+                }
+
+                return;
+            }
+
+            if (evt.button == 2)
+            {
+                if (panning || transitionDragging)
+                {
+                    return;
+                }
+
+                panning = true;
+                panPointerId = evt.pointerId;
+                panPointerStart = evt.position;
+                panStartView = CurrentView;
+                this.CapturePointer(evt.pointerId);
+                evt.StopPropagation();
+                return;
+            }
+
+            if (evt.button == 1)
+            {
+                TryRequestContext(ToGraphPosition(PanelToLocal(evt.position)));
+                evt.StopPropagation();
+            }
+        }
+
+        internal bool TryRequestContext(Vector2 graphPosition)
+        {
+            if (!StateGraphAuthoringOperations.CanEdit(out _))
+            {
+                return false;
+            }
+
+            ContextRequested?.Invoke(graphPosition);
+            return true;
+        }
+
+        private void OnPointerMove(PointerMoveEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                transitionPointerPosition = ToGraphPosition(PanelToLocal(evt.position));
+                edgeLayer.MarkDirtyRepaint();
+                evt.StopPropagation();
+                return;
+            }
+
+            if (!panning || evt.pointerId != panPointerId)
+            {
+                return;
+            }
+
+            Vector2 pan = panStartView.Pan + (Vector2)evt.position - panPointerStart;
+            SetView(new StateGraphCanvasView(pan, CurrentView.Zoom), save: false);
+            evt.StopPropagation();
+        }
+
+        private void OnPointerUp(PointerUpEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                transitionPointerPosition = ToGraphPosition(PanelToLocal(evt.position));
+                transitionDragging = false;
+                ReleaseCapturedPointer(transitionPointerId);
+                TryCompleteTransitionDrag(evt.position);
+                ResetTransitionDrag();
+                edgeLayer.MarkDirtyRepaint();
+                evt.StopPropagation();
+                return;
+            }
+
+            if (!panning || evt.pointerId != panPointerId)
+            {
+                return;
+            }
+
+            panning = false;
+            ReleaseCapturedPointer(panPointerId);
+            controller.Session.SetCanvasView(
+                controller.Session.SelectedLayerId,
+                default,
+                CurrentView);
+            controller.Session.Save();
+            panPointerId = 0;
+            panPointerStart = default;
+            panStartView = default;
+            evt.StopPropagation();
+        }
+
+        private void OnPointerCancel(PointerCancelEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                CancelTransitionDrag(releasePointer: true);
+                evt.StopPropagation();
+                return;
+            }
+
+            if (panning && evt.pointerId == panPointerId)
+            {
+                CancelPan(releasePointer: true);
+                evt.StopPropagation();
+            }
+        }
+
+        private void OnPointerCaptureOut(PointerCaptureOutEvent evt)
+        {
+            if (transitionDragging && evt.pointerId == transitionPointerId)
+            {
+                CancelTransitionDrag(releasePointer: false);
+                evt.StopPropagation();
+                return;
+            }
+
+            if (panning && evt.pointerId == panPointerId)
+            {
+                CancelPan(releasePointer: false);
+                evt.StopPropagation();
+            }
+        }
+
+        private void OnWheel(WheelEvent evt)
+        {
+            StateGraphCanvasView view = CurrentView;
+            float zoom = Mathf.Clamp(
+                view.Zoom * (evt.delta.y > 0f ? WheelZoomOutFactor : WheelZoomInFactor),
+                0.25f,
+                2f);
+            Vector2 pointer = PanelToLocal(evt.mousePosition);
+            Vector2 anchor = (pointer - view.Pan) / view.Zoom;
+            Vector2 pan = view.Pan + anchor * (view.Zoom - zoom);
+            SetView(new StateGraphCanvasView(pan, zoom), save: true);
+            evt.StopPropagation();
+        }
+
+        private StateGraphCanvasView CurrentView =>
+            controller.Session.GetCanvasView(
+                controller.Session.SelectedLayerId,
+                default);
+
+        private void SetView(StateGraphCanvasView view, bool save)
+        {
+            view = view.Clamp();
+            controller.Session.SetCanvasView(
+                controller.Session.SelectedLayerId,
+                default,
+                view);
+            ApplyView();
+            gridLayer.MarkDirtyRepaint();
+            if (save)
+            {
+                controller.Session.Save();
+            }
+        }
+
+        private void ApplyView()
+        {
+            StateGraphCanvasView view = CurrentView;
+            content.style.translate = new Translate(view.Pan.x, view.Pan.y, 0f);
+            content.style.scale = new Scale(new Vector3(view.Zoom, view.Zoom, 1f));
+            SyncZoomControls();
+        }
+
+        private Vector2 ToGraphPosition(Vector2 localPosition)
+        {
+            StateGraphCanvasView view = CurrentView;
+            return (localPosition - view.Pan) / view.Zoom;
+        }
+
+        private Vector2 PanelToLocal(Vector2 panelPosition) =>
+            panelPosition - worldBound.position;
+
+        private void TryCompleteTransitionDrag(Vector2 endPanelPosition)
+        {
+            SerializedId128 targetStateId = default;
+            foreach (KeyValuePair<SerializedId128, Rect> entry in stateRects)
+            {
+                if (entry.Value.Contains(transitionPointerPosition))
+                {
+                    targetStateId = entry.Key;
+                    break;
+                }
+            }
+
+            if (!targetStateId.IsValid ||
+                targetStateId == transitionSourceStateId ||
+                !visibleStates.TryGetValue(targetStateId, out StateGraphStateRecord target) ||
+                ReferenceEquals(target, controller.SelectedLayer.AnyState) ||
+                HasChildren(controller.SelectedLayer, target.StateId) ||
+                !StateId.TryCreate(
+                    transitionSourceStateId.High,
+                    transitionSourceStateId.Low,
+                    out StateId sourceId) ||
+                !StateId.TryCreate(targetStateId.High, targetStateId.Low, out StateId targetId))
+            {
+                // 维护者反馈：右键未拖拽（位移≈0）时弹卡片菜单（建子级/下钻），
+                // 而不是静默取消。
+                if ((endPanelPosition - transitionDragStartPanel).sqrMagnitude <= 25f)
+                {
+                    CardContextRequested?.Invoke(transitionSourceStateId);
+                }
+
+                return;
+            }
+
+            int priority = 0;
+            foreach (StateGraphTransitionRecord transition in controller.VisibleTransitions)
+            {
+                if (transition.SourceStateId == transitionSourceStateId)
+                {
+                    priority = Mathf.Max(priority, transition.Priority + 1);
+                }
+            }
+
+            controller.AddTransition(sourceId, targetId, priority, TransitionWindow.Always);
+        }
+
+        private void CancelTransitionDrag(bool releasePointer)
+        {
+            if (!transitionDragging)
+            {
+                return;
+            }
+
+            int pointerId = transitionPointerId;
+            transitionDragging = false;
+            if (releasePointer)
+            {
+                ReleaseCapturedPointer(pointerId);
+            }
+            else if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
+
+            ResetTransitionDrag();
+            edgeLayer.MarkDirtyRepaint();
+        }
+
+        private void ResetTransitionDrag()
+        {
+            transitionPointerId = 0;
+            transitionSourceStateId = default;
+            transitionPointerPosition = default;
+            transitionDragStartPanel = default;
+        }
+
+        private void CancelPan(bool releasePointer)
+        {
+            if (!panning)
+            {
+                return;
+            }
+
+            int pointerId = panPointerId;
+            panning = false;
+            SetView(panStartView, save: true);
+            if (releasePointer)
+            {
+                ReleaseCapturedPointer(pointerId);
+            }
+            else if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
+
+            panPointerId = 0;
+            panPointerStart = default;
+            panStartView = default;
+        }
+
+        private void ReleaseCapturedPointer(int pointerId)
+        {
+            if (this.HasPointerCapture(pointerId))
+            {
+                this.ReleasePointer(pointerId);
+            }
+        }
+
+        private static bool Matches(SerializedId128 id, TransitionId value) =>
+            value.IsValid && id.High == value.High && id.Low == value.Low;
+
+        private static bool Matches(SerializedId128 id, StateId value) =>
+            value.IsValid && id.High == value.High && id.Low == value.Low;
+
+        /// <summary>
+        /// 画布 State 卡（D9 谱系图）：双层描边——外描边=动态状态（首个类型：血统链
+        /// 选中高亮，与卡体 2px 偏移，可扩展更多外描边类型）；内描边=节点状态
+        /// （Initial/Default 分级）。拖动语义与既有交互测试逐条锚定，未改动。
+        /// </summary>
+        private sealed class StateGraphStateCard : VisualElement
+        {
+            private readonly StateGraphEditorController controller;
+            private readonly StateGraphStateRecord state;
+            private readonly Action<SerializedId128, Vector2, bool> moved;
+            private readonly Action<SerializedId128, int, Vector2> beginTransitionDrag;
+            private readonly Action<SerializedId128> cardContextRequested;
+            private readonly Action<SerializedId128> tidyRequested;
+            private Vector2 position;
+            private Vector2 pointerStart;
+            private Vector2 positionStart;
+            private int pointerId;
+            private bool dragging;
+            private bool hasMoved;
+
+            internal StateGraphStateCard(
+                StateGraphEditorController controller,
+                StateGraphStateRecord state,
+                Vector2 position,
+                bool inAncestryChain,
+                bool isOutgoingTarget,
+                Action<SerializedId128, Vector2, bool> moved,
+                Action<SerializedId128, int, Vector2> beginTransitionDrag,
+                Action<SerializedId128> cardContextRequested,
+                Action<SerializedId128> tidyRequested)
+            {
+                this.controller = controller;
+                this.state = state;
+                this.position = position;
+                this.moved = moved;
+                this.beginTransitionDrag = beginTransitionDrag;
+                this.cardContextRequested = cardContextRequested;
+                this.tidyRequested = tidyRequested;
+                name = "state-card";
+                style.position = Position.Absolute;
+                style.left = position.x;
+                style.top = position.y;
+                style.width = CardWidth;
+                style.height = GetCardHeight(controller.SelectedLayer, state.StateId);
+                AddToClassList("state-card");
+
+                // 外描边类型 1：血统链选中（自己+全部祖先；最高优先级）。
+                if (inAncestryChain)
+                {
+                    AddToClassList("state-card--ancestry");
+                }
+
+                if (isOutgoingTarget)
+                {
+                    AddToClassList("state-card--transition-target");
+                }
+
+                // 卡体：内描边承载节点状态（Initial/Default 分级、AnyState 常驻标识）。
+                var body = new VisualElement { name = "state-card-body" };
+                body.AddToClassList("state-card__body");
+                bool isAnyState = ReferenceEquals(state, controller.SelectedLayer?.AnyState);
+                if (isAnyState)
+                    body.AddToClassList("state-card__body--any-state");
+                if (IsInitial())
+                {
+                    bool isLayerInitial = !state.ParentStateId.IsValid;
+                    body.AddToClassList(isLayerInitial
+                        ? "state-card__body--initial-layer"
+                        : "state-card__body--initial-composite");
+                    string scopeName = isLayerInitial
+                        ? controller.SelectedLayer?.DisplayName ?? "Layer"
+                        : ParentDisplayName();
+                    var initialBadge = new Label($"{scopeName} Default");
+                    initialBadge.AddToClassList("state-card__initial-badge");
+                    initialBadge.AddToClassList(isLayerInitial
+                        ? "state-card__initial-badge--layer"
+                        : "state-card__initial-badge--composite");
+                    body.Add(initialBadge);
+                }
+
+                Add(body);
+
+                var title = new Label(isAnyState
+                    ? $"AnyState · {state.DisplayName}" : state.DisplayName);
+                title.AddToClassList("state-card__title");
+                body.Add(title);
+
+                // 三行信息：Name / State 编号（短，次小号淡色）/ Logic 名+编号（最小号）。
+                // 编号必须取 StateId（32 位十六进制）；SerializedId128.ToString()
+                // 是类型名（首 8 字符会是 "CoCoFlow"）。
+                var idLine = new Label(ShortId(ToStateId().ToString()));
+                idLine.AddToClassList("state-card__id");
+                body.Add(idLine);
+
+                string logicName = "Unassigned";
+                string logicShort = string.Empty;
+                if (StateDescriptorId.TryCreate(
+                        state.StateDescriptorId.High,
+                        state.StateDescriptorId.Low,
+                        out StateDescriptorId descriptorId) &&
+                    controller.Catalog != null &&
+                    controller.Catalog.TryGetStateDescriptor(descriptorId, out StateDescriptor descriptor))
+                {
+                    logicName = descriptor.LogicType.Name;
+                    logicShort = ShortId(descriptor.DescriptorId.ToString());
+                }
+
+                var logicLine = new Label(logicShort.Length > 0 ? $"{logicName}  [{logicShort}]" : logicName);
+                logicLine.AddToClassList("state-card__descriptor");
+                body.Add(logicLine);
+
+                if (HasChildren())
+                {
+                    int leafCount = CountDescendantLeaves();
+                    var leafBadge = new Label($"Leaf: {leafCount}");
+                    leafBadge.AddToClassList("state-card__leaf-count");
+                    leafBadge.tooltip = CoCoEditorLocalization.Text(
+                        "Leaf states in this subtree",
+                        "该子树内的叶状态数量");
+                    body.Add(leafBadge);
+
+                    var tidy = new Button(() => tidyRequested(state.StateId))
+                    {
+                        text = CoCoEditorLocalization.Text("Tidy Subtree", "整理子级"),
+                        tooltip = CoCoEditorLocalization.Text(
+                            "Arrange all descendants as an evenly spaced genealogy tree",
+                            "把全部后代按等距谱系树重新排布")
+                    };
+                    tidy.AddToClassList("state-card__tidy");
+                    body.Add(tidy);
+                    bool collapsed = controller.Session.IsCanvasCollapsed(ToStateId());
+                    var collapse = new Button(() => controller.ToggleCanvasCollapsed(ToStateId()))
+                    {
+                        name = "state-card-collapse",
+                        text = collapsed ? CoCoEditorLocalization.Text("Expand Subtree", "展开子机")
+                            : CoCoEditorLocalization.Text("Collapse Subtree", "收起子机"),
+                        tooltip = CoCoEditorLocalization.Text(
+                            "Hide or show descendants without changing the graph",
+                            "隐藏或显示后代，不改变图的状态与转移")
+                    };
+                    collapse.AddToClassList("state-card__collapse");
+                    body.Add(collapse);
+                }
+
+                tooltip = CoCoEditorLocalization.Text(
+                    HasChildren()
+                        ? "Composite (sub-state machine): drag to move the subtree"
+                        : "Right-drag to another leaf State to add an Always Transition",
+                    HasChildren()
+                        ? "Composite（子状态机）：拖动可移动整棵子树"
+                        : "右键拖拽到另一个叶子 State 添加 Always Transition");
+
+                RegisterCallback<PointerDownEvent>(OnPointerDown);
+                RegisterCallback<PointerMoveEvent>(OnPointerMove);
+                RegisterCallback<PointerUpEvent>(OnPointerUp);
+                RegisterCallback<PointerCancelEvent>(OnPointerCancel);
+                RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
+            }
+
+            /// <summary>画布侧同步绝对位置（子树联动拖拽；卡片自身拖动仍走 style.left/top）。</summary>
+            internal void SetCanvasPosition(Vector2 absolute)
+            {
+                position = absolute;
+                style.left = absolute.x;
+                style.top = absolute.y;
+            }
+
+            private void OnPointerDown(PointerDownEvent evt)
+            {
+                // 维护者反馈 4：右键从 State 卡拖拽 → 目标叶子 State 建 Always Transition
+                // （替代已移除的左侧连接点；背景右键仍是上下文菜单）。
+                // 复合卡右键（无拖拽语义）直接弹卡片菜单；叶子卡拖拽后若位移≈0 也弹菜单。
+                if (evt.button == 1)
+                {
+                    if (!HasChildren())
+                    {
+                        beginTransitionDrag(state.StateId, evt.pointerId, evt.position);
+                    }
+                    else
+                    {
+                        cardContextRequested(state.StateId);
+                    }
+
+                    evt.StopPropagation();
+                    return;
+                }
+
+                if (evt.button != 0 || dragging)
+                {
+                    return;
+                }
+
+                if (!StateGraphAuthoringOperations.CanEdit(out _))
+                {
+                    controller.SelectState(ToStateId());
+                    evt.StopPropagation();
+                    return;
+                }
+
+                dragging = true;
+                hasMoved = false;
+                pointerId = evt.pointerId;
+                pointerStart = evt.position;
+                positionStart = position;
+                this.CapturePointer(evt.pointerId);
+                evt.StopPropagation();
+            }
+
+            private void OnPointerMove(PointerMoveEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                float zoom = controller.Session.GetCanvasView(
+                    controller.Session.SelectedLayerId,
+                    default).Zoom;
+                Vector2 delta = ((Vector2)evt.position - pointerStart) / zoom;
+                if (!hasMoved && delta.sqrMagnitude <= 4f)
+                {
+                    return;
+                }
+
+                hasMoved = true;
+                position = positionStart + delta;
+                style.left = position.x;
+                style.top = position.y;
+                moved(state.StateId, position, false);
+                evt.StopPropagation();
+            }
+
+            private void OnPointerUp(PointerUpEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                dragging = false;
+                ReleaseCapturedPointer();
+                if (hasMoved)
+                {
+                    moved(state.StateId, position, true);
+                }
+
+                controller.SelectState(ToStateId());
+                evt.StopPropagation();
+            }
+
+            private void OnPointerCancel(PointerCancelEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                CancelDrag(releasePointer: true);
+                evt.StopPropagation();
+            }
+
+            private void OnPointerCaptureOut(PointerCaptureOutEvent evt)
+            {
+                if (!dragging || evt.pointerId != pointerId)
+                {
+                    return;
+                }
+
+                CancelDrag(releasePointer: false);
+                evt.StopPropagation();
+            }
+
+            private void CancelDrag(bool releasePointer)
+            {
+                int capturedPointerId = pointerId;
+                dragging = false;
+                if (releasePointer)
+                {
+                    ReleaseCapturedPointer();
+                }
+
+                if (hasMoved)
+                {
+                    position = positionStart;
+                    style.left = position.x;
+                    style.top = position.y;
+                    moved(state.StateId, position, false);
+                }
+
+                hasMoved = false;
+                pointerId = 0;
+                pointerStart = default;
+                positionStart = default;
+                if (!releasePointer && this.HasPointerCapture(capturedPointerId))
+                {
+                    this.ReleasePointer(capturedPointerId);
+                }
+            }
+
+            private void ReleaseCapturedPointer()
+            {
+                if (this.HasPointerCapture(pointerId))
+                {
+                    this.ReleasePointer(pointerId);
+                }
+            }
+
+            private string ParentDisplayName()
+            {
+                StateGraphLayerRecord layer = controller.SelectedLayer;
+                StateGraphStateRecord parent = layer == null
+                    ? null
+                    : FindStateRecord(layer, state.ParentStateId);
+                return parent != null ? parent.DisplayName : "?";
+            }
+
+            private int CountDescendantLeaves()
+            {
+                StateGraphLayerRecord layer = controller.SelectedLayer;
+                if (layer == null)
+                {
+                    return 0;
+                }
+
+                int CountChildren(SerializedId128 parentId, HashSet<SerializedId128> visited)
+                {
+                    int leaves = 0;
+                    foreach (StateGraphStateRecord candidate in layer.States)
+                    {
+                        if (candidate == null || candidate.ParentStateId != parentId)
+                        {
+                            continue;
+                        }
+
+                        bool hasChildren = false;
+                        foreach (StateGraphStateRecord grandchild in layer.States)
+                        {
+                            if (grandchild != null && grandchild.ParentStateId == candidate.StateId)
+                            {
+                                hasChildren = true;
+                                break;
+                            }
+                        }
+
+                        if (!hasChildren)
+                        {
+                            leaves++;
+                        }
+                        else if (visited.Add(candidate.StateId))
+                        {
+                            leaves += CountChildren(candidate.StateId, visited);
+                        }
+                    }
+
+                    return leaves;
+                }
+
+                return CountChildren(state.StateId, new HashSet<SerializedId128>());
+            }
+
+            private bool IsInitial()
+            {
+                StateGraphLayerRecord layer = controller.SelectedLayer;
+                if (layer == null)
+                {
+                    return false;
+                }
+
+                SerializedId128 initial = state.ParentStateId.IsValid
+                    ? FindState(layer, state.ParentStateId)?.InitialChildStateId ?? default
+                    : layer.InitialStateId;
+                return initial == state.StateId;
+            }
+
+            private bool HasChildren()
+            {
+                StateGraphLayerRecord layer = controller.SelectedLayer;
+                if (layer == null)
+                {
+                    return false;
+                }
+
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.ParentStateId == state.StateId)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            private StateId ToStateId()
+            {
+                StateId.TryCreate(state.StateId.High, state.StateId.Low, out StateId result);
+                return result;
+            }
+
+            private static string ShortId(string value) =>
+                string.IsNullOrEmpty(value) || value.Length <= 8 ? value : value.Substring(0, 8);
+
+            private static StateGraphStateRecord FindState(
+                StateGraphLayerRecord layer,
+                SerializedId128 stateId)
+            {
+                foreach (StateGraphStateRecord candidate in layer.States)
+                {
+                    if (candidate != null && candidate.StateId == stateId)
+                    {
+                        return candidate;
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        private static float GetCardHeight(StateGraphLayerRecord layer, SerializedId128 stateId) =>
+            HasChildren(layer, stateId) ? CompositeCardHeight : CardHeight;
+
+        private static bool HasChildren(
+            StateGraphLayerRecord layer,
+            SerializedId128 stateId)
+        {
+            if (layer == null)
+            {
+                return false;
+            }
+
+            foreach (StateGraphStateRecord candidate in layer.States)
+            {
+                if (candidate != null && candidate.ParentStateId == stateId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+}

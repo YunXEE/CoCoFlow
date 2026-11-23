@@ -1,0 +1,117 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4123cdeecc154cdca56d605fc6bfaad8, type: 3}
+  m_Name: P003FrozenAuthor
+  m_EditorClassIdentifier: CoCoFlow.Runtime.Core.StateGraphAuthoring::CoCoFlow.Runtime.Core.CoCoStateGraphAsset
+  schemaVersion: 1
+  graphId:
+    high: 15787957542833692284
+    low: 1907878833814873950
+  assetGuidStamp: e913b0553c26740788e8bbc9c4f44009
+  layers:
+  - layerId:
+      high: 10774737363547677651
+      low: 11877821728524830213
+    displayName: Base
+    initialStateId:
+      high: 5716828329166181827
+      low: 14049133038961520021
+    states:
+    - stateId:
+        high: 5716828329166181827
+        low: 14049133038961520021
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: Walk12
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 9387610162433206127
+      config:
+        rid: 7613975610300563459
+      initialChildStateId:
+        high: 0
+        low: 0
+    - stateId:
+        high: 3484512922198592418
+        low: 11367226640204853492
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: Walk13
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 9387610162433206127
+      config:
+        rid: 7613975610300563459
+      initialChildStateId:
+        high: 0
+        low: 0
+    anyState:
+      rid: 7613975599165210624
+    transitions:
+    - transitionId:
+        high: 5168424471031247096
+        low: 13727467467222256610
+      sourceStateId:
+        high: 5716828329166181827
+        low: 14049133038961520021
+      targetStateId:
+        high: 3484512922198592418
+        low: 11367226640204853492
+      priority: 3
+      conditions:
+      - conditionDescriptorId:
+          high: 0
+          low: 0
+        config:
+          rid: 7613975610300563460
+      windowMode: 1
+      windowStartInclusive: 0
+      windowEndExclusive: 0
+  eventAdapterDeclarations: []
+  editorLayout:
+    version: 1
+    statePositions: []
+  references:
+    version: 2
+    RefIds:
+    - rid: 7613975599165210624
+      type: {class: CoCoStateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraphHost, asm: CoCoFlow.Runtime.StateGraphHost}
+      data:
+        stateId:
+          high: 7786283382773393927
+          low: 17716778046641713105
+        parentStateId:
+          high: 0
+          low: 0
+        displayName: Before AnyState
+        stateDescriptorId:
+          high: 4850169331680821588
+          low: 9387610162433206127
+        config:
+          rid: 7613975610300563458
+        initialChildStateId:
+          high: 0
+          low: 0
+    - rid: 7613975610300563458
+      type: {class: EmptyStateConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data: 
+    - rid: 7613975610300563459
+      type: {class: CoCoFieldConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data:
+        Values:
+        - Distance=2.5
+        - Enabled=True
+    - rid: 7613975610300563460
+      type: {class: CoCoEmptyConditionConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data: 

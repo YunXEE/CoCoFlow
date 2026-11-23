@@ -3,12 +3,10 @@
     "rootNamespace": "CoCoFlow.Tests.Editor.StateGraphHost",
     "references": [
         "CoCoFlow.Editor.StateGraphHost",
-        "CoCoFlow.Editor.Common",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
+        "CoCoFlow.Editor.Core",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost",
-        "CoCoFlow.Runtime.Core.StateGraphAuthoring",
-        "CoCoFlow.Runtime.Core.StateGraph",
         "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures"
     ],
     "includePlatforms": [

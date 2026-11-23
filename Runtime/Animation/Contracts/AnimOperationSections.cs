@@ -1,9 +1,11 @@
 ﻿using System;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Animation.Contracts
 {
-    public interface IAnimParameterOperationSection : ICoCoOperationSection
+    [OperationSection(OperationSectionMode.Continuous)]
+    public interface IAnimParameterOperationSection : IOperationSection
     {
         AnimParameterCommand Slot00 { get; set; }
         AnimParameterCommand Slot01 { get; set; }
@@ -23,7 +25,8 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         AnimParameterCommand Slot15 { get; set; }
     }
 
-    public interface IAnimTriggerOperationSection : ICoCoOperationSection
+    [OperationSection(OperationSectionMode.Discrete)]
+    public interface IAnimTriggerOperationSection : IOperationSection
     {
         AnimTriggerCommand Slot00 { get; set; }
         AnimTriggerCommand Slot01 { get; set; }
@@ -37,12 +40,12 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
     public sealed class AnimParameterOperationSectionView : IAnimParameterOperationSection
     {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<AnimParameterCommand>[] _fields;
+        private readonly OperationSectionReader _reader;
+        private readonly OperationSectionField<AnimParameterCommand>[] _fields;
 
         internal AnimParameterOperationSectionView(
-            CoCoOperationSectionReader reader,
-            CoCoOperationSectionField<AnimParameterCommand>[] fields)
+            OperationSectionReader reader,
+            OperationSectionField<AnimParameterCommand>[] fields)
         {
             _reader = reader ?? throw new ArgumentNullException(nameof(reader));
             _fields = fields ?? throw new ArgumentNullException(nameof(fields));
@@ -70,12 +73,12 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
     public sealed class AnimTriggerOperationSectionView : IAnimTriggerOperationSection
     {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<AnimTriggerCommand>[] _fields;
+        private readonly OperationSectionReader _reader;
+        private readonly OperationSectionField<AnimTriggerCommand>[] _fields;
 
         internal AnimTriggerOperationSectionView(
-            CoCoOperationSectionReader reader,
-            CoCoOperationSectionField<AnimTriggerCommand>[] fields)
+            OperationSectionReader reader,
+            OperationSectionField<AnimTriggerCommand>[] fields)
         {
             _reader = reader ?? throw new ArgumentNullException(nameof(reader));
             _fields = fields ?? throw new ArgumentNullException(nameof(fields));
@@ -94,16 +97,16 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     }
 
     public sealed class AnimParameterOperationSectionViewFactory :
-        ICoCoOperationSectionViewFactory<IAnimParameterOperationSection>
+        IOperationSectionViewFactory<IAnimParameterOperationSection>
     {
-        private CoCoOperationSectionField<AnimParameterCommand>[] _fields;
+        private OperationSectionField<AnimParameterCommand>[] _fields;
 
-        public CoCoOperationSectionHandle<IAnimParameterOperationSection> Handle { get; private set; }
+        public OperationSectionHandle<IAnimParameterOperationSection> Handle { get; private set; }
 
         public IAnimParameterOperationSection Create(
-            in CoCoOperationSectionViewContext<IAnimParameterOperationSection> context)
+            in OperationSectionViewContext<IAnimParameterOperationSection> context)
         {
-            CoCoOperationSectionField<AnimParameterCommand>[] fields =
+            OperationSectionField<AnimParameterCommand>[] fields =
                 AnimOperationFieldResolver.Resolve<
                     IAnimParameterOperationSection,
                     AnimParameterCommand>(
@@ -116,7 +119,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public bool TryGetField(
             int lane,
-            out CoCoOperationSectionField<AnimParameterCommand> field)
+            out OperationSectionField<AnimParameterCommand> field)
         {
             if (_fields == null || lane < 0 || lane >= _fields.Length)
             {
@@ -130,16 +133,16 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     }
 
     public sealed class AnimTriggerOperationSectionViewFactory :
-        ICoCoOperationSectionViewFactory<IAnimTriggerOperationSection>
+        IOperationSectionViewFactory<IAnimTriggerOperationSection>
     {
-        private CoCoOperationSectionField<AnimTriggerCommand>[] _fields;
+        private OperationSectionField<AnimTriggerCommand>[] _fields;
 
-        public CoCoOperationSectionHandle<IAnimTriggerOperationSection> Handle { get; private set; }
+        public OperationSectionHandle<IAnimTriggerOperationSection> Handle { get; private set; }
 
         public IAnimTriggerOperationSection Create(
-            in CoCoOperationSectionViewContext<IAnimTriggerOperationSection> context)
+            in OperationSectionViewContext<IAnimTriggerOperationSection> context)
         {
-            CoCoOperationSectionField<AnimTriggerCommand>[] fields =
+            OperationSectionField<AnimTriggerCommand>[] fields =
                 AnimOperationFieldResolver.Resolve<
                     IAnimTriggerOperationSection,
                     AnimTriggerCommand>(
@@ -152,7 +155,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
         public bool TryGetField(
             int lane,
-            out CoCoOperationSectionField<AnimTriggerCommand> field)
+            out OperationSectionField<AnimTriggerCommand> field)
         {
             if (_fields == null || lane < 0 || lane >= _fields.Length)
             {
@@ -180,20 +183,20 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         public AnimTriggerOperationSectionViewFactory Triggers { get; }
 
         public static bool TryCreateParameterRequirement(
-            out CoCoOperationSectionRequirement requirement,
+            out OperationSectionRequirement requirement,
             out CoCoDiagnostic diagnostic) =>
-            CoCoOperationSectionRequirement.TryCreate<IAnimParameterOperationSection>(
+            OperationSectionRequirement.TryCreate<IAnimParameterOperationSection>(
                 AnimContractIds.ParameterSectionId,
-                CoCoOperationSectionMode.Continuous,
+                OperationSectionMode.Continuous,
                 out requirement,
                 out diagnostic);
 
         public static bool TryCreateTriggerRequirement(
-            out CoCoOperationSectionRequirement requirement,
+            out OperationSectionRequirement requirement,
             out CoCoDiagnostic diagnostic) =>
-            CoCoOperationSectionRequirement.TryCreate<IAnimTriggerOperationSection>(
+            OperationSectionRequirement.TryCreate<IAnimTriggerOperationSection>(
                 AnimContractIds.TriggerSectionId,
-                CoCoOperationSectionMode.Discrete,
+                OperationSectionMode.Discrete,
                 out requirement,
                 out diagnostic);
 
@@ -201,10 +204,10 @@ namespace CoCoFlow.Runtime.Animation.Contracts
 
     internal static class AnimOperationFieldResolver
     {
-        public static CoCoOperationSectionField<TValue>[] Resolve<TSection, TValue>(
-            in CoCoOperationSectionViewContext<TSection> context,
+        public static OperationSectionField<TValue>[] Resolve<TSection, TValue>(
+            in OperationSectionViewContext<TSection> context,
             int fieldCount)
-            where TSection : class, ICoCoOperationSection
+            where TSection : class, IOperationSection
             where TValue : unmanaged
         {
             if (!context.IsValid || fieldCount <= 0)
@@ -213,7 +216,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
                     "Animation Operation Section view context is invalid.");
             }
 
-            var fields = new CoCoOperationSectionField<TValue>[fieldCount];
+            var fields = new OperationSectionField<TValue>[fieldCount];
             for (int index = 0; index < fields.Length; index++)
             {
                 if (!context.TryGetField(index, out fields[index]))

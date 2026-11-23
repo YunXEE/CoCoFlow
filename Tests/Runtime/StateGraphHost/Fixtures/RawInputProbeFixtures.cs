@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
@@ -11,9 +12,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public sealed class RawInputProbeCapture
     {
         public static List<RawInputRecord> Records;
+        public static bool RejectAfterReading;
     }
 
-    public struct RawInputProbeReducer : ICoCoIntentReducer<InputIntentData>
+    public struct RawInputProbeReducer : IIntentReducer<InputIntentData>
     {
         public InputIntentData Reduce(
             in InputIntentData current,
@@ -21,26 +23,26 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     }
 
     public sealed class RawInputProbeReducerFactory :
-        ICoCoIntentReducerFactory<InputIntentData, RawInputProbeReducer>
+        IIntentReducerFactory<InputIntentData, RawInputProbeReducer>
     {
         public RawInputProbeReducer Create(
-            CoCoGraphInstanceId graphInstanceId) => default;
+            GraphInstanceId graphInstanceId) => default;
     }
 
     public sealed class RawInputProbeLogic :
-        CoCoStateLogic,
-        ICoCoStateUpdate
+        StateLogic,
+        IStateUpdate
     {
-        private readonly CoCoIntentHandle<InputIntentData> _intent;
+        private readonly IntentHandle<InputIntentData> _intent;
 
         public RawInputProbeLogic(
-            CoCoStateFactoryContext context,
-            CoCoIntentHandle<InputIntentData> intent)
+            StateFactoryContext context,
+            IntentHandle<InputIntentData> intent)
         {
             _intent = intent;
         }
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             if (_intent.IsValid &&
                 context.Intents != null &&
@@ -58,21 +60,24 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                         RawInputProbeCapture.Records.Add(record);
                     }
                 }
+                if (RawInputProbeCapture.RejectAfterReading)
+                    throw new System.InvalidOperationException("Input probe rejects this sampled tick.");
+
             }
         }
     }
 
     [System.Serializable]
-    public sealed class RawInputProbeConfig : CoCoStateConfig { }
+    public sealed class RawInputProbeConfig : StateConfig { }
 
-    public readonly struct RawInputProbeConfigSchema : ICoCoFrozenConfigSchema { }
+    public readonly struct RawInputProbeConfigSchema : IFrozenConfigSchema { }
 
     public sealed class RawInputProbeConfigFreezer :
-        ICoCoConfigFreezer<RawInputProbeConfig, RawInputProbeConfigSchema>
+        IConfigFreezer<RawInputProbeConfig, RawInputProbeConfigSchema>
     {
         public bool TryFreeze(
             RawInputProbeConfig source,
-            CoCoFrozenConfigWriter<RawInputProbeConfigSchema> writer,
+            FrozenConfigWriter<RawInputProbeConfigSchema> writer,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = source != null
@@ -90,20 +95,20 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         static RawInputProbeSchemas()
         {
             var builder =
-                new CoCoFrozenConfigSchemaBuilder<RawInputProbeConfigSchema>();
+                new FrozenConfigSchemaBuilder<RawInputProbeConfigSchema>();
             _ = builder.TryFreeze(
-                out CoCoFrozenConfigSchema<RawInputProbeConfigSchema> schema,
+                out FrozenConfigSchema<RawInputProbeConfigSchema> schema,
                 out _);
             State = schema;
         }
 
-        public static readonly CoCoFrozenConfigSchema<RawInputProbeConfigSchema> State;
+        public static readonly FrozenConfigSchema<RawInputProbeConfigSchema> State;
     }
 
-    public sealed class RawInputProbeMemory : CoCoActivationMemory { }
+    public sealed class RawInputProbeMemory : ActivationMemory { }
 
     public sealed class RawInputProbeMemoryBinding :
-        ICoCoActivationMemoryStateBinding<RawInputProbeMemory, int>
+        IActivationMemoryStateBinding<RawInputProbeMemory, int>
     {
         public const ulong Fingerprint = 51457UL;
 

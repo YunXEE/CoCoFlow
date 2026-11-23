@@ -148,7 +148,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 var plan = new RegionCompiledPlan(
                     regionId,
                     ProfileId("tests.profile.chunks"),
-                    CoCoRegionProfile.CurrentSchemaVersion,
+                    RegionProfile.CurrentSchemaVersion,
                     TestTiers(),
                     new[]
                     {
@@ -684,7 +684,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 var wildernessPlan = new RegionCompiledPlan(
                     wildernessId,
                     ProfileId("tests.profile.wilderness"),
-                    CoCoRegionProfile.CurrentSchemaVersion,
+                    RegionProfile.CurrentSchemaVersion,
                     TestTiers(),
                     Array.Empty<RegionCompiledChunk>(),
                     new[]
@@ -699,7 +699,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
                 var castlePlan = new RegionCompiledPlan(
                     castleId,
                     ProfileId("tests.profile.castle"),
-                    CoCoRegionProfile.CurrentSchemaVersion,
+                    RegionProfile.CurrentSchemaVersion,
                     TestTiers(),
                     Array.Empty<RegionCompiledChunk>(),
                     new[]
@@ -3076,7 +3076,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             var plan = new RegionCompiledPlan(
                 regionId,
                 ProfileId("tests.profile.default"),
-                CoCoRegionProfile.CurrentSchemaVersion,
+                RegionProfile.CurrentSchemaVersion,
                 TestTiers(),
                 Array.Empty<RegionCompiledChunk>(),
                 nodes,
@@ -3279,7 +3279,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             new RegionCompiledPlan(
                 regionId,
                 ProfileId("profile." + fingerprint),
-                CoCoRegionProfile.CurrentSchemaVersion,
+                RegionProfile.CurrentSchemaVersion,
                 TestTiers(),
                 Array.Empty<RegionCompiledChunk>(),
                 nodes,

@@ -1,9 +1,8 @@
 {
     "name": "CoCoFlow.Tests.Editor.Core",
-    "rootNamespace": "CoCoFlow.Editor.Core.Tests",
+    "rootNamespace": "CoCoFlow.Tests.Editor.Core",
     "references": [
         "CoCoFlow.Editor.Core",
-        "CoCoFlow.Editor.Common",
         "CoCoFlow.Runtime.Core"
     ],
     "includePlatforms": [

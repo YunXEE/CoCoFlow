@@ -3,7 +3,7 @@
 > Runtime contract baseline: `0.4.0` · Updated 2026-08-29
 
 Temporal Rewind is a same-session, single-Actor facility owned by one
-`CoCoStateGraphHost`. It records bounded projections of successful Context
+`StateGraphHost`. It records bounded projections of successful Context
 commits, previews history without changing logical authority, and performs one
 formal Restore into a new TimelineEpoch when the caller confirms.
 
@@ -106,7 +106,7 @@ mutable history. Each Host owns its Ring, cursor, binding, and orchestration.
 The public Host surface is synchronous:
 
 ```text
-CoCoTemporalState TemporalState
+TemporalState TemporalState
 bool TryBeginTemporalPreview(out CoCoDiagnostic diagnostic)
 bool TryPreviewTemporal(int historyDepth, out CoCoDiagnostic diagnostic)
 bool TryConfirmTemporalRestore(out CoCoDiagnostic diagnostic)
@@ -114,7 +114,7 @@ bool TryCancelTemporalPreview(out CoCoDiagnostic diagnostic)
 bool TryCorrectWorld(out CoCoDiagnostic diagnostic)
 ```
 
-`CoCoTemporalState` exposes Mode, Capacity, Count, PreviewDepth, immutable
+`TemporalState` exposes Mode, Capacity, Count, PreviewDepth, immutable
 current/preview metadata, rewind/restore dropped-input count, and whether the
 selection can Confirm. It does not expose mutable Frames, payload buffers,
 prepared candidates, arena handles, or long-lived history tokens.
@@ -154,10 +154,10 @@ Suspended state.
 An enabled Temporal Host references exactly one component implementing:
 
 ```csharp
-public interface ICoCoContextRestoreBinding
+public interface IContextRestoreBinding
 {
     bool TryApply(
-        in CoCoContextRestoreBindingContext context,
+        in ContextRestoreBindingContext context,
         out CoCoDiagnostic diagnostic);
 }
 ```
@@ -172,7 +172,7 @@ invalid, destroyed, or out-of-boundary component is ignored in that mode; one
 valid in-boundary binding may still be retained solely so `TryCorrectWorld` can
 repair Unity after a non-Temporal Tick failure that may have dirtied the world.
 
-The callback receives a read-only, token-scoped `CoCoContextRestoreReader`.
+The callback receives a read-only, token-scoped `ContextRestoreReader`.
 It can read the fully materialized policy-effective candidate, including Layout
 defaults and rebuilt Derived values. The reader expires when the callback
 returns; storing it does not retain a Frame or candidate.
@@ -225,7 +225,7 @@ validate source and selection generation
   -> materialize Stored + Default + Derived Context candidate
   -> prepare Graph Path/Memory + Clock + Claim
   -> prepare new-Epoch history branch head and mailbox switch
-  -> ICoCoContextRestoreBinding.TryApply(Confirm)
+  -> IContextRestoreBinding.TryApply(Confirm)
   -> no-fail authority exchange
 ```
 
@@ -310,13 +310,13 @@ available through retained committed ownership, the callback fails through the
 existing world-correction contract rather than causing hidden streaming.
 
 Barrier release schedules, but does not synchronously run, transition work.
-`CoCoMapHost.LateUpdate` dispatches only the final resolution for each dirty
+`MapHost.LateUpdate` dispatches only the final resolution for each dirty
 Region after the callback stack returns, and nested dependency recomputation is
 coalesced into that same flush. Confirm branch truncation therefore queues
 retention decreases until they cannot invalidate a live decorator chain.
 
 The optional Pool decorator projects whether an adopted
-`CoCoTemporalEntityId` is physically present; the Context projection remains
+`TemporalEntityId` is physically present; the Context projection remains
 authoritative for gameplay values.
 
 Each decorator freezes the downstream Restore component at Host attach: whether
@@ -336,7 +336,7 @@ neither product module gains a reverse dependency on the other.
 
 The identity and storage boundaries stay separate:
 
-- `CoCoTemporalEntityId` is a pure Core Contracts value.
+- `TemporalEntityId` is a pure StateGraph value.
 - The sidecar keeps a Host-scoped, fixed-capacity presence history aligned with
   the Host history window.
 - History stores no GameObject, Component, `PooledHandle`, `ContentLease`,

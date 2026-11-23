@@ -179,7 +179,7 @@ namespace CoCoFlow.Tests.Runtime.Map.Addressables
                 Assert.That(
                     scene.IsValid() && scene.isLoaded,
                     Is.True);
-                CoCoRegionChunkAnchor anchor =
+                RegionChunkAnchor anchor =
                     FindUniqueAnchor(scene);
                 Assert.That(
                     anchor.TryValidateColdStart(
@@ -253,19 +253,19 @@ namespace CoCoFlow.Tests.Runtime.Map.Addressables
             return reference;
         }
 
-        private static CoCoRegionChunkAnchor FindUniqueAnchor(
+        private static RegionChunkAnchor FindUniqueAnchor(
             Scene scene)
         {
-            CoCoRegionChunkAnchor anchor = null;
+            RegionChunkAnchor anchor = null;
             GameObject[] roots = scene.GetRootGameObjects();
             for (int rootIndex = 0;
                  rootIndex < roots.Length;
                  rootIndex++)
             {
-                CoCoRegionChunkAnchor[] matches =
+                RegionChunkAnchor[] matches =
                     roots[rootIndex]
                         .GetComponentsInChildren<
-                            CoCoRegionChunkAnchor>(true);
+                            RegionChunkAnchor>(true);
                 for (int index = 0;
                      index < matches.Length;
                      index++)

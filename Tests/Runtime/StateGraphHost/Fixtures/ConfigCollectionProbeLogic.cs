@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
@@ -22,8 +22,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public ConfigCollectionTiming timing;
     }
 
-    [CoCoState("ConfigCollectionProbe")]
-    public sealed class ConfigCollectionProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("ConfigCollectionProbe")]
+    public sealed class ConfigCollectionProbeLogic : StateLogic, IStateUpdate
     {
         [Config] public float Speed = 6f;
         [Config] public ConfigCollectionWindow Window;
@@ -36,7 +36,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         [Config] public int[] Optional;
         public static readonly List<ConfigCollectionProbeLogic> Seen = new List<ConfigCollectionProbeLogic>();
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             if (!Seen.Contains(this)) Seen.Add(this);
         }

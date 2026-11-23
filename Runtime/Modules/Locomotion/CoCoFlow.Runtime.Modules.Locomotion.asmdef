@@ -3,9 +3,8 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Locomotion",
     "references": [
         "CoCoFlow.Runtime.Locomotion.Contracts",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow",
-        "CoCoFlow.Runtime.Core.StateGraph",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost"
     ],
     "includePlatforms": [],

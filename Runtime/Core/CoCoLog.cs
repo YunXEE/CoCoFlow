@@ -24,6 +24,9 @@ namespace CoCoFlow.Runtime.Core
     {
         private static readonly Dictionary<string, (string Module, string Class)> PathCache = new Dictionary<string, (string, string)>();
 
+        internal static Action<string> WarningSink { get; set; }
+        internal static Action<string> ErrorSink { get; set; }
+
         #region Public API
 
         /// <summary>
@@ -46,7 +49,7 @@ namespace CoCoFlow.Runtime.Core
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(CoCoLogLevel.Warning, message, info);
 
-            UnityEngine.Debug.LogWarning($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
+            WarningSink?.Invoke($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
 
         /// <summary>
@@ -57,7 +60,7 @@ namespace CoCoFlow.Runtime.Core
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(CoCoLogLevel.Error, message, info);
 
-            UnityEngine.Debug.LogError($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
+            ErrorSink?.Invoke($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
 
         #endregion

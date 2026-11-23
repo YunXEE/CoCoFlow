@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.StateGraph;
+using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Input;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
@@ -11,6 +13,8 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     /// <summary>
     /// C4 end-to-end: InputReader -> InputIntent -> IntentFrame ->
     /// StateGraph (one Idle state) -> RawInputProbeLogic captures records.
@@ -18,6 +22,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// </summary>
     public sealed class RawInputEndToEndPlayModeTests : InputTestFixture
     {
+        private const string SubmitAction = "Submit";
         private static readonly ulong High = 0x524157494E505242UL; // "RAWINPRB"
 
         private readonly List<Object> _objects = new List<Object>();
@@ -26,7 +31,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
         }
 
         [TearDown]
@@ -40,35 +45,38 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
+            RawInputProbeCapture.RejectAfterReading = false;
             RawInputProbeCapture.Records = null;
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
         }
 
         [UnityTest]
         public IEnumerator ReaderRawIntentFlowsIntoStateLogicPerTick()
         {
-            CoCoIntentId intentId = MakeIntentId(1);
-            CoCoStateDescriptorId descriptorId = MakeDescriptorId(1);
+            IntentId intentId = MakeIntentId(1);
+            StateDescriptorId descriptorId = MakeDescriptorId(1);
 
             var provider = new ProbeProvider(intentId, descriptorId);
-            Require(CoCoStateGraphProjectBindings.TryInstall(
+            Require(StateGraphProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic installDiagnostic));
 
-            CoCoStateGraphAsset asset = CreateSingleStateAsset(intentId, descriptorId);
+            StateGraphAsset asset = CreateSingleStateAsset(intentId, descriptorId);
             Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
 
             var gameObject = new GameObject("RawInputE2E");
             _objects.Add(gameObject);
             var playerInput = gameObject.AddComponent<PlayerInput>();
-            playerInput.actions = CreateActions();
+            InputActionAsset actions = CreateActions();
+            _objects.Add(actions);
+            playerInput.actions = actions;
             playerInput.defaultActionMap = "Player";
             var reader = gameObject.AddComponent<InputReader>();
             var input = gameObject.AddComponent<InputIntent>();
             input.SetReader(reader);
-            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            var host = gameObject.AddComponent<StateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
-            SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[] { input });
 
@@ -81,50 +89,61 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryStart(out CoCoDiagnostic startDiagnostic),
                 "host start: " + startDiagnostic.Message);
             Assert.AreEqual(
-                CoCoRuntimeLifecycleState.Running,
+                RuntimeLifecycleState.Running,
                 host.Lifecycle,
                 host.LastDiagnostic.Message);
 
-            // --- baseline tick: reader sampled, no records yet ---
-            RawInputProbeCapture.Records = new List<RawInputRecord>();
-            Require(host.TryStep(1f / 60f, out _));
-            yield return null;
+            var records = new List<RawInputRecord>();
+            RawInputProbeCapture.Records = records;
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic baseline), baseline.Message);
+            records.Clear();
 
-            // diagnostics: sample the reader directly
-            Require(input.TrySample(default(CoCoTickFrame), out InputIntentData directIntent));
-            Debug.Log($"[E2E] direct sample: enabled={reader.isActiveAndEnabled} count={directIntent.Count} map={directIntent.ActiveMap}");
-            for (int i = 0; i < directIntent.Count; i++)
-            {
-                if (directIntent.TryGet(i, out RawInputRecord rec))
-                {
-                    Debug.Log($"[E2E] direct[{i}] {rec.Action} {rec.Phase}");
-                }
-            }
-
-            // --- hold W: Move contributes a Held record every sample ---
             Press(keyboard.wKey);
             InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
-            Require(host.TryStep(1f / 60f, out _));
-            yield return null;
 
-            Debug.Log("[E2E] after W tick: " + RawInputProbeCapture.Records.Count + " records");
-            foreach (RawInputRecord record in RawInputProbeCapture.Records)
-            {
-                Debug.Log($"[E2E] {record.Action} {record.Phase} ({record.ValueX},{record.ValueY}) #{record.Sequence}");
-            }
+            // Both changes happen between Host ticks, with the button released at sampling time.
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
 
-            Assert.IsNotEmpty(
-                RawInputProbeCapture.Records,
-                "state logic should receive raw records");
-            Assert.IsTrue(
-                RawInputProbeCapture.Records.Exists(r => r.Action.ToString() == "Move"),
-                "Move record expected: " + Describe(RawInputProbeCapture.Records));
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic delivery), delivery.Message);
+            Assert.That(records.Exists(record => record.Action.ToString() == "Move"), Is.True,
+                "State logic should receive the Move record");
 
-            Object.Destroy(gameObject);
+            List<RawInputRecord> submitRecords =
+                records.FindAll(record => record.Action.ToString() == SubmitAction);
+            Assert.That(submitRecords, Has.Count.EqualTo(2),
+                "A short press should yield exactly two changes and no Held record");
+            Assert.That(submitRecords[0].Phase, Is.EqualTo(RawInputPhase.Performed));
+            Assert.That(submitRecords[1].Phase, Is.EqualTo(RawInputPhase.Canceled));
+            Assert.That(submitRecords[1].Sequence, Is.GreaterThan(submitRecords[0].Sequence));
+
+            records.Clear();
+            Require(host.TryStep(1f / 60f, out CoCoDiagnostic following), following.Message);
+            Assert.That(records.Exists(record => record.Action.ToString() == SubmitAction), Is.False,
+                "The next successful tick should not replay the committed short press");
+
+            Press(keyboard.spaceKey);
+            InputSystem.Update();
+            Release(keyboard.spaceKey);
+            InputSystem.Update();
+            records.Clear();
+            RawInputProbeCapture.RejectAfterReading = true;
+            ContextRevision beforeFailure = host.CurrentContext.Revision;
+            Assert.That(host.TryStep(1f / 60f, out var rejected), Is.False);
+            Assert.That(rejected.IsError, Is.True);
+            Assert.That(host.CurrentContext.Revision, Is.EqualTo(beforeFailure));
+            var sampled = records.FindAll(record => record.Action.ToString() == SubmitAction);
+            Assert.That(sampled, Has.Count.EqualTo(2));
+
+            InputSystem.Update();
+            Assert.That(input.TrySample(default, out InputIntentData remaining), Is.True);
+            var pending = new List<ulong>();
+            foreach (var record in remaining.Changes.ToArray())
+                if (record.Action.ToString() == SubmitAction) pending.Add(record.Sequence);
+            CollectionAssert.AreEqual(new[] { sampled[0].Sequence, sampled[1].Sequence }, pending);
         }
-
-        private static string Describe(List<RawInputRecord> records) =>
-            string.Join(", ", records.ConvertAll(r => r.Action + "/" + r.Phase));
 
         private static InputActionAsset CreateActions()
         {
@@ -132,47 +151,48 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             InputActionMap map = asset.AddActionMap("Player");
             InputAction move = map.AddAction("Move", InputActionType.Value);
             move.AddBinding("<Keyboard>/w", null, null, "W");
+            map.AddAction(SubmitAction, InputActionType.Button, "<Keyboard>/space");
             return asset;
         }
 
-        private CoCoStateGraphAsset CreateSingleStateAsset(
-            CoCoIntentId intentId,
-            CoCoStateDescriptorId descriptorId)
+        private StateGraphAsset CreateSingleStateAsset(
+            IntentId intentId,
+            StateDescriptorId descriptorId)
         {
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
 
-            var stateId = new CoCoSerializedId128(11, 12);
-            var state = new CoCoStateGraphStateRecord(
+            var stateId = new SerializedId128(11, 12);
+            var state = new StateGraphStateRecord(
                 stateId,
                 default,
                 "Idle",
-                new CoCoSerializedId128(descriptorId.High, descriptorId.Low),
+                new SerializedId128(descriptorId.High, descriptorId.Low),
                 new RawInputProbeConfig());
-            var layerId = new CoCoSerializedId128(21, 22);
-            var layer = new CoCoStateGraphLayerRecord(layerId, "Base");
+            var layerId = new SerializedId128(21, 22);
+            var layer = new StateGraphLayerRecord(layerId, "Base");
             layer.InitialStateId = stateId;
             layer.States.Add(state);
             asset.Layers.Add(layer);
             return asset;
         }
 
-        private static CoCoIntentId MakeIntentId(ulong low)
+        private static IntentId MakeIntentId(ulong low)
         {
-            Require(CoCoIntentId.TryCreate(High, low, out CoCoIntentId id));
+            Require(IntentId.TryCreate(High, low, out IntentId id));
             return id;
         }
 
-        private static CoCoStateDescriptorId MakeDescriptorId(ulong low)
+        private static StateDescriptorId MakeDescriptorId(ulong low)
         {
-            Require(CoCoStateDescriptorId.TryCreate(High, low, out CoCoStateDescriptorId id));
+            Require(StateDescriptorId.TryCreate(High, low, out StateDescriptorId id));
             return id;
         }
 
         private static void SetField(object target, string field, object value)
         {
-            typeof(CoCoStateGraphHost).GetField(
+            typeof(StateGraphHost).GetField(
                     field,
                     System.Reflection.BindingFlags.Instance |
                     System.Reflection.BindingFlags.NonPublic)
@@ -184,40 +204,40 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(condition, message);
         }
 
-        private sealed class ProbeProvider : ICoCoStateGraphProjectBindingProvider
+        private sealed class ProbeProvider : IStateGraphProjectBindingProvider
         {
             private const ulong GraphStateDefaultFingerprint = 51471UL;
-            private static readonly CoCoStateBlockId GraphStateBlockId =
+            private static readonly StateBlockId GraphStateBlockId =
                 MakeBlockId(31);
-            private static readonly CoCoStateSlotId GraphStateSlotId =
+            private static readonly StateSlotId GraphStateSlotId =
                 MakeSlotId(32);
-            private static readonly CoCoLayerId ProbeLayerId;
-            private static readonly CoCoStateId ProbeStateId;
+            private static readonly LayerId ProbeLayerId;
+            private static readonly StateId ProbeStateId;
 
             static ProbeProvider()
             {
-                Require(CoCoLayerId.TryCreate(21, 22, out CoCoLayerId layer));
+                Require(LayerId.TryCreate(21, 22, out LayerId layer));
                 ProbeLayerId = layer;
-                Require(CoCoStateId.TryCreate(11, 12, out CoCoStateId state));
+                Require(StateId.TryCreate(11, 12, out StateId state));
                 ProbeStateId = state;
             }
 
-            private static CoCoStateBlockId MakeBlockId(ulong low)
+            private static StateBlockId MakeBlockId(ulong low)
             {
-                Require(CoCoStateBlockId.TryCreate(High, low, out CoCoStateBlockId id));
+                Require(StateBlockId.TryCreate(High, low, out StateBlockId id));
                 return id;
             }
 
-            private static CoCoStateSlotId MakeSlotId(ulong low)
+            private static StateSlotId MakeSlotId(ulong low)
             {
-                Require(CoCoStateSlotId.TryCreate(High, low, out CoCoStateSlotId id));
+                Require(StateSlotId.TryCreate(High, low, out StateSlotId id));
                 return id;
             }
 
-            private static CoCoGraphStateRecord<int> CreateDefaultGraphState()
+            private static GraphStateRecord<int> CreateDefaultGraphState()
             {
-                Require(CoCoActivationId.TryCreate(1UL, out CoCoActivationId activationId));
-                Require(CoCoGraphStateRecord<int>.TryCreate(
+                Require(ActivationId.TryCreate(1UL, out ActivationId activationId));
+                Require(GraphStateRecord<int>.TryCreate(
                     ProbeLayerId,
                     ProbeStateId,
                     true,
@@ -227,38 +247,38 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     true,
                     0UL,
                     0,
-                    out CoCoGraphStateRecord<int> state));
+                    out GraphStateRecord<int> state));
                 return state;
             }
 
-            private readonly CoCoIntentId _intentId;
-            private readonly CoCoStateDescriptorId _descriptorId;
-            private readonly CoCoGraphDescriptorCatalog _catalog;
+            private readonly IntentId _intentId;
+            private readonly StateDescriptorId _descriptorId;
+            private readonly GraphDescriptorCatalog _catalog;
 
-            public ProbeProvider(CoCoIntentId intentId, CoCoStateDescriptorId descriptorId)
+            public ProbeProvider(IntentId intentId, StateDescriptorId descriptorId)
             {
                 _intentId = intentId;
                 _descriptorId = descriptorId;
 
-                var builder = new CoCoGraphDescriptorCatalogBuilder();
+                var builder = new GraphDescriptorCatalogBuilder();
                 CoCoDiagnostic stateDiagnostic = CoCoDiagnostic.None;
                 if (!builder.TryRegisterIntent(
                         _intentId,
                         2,
-                        new CoCoIntentReducerFactoryToken<
+                        new IntentReducerFactoryToken<
                             InputIntentData,
                             RawInputProbeReducer,
                             RawInputProbeReducerFactory>(1UL),
                         out CoCoDiagnostic intentDiagnostic) ||
                     !builder.TryRegisterStateBlock(
                         GraphStateBlockId,
-                        CoCoStateBlockOwner.Graph,
+                        StateBlockOwner.Graph,
                         out CoCoDiagnostic blockDiagnostic) ||
                     !builder.TryRegisterStateSlot(
                         GraphStateBlockId,
                         GraphStateSlotId,
-                        CoCoContextProjection.Temporal,
-                        CoCoContextRestorePolicy.Stored,
+                        ContextProjection.Temporal,
+                        ContextRestorePolicy.Stored,
                         CreateDefaultGraphState(),
                         GraphStateDefaultFingerprint,
                         default,
@@ -268,7 +288,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         _descriptorId,
                         1U,
                         new RawInputProbeConfigFreezer(),
-                        new CoCoStateRuntimeRegistration<
+                        new StateRuntimeRegistration<
                             RawInputProbeLogic,
                             RawInputProbeConfigSchema,
                             RawInputProbeMemory>(RawInputProbeSchemas.State),
@@ -285,10 +305,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(builder.TryFreeze(out _catalog, out CoCoDiagnostic freeze));
             }
 
-            public CoCoGraphDescriptorCatalog Catalog => _catalog;
+            public GraphDescriptorCatalog Catalog => _catalog;
 
             public bool TryConfigure(
-                CoCoStateGraphHostBindingBuilder bindingBuilder,
+                StateGraphHostBindingBuilder bindingBuilder,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!bindingBuilder.TryRegisterIntent<
@@ -296,17 +316,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         _intentId,
                         new RawInputProbeReducerFactory(),
                         1UL,
-                        out CoCoIntentHandle<InputIntentData> intent,
+                        out IntentHandle<InputIntentData> intent,
                         out diagnostic) ||
                     !bindingBuilder.TryBeginIntentBindings(out diagnostic))
                 {
                     return false;
                 }
 
-                if (!CoCoIntentSourceRequirement<InputIntentData>.TryCreate(
+                if (!IntentSourceRequirement<InputIntentData>.TryCreate(
                         intent,
                         1,
-                        out CoCoIntentSourceRequirement<InputIntentData> requirement) ||
+                        out IntentSourceRequirement<InputIntentData> requirement) ||
                     !bindingBuilder.TryBindIntentSource(0, requirement, out diagnostic) ||
                     !bindingBuilder.TryBindGraphStateSlot<
                         RawInputProbeMemory,
@@ -324,7 +344,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
-                var factory = new CoCoStateRuntimeFactory<RawInputProbeLogic, RawInputProbeMemory>(
+                var factory = new StateRuntimeFactory<RawInputProbeLogic, RawInputProbeMemory>(
                     context => new RawInputProbeLogic(context, intent),
                     () => new RawInputProbeMemory(),
                     (s, d) => { },

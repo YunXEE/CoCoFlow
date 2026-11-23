@@ -22,7 +22,7 @@ namespace CoCoFlow.Runtime.Modules.Map
 
         public RegionCompileResult Compile(
             RegionBindingCompiler compiler,
-            CoCoRegionBinding binding,
+            RegionBinding binding,
             RegionParticipantCatalog catalog,
             IRegionAddressableSceneResolver addressableSceneResolver = null)
         {

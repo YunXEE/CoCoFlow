@@ -100,7 +100,7 @@ namespace CoCoFlow.Tests.Runtime.Map.Pooling
                             .Name;
                     Assert.That(
                         HasFriendAccess(
-                            typeof(CoCoMapHost).Assembly,
+                            typeof(MapHost).Assembly,
                             testAssembly),
                         Is.False,
                         "The runtime Pooling test must compile through the public Map SDK.");

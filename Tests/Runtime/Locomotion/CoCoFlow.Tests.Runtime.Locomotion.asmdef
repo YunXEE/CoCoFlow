@@ -4,8 +4,8 @@
     "references": [
         "CoCoFlow.Runtime.Locomotion.Contracts",
         "CoCoFlow.Runtime.Modules.Locomotion",
-        "CoCoFlow.Runtime.Core.Contracts",
-        "CoCoFlow.Runtime.Core.StateFlow"
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

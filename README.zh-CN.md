@@ -1,11 +1,18 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.9 · **Unity**：6000+
+> **版本**：0.4.10 · **Unity**：6000+
 >
 > [English](README.md)
 
 CoCoFlow 是面向 Unity 6 的状态流框架，核心包括类型化输入、分层
 StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownership。
+
+## 0.4.10 更新
+
+- 统一 StateGraph 声明式玩法接入，将必备 Runtime 程序集收为 Core、
+  StateGraph 和 StateGraphHost。
+- 升级时调整包外程序集引用、命名空间和已改名的 API 类型。冻结 Config
+  指纹变化可能影响旧档恢复，详见 [Changelog](CHANGELOG.md#0410---2026-11-23)。
 
 ## 0.4.9 更新
 
@@ -29,7 +36,7 @@ StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownersh
 
 ## 0.4.6 功能概览
 
-- 每个 Layer 可绑定一个 `CoCoAnyStateLogic`，在普通活跃枝之后执行，
+- 每个 Layer 可绑定一个 `AnyStateLogic`，在普通活跃枝之后执行，
   请求的转移满足条件时优先。保留完整 Config/Memory/Intent/Operation 和邮箱
   能力，沿用事务与恢复规则。AnyState Memory 跨换叶保留；重入当前叶只重置
   该叶的 Activation、Memory 和时钟，祖先与 AnyState 保持，作者可每 Tick 请求。
@@ -58,7 +65,7 @@ smoke 构建、完整 Umbra 动画和脚 IK 仍未验证。修复与兼容边界
 
 | 模块 | 状态 | 准确说明 |
 |---|---|---|
-| Core Engine | **成熟** | Contracts、StateFlow、StateGraph、StateGraphAuthoring Runtime、StateGraphHost；0.4 原生核心。 |
+| Core Engine | **成熟** | Core、StateGraph 和 StateGraphHost；0.4 原生核心。 |
 | Camera | **成熟** | 起源于 0.3.9，当前 Rig、priority、mode API 可稳定使用。 |
 | Persistence | **成熟** | 起源于 0.3.9，现已支持 schema v2、Container 与 StateGraph ContextFrame 持久化。 |
 | UI | **成熟** | 起源于 0.3.9，Panel、Widget、Input、Content ownership API 可用且稳定，但不是高效能 UI 框架。 |
@@ -101,7 +108,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.9
+https://github.com/YunXEE/CoCoFlow.git#v0.4.10
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -109,7 +116,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.9
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.9"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
   }
 }
 ```

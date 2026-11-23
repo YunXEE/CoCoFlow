@@ -2,7 +2,8 @@
     "name": "CoCoFlow.Runtime.Pooling.Temporal",
     "rootNamespace": "CoCoFlow.Runtime.Pooling.Temporal",
     "references": [
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Runtime.Pooling"
     ],

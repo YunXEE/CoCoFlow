@@ -7,7 +7,7 @@ namespace CoCoFlow.Runtime.Modules.Map
     internal static class RegionDependencyCompiler
     {
         internal static bool TryCompile(
-            CoCoRegionBinding binding,
+            RegionBinding binding,
             IReadOnlyList<RegionCompiledTier> sourceTiers,
             IList<RegionCompileDiagnostic> diagnostics,
             out List<RegionCompiledDependencyRule> compiled)

@@ -1,6 +1,7 @@
+using CoCoFlow.Editor.Core;
 using NUnit.Framework;
 
-namespace CoCoFlow.Editor.Core.Tests
+namespace CoCoFlow.Tests.Editor.Core
 {
     /// <summary>
     /// CoCoSetupJson / CoCoSetupDependencyActions 纯逻辑单测（方案 v4 §2.4）：

@@ -1,12 +1,20 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.9 · **Unity**: 6000+
+> **Version**: 0.4.10 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
 CoCoFlow is a Unity 6 state-flow framework built around typed input, a layered
 StateGraph, transactional Context commits, Temporal restore, and explicit
 runtime ownership.
+
+## New in 0.4.10
+
+- Standardize declarative StateGraph gameplay binding and consolidate the
+  required Runtime assemblies into Core, StateGraph, and StateGraphHost.
+- Upgrade external assembly references, namespaces, and renamed API types.
+  See the [Changelog](CHANGELOG.md#0410---2026-11-23) for the frozen Config
+  fingerprint change that can affect older saves.
 
 ## New in 0.4.9
 
@@ -30,7 +38,7 @@ runtime ownership.
 
 ## 0.4.6 highlights
 
-- Each Layer can bind one optional `CoCoAnyStateLogic`. It updates after the
+- Each Layer can bind one optional `AnyStateLogic`. It updates after the
   ordinary active path and takes transition priority when its request is eligible.
   It keeps the complete Config/Memory/Intent/Operation and mailbox surface,
   including existing transaction and restore rules. Its Memory survives leaf
@@ -68,7 +76,7 @@ marketplace certification.
 
 | Module | Status | Accurate scope |
 |---|---|---|
-| Core Engine | **Mature** | Contracts, StateFlow, StateGraph, StateGraphAuthoring Runtime, and StateGraphHost; the native 0.4 core. |
+| Core Engine | **Mature** | Core, StateGraph, and StateGraphHost; the native 0.4 core. |
 | Camera | **Mature** | Originated in 0.3.9; the current Rig, priority, and mode APIs are stable and usable. |
 | Persistence | **Mature** | Originated in 0.3.9; supports schema v2, Containers, and StateGraph ContextFrame persistence. |
 | UI | **Mature** | Originated in 0.3.9; Panel, Widget, Input, and Content-ownership APIs are stable and usable, but this is not a high-performance UI framework. |
@@ -114,7 +122,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.9
+https://github.com/YunXEE/CoCoFlow.git#v0.4.10
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -122,7 +130,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.9"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
   }
 }
 ```

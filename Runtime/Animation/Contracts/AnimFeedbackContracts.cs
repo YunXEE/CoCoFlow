@@ -1,4 +1,4 @@
-﻿using CoCoFlow.Runtime.Core;
+﻿using CoCoFlow.Runtime.StateGraph;
 
 namespace CoCoFlow.Runtime.Animation.Contracts
 {
@@ -395,7 +395,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
     }
 
-    public struct AnimFeedbackIntentReducer : ICoCoIntentReducer<AnimFeedbackIntent>
+    public struct AnimFeedbackIntentReducer : IIntentReducer<AnimFeedbackIntent>
     {
         public AnimFeedbackIntent Reduce(
             in AnimFeedbackIntent current,
@@ -404,25 +404,8 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     }
 
     public sealed class AnimFeedbackIntentReducerFactory :
-        ICoCoIntentReducerFactory<AnimFeedbackIntent, AnimFeedbackIntentReducer>
+        IIntentReducerFactory<AnimFeedbackIntent, AnimFeedbackIntentReducer>
     {
-        public AnimFeedbackIntentReducer Create(CoCoGraphInstanceId graphInstanceId) => default;
-    }
-
-    public sealed class AnimFeedbackEventToIntentAdapter :
-        ICoCoEventToIntentAdapter<AnimFeedbackEvent, AnimFeedbackIntent>
-    {
-        public bool TryProject(
-            in CoCoEventPacket<AnimFeedbackEvent> packet,
-            out AnimFeedbackIntent intent)
-        {
-            if (!packet.IsValid || !packet.Payload.IsValid)
-            {
-                intent = default;
-                return false;
-            }
-
-            return AnimFeedbackIntent.TryCreateSingle(packet.Payload.Record, out intent);
-        }
+        public AnimFeedbackIntentReducer Create(GraphInstanceId graphInstanceId) => default;
     }
 }

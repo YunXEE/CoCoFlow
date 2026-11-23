@@ -4,7 +4,7 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Content.Addressables",
-        "CoCoFlow.Runtime.Core.Contracts",
+        "CoCoFlow.Runtime.Core",
         "UniTask",
         "Unity.Addressables",
         "Unity.ResourceManager"
