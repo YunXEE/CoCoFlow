@@ -1,3 +1,5 @@
+// 同步派发按类型注册的本地事件并维护回调顺序与订阅生命周期。
+
 using System;
 using System.Collections.Generic;
 

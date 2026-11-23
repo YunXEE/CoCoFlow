@@ -1,3 +1,5 @@
+// 生成带来源和级别的日志事件，并按级别交给已安装的输出端。
+
 using System;
 using System.IO;
 using System.Collections.Generic;

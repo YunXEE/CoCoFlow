@@ -1,3 +1,5 @@
+// 表示带领域、稳定代码、严重度和可读文本的操作结果。
+
 using System;
 
 namespace CoCoFlow.Runtime.Core

@@ -1,3 +1,5 @@
+// 按确切泛型类型管理全局当前服务，并兑现可取消的一次性就绪回调。
+
 using System;
 using System.Collections.Generic;
 

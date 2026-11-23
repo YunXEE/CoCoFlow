@@ -1,3 +1,5 @@
+// 持有委托包装并集中退订。
+
 using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
