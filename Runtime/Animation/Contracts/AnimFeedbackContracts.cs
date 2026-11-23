@@ -395,7 +395,7 @@ namespace CoCoFlow.Runtime.Animation.Contracts
         }
     }
 
-    public struct AnimFeedbackIntentReducer : ICoCoIntentReducer<AnimFeedbackIntent>
+    public struct AnimFeedbackIntentReducer : IIntentReducer<AnimFeedbackIntent>
     {
         public AnimFeedbackIntent Reduce(
             in AnimFeedbackIntent current,
@@ -404,8 +404,8 @@ namespace CoCoFlow.Runtime.Animation.Contracts
     }
 
     public sealed class AnimFeedbackIntentReducerFactory :
-        ICoCoIntentReducerFactory<AnimFeedbackIntent, AnimFeedbackIntentReducer>
+        IIntentReducerFactory<AnimFeedbackIntent, AnimFeedbackIntentReducer>
     {
-        public AnimFeedbackIntentReducer Create(CoCoGraphInstanceId graphInstanceId) => default;
+        public AnimFeedbackIntentReducer Create(GraphInstanceId graphInstanceId) => default;
     }
 }

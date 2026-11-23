@@ -14,11 +14,13 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     using Fixtures;
     /// <summary>
-    /// C4.5 standard path end-to-end: a CoCoState-attributed logic (declared
+    /// C4.5 standard path end-to-end: a State-attributed logic (declared
     /// below in this test assembly) is registered through
-    /// CoCoStandardBindingProvider.Build, installed, and a one-state graph
+    /// StandardBindingProvider.Build, installed, and a one-state graph
     /// runs a tick where the state logic receives InputIntentData records.
     /// </summary>
     public sealed partial class StandardBindingPlayModeTests : InputTestFixture
@@ -29,7 +31,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             StandardProbeLogic.Received = null;
         }
 
@@ -44,7 +46,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             StandardProbeLogic.Received = null;
         }
 
@@ -58,11 +60,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             System.Type logicType = properties ? typeof(PropertyProbeLogic) : typeof(StandardProbeLogic);
             string logicName = properties ? "PropertyProbe" : "StandardProbe";
-            CoCoStandardBindingProvider provider =
-                CoCoStandardBindingProvider.Build(
+            StandardBindingProvider provider =
+                StandardBindingProvider.Build(
                     new[] { logicType.Assembly });
             Assert.IsNotNull(provider.Catalog);
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic installDiagnostic),
                 installDiagnostic.Message);
@@ -71,18 +73,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(StandardDescriptors.TryCreate(
                 logicType,
                 logicName,
-                out CoCoStateDescriptorId descriptorId));
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+                out StateDescriptorId descriptorId));
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
-            var stateId = new CoCoSerializedId128(11, 12);
-            var state = new CoCoStateGraphStateRecord(
+            var stateId = new SerializedId128(11, 12);
+            var state = new StateGraphStateRecord(
                 stateId,
                 default,
                 "Probe",
-                new CoCoSerializedId128(descriptorId.High, descriptorId.Low),
+                new SerializedId128(descriptorId.High, descriptorId.Low),
                 new EmptyStateConfig());
-            var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21, 22), "Base");
+            var layer = new StateGraphLayerRecord(new SerializedId128(21, 22), "Base");
             layer.InitialStateId = stateId;
             layer.States.Add(state);
             asset.Layers.Add(layer);
@@ -96,9 +98,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var reader = gameObject.AddComponent<InputReader>();
             var input = gameObject.AddComponent<InputIntent>();
             input.SetReader(reader);
-            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            var host = gameObject.AddComponent<StateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
-            SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[] { input });
             gameObject.AddComponent<CharacterController>();
@@ -108,10 +110,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
             playerInput.actions.FindActionMap("Player").Enable();
 
-            CoCoStateGraphAsset[] originalGraphs = Resources.FindObjectsOfTypeAll<CoCoStateGraphAsset>();
+            StateGraphAsset[] originalGraphs = Resources.FindObjectsOfTypeAll<StateGraphAsset>();
             Assert.IsTrue(host.TryStart(out CoCoDiagnostic start),
                 "start: " + start.Message + " / " + host.LastDiagnostic.Message);
-            Assert.AreEqual(CoCoRuntimeLifecycleState.Running, host.Lifecycle);
+            Assert.AreEqual(RuntimeLifecycleState.Running, host.Lifecycle);
 
             StandardProbeLogic.Received = new List<RawInputRecord>();
             Assert.IsTrue(host.TryStep(1f / 60f, out _)); // baseline
@@ -120,7 +122,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "New properties and legacy Writer must produce the same movement.");
             yield return null;
 
-            CollectionAssert.AreEquivalent(originalGraphs, Resources.FindObjectsOfTypeAll<CoCoStateGraphAsset>(),
+            CollectionAssert.AreEquivalent(originalGraphs, Resources.FindObjectsOfTypeAll<StateGraphAsset>(),
                 "Configured copies must be reclaimed after the PlayMode destruction frame.");
             Press(keyboard.wKey);
             InputSystem.Update(); // Resolve initial state checks before the manual Host Tick.
@@ -153,29 +155,29 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [UnityTest]
         public IEnumerator AnimRegistrarBindsBothCompiledSectionsOnlyWhenRequired()
         {
-            CoCoStandardBindingProvider provider =
-                CoCoStandardBindingProvider.Build(
+            StandardBindingProvider provider =
+                StandardBindingProvider.Build(
                     new[] { typeof(AnimOperationProbeLogic).Assembly });
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install.Message);
 
             Assert.IsTrue(StandardDescriptors.TryCreate(
                 typeof(AnimOperationProbeLogic),
                 "AnimOperationProbe",
-                out CoCoStateDescriptorId descriptorId));
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+                out StateDescriptorId descriptorId));
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
-            var stateId = new CoCoSerializedId128(31, 32);
-            var state = new CoCoStateGraphStateRecord(
+            var stateId = new SerializedId128(31, 32);
+            var state = new StateGraphStateRecord(
                 stateId,
                 default,
                 "AnimProbe",
-                new CoCoSerializedId128(descriptorId.High, descriptorId.Low),
+                new SerializedId128(descriptorId.High, descriptorId.Low),
                 new EmptyStateConfig());
-            var layer = new CoCoStateGraphLayerRecord(
-                new CoCoSerializedId128(41, 42),
+            var layer = new StateGraphLayerRecord(
+                new SerializedId128(41, 42),
                 "Base");
             layer.InitialStateId = stateId;
             layer.States.Add(state);
@@ -183,11 +185,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             var gameObject = new GameObject("AnimRegistrationE2E");
             _objects.Add(gameObject);
-            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            var host = gameObject.AddComponent<StateGraphHost>();
             gameObject.AddComponent<Animator>();
             var animOperator = gameObject.AddComponent<AnimAutoOperator>();
             SetField(host, "stateGraphAsset", asset);
-            SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[0]);
             SetField(host, "operators", new MonoBehaviour[] { animOperator });
@@ -203,29 +205,29 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public IEnumerator ConfigAndMemoryFieldsUseTheRealHost()
         {
             var type = System.Type.GetType("MoveLogic, CoCoFlow002") ?? typeof(ConfigMemoryProbeLogic);
-            var provider = CoCoStandardBindingProvider.Build(new[] { type.Assembly });
-            CoCoStateGraphProjectBindings.ResetForTests();
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out _));
-            var name = ((CoCoStateAttribute)System.Attribute.GetCustomAttribute(type, typeof(CoCoStateAttribute))).Name;
+            var provider = StandardBindingProvider.Build(new[] { type.Assembly });
+            StateGraphProjectBindings.ResetForTests();
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out _));
+            var name = ((StateAttribute)System.Attribute.GetCustomAttribute(type, typeof(StateAttribute))).Name;
             StandardDescriptors.TryCreate(type, name, out var descriptor);
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
             for (ulong i = 0; i < 10; i++)
             {
-                var config = new CoCoFieldConfig();
+                var config = new FieldConfig();
                 if (i != 1) config.Set("Speed", (float)(3 + i * 3));
-                var stateId = new CoCoSerializedId128(11 + i, 12);
-                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21 + i, 22), "Layer " + i);
+                var stateId = new SerializedId128(11 + i, 12);
+                var layer = new StateGraphLayerRecord(new SerializedId128(21 + i, 22), "Layer " + i);
                 layer.InitialStateId = stateId;
-                layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Move " + i,
-                    new CoCoSerializedId128(descriptor.High, descriptor.Low), config));
+                layer.States.Add(new StateGraphStateRecord(stateId, default, "Move " + i,
+                    new SerializedId128(descriptor.High, descriptor.Low), config));
                 asset.Layers.Add(layer);
             }
             var go = new GameObject("Config Memory - MoveLogic");
-            var host = go.AddComponent<CoCoStateGraphHost>();
+            var host = go.AddComponent<StateGraphHost>();
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "autoStart", false);
-            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+            SetField(host, "driver", StateGraphDriver.Manual);
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
@@ -261,11 +263,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [TestCase(typeof(MemoryOnlyProbe))]
         public void FieldMemoryRoundTripDoesNotAllocate(System.Type type)
         {
-            CoCoStandardBindingProvider.Build(new[] { type.Assembly });
-            var logic = (CoCoStateLogic)System.Activator.CreateInstance(type);
-            var memory = (ICoCoFieldMemory)System.Activator.CreateInstance(
-                typeof(CoCoFieldMemory<,>).MakeGenericType(type, CoCoStateFields.StoredType(type)));
-            var fields = CoCoStateFields.Fields(type, typeof(CoCoStateMemoryAttribute));
+            StandardBindingProvider.Build(new[] { type.Assembly });
+            var logic = (StateLogic)System.Activator.CreateInstance(type);
+            var memory = (IFieldMemory)System.Activator.CreateInstance(
+                typeof(FieldMemory<,>).MakeGenericType(type, StateFields.StoredType(type)));
+            var fields = StateFields.Fields(type, typeof(StateMemoryAttribute));
             foreach (var field in fields) field.SetValue(logic, field.FieldType == typeof(bool) ? (object)true : 9f);
             memory.Store(logic);
             foreach (var field in fields) field.SetValue(logic, System.Activator.CreateInstance(field.FieldType));
@@ -275,7 +277,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             long before = System.GC.GetAllocatedBytesForCurrentThread();
             for (int i = 0; i < 10000; i++) { memory.Load(logic); memory.Store(logic); }
             Assert.AreEqual(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
-            Assert.IsNotNull(typeof(CoCoStandardBindingProvider).GetMethod("Build",
+            Assert.IsNotNull(typeof(StandardBindingProvider).GetMethod("Build",
                 new[] { typeof(IReadOnlyList<System.Reflection.Assembly>) }));
         }
 
@@ -284,10 +286,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [TestCase("Distance", "2")]
         public void InvalidConfigFailsDuringFreezing(string path, string value)
         {
-            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
+            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigMemoryProbeLogic), "ConfigMemoryProbeLogic", out var id);
             Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id,
-                new CoCoFieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));
+                new FieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));
             Assert.IsFalse(diagnostic.IsNone);
         }
 
@@ -304,7 +306,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static void SetField(object target, string field, object value)
         {
-            typeof(CoCoStateGraphHost).GetField(
+            typeof(StateGraphHost).GetField(
                     field,
                     System.Reflection.BindingFlags.Instance |
                     System.Reflection.BindingFlags.NonPublic)

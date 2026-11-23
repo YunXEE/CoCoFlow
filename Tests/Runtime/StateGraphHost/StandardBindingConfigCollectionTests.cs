@@ -11,6 +11,8 @@ using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     public sealed partial class StandardBindingPlayModeTests
     {
         [TearDown]
@@ -26,7 +28,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 startSeconds = i + 0.25f, endSeconds = i + 0.75d,
                 isEnabled = true, mode = ConfigCollectionMode.Second, timing = new ConfigCollectionTiming { Weight = i + 0.5m }
             }).Reverse().ToArray();
-            var config = new CoCoFieldConfig();
+            var config = new FieldConfig();
             config.Set("Numbers", Enumerable.Range(0, count).Select(i => (float)i).Reverse().ToArray());
             config.Set("Samples", new List<float>(Enumerable.Range(0, count).Select(i => (float)i).Reverse()));
             config.Set("Windows", windows);
@@ -66,11 +68,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             var logic = new ConfigCollectionProbeLogic();
             var original = logic.Windows;
-            var config = new CoCoFieldConfig { Values = new[] { "Speed=2.5", invalid } };
+            var config = new FieldConfig { Values = new[] { "Speed=2.5", invalid } };
             Assert.Catch(() => config.Apply(logic));
             Assert.AreEqual(6f, logic.Speed);
             Assert.AreSame(original, logic.Windows);
-            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
+            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigCollectionProbeLogic), "ConfigCollectionProbe", out var id);
             Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id, config, out _, out var diagnostic));
             Assert.IsFalse(diagnostic.IsNone);
@@ -79,19 +81,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [Test]
         public void LegacyLeavesDefaultsAndFrozenCollectionCopiesRemainCompatible()
         {
-            var config = new CoCoFieldConfig { Values = new[] { "Speed=2.5", "Window.startSeconds=0.25" } };
+            var config = new FieldConfig { Values = new[] { "Speed=2.5", "Window.startSeconds=0.25" } };
             var logic = new ConfigCollectionProbeLogic();
             config.Apply(logic);
             Assert.AreEqual(2.5f, logic.Speed);
             Assert.AreEqual(0.25f, logic.Window.startSeconds);
             CollectionAssert.AreEqual(new[] { 7f }, logic.Numbers);
             config.Set("Numbers", new[] { 1f, 2f });
-            var provider = CoCoStandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
+            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigCollectionProbeLogic), "ConfigCollectionProbe", out var id);
             Assert.IsTrue(provider.Catalog.TryFreezeStateConfig(id, config, out var snapshot, out var diagnostic), diagnostic.Message);
             var original = config.Values.ToArray();
             config.Values[0] = "Speed=99";
-            Assert.IsTrue(snapshot.TryReadArray(CoCoFieldConfigSchema.Values, out var frozen));
+            Assert.IsTrue(snapshot.TryReadArray(FieldConfigSchema.Values, out var frozen));
             CollectionAssert.AreEqual(original, frozen.ToArray());
             var restored = frozen.ToArray();
             restored[0] = "Speed=88";
@@ -103,37 +105,37 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public IEnumerator ConfigCollectionsBindPerNodeAndPerHost()
         {
             var type = typeof(ConfigCollectionProbeLogic);
-            var provider = CoCoStandardBindingProvider.Build(new[] { type.Assembly });
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
+            var provider = StandardBindingProvider.Build(new[] { type.Assembly });
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
             StandardDescriptors.TryCreate(type, "ConfigCollectionProbe", out var descriptor);
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(Guid.NewGuid().ToString("N"));
             for (ulong i = 0; i < 3; i++)
             {
-                var config = new CoCoFieldConfig();
+                var config = new FieldConfig();
                 int count = i == 2 ? 3 : (int)i;
                 var windows = Enumerable.Repeat(new ConfigCollectionWindow { startSeconds = i + 0.5f }, count).ToArray();
                 config.Set("Numbers", Enumerable.Repeat((float)i, count).ToArray());
                 config.Set("Samples", Enumerable.Repeat((float)i, count).ToList());
                 config.Set("Windows", windows);
                 config.Set("WindowList", windows.ToList());
-                var stateId = new CoCoSerializedId128(11 + i, 12);
-                var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(21 + i, 22), "Layer " + i);
+                var stateId = new SerializedId128(11 + i, 12);
+                var layer = new StateGraphLayerRecord(new SerializedId128(21 + i, 22), "Layer " + i);
                 layer.InitialStateId = stateId;
-                layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Probe",
-                    new CoCoSerializedId128(descriptor.High, descriptor.Low), config));
+                layer.States.Add(new StateGraphStateRecord(stateId, default, "Probe",
+                    new SerializedId128(descriptor.High, descriptor.Low), config));
                 asset.Layers.Add(layer);
             }
-            var hosts = new List<CoCoStateGraphHost>();
+            var hosts = new List<StateGraphHost>();
             for (int i = 0; i < 2; i++)
             {
                 var go = new GameObject("Config collections " + i);
                 _objects.Add(go);
-                var host = go.AddComponent<CoCoStateGraphHost>();
+                var host = go.AddComponent<StateGraphHost>();
                 SetField(host, "stateGraphAsset", asset);
                 SetField(host, "autoStart", false);
-                SetField(host, "driver", CoCoStateGraphDriver.Manual);
+                SetField(host, "driver", StateGraphDriver.Manual);
                 hosts.Add(host);
             }
             yield return null;
@@ -141,7 +143,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 Assert.IsTrue(host.TryStart(out diagnostic), diagnostic.Message);
             }
-            ((CoCoFieldConfig)asset.Layers[1].States[0].Config).Set("Windows", Array.Empty<ConfigCollectionWindow>());
+            ((FieldConfig)asset.Layers[1].States[0].Config).Set("Windows", Array.Empty<ConfigCollectionWindow>());
             foreach (var host in hosts) Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
             var seen = ConfigCollectionProbeLogic.Seen;
             Assert.AreEqual(6, seen.Count);

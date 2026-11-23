@@ -26,7 +26,7 @@ snapshot Context slot with the Standard Binding path. The snapshot slot is
 ## AnimAutoOperator
 
 `AnimAutoOperator` is the current runtime component. It requires one `Animator`
-and one `CoCoStateGraphHost` in the same Host boundary. Its serialized bindings
+and one `StateGraphHost` in the same Host boundary. Its serialized bindings
 map stable `AnimBindingId` values to concrete Animator parameter names.
 
 Startup/rebuild validation fails closed when bindings are missing, duplicated,

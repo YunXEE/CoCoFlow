@@ -13,6 +13,8 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     /// <summary>
     /// C6.5 end-to-end: standard binding auto-registers the locomotion
     /// section (via LocomotionSectionRegistrar on the operator), an
@@ -28,7 +30,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             LocoMoveProbeLogic.LastDelta = null;
         }
 
@@ -43,7 +45,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
         }
 
         [UnityTest]
@@ -53,40 +55,40 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             // operator sections (the LocomotionOperator attribute points at
             // the registrar; the fixture assembly sees it via package
             // reference).
-            CoCoStandardBindingProvider provider =
-                CoCoStandardBindingProvider.Build(
+            StandardBindingProvider provider =
+                StandardBindingProvider.Build(
                     new[] { typeof(LocoMoveProbeLogic).Assembly });
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install.Message);
 
             Assert.IsTrue(StandardDescriptors.TryCreate(
                 typeof(LocoMoveProbeLogic),
                 "LocoMoveProbe",
-                out CoCoStateDescriptorId descriptorId));
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+                out StateDescriptorId descriptorId));
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
-            var stateId = new CoCoSerializedId128(11, 12);
-            var state = new CoCoStateGraphStateRecord(
+            var stateId = new SerializedId128(11, 12);
+            var state = new StateGraphStateRecord(
                 stateId, default, "Probe",
-                new CoCoSerializedId128(descriptorId.High, descriptorId.Low),
+                new SerializedId128(descriptorId.High, descriptorId.Low),
                 new EmptyStateConfig());
-            var layer = new CoCoStateGraphLayerRecord(
-                new CoCoSerializedId128(21, 22), "Base");
+            var layer = new StateGraphLayerRecord(
+                new SerializedId128(21, 22), "Base");
             layer.InitialStateId = stateId;
             layer.States.Add(state);
             asset.Layers.Add(layer);
 
             var gameObject = new GameObject("LocoE2E");
             _objects.Add(gameObject);
-            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            var host = gameObject.AddComponent<StateGraphHost>();
             var controller = gameObject.AddComponent<CharacterController>();
             controller.height = 2f;
             controller.center = new Vector3(0f, 1f, 0f);
             var locomotion = gameObject.AddComponent<LocomotionOperator>();
             SetField(host, "stateGraphAsset", asset);
-            SetField(host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[0]);
             SetField(host, "operators", new MonoBehaviour[] { locomotion });
@@ -94,7 +96,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
             Assert.IsTrue(host.TryStart(out CoCoDiagnostic start),
                 "start: " + start.Message + " / " + host.LastDiagnostic.Message);
-            Assert.AreEqual(CoCoRuntimeLifecycleState.Running, host.Lifecycle);
+            Assert.AreEqual(RuntimeLifecycleState.Running, host.Lifecycle);
 
             float before = gameObject.transform.position.z;
             Assert.IsTrue(host.TryStep(0.0167f, out _)); // writes MoveZ=2 → delta ≈ 0.033
@@ -104,11 +106,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Debug.Log($"[LocoE2E] z {before:F4} → {after:F4}, lastDelta={LocoMoveProbeLogic.LastDelta}");
             Assert.Greater(after, before + 0.01f, "actor should have moved forward");
             Assert.IsNotNull(LocoMoveProbeLogic.LastDelta, "state should have written the section");
-            CoCoContextFrame committed = host.CurrentContext;
+            ContextFrame committed = host.CurrentContext;
             Assert.IsTrue(committed.IsAlive, "the tick should commit a ContextFrame");
             Assert.IsTrue(committed.Layout.TryResolveSlot(
                 LocoContractIds.StateSlotId,
-                out CoCoStateSlot<LocomotionState> locoSlot));
+                out StateSlot<LocomotionState> locoSlot));
             LocomotionState facts = committed.Read(locoSlot);
             Assert.AreEqual(after, facts.PositionZ, 0.0001f,
                 "the committed locomotion facts must match the engine Transform");

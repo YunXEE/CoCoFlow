@@ -26,21 +26,21 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     [AddComponentMenu("CoCoFlow/Locomotion/Locomotion Operator")]
     public sealed class LocomotionOperator :
         MonoBehaviour,
-        ICoCoPersistenceRestoreOperator,
-        ICoCoTemporalRestoreOperator
+        IPersistenceRestoreOperator,
+        ITemporalRestoreOperator
     {
-        private static readonly CoCoOperationSectionRequirement SectionRequirement;
-        [CoCoOperatorDefinition]
-        private static CoCoStandardOperatorDefinition Definition { get; }
+        private static readonly OperationSectionRequirement SectionRequirement;
+        [OperatorDefinition]
+        private static StandardOperatorDefinition Definition { get; }
 
         static LocomotionOperator()
         {
-            var builder = new CoCoStandardOperatorBuilder();
+            var builder = new StandardOperatorBuilder();
             SectionRequirement = builder.Require<ILocomotionSection, LocomotionSectionViewFactory>(
                 LocoContractIds.SectionId, LocoContractIds.SectionSemanticFingerprint, new LocomotionSectionViewFactory());
             builder.OwnOutcome(LocoContractIds.StateBlockId, LocoContractIds.StateSlotId,
-                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
-                CoCoContextRestorePolicy.Stored, default(LocomotionState), 1);
+                ContextProjection.Temporal | ContextProjection.Durable,
+                ContextRestorePolicy.Stored, default(LocomotionState), 1);
             Definition = builder.Freeze<LocomotionOperator>(LocoContractIds.OperatorId);
         }
 
@@ -50,7 +50,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         private CharacterController _controller;
         private CoCoDiagnostic _lastDiagnostic;
 
-        public CoCoOperatorDescriptor Descriptor => Definition.Descriptor;
+        public OperatorDescriptor Descriptor => Definition.Descriptor;
 
         /// <summary>
         /// Restore projection (exception moment #2): the world adopts the
@@ -58,7 +58,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         /// every restore kind — preview, confirm, cancel and correction.
         /// </summary>
         public bool TryRestore(
-            in CoCoContextRestoreBindingContext context,
+            in ContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
         {
             if (!context.IsValid ||
@@ -86,12 +86,12 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         }
 
         public bool TryExecute(
-            in CoCoOperatorExecutionContext context,
-            out CoCoOperatorOutcome outcome)
+            in OperatorExecutionContext context,
+            out OperatorOutcome outcome)
         {
             if (!context.TryGet(
                     SectionRequirement,
-                    out CoCoOperationSectionEntry<ILocomotionSection> entry))
+                    out OperationSectionEntry<ILocomotionSection> entry))
             {
                 outcome = Reject("Locomotion Section is unavailable.");
                 return false;
@@ -114,7 +114,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 context.PreviousContext.Layout != null &&
                 context.PreviousContext.Layout.TryResolveSlot(
                     LocoContractIds.StateSlotId,
-                    out CoCoStateSlot<LocomotionState> slot)
+                    out StateSlot<LocomotionState> slot)
                     ? context.PreviousContext.Read(slot)
                     : default;
 
@@ -184,7 +184,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 return false;
             }
 
-            outcome = CoCoOperatorOutcome.Success;
+            outcome = OperatorOutcome.Success;
             return true;
         }
 
@@ -195,13 +195,13 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 : LocoConfig.Default;
         }
 
-        private CoCoOperatorOutcome Reject(string message)
+        private OperatorOutcome Reject(string message)
         {
             _lastDiagnostic = CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Operator,
                 CoCoDiagnosticCode.OperatorExecutionFailed,
                 message);
-            return CoCoOperatorOutcome.Rejected(_lastDiagnostic);
+            return OperatorOutcome.Rejected(_lastDiagnostic);
         }
     }
 

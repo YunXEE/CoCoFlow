@@ -5,14 +5,14 @@ using CoCoFlow.Runtime.Locomotion.Contracts;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
-    [CoCoState("StandardProbe")]
-    [CoCoIntentConsume(typeof(InputIntentData))]
-    [CoCoOperationProvide(typeof(ILocomotionSection))]
-    public sealed class StandardProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("StandardProbe")]
+    [IntentConsume(typeof(InputIntentData))]
+    [OperationProvide(typeof(ILocomotionSection))]
+    public sealed class StandardProbeLogic : StateLogic, IStateUpdate
     {
         public static List<RawInputRecord> Received;
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             var writer = context.Operations;
             writer.Write(writer.ResolveField<ILocomotionSection, float>(LocomotionSectionFields.MoveZ), 2f);
@@ -32,14 +32,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             }
         }
     }
-    [CoCoState("PropertyProbe")]
-    public sealed class PropertyProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("PropertyProbe")]
+    public sealed class PropertyProbeLogic : StateLogic, IStateUpdate
     {
         [Intent] public InputIntentData Input { get; set; }
         [Operation] public ILocomotionSection Movement { get; set; }
         public static PropertyProbeLogic Last;
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             Last = this;
             Movement.MoveZ = 2f;

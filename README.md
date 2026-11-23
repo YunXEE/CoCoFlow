@@ -30,7 +30,7 @@ runtime ownership.
 
 ## 0.4.6 highlights
 
-- Each Layer can bind one optional `CoCoAnyStateLogic`. It updates after the
+- Each Layer can bind one optional `AnyStateLogic`. It updates after the
   ordinary active path and takes transition priority when its request is eligible.
   It keeps the complete Config/Memory/Intent/Operation and mailbox surface,
   including existing transaction and restore rules. Its Memory survives leaf

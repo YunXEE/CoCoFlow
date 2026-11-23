@@ -6,12 +6,12 @@ using CoCoFlow.Runtime.StateGraphHost;
 namespace CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures
 {
     [Serializable]
-    public sealed class AuthoringDependencyConfig : CoCoStateConfig
+    public sealed class AuthoringDependencyConfig : StateConfig
     {
         public int Value;
     }
 
-    public readonly struct AuthoringDependencyConfigSchema : ICoCoFrozenConfigSchema
+    public readonly struct AuthoringDependencyConfigSchema : IFrozenConfigSchema
     {
     }
 
@@ -19,9 +19,9 @@ namespace CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures
     {
         static AuthoringDependencySchemas()
         {
-            var builder = new CoCoFrozenConfigSchemaBuilder<AuthoringDependencyConfigSchema>();
+            var builder = new FrozenConfigSchemaBuilder<AuthoringDependencyConfigSchema>();
             if (!builder.TryFreeze(
-                    out CoCoFrozenConfigSchema<AuthoringDependencyConfigSchema> schema,
+                    out FrozenConfigSchema<AuthoringDependencyConfigSchema> schema,
                     out CoCoDiagnostic diagnostic))
             {
                 throw new InvalidOperationException(diagnostic.Message);
@@ -30,24 +30,24 @@ namespace CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures
             Schema = schema;
         }
 
-        public static readonly CoCoFrozenConfigSchema<AuthoringDependencyConfigSchema> Schema;
+        public static readonly FrozenConfigSchema<AuthoringDependencyConfigSchema> Schema;
     }
 
-    public sealed class AuthoringDependencyLogic : CoCoStateLogic
+    public sealed class AuthoringDependencyLogic : StateLogic
     {
-        public static Type ReferencedAuthoringType => typeof(CoCoStateGraphAssetCompiler);
+        public static Type ReferencedAuthoringType => typeof(StateGraphAssetCompiler);
     }
 
-    public sealed class AuthoringDependencyMemory : CoCoActivationMemory
+    public sealed class AuthoringDependencyMemory : ActivationMemory
     {
     }
 
     public sealed class AuthoringDependencyFreezer :
-        ICoCoConfigFreezer<AuthoringDependencyConfig, AuthoringDependencyConfigSchema>
+        IConfigFreezer<AuthoringDependencyConfig, AuthoringDependencyConfigSchema>
     {
         public bool TryFreeze(
             AuthoringDependencyConfig source,
-            CoCoFrozenConfigWriter<AuthoringDependencyConfigSchema> writer,
+            FrozenConfigWriter<AuthoringDependencyConfigSchema> writer,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = source == null

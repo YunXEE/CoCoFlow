@@ -91,10 +91,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     fixture.HostScenario.GameObject.transform,
                     false);
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0xBEEFUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 PoolTemporalDespawnReentryProbe probe =
                     instance.GetComponent<PoolTemporalDespawnReentryProbe>();
@@ -175,10 +175,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     fixture.HostScenario.GameObject.transform,
                     false);
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0xCAFEUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 PoolTemporalDespawnReentryProbe probe =
                     instance.GetComponent<PoolTemporalDespawnReentryProbe>();
@@ -279,10 +279,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     fixture.HostScenario.GameObject.transform,
                     false);
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0xD15EA5EUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 Assert.That(
                     fixture.Binding.TryAdopt(
@@ -341,10 +341,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     resolve.Message);
                 Assert.That(instance.activeInHierarchy, Is.False);
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0x1A071EUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 Assert.That(
                     fixture.Binding.TryAdopt(
@@ -425,10 +425,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 PoolTemporalDespawnReentryProbe probe =
                     instance.GetComponent<PoolTemporalDespawnReentryProbe>();
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0x0EADUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 Assert.That(
                     fixture.Binding.TryAdopt(
@@ -499,10 +499,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 PoolTemporalDespawnReentryProbe probe =
                     instance.GetComponent<PoolTemporalDespawnReentryProbe>();
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0xA071EUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 Assert.That(
                     fixture.Binding.TryAdopt(
@@ -565,10 +565,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     fixture.HostScenario.GameObject.transform,
                     false);
                 Assert.That(
-                    CoCoTemporalEntityId.TryCreate(
+                    TemporalEntityId.TryCreate(
                         0xA11CEUL,
                         0xDEADUL,
-                        out CoCoTemporalEntityId entityId),
+                        out TemporalEntityId entityId),
                     Is.True);
                 Assert.That(
                     fixture.Binding.TryAdopt(
@@ -625,10 +625,10 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             var poolObject = new GameObject("Pre9 Temporal Reentry Pool Hosts");
             poolObject.SetActive(false);
             poolObject.transform.SetParent(hostScenario.GameObject.transform, false);
-            CoCoContentHost contentHost =
-                poolObject.AddComponent<CoCoContentHost>();
-            CoCoPoolHost poolHost =
-                poolObject.AddComponent<CoCoPoolHost>();
+            ContentHost contentHost =
+                poolObject.AddComponent<ContentHost>();
+            PoolHost poolHost =
+                poolObject.AddComponent<PoolHost>();
             SetField(poolHost, "contentHost", contentHost);
             poolObject.SetActive(true);
             Assert.That(
@@ -636,8 +636,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Is.True,
                 poolHost.LastDiagnostic.Message);
 
-            CoCoPoolTemporalBinding binding =
-                hostScenario.GameObject.AddComponent<CoCoPoolTemporalBinding>();
+            PoolTemporalBinding binding =
+                hostScenario.GameObject.AddComponent<PoolTemporalBinding>();
             SetField(binding, "stateGraphHost", hostScenario.Host);
             SetField(binding, "poolHost", poolHost);
             SetField(binding, "downstreamRestoreBinding", hostScenario.Binding);
@@ -737,9 +737,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         {
             internal TemporalReentryFixture(
                 TemporalHostTestScenario hostScenario,
-                CoCoContentHost contentHost,
-                CoCoPoolHost poolHost,
-                CoCoPoolTemporalBinding binding,
+                ContentHost contentHost,
+                PoolHost poolHost,
+                PoolTemporalBinding binding,
                 PoolScope scope,
                 PoolProfile profile)
             {
@@ -752,9 +752,9 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             }
 
             internal TemporalHostTestScenario HostScenario { get; }
-            internal CoCoContentHost ContentHost { get; }
-            internal CoCoPoolHost PoolHost { get; }
-            internal CoCoPoolTemporalBinding Binding { get; }
+            internal ContentHost ContentHost { get; }
+            internal PoolHost PoolHost { get; }
+            internal PoolTemporalBinding Binding { get; }
             internal PoolScope Scope { get; }
             internal PoolProfile Profile { get; }
         }
@@ -764,8 +764,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         MonoBehaviour,
         IPoolable
     {
-        private CoCoPoolTemporalBinding _binding;
-        private CoCoTemporalEntityId _entityId;
+        private PoolTemporalBinding _binding;
+        private TemporalEntityId _entityId;
         private bool _despawnOnRentArmed;
         private bool _stopHostOnReturnArmed;
 
@@ -780,8 +780,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         internal PoolReturnReason LastReturnReason { get; private set; }
 
         internal void Arm(
-            CoCoPoolTemporalBinding binding,
-            CoCoTemporalEntityId entityId)
+            PoolTemporalBinding binding,
+            TemporalEntityId entityId)
         {
             _binding = binding;
             _entityId = entityId;
@@ -789,7 +789,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         }
 
         internal void ArmHostStopOnReturn(
-            CoCoPoolTemporalBinding binding)
+            PoolTemporalBinding binding)
         {
             _binding = binding;
             _stopHostOnReturnArmed = true;

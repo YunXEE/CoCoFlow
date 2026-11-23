@@ -14,6 +14,8 @@ using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     internal enum PersistenceContextOperationResult
     {
         Applied = 0,
@@ -103,7 +105,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             record = null;
             failure = string.Empty;
 
-            var host = GetComponent<CoCoStateGraphHost>();
+            var host = GetComponent<StateGraphHost>();
             if (host != null)
             {
                 if (string.IsNullOrEmpty(stableEntityId))
@@ -248,24 +250,24 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 return PersistenceContextOperationResult.Failed;
             }
 
-            var host = GetComponent<CoCoStateGraphHost>();
+            var host = GetComponent<StateGraphHost>();
             if (host == null)
             {
                 failure =
-                    "StateGraph ContextFrame record requires a CoCoStateGraphHost on the same GameObject.";
+                    "StateGraph ContextFrame record requires a StateGraphHost on the same GameObject.";
                 return PersistenceContextOperationResult.Failed;
             }
 
             switch (host.Lifecycle)
             {
-                case CoCoRuntimeLifecycleState.Created:
-                case CoCoRuntimeLifecycleState.Stopped:
+                case RuntimeLifecycleState.Created:
+                case RuntimeLifecycleState.Stopped:
                     return PersistenceContextOperationResult.Deferred;
-                case CoCoRuntimeLifecycleState.Disposed:
+                case RuntimeLifecycleState.Disposed:
                     failure = "StateGraph ContextFrame cannot be applied to a disposed Host.";
                     return PersistenceContextOperationResult.Failed;
-                case CoCoRuntimeLifecycleState.Running:
-                case CoCoRuntimeLifecycleState.Suspended:
+                case RuntimeLifecycleState.Running:
+                case RuntimeLifecycleState.Suspended:
                     break;
                 default:
                     failure = $"StateGraph Host has unsupported lifecycle {host.Lifecycle}.";
@@ -390,7 +392,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             {
                 if (behaviour == null ||
                     ReferenceEquals(behaviour, this) ||
-                    behaviour is CoCoStateGraphHost)
+                    behaviour is StateGraphHost)
                 {
                     continue;
                 }
@@ -411,7 +413,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                     context = property?.GetValue(behaviour) as ICoCoContext;
                     if (context != null)
                     {
-                        if (context is CoCoEntityContext entityContext)
+                        if (context is EntityContext entityContext)
                         {
                             entityContext.Identity.StableEntityId = stableEntityId;
                         }

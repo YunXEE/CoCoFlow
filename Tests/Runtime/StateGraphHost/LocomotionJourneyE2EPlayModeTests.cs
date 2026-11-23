@@ -20,6 +20,8 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     /// <summary>
     /// C7 commit 2 — the journey e2e: five scenarios over one four-state
     /// graph (Idle/Move/Jump/Attack) driven through raw input intents.
@@ -35,7 +37,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private readonly List<Object> _objects = new List<Object>();
         private GameObject _actor;
-        private CoCoStateGraphHost _host;
+        private StateGraphHost _host;
         private LocomotionOperator _locomotion;
         private AnimAutoOperator _animation;
         private JourneyIntentSource _intents;
@@ -45,7 +47,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             _objects.Clear();
             JourneyMemory.Reset();
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             if (AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath) != null)
             {
                 AssetDatabase.DeleteAsset(ControllerPath);
@@ -68,7 +70,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 AssetDatabase.DeleteAsset(ControllerPath);
             }
 
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
         }
 
         [UnityTest]
@@ -254,7 +256,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(
                 _host.CurrentContext.Layout.TryResolveSlot(
                     AnimContractIds.SnapshotSlotId,
-                    out CoCoStateSlot<AnimSnapshotState> restoredSlot),
+                    out StateSlot<AnimSnapshotState> restoredSlot),
                 "restored authority must expose the Animator snapshot slot");
             AnimSnapshotState restoredSnapshot =
                 _host.CurrentContext.Read(restoredSlot);
@@ -316,32 +318,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private void BuildActor(bool withAnimator)
         {
-            CoCoStandardBindingProvider provider =
-                CoCoStandardBindingProvider.Build(
+            StandardBindingProvider provider =
+                StandardBindingProvider.Build(
                     new[] { typeof(JourneyIdleLogic).Assembly });
-            Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
                 provider, out CoCoDiagnostic install), install.Message);
 
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
 
-            var idle = new CoCoStateGraphStateRecord(
-                new CoCoSerializedId128(1, 1), default, "Idle",
+            var idle = new StateGraphStateRecord(
+                new SerializedId128(1, 1), default, "Idle",
                 DescriptorOf<JourneyIdleLogic>(), new EmptyStateConfig());
-            var move = new CoCoStateGraphStateRecord(
-                new CoCoSerializedId128(2, 2), default, "Move",
+            var move = new StateGraphStateRecord(
+                new SerializedId128(2, 2), default, "Move",
                 DescriptorOf<JourneyMoveLogic>(), new EmptyStateConfig());
-            var jump = new CoCoStateGraphStateRecord(
-                new CoCoSerializedId128(3, 3), default, "Jump",
+            var jump = new StateGraphStateRecord(
+                new SerializedId128(3, 3), default, "Jump",
                 DescriptorOf<JourneyJumpLogic>(), new EmptyStateConfig());
-            var attack = new CoCoStateGraphStateRecord(
-                new CoCoSerializedId128(4, 4), default, "Attack",
+            var attack = new StateGraphStateRecord(
+                new SerializedId128(4, 4), default, "Attack",
                 DescriptorOf<JourneyAttackLogic>(), new EmptyStateConfig());
 
-            var layer = new CoCoStateGraphLayerRecord(
-                new CoCoSerializedId128(9, 9), "Base");
-            layer.InitialStateId = new CoCoSerializedId128(1, 1);
+            var layer = new StateGraphLayerRecord(
+                new SerializedId128(9, 9), "Base");
+            layer.InitialStateId = new SerializedId128(1, 1);
             layer.States.Add(idle);
             layer.States.Add(move);
             layer.States.Add(jump);
@@ -364,13 +366,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var controller = _actor.AddComponent<CharacterController>();
             controller.height = 2f;
             controller.center = new Vector3(0f, 1f, 0f);
-            _host = _actor.AddComponent<CoCoStateGraphHost>();
+            _host = _actor.AddComponent<StateGraphHost>();
             _locomotion = _actor.AddComponent<LocomotionOperator>();
             _animation = _actor.AddComponent<AnimAutoOperator>();
             _intents = _actor.AddComponent<JourneyIntentSource>();
 
             SetField(_host, "stateGraphAsset", asset);
-            SetField(_host, "driver", (CoCoStateGraphDriver)2 /* Manual */);
+            SetField(_host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(_host, "autoStart", false);
             SetField(_host, "intentSources",
                 new MonoBehaviour[] { _intents, });
@@ -471,8 +473,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             SetField(_host, "operatorRecovery", new[]
             {
-                new CoCoStateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
-                new CoCoStateGraphHost.OperatorRecovery { component = _animation, persistence = persistence, temporal = temporal }
+                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
+                new StateGraphHost.OperatorRecovery { component = _animation, persistence = persistence, temporal = temporal }
             });
         }
 
@@ -502,7 +504,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(_host.TryPreviewTemporal(3, out _));
             Require(_host.TryConfirmTemporalRestore(out _));
             Assert.That(_host.CurrentContext.Layout.TryResolveSlot(LocoContractIds.StateSlotId,
-                out CoCoStateSlot<LocomotionState> slot), Is.True);
+                out StateSlot<LocomotionState> slot), Is.True);
             Assert.That(_host.CurrentContext.Read(slot).PositionZ, Is.EqualTo(temporal ? saved : current).Within(0.001f));
             JourneyMoveStep(1);
             current = _actor.transform.position.z;
@@ -541,8 +543,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetHostOperators(_locomotion, _animation, probe);
             SetField(_host, "operatorRecovery", new[]
             {
-                new CoCoStateGraphHost.OperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
-                new CoCoStateGraphHost.OperatorRecovery { component = probe, persistence = true, temporal = true }
+                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
+                new StateGraphHost.OperatorRecovery { component = probe, persistence = true, temporal = true }
             });
             SetField(_host, "temporalHistoryCapacity", temporal ? 8 : 0);
             Require(StartHost());
@@ -574,28 +576,28 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var type = System.Type.GetType("CoCoFlow004.Logic.RecoveryMoveLogic, CoCoFlow004");
             Require(type != null, "The manual scene requires the authored RecoveryMoveLogic script.");
             Require(StandardDescriptors.TryCreate(type, "RecoveryMove", out var descriptor));
-            var asset = AssetDatabase.LoadAssetAtPath<CoCoStateGraphAsset>("Assets/CoCoFlow004/RecoveryGraph.asset")
-                ?? ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = AssetDatabase.LoadAssetAtPath<StateGraphAsset>("Assets/CoCoFlow004/RecoveryGraph.asset")
+                ?? ScriptableObject.CreateInstance<StateGraphAsset>();
             if (string.IsNullOrEmpty(AssetDatabase.GetAssetPath(asset)))
                 AssetDatabase.CreateAsset(asset, "Assets/CoCoFlow004/RecoveryGraph.asset");
             asset.Layers.Clear();
             asset.EnsureAssetIdentity(AssetDatabase.AssetPathToGUID("Assets/CoCoFlow004/RecoveryGraph.asset"));
-            var stateId = new CoCoSerializedId128(4, 1);
-            var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(4, 2), "Base");
+            var stateId = new SerializedId128(4, 1);
+            var layer = new StateGraphLayerRecord(new SerializedId128(4, 2), "Base");
             layer.InitialStateId = stateId;
-            layer.States.Add(new CoCoStateGraphStateRecord(stateId, default, "Recovery Move",
-                new CoCoSerializedId128(descriptor.High, descriptor.Low), new CoCoFieldConfig()));
+            layer.States.Add(new StateGraphStateRecord(stateId, default, "Recovery Move",
+                new SerializedId128(descriptor.High, descriptor.Low), new FieldConfig()));
             asset.Layers.Add(layer);
             EditorUtility.SetDirty(asset);
             var actor = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             actor.name = "Operator Recovery - select me";
             Object.DestroyImmediate(actor.GetComponent<Collider>());
-            var host = actor.AddComponent<CoCoStateGraphHost>();
+            var host = actor.AddComponent<StateGraphHost>();
             var movement = actor.AddComponent<LocomotionOperator>();
             actor.AddComponent<PersistenceContext>();
             actor.AddComponent(System.Type.GetType("CoCoFlow004.OperatorRecoveryProbe, Assembly-CSharp"));
             SetField(host, "stateGraphAsset", asset);
-            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+            SetField(host, "driver", StateGraphDriver.Manual);
             SetField(host, "operators", new MonoBehaviour[] { movement });
             SetField(host, "temporalHistoryCapacity", 16);
             AssetDatabase.SaveAssets();
@@ -616,9 +618,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
-        private static CoCoSerializedId128 DescriptorOf<TLogic>()
+        private static SerializedId128 DescriptorOf<TLogic>()
         {
-            // The descriptor name must equal the [CoCoState] attribute name
+            // The descriptor name must equal the [State] attribute name
             // — the catalog derives the id from it.
             string name = typeof(TLogic).Name;
             if (name.EndsWith("Logic", System.StringComparison.Ordinal))
@@ -628,17 +630,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Assert.IsTrue(StandardDescriptors.TryCreate(
                 typeof(TLogic), name,
-                out CoCoStateDescriptorId descriptorId));
-            return new CoCoSerializedId128(descriptorId.High, descriptorId.Low);
+                out StateDescriptorId descriptorId));
+            return new SerializedId128(descriptorId.High, descriptorId.Low);
         }
 
-        private static CoCoStateGraphTransitionRecord Edge(
+        private static StateGraphTransitionRecord Edge(
             ulong id,
-            CoCoStateGraphStateRecord from,
-            CoCoStateGraphStateRecord to)
+            StateGraphStateRecord from,
+            StateGraphStateRecord to)
         {
-            return new CoCoStateGraphTransitionRecord(
-                new CoCoSerializedId128(id, id),
+            return new StateGraphTransitionRecord(
+                new SerializedId128(id, id),
                 from.StateId,
                 to.StateId,
                 (int)id);
@@ -665,7 +667,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         /// </summary>
         private sealed class JourneyIntentSource :
             MonoBehaviour,
-            ICoCoIntentFrameSource<InputIntentData>
+            IIntentFrameSource<InputIntentData>
         {
             private readonly List<RawInputRecord> _pending =
                 new List<RawInputRecord>();
@@ -692,13 +694,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 _pending.Clear();
             }
 
-            public bool TrySample(in CoCoTickFrame tickFrame, out InputIntentData intent)
+            public bool TrySample(in TickFrame tickFrame, out InputIntentData intent)
             {
                 RawInputRecord[] current = _holdMove
                     ? new[] { Record(JourneyContract.Move, _holdX, _holdY, RawInputPhase.Held) }
                     : System.Array.Empty<RawInputRecord>();
                 intent = new InputIntentData(
-                    CoCoFixedString64.FromString("Gameplay"), _pending.ToArray(), current);
+                    FixedString64.FromString("Gameplay"), _pending.ToArray(), current);
 
                 _pending.Clear();
                 return true;
@@ -712,7 +714,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 return new RawInputRecord
                 {
-                    Action = CoCoFixedString64.FromString(action),
+                    Action = FixedString64.FromString(action),
                     ValueX = x,
                     ValueY = y,
                     Phase = phase,
@@ -725,23 +727,23 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         /// Rejects its whole transaction on one chosen tick (scenario B).
         /// </summary>
         private sealed class JourneyRejectOperator :
-            MonoBehaviour, ICoCoPersistenceRestoreOperator, ICoCoTemporalRestoreOperator
+            MonoBehaviour, IPersistenceRestoreOperator, ITemporalRestoreOperator
         {
-            private static readonly CoCoOperatorDescriptor RejectDescriptor =
+            private static readonly OperatorDescriptor RejectDescriptor =
                 BuildDescriptor();
 
             public int RejectOnTick = -1;
             internal bool FailRecovery;
             internal int TemporalRestores, PersistenceRestores;
-            public CoCoContextRestoreReader RecoveryReader;
-            bool ICoCoTemporalRestoreOperator.TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            public ContextRestoreReader RecoveryReader;
+            bool ITemporalRestoreOperator.TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
             {
                 TemporalRestores++;
                 RecoveryReader = context.Reader;
                 diagnostic = CoCoDiagnostic.None;
                 return !FailRecovery;
             }
-            bool ICoCoPersistenceRestoreOperator.TryRestore(in CoCoContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            bool IPersistenceRestoreOperator.TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
             {
                 PersistenceRestores++;
                 RecoveryReader = context.Reader;
@@ -750,18 +752,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
             private int _tick;
 
-            public CoCoOperatorDescriptor Descriptor => RejectDescriptor;
+            public OperatorDescriptor Descriptor => RejectDescriptor;
 
-            private static CoCoOperatorDescriptor BuildDescriptor()
+            private static OperatorDescriptor BuildDescriptor()
             {
-                var builder = new CoCoOperatorDescriptorBuilder();
-                if (!CoCoOperatorId.TryCreate(
+                var builder = new OperatorDescriptorBuilder();
+                if (!OperatorId.TryCreate(
                         0x4A55524E45593131UL,
                         0x4A55524E45593031UL,
-                        out CoCoOperatorId operatorId) ||
+                        out OperatorId operatorId) ||
                     !builder.TryRequire<ILocomotionSection>(
                         LocoContractIds.SectionId,
-                        CoCoOperationSectionMode.Continuous,
+                        OperationSectionMode.Continuous,
                         out _,
                         out _))
                 {
@@ -770,19 +772,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
                 builder.TryFreeze<JourneyRejectOperator>(
                     operatorId,
-                    out CoCoOperatorDescriptor descriptor,
+                    out OperatorDescriptor descriptor,
                     out _);
                 return descriptor;
             }
 
             public bool TryExecute(
-                in CoCoOperatorExecutionContext context,
-                out CoCoOperatorOutcome outcome)
+                in OperatorExecutionContext context,
+                out OperatorOutcome outcome)
             {
                 _tick++;
                 if (_tick == RejectOnTick)
                 {
-                    outcome = CoCoOperatorOutcome.Rejected(
+                    outcome = OperatorOutcome.Rejected(
                         CoCoDiagnostic.Error(
                             CoCoDiagnosticDomain.Operator,
                             CoCoDiagnosticCode.OperatorExecutionFailed,
@@ -790,7 +792,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
-                outcome = CoCoOperatorOutcome.NoOp;
+                outcome = OperatorOutcome.NoOp;
                 return true;
             }
         }

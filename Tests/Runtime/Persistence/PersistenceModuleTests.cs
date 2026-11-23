@@ -273,7 +273,7 @@ namespace CoCoFlow.Tests.Runtime.Persistence
                     LogType.Error,
                     "[PersistenceContext] Deferred StateGraph apply failed for " +
                     "'scene.state-graph.missing-host': StateGraph ContextFrame record " +
-                    "requires a CoCoStateGraphHost on the same GameObject.");
+                    "requires a StateGraphHost on the same GameObject.");
 
                 Object.DestroyImmediate(fixture.Host);
                 yield return null;
@@ -466,17 +466,17 @@ namespace CoCoFlow.Tests.Runtime.Persistence
         private static System.Type ResolveStateGraphHostType()
         {
             System.Type type = System.Type.GetType(
-                "CoCoFlow.Runtime.StateGraphHost.CoCoStateGraphHost, CoCoFlow.Runtime.StateGraphHost");
-            Assert.IsNotNull(type, "CoCoStateGraphHost runtime type could not be resolved.");
+                "CoCoFlow.Runtime.StateGraphHost.StateGraphHost, CoCoFlow.Runtime.StateGraphHost");
+            Assert.IsNotNull(type, "StateGraphHost runtime type could not be resolved.");
             return type;
         }
 
         private static void SetHostLifecycleToRunning(Component host)
         {
             System.Type runtimeType = System.Type.GetType(
-                "CoCoFlow.Runtime.StateGraph.CoCoStateGraphRuntime, " +
+                "CoCoFlow.Runtime.StateGraph.StateGraphRuntime, " +
                 "CoCoFlow.Runtime.StateGraph");
-            Assert.IsNotNull(runtimeType, "CoCoStateGraphRuntime type could not be resolved.");
+            Assert.IsNotNull(runtimeType, "StateGraphRuntime type could not be resolved.");
             object runtime =
                 System.Runtime.Serialization.FormatterServices.GetUninitializedObject(
                     runtimeType);
@@ -607,7 +607,7 @@ namespace CoCoFlow.Tests.Runtime.Persistence
             }
         }
 
-        internal sealed class TestEntityContext : CoCoEntityContext
+        internal sealed class TestEntityContext : EntityContext
         {
             public string LastMarker { get; private set; } = string.Empty;
 

@@ -54,12 +54,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         // Dense field indices on ILocomotionSection (declaration order).
         public static void RequestTransition(
-            CoCoStateExecutionContext context,
+            StateExecutionContext context,
             ulong transitionId)
         {
             for (int index = 0; index < context.OutgoingTransitions.Count; index++)
             {
-                CoCoTransitionHandle handle = context.OutgoingTransitions[index];
+                TransitionHandle handle = context.OutgoingTransitions[index];
                 if (handle.TransitionId.Low == transitionId)
                 {
                     context.RequestTransition(handle);
@@ -79,13 +79,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// Idle: watches raw input and requests the matching outgoing edge
     /// (edge order fixed by the test graph build: 0=Move, 1=Jump, 2=Attack).
     /// </summary>
-    [CoCoState("JourneyIdle")]
-    [CoCoIntentConsume(typeof(InputIntentData))]
-    [CoCoOperationProvide(typeof(ILocomotionSection))]
-    [CoCoOperationProvide(typeof(IAnimParameterOperationSection))]
-    public sealed class JourneyIdleLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("JourneyIdle")]
+    [IntentConsume(typeof(InputIntentData))]
+    [OperationProvide(typeof(ILocomotionSection))]
+    [OperationProvide(typeof(IAnimParameterOperationSection))]
+    public sealed class JourneyIdleLogic : StateLogic, IStateUpdate
     {
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Idle";
             if (TryReadMove(context, out float moveX, out float z) &&
@@ -106,7 +106,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
 
         internal static bool TryReadMove(
-            CoCoStateExecutionContext context,
+            StateExecutionContext context,
             out float moveX,
             out float moveZ)
         {
@@ -120,7 +120,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             for (int index = 0; index < intent.Count; index++)
             {
                 if (intent.TryGet(index, out RawInputRecord record) &&
-                    record.Action == CoCoFixedString64.FromString(JourneyContract.Move))
+                    record.Action == FixedString64.FromString(JourneyContract.Move))
                 {
                     moveX = record.ValueX;
                     moveZ = record.ValueY;
@@ -132,7 +132,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
 
         internal static bool TryReadPressed(
-            CoCoStateExecutionContext context,
+            StateExecutionContext context,
             string action)
         {
             if (!context.Intents.TryFirst(out InputIntentData intent))
@@ -140,7 +140,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 return false;
             }
 
-            var name = CoCoFixedString64.FromString(action);
+            var name = FixedString64.FromString(action);
             for (int index = 0; index < intent.Count; index++)
             {
                 if (intent.TryGet(index, out RawInputRecord record) &&
@@ -160,12 +160,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// returns to Idle (edge 0) when input stops, Jump (edge 1) on Space.
     /// Records the committed locomotion slot for convergence assertions.
     /// </summary>
-    [CoCoState("JourneyMove")]
-    [CoCoIntentConsume(typeof(InputIntentData))]
-    [CoCoOperationProvide(typeof(ILocomotionSection))]
-    public sealed class JourneyMoveLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("JourneyMove")]
+    [IntentConsume(typeof(InputIntentData))]
+    [OperationProvide(typeof(ILocomotionSection))]
+    public sealed class JourneyMoveLogic : StateLogic, IStateUpdate
     {
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Move";
             RecordSlot(context);
@@ -205,12 +205,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             }
         }
 
-        internal static void RecordSlot(CoCoStateExecutionContext context)
+        internal static void RecordSlot(StateExecutionContext context)
         {
             if (context.PreviousContext.Layout != null &&
                 context.PreviousContext.Layout.TryResolveSlot(
                     LocoContractIds.StateSlotId,
-                    out CoCoStateSlot<LocomotionState> slot))
+                    out StateSlot<LocomotionState> slot))
             {
                 LocomotionState state = context.PreviousContext.Read(slot);
                 JourneyMemory.LastSlotZ = state.PositionZ;
@@ -224,19 +224,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// back to Idle (edge 0) once the committed slot reports grounded.
     /// Records the committed Animator snapshot for restore assertions.
     /// </summary>
-    [CoCoState("JourneyJump")]
-    [CoCoIntentConsume(typeof(InputIntentData))]
-    [CoCoOperationProvide(typeof(ILocomotionSection))]
-    public sealed class JourneyJumpLogic : CoCoStateLogic, ICoCoStateEnter, ICoCoStateUpdate
+    [State("JourneyJump")]
+    [IntentConsume(typeof(InputIntentData))]
+    [OperationProvide(typeof(ILocomotionSection))]
+    public sealed class JourneyJumpLogic : StateLogic, IStateEnter, IStateUpdate
     {
         private bool _impulseWritten;
 
-        public void OnEnter(CoCoStateExecutionContext context)
+        public void OnEnter(StateExecutionContext context)
         {
             _impulseWritten = false;
         }
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Jump";
             JourneyMoveLogic.RecordSlot(context);
@@ -278,12 +278,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             }
         }
 
-        internal static void RecordAnimSlot(CoCoStateExecutionContext context)
+        internal static void RecordAnimSlot(StateExecutionContext context)
         {
             if (context.PreviousContext.Layout != null &&
                 context.PreviousContext.Layout.TryResolveSlot(
                     AnimContractIds.SnapshotSlotId,
-                    out CoCoStateSlot<AnimSnapshotState> slot))
+                    out StateSlot<AnimSnapshotState> slot))
             {
                 AnimSnapshotState snapshot = context.PreviousContext.Read(slot);
                 JourneyMemory.LastAnimHash = snapshot.LayerStateHash(0);
@@ -297,19 +297,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     /// the first tick, holds ground (no locomotion writes), returns to
     /// Idle (edge 0) after a short beat.
     /// </summary>
-    [CoCoState("JourneyAttack")]
-    [CoCoIntentConsume(typeof(InputIntentData))]
-    [CoCoOperationProvide(typeof(IAnimTriggerOperationSection))]
-    public sealed class JourneyAttackLogic : CoCoStateLogic, ICoCoStateEnter, ICoCoStateUpdate
+    [State("JourneyAttack")]
+    [IntentConsume(typeof(InputIntentData))]
+    [OperationProvide(typeof(IAnimTriggerOperationSection))]
+    public sealed class JourneyAttackLogic : StateLogic, IStateEnter, IStateUpdate
     {
         private bool _triggerWritten;
 
-        public void OnEnter(CoCoStateExecutionContext context)
+        public void OnEnter(StateExecutionContext context)
         {
             _triggerWritten = false;
         }
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Attack";
             if (!_triggerWritten &&

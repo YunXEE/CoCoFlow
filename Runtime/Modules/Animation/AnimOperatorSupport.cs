@@ -7,23 +7,25 @@ using UnityEngine;
 
 namespace CoCoFlow.Runtime.Modules.Animation
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     internal static class AnimOperatorContracts
     {
-        internal static readonly CoCoOperationSectionRequirement ParameterRequirement;
-        internal static readonly CoCoOperationSectionRequirement TriggerRequirement;
-        internal static readonly CoCoEventOutboxRequirement FeedbackRequirement;
-        internal static readonly CoCoStandardOperatorDefinition Definition;
+        internal static readonly OperationSectionRequirement ParameterRequirement;
+        internal static readonly OperationSectionRequirement TriggerRequirement;
+        internal static readonly EventOutboxRequirement FeedbackRequirement;
+        internal static readonly StandardOperatorDefinition Definition;
 
         static AnimOperatorContracts()
         {
-            var builder = new CoCoStandardOperatorBuilder();
+            var builder = new StandardOperatorBuilder();
             ParameterRequirement = builder.Require<IAnimParameterOperationSection>(AnimContractIds.ParameterSectionId,
                 AnimContractIds.ParameterSectionSemanticFingerprint);
             TriggerRequirement = builder.Require<IAnimTriggerOperationSection>(AnimContractIds.TriggerSectionId,
                 AnimContractIds.TriggerSectionSemanticFingerprint);
             builder.OwnOutcome(AnimContractIds.SnapshotBlockId, AnimContractIds.SnapshotSlotId,
-                CoCoContextProjection.Temporal | CoCoContextProjection.Durable,
-                CoCoContextRestorePolicy.Stored, default(AnimSnapshotState), 1);
+                ContextProjection.Temporal | ContextProjection.Durable,
+                ContextRestorePolicy.Stored, default(AnimSnapshotState), 1);
             FeedbackRequirement = builder.Emit<AnimFeedbackEvent>(AnimContractIds.FeedbackEventTypeId,
                 AnimContractIds.FeedbackEventDomainId, AnimContractLimits.FeedbackCapacity);
             Definition = builder.Freeze<AnimAutoOperator>(AnimContractIds.AutoOperatorId);
@@ -47,21 +49,21 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         private readonly SourceKind _kind;
-        private readonly CoCoGraphInstanceId _graphInstanceId;
-        private readonly CoCoTimelineEpoch _timelineEpoch;
-        private readonly CoCoTimelineTick _tick;
-        private readonly CoCoExecutionSequence _executionSequence;
-        private readonly CoCoContextRevision _revision;
+        private readonly GraphInstanceId _graphInstanceId;
+        private readonly TimelineEpoch _timelineEpoch;
+        private readonly TimelineTick _tick;
+        private readonly ExecutionSequence _executionSequence;
+        private readonly ContextRevision _revision;
 
         internal bool IsValid => _kind != SourceKind.None;
 
         private AnimFeedbackSourceStamp(
             SourceKind kind,
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoTimelineTick tick,
-            CoCoExecutionSequence executionSequence,
-            CoCoContextRevision revision)
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch,
+            TimelineTick tick,
+            ExecutionSequence executionSequence,
+            ContextRevision revision)
         {
             _kind = kind;
             _graphInstanceId = graphInstanceId;
@@ -72,15 +74,15 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal static bool TryCaptureCommitted(
-            CoCoStateGraphHost host,
+            StateGraphHost host,
             out AnimFeedbackSourceStamp stamp)
         {
-            CoCoContextFrame frame = host != null ? host.CurrentContext : default;
+            ContextFrame frame = host != null ? host.CurrentContext : default;
             if (host == null ||
                 !host.GraphInstanceId.IsValid ||
                 !frame.IsAlive ||
                 !frame.Header.IsValid ||
-                frame.Header.Identity.Kind != CoCoStateFlowFrameKind.Context ||
+                frame.Header.Identity.Kind != StateFlowFrameKind.Context ||
                 !frame.Revision.IsValid ||
                 frame.Header.Identity.GraphInstanceId != host.GraphInstanceId)
             {
@@ -88,7 +90,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 return false;
             }
 
-            CoCoStateFlowFrameIdentity identity = frame.Header.Identity;
+            StateFlowFrameIdentity identity = frame.Header.Identity;
             return TryCreateCommitted(
                 identity.GraphInstanceId,
                 identity.TimelineEpoch,
@@ -99,11 +101,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal static bool TryCreateCommitted(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoTimelineTick tick,
-            CoCoExecutionSequence executionSequence,
-            CoCoContextRevision revision,
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch,
+            TimelineTick tick,
+            ExecutionSequence executionSequence,
+            ContextRevision revision,
             out AnimFeedbackSourceStamp stamp)
         {
             if (!graphInstanceId.IsValid || !revision.IsValid)
@@ -123,8 +125,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal static bool TryCaptureCandidate(
-            in CoCoOperatorExecutionContext context,
-            CoCoStateGraphHost host,
+            in OperatorExecutionContext context,
+            StateGraphHost host,
             out AnimFeedbackSourceStamp stamp)
         {
             if (!context.IsValid ||
@@ -144,10 +146,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal static bool TryCreateCandidate(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoTimelineTick tick,
-            CoCoExecutionSequence executionSequence,
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch,
+            TimelineTick tick,
+            ExecutionSequence executionSequence,
             out AnimFeedbackSourceStamp stamp)
         {
             if (!graphInstanceId.IsValid)
@@ -167,8 +169,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal bool IsSameTimeline(
-            CoCoStateGraphHost host,
-            CoCoTimelineEpoch timelineEpoch)
+            StateGraphHost host,
+            TimelineEpoch timelineEpoch)
         {
             return host != null &&
                    IsSameTimeline(
@@ -177,8 +179,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal bool IsSameTimeline(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch)
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch)
         {
             return _kind != SourceKind.None &&
                    graphInstanceId.IsValid &&
@@ -209,10 +211,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
             _kind == SourceKind.CommittedContext;
 
         internal bool MatchesCandidate(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoTimelineTick tick,
-            CoCoExecutionSequence executionSequence)
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch,
+            TimelineTick tick,
+            ExecutionSequence executionSequence)
         {
             return _kind == SourceKind.CandidateTick &&
                    graphInstanceId == _graphInstanceId &&
@@ -222,11 +224,11 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal bool MatchesCommitted(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch,
-            CoCoTimelineTick tick,
-            CoCoExecutionSequence executionSequence,
-            CoCoContextRevision revision)
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch,
+            TimelineTick tick,
+            ExecutionSequence executionSequence,
+            ContextRevision revision)
         {
             return _kind == SourceKind.CommittedContext &&
                    graphInstanceId == _graphInstanceId &&
@@ -237,8 +239,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal bool Matches(
-            in CoCoOperatorExecutionContext context,
-            CoCoStateGraphHost host)
+            in OperatorExecutionContext context,
+            StateGraphHost host)
         {
             if (!context.IsValid ||
                 host == null ||
@@ -251,10 +253,10 @@ namespace CoCoFlow.Runtime.Modules.Animation
             switch (_kind)
             {
                 case SourceKind.CommittedContext:
-                    CoCoContextFrameReadView previous = context.PreviousContext;
-                    CoCoStateFlowFrameIdentity identity = previous.Header.Identity;
+                    ContextFrameReadView previous = context.PreviousContext;
+                    StateFlowFrameIdentity identity = previous.Header.Identity;
                     return previous.HasCommittedFrame &&
-                           identity.Kind == CoCoStateFlowFrameKind.Context &&
+                           identity.Kind == StateFlowFrameKind.Context &&
                            MatchesCommitted(
                                identity.GraphInstanceId,
                                identity.TimelineEpoch,
@@ -286,8 +288,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         internal bool Overflowed { get; private set; }
 
         internal void PrepareForExecution(
-            in CoCoOperatorExecutionContext context,
-            CoCoStateGraphHost host)
+            in OperatorExecutionContext context,
+            StateGraphHost host)
         {
             if (!context.IsValid ||
                 host == null ||
@@ -340,8 +342,8 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal void PrepareForTimeline(
-            CoCoGraphInstanceId graphInstanceId,
-            CoCoTimelineEpoch timelineEpoch)
+            GraphInstanceId graphInstanceId,
+            TimelineEpoch timelineEpoch)
         {
             if (Overflowed &&
                 !_overflowSource.IsSameTimeline(
@@ -403,17 +405,17 @@ namespace CoCoFlow.Runtime.Modules.Animation
         }
 
         internal bool TryWrite(
-            in CoCoOperatorExecutionContext context,
-            CoCoStateGraphHost host)
+            in OperatorExecutionContext context,
+            StateGraphHost host)
         {
             if (Overflowed || host == null || !host.GraphInstanceId.IsValid ||
-                !CoCoEventOutboxTarget.TryTargeted(
+                !EventOutboxTarget.TryTargeted(
                     host.GraphInstanceId,
-                    CoCoEventReliability.Reliable,
+                    EventReliability.Reliable,
                     default,
                     default,
                     default,
-                    out CoCoEventOutboxTarget target))
+                    out EventOutboxTarget target))
             {
                 return false;
             }
@@ -431,7 +433,7 @@ namespace CoCoFlow.Runtime.Modules.Animation
                 if (context.EventOutbox.TryWrite(
                         AnimOperatorContracts.FeedbackRequirement,
                         target,
-                        _events[index]) != CoCoEventOutboxWriteResult.Accepted)
+                        _events[index]) != EventOutboxWriteResult.Accepted)
                 {
                     return false;
                 }

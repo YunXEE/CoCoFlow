@@ -34,7 +34,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
             PersistenceContextRegistry.Clear();
@@ -55,7 +55,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             PersistenceSession.ClearPendingDocument();
             PersistenceFileStore.SaveDirectoryOverride = _previousDirectory;
             if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
-            CoCoStateGraphProjectBindings.ResetForTests();
+            StateGraphProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }

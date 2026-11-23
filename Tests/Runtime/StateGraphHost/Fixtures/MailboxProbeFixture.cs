@@ -5,9 +5,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
     public readonly struct MailboxDamage
     {
-        public readonly CoCoGraphInstanceId Target;
+        public readonly GraphInstanceId Target;
         public readonly float RawDamage;
-        public MailboxDamage(CoCoGraphInstanceId target, float rawDamage)
+        public MailboxDamage(GraphInstanceId target, float rawDamage)
         {
             Target = target;
             RawDamage = rawDamage;
@@ -22,17 +22,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
     public struct MailboxNotice { public int Value; }
 
-    [CoCoState(nameof(MailboxProbeLogic), ProvidesActionProgress = true)]
-    public sealed class MailboxProbeLogic : CoCoStateLogic, ICoCoStateUpdate, ICoCoStateEnter, ICoCoStateExit
+    [State(nameof(MailboxProbeLogic), ProvidesActionProgress = true)]
+    public sealed class MailboxProbeLogic : StateLogic, IStateUpdate, IStateEnter, IStateExit
     {
         [Memory] public float Health = 100f;
         public static bool IgnoreDamage;
-        public static Action<MailboxProbeLogic, CoCoStateExecutionContext> Tick;
-        public static Action<CoCoStateExecutionContext> Enter;
-        public static Action<CoCoStateExecutionContext> Exit;
-        public void OnEnter(CoCoStateExecutionContext context) => Enter?.Invoke(context);
-        public void OnExit(CoCoStateExecutionContext context) => Exit?.Invoke(context);
-        public void Update(CoCoStateExecutionContext context)
+        public static Action<MailboxProbeLogic, StateExecutionContext> Tick;
+        public static Action<StateExecutionContext> Enter;
+        public static Action<StateExecutionContext> Exit;
+        public void OnEnter(StateExecutionContext context) => Enter?.Invoke(context);
+        public void OnExit(StateExecutionContext context) => Exit?.Invoke(context);
+        public void Update(StateExecutionContext context)
         {
             if (!IgnoreDamage && context.Inbox.TryGetBatch<MailboxDamage>(out var damages))
                 for (int i = 0; i < damages.Count; i++)
@@ -45,25 +45,25 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    [CoCoState(nameof(MailboxPlainLogic), ProvidesActionProgress = true)]
-    public sealed class MailboxPlainLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State(nameof(MailboxPlainLogic), ProvidesActionProgress = true)]
+    public sealed class MailboxPlainLogic : StateLogic, IStateUpdate
     {
-        public static Action<CoCoStateExecutionContext> Tick;
-        public void Update(CoCoStateExecutionContext context)
+        public static Action<StateExecutionContext> Tick;
+        public void Update(StateExecutionContext context)
         {
             context.TrySetActionProgress(0.8);
             Tick?.Invoke(context);
         }
     }
 
-    [CoCoState(nameof(MailboxAnyLogic))]
-    public sealed class MailboxAnyLogic : CoCoAnyStateLogic
+    [State(nameof(MailboxAnyLogic))]
+    public sealed class MailboxAnyLogic : AnyStateLogic
     {
         [Config] public int Increment = 2;
         [Memory] public int Total = 10;
         public static Action Tick;
 
-        public override void Update(CoCoStateExecutionContext context)
+        public override void Update(StateExecutionContext context)
         {
             Total += Increment;
             if (context.Inbox.TryGetBatch<MailboxDamage>(out var damages))
@@ -74,18 +74,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    [CoCoState(nameof(MailboxStatelessAnyLogic))]
-    public sealed class MailboxStatelessAnyLogic : CoCoAnyStateLogic
+    [State(nameof(MailboxStatelessAnyLogic))]
+    public sealed class MailboxStatelessAnyLogic : AnyStateLogic
     {
-        public override void Update(CoCoStateExecutionContext context) { }
+        public override void Update(StateExecutionContext context) { }
     }
 
     [Condition]
-    public sealed class MailboxReadyCondition : CoCoStateCondition, ICoCoStateConditionEvaluator
+    public sealed class MailboxReadyCondition : StateCondition, IStateConditionEvaluator
     {
         public static bool Allowed;
         public static int Calls;
-        public bool Evaluate(CoCoConditionEvaluationContext context)
+        public bool Evaluate(ConditionEvaluationContext context)
         {
             Calls++;
             return Allowed && context.ActionProgress >= 0.8;

@@ -37,7 +37,7 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
         {
             GameObject managerObject = Track(new GameObject("UI Content Consumer Test"));
             managerObject.SetActive(false);
-            CoCoContentHost host = managerObject.AddComponent<CoCoContentHost>();
+            ContentHost host = managerObject.AddComponent<ContentHost>();
             UIManager manager = managerObject.AddComponent<UIManager>();
             Transform panelRoot = CreateChild(managerObject.transform, "Panel Root");
             SetField(manager, "contentHost", host);
@@ -88,7 +88,7 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
         private async UniTask RunDestroyingUiManagerDuringPendingAcquireAsync()
         {
             CreateDelayedContentHost(
-                out CoCoContentHost host,
+                out ContentHost host,
                 out DelayedContentBackend backend);
 
             GameObject managerObject = Track(new GameObject("Pending UI Manager"));
@@ -134,13 +134,13 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
         }
 
         private void CreateDelayedContentHost(
-            out CoCoContentHost host,
+            out ContentHost host,
             out DelayedContentBackend backend)
         {
             GameObject hostObject = Track(new GameObject("Delayed Content Host"));
             hostObject.SetActive(false);
             backend = hostObject.AddComponent<DelayedContentBackend>();
-            host = hostObject.AddComponent<CoCoContentHost>();
+            host = hostObject.AddComponent<ContentHost>();
             SetField(host, "backendComponents", new MonoBehaviour[] { backend });
             hostObject.SetActive(true);
             Assert.That(host.IsInitialized, Is.True, host.LastDiagnostic.Message);
@@ -181,7 +181,7 @@ namespace CoCoFlow.Tests.Runtime.ContentConsumers
         }
 
         private static void AssertSingleEntry(
-            CoCoContentHost host,
+            ContentHost host,
             ContentId contentId,
             int expectedLeaseCount)
         {

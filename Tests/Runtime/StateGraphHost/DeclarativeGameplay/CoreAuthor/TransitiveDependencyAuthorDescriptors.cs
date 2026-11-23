@@ -6,12 +6,12 @@ using CoCoFlow.Tests.StateGraphTransitiveDependencyHelper;
 namespace CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor
 {
     [Serializable]
-    public sealed class TransitiveDependencyAuthoringConfig : CoCoStateConfig
+    public sealed class TransitiveDependencyAuthoringConfig : StateConfig
     {
         public int Value;
     }
 
-    public readonly struct TransitiveDependencyConfigSchema : ICoCoFrozenConfigSchema
+    public readonly struct TransitiveDependencyConfigSchema : IFrozenConfigSchema
     {
     }
 
@@ -19,9 +19,9 @@ namespace CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor
     {
         static TransitiveDependencySchemas()
         {
-            var builder = new CoCoFrozenConfigSchemaBuilder<TransitiveDependencyConfigSchema>();
+            var builder = new FrozenConfigSchemaBuilder<TransitiveDependencyConfigSchema>();
             if (!builder.TryFreeze(
-                    out CoCoFrozenConfigSchema<TransitiveDependencyConfigSchema> schema,
+                    out FrozenConfigSchema<TransitiveDependencyConfigSchema> schema,
                     out CoCoDiagnostic diagnostic))
             {
                 throw new InvalidOperationException(diagnostic.Message);
@@ -30,27 +30,27 @@ namespace CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor
             Schema = schema;
         }
 
-        public static readonly CoCoFrozenConfigSchema<TransitiveDependencyConfigSchema> Schema;
+        public static readonly FrozenConfigSchema<TransitiveDependencyConfigSchema> Schema;
     }
 
-    public sealed class TransitiveDependencyLogic : CoCoStateLogic
+    public sealed class TransitiveDependencyLogic : StateLogic
     {
         public static int ReadCoreViaHelper() =>
             TransitiveDependencyHelperToken.Create().Value;
     }
 
-    public sealed class TransitiveDependencyMemory : CoCoActivationMemory
+    public sealed class TransitiveDependencyMemory : ActivationMemory
     {
     }
 
     public sealed class TransitiveDependencyFreezer :
-        ICoCoConfigFreezer<
+        IConfigFreezer<
             TransitiveDependencyAuthoringConfig,
             TransitiveDependencyConfigSchema>
     {
         public bool TryFreeze(
             TransitiveDependencyAuthoringConfig source,
-            CoCoFrozenConfigWriter<TransitiveDependencyConfigSchema> writer,
+            FrozenConfigWriter<TransitiveDependencyConfigSchema> writer,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = source == null

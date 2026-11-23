@@ -9,8 +9,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
     internal sealed class PoolTemporalSidecar : IDisposable
     {
         private readonly Frame[] _frames;
-        private CoCoTemporalEntityId[] _staging = Array.Empty<CoCoTemporalEntityId>();
-        private CoCoTemporalFrameInfo _stagingInfo;
+        private TemporalEntityId[] _staging = Array.Empty<TemporalEntityId>();
+        private TemporalFrameInfo _stagingInfo;
         private PreparedCaptureKind _preparedKind;
         private int _preparedCount;
         private int _preparedBranchDepth;
@@ -44,7 +44,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryPrepareForwardCapture(
             PoolTemporalRecord[] records,
             int recordCount,
-            in CoCoTemporalFrameInfo candidate)
+            in TemporalFrameInfo candidate)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -112,7 +112,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryPrepareAuthorityReset(
             PoolTemporalRecord[] records,
             int recordCount,
-            in CoCoTemporalFrameInfo targetAuthority)
+            in TemporalFrameInfo targetAuthority)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -178,7 +178,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         internal bool TryPrepareBranchCapture(
             int historyDepth,
-            in CoCoTemporalFrameInfo branchHead)
+            in TemporalFrameInfo branchHead)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -230,7 +230,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         internal bool ContainsAtDepth(
             int historyDepth,
-            CoCoTemporalEntityId entityId)
+            TemporalEntityId entityId)
         {
             if (!entityId.IsValid ||
                 !TryResolveDepth(historyDepth, out int frameIndex))
@@ -249,7 +249,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryGetEntityAtDepth(
             int historyDepth,
             int entityIndex,
-            out CoCoTemporalEntityId entityId)
+            out TemporalEntityId entityId)
         {
             if (!TryResolveDepth(historyDepth, out int frameIndex))
             {
@@ -268,7 +268,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             return entityId.IsValid;
         }
 
-        internal bool IsReachable(CoCoTemporalEntityId entityId)
+        internal bool IsReachable(TemporalEntityId entityId)
         {
             if (_isDisposed || !entityId.IsValid)
             {
@@ -305,7 +305,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 _frames[index].Clear();
             }
 
-            _staging = Array.Empty<CoCoTemporalEntityId>();
+            _staging = Array.Empty<TemporalEntityId>();
             _headIndex = -1;
             _count = 0;
             ClearPreparedCapture();
@@ -334,7 +334,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         private void PublishStagingTo(int targetIndex)
         {
             Frame target = _frames[targetIndex];
-            CoCoTemporalEntityId[] recycled = target.Values;
+            TemporalEntityId[] recycled = target.Values;
             target.Values = _staging;
             target.Count = _preparedCount;
             target.Info = _stagingInfo;
@@ -363,7 +363,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 capacity = next;
             }
 
-            var expanded = new CoCoTemporalEntityId[capacity];
+            var expanded = new TemporalEntityId[capacity];
             if (_preparedCount > 0)
             {
                 Array.Copy(_staging, 0, expanded, 0, _preparedCount);
@@ -391,7 +391,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         private static bool Contains(
             Frame frame,
-            CoCoTemporalEntityId entityId)
+            TemporalEntityId entityId)
         {
             for (int index = 0; index < frame.Count; index++)
             {
@@ -414,11 +414,11 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         private sealed class Frame
         {
-            internal CoCoTemporalEntityId[] Values { get; set; } =
-                Array.Empty<CoCoTemporalEntityId>();
+            internal TemporalEntityId[] Values { get; set; } =
+                Array.Empty<TemporalEntityId>();
 
             internal int Count { get; set; }
-            internal CoCoTemporalFrameInfo Info { get; set; }
+            internal TemporalFrameInfo Info { get; set; }
 
             internal void Clear()
             {

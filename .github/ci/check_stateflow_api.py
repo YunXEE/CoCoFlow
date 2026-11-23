@@ -16,10 +16,10 @@ CORE_CONSUMER = "CoCoFlow.CI.CoreConsumer"
 GAME_CONSUMER = "CoCoFlow.CI.GameplayConsumer"
 # Each expression is checked in an otherwise compiling external Host consumer.
 DENIED = (
-    ("CoCoStateGraphProjectBindings.ResetForTests()", "CS0117", "ResetForTests"),
-    ("CoCoStateGraphRuntime.TryCreate(null, default, null, null, null, out _, out _)",
-     "CS0122", "CoCoStateGraphRuntime"),
-    ("default(CoCoFinalizedContextCommit).CommitNoFailUnchecked()", "CS1061", "CommitNoFailUnchecked"),
+    ("StateGraphProjectBindings.ResetForTests()", "CS0117", "ResetForTests"),
+    ("StateGraphRuntime.TryCreate(null, default, null, null, null, out _, out _)",
+     "CS0122", "StateGraphRuntime"),
+    ("default(FinalizedContextCommit).CommitNoFailUnchecked()", "CS1061", "CommitNoFailUnchecked"),
 )
 ENGINE = "UnityEngine.CoreModule"
 RUNTIME = (

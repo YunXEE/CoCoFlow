@@ -11,22 +11,22 @@ namespace CoCoFlow.Tests.GameplayBinding
         public string Target { get; }
     }
 
-    [CoCoOperationSection(CoCoOperationSectionMode.Continuous)]
-    public interface IDamageWindowSection : ICoCoOperationSection
+    [OperationSection(OperationSectionMode.Continuous)]
+    public interface IDamageWindowSection : IOperationSection
     {
         int Window { get; set; }
     }
 
     public static class DamageSections
     {
-        [CoCoOperationSection(CoCoOperationSectionMode.Discrete)]
-        public interface IDamagePulseSection : ICoCoOperationSection
+        [OperationSection(OperationSectionMode.Discrete)]
+        public interface IDamagePulseSection : IOperationSection
         {
             int Pulse { get; set; }
         }
     }
 
-    public interface IMissingModeSection : ICoCoOperationSection
+    public interface IMissingModeSection : IOperationSection
     {
         int Value { get; set; }
     }
@@ -49,8 +49,8 @@ namespace CoCoFlow.Tests.GameplayBinding
 
     public sealed class GameplayCoreService { }
 
-    [CoCoState("P001.Enemy")]
-    public sealed class EnemyLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("P001.Enemy")]
+    public sealed class EnemyLogic : StateLogic, IStateUpdate
     {
         [Intent] public EnemyIntentData Enemy { get; private set; }
         [Operation] public IDamageWindowSection Damage { get; private set; }
@@ -58,11 +58,11 @@ namespace CoCoFlow.Tests.GameplayBinding
         public static GameplayCoreService DirectService { get; private set; }
         public static GameplayCoreService HelperService { get; private set; }
         public static string Target { get; private set; }
-        public static CoCoStateEventBatch<Interaction> LastBatch { get; private set; }
+        public static StateEventBatch<Interaction> LastBatch { get; private set; }
         public static int RepeatedRead { get; private set; }
         public static int LastContact { get; private set; }
 
-        public void Update(CoCoStateExecutionContext context)
+        public void Update(StateExecutionContext context)
         {
             DirectService = CoCoServices.Get<GameplayCoreService>();
             HelperService = TransitiveDependencyHelperToken.GetService<GameplayCoreService>();
@@ -81,11 +81,11 @@ namespace CoCoFlow.Tests.GameplayBinding
         }
     }
 
-    [CoCoState("P001.Camera")]
-    public sealed class CameraProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+    [State("P001.Camera")]
+    public sealed class CameraProbeLogic : StateLogic, IStateUpdate
     {
         [Intent] public CameraIntentData Camera { get; private set; }
         public static CameraIntentData Sample { get; private set; }
-        public void Update(CoCoStateExecutionContext context) => Sample = Camera;
+        public void Update(StateExecutionContext context) => Sample = Camera;
     }
 }

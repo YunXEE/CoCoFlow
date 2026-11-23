@@ -3,9 +3,9 @@ using UnityEngine;
 
 namespace CoCoFlow.Tests.GameplayBinding
 {
-    public sealed class EnemyIntent : MonoBehaviour, ICoCoIntentFrameSource<EnemyIntentData>
+    public sealed class EnemyIntent : MonoBehaviour, IIntentFrameSource<EnemyIntentData>
     {
-        public bool TrySample(in CoCoTickFrame tickFrame, out EnemyIntentData intent)
+        public bool TrySample(in TickFrame tickFrame, out EnemyIntentData intent)
         {
             intent = new EnemyIntentData("Sentinel-42");
             return true;

@@ -29,7 +29,7 @@ StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownersh
 
 ## 0.4.6 功能概览
 
-- 每个 Layer 可绑定一个 `CoCoAnyStateLogic`，在普通活跃枝之后执行，
+- 每个 Layer 可绑定一个 `AnyStateLogic`，在普通活跃枝之后执行，
   请求的转移满足条件时优先。保留完整 Config/Memory/Intent/Operation 和邮箱
   能力，沿用事务与恢复规则。AnyState Memory 跨换叶保留；重入当前叶只重置
   该叶的 Activation、Memory 和时钟，祖先与 AnyState 保持，作者可每 Tick 请求。

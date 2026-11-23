@@ -18,7 +18,7 @@ package does not expose an automatic migration path for non-v1 graph Assets.
 
 ## Authoring authority
 
-`CoCoStateGraphAsset` is the sole serialized authoring truth. Its public
+`StateGraphAsset` is the sole serialized authoring truth. Its public
 topology is:
 
 ```text
@@ -85,17 +85,17 @@ workflow.
 
 ## Standard attributed authoring path
 
-Declare a concrete `[CoCoState("Name")]` on a `CoCoStateLogic` with a public
-parameterless constructor and `ICoCoStateUpdate`. The attribute name supplies
+Declare a concrete `[State("Name")]` on a `StateLogic` with a public
+parameterless constructor and `IStateUpdate`. The attribute name supplies
 the stable descriptor identity. Use `[Intent]` for a payload, `[Operation]` for
 a section interface, and `[Config]` or `[Memory]` for public instance fields.
 The standard binding creates the graph-owned state slot and its Temporal and
 Durable projections. States with no config or memory fields use
-`EmptyStateConfig` and `StatelessMemory`. An attributed `CoCoAnyStateLogic`
+`EmptyStateConfig` and `StatelessMemory`. An attributed `AnyStateLogic`
 belongs in the layer's optional AnyState slot.
 
-A section carries `[CoCoOperationSection]`. An operator declares a static
-`[CoCoOperatorDefinition]` and calls `CoCoStandardOperatorBuilder.Require<TSection>()`.
+A section carries `[OperationSection]`. An operator declares a static
+`[OperatorDefinition]` and calls `StandardOperatorBuilder.Require<TSection>()`.
 The source generator supplies the top-level or accessible nested interface's view.
 The Editor and the standard Host read these declarations from the same catalog.
 [StateGraph Runtime and Host](StateGraphRuntime.md)
@@ -118,7 +118,7 @@ Numeric text is committed on confirmation or focus loss. Intermediate text such
 as `2.` or `-` is kept in the active control; invalid submissions show an error
 and preserve the last saved value. Value commits keep the active Config controls.
 
-`CoCoFieldConfig.Values`, `Set(string, object)`, and `Apply(CoCoStateLogic)` retain
+`FieldConfig.Values`, `Set(string, object)`, and `Apply(StateLogic)` retain
 their signatures. Old scalar entries such as `Speed=2.5` remain readable.
 Collections use a length entry (`Windows.$count=2`) and indexed leaves
 (`Windows[0].StartSeconds=0.25`). `Set` replaces the entire supplied path,
@@ -126,8 +126,8 @@ including old descendants, and Apply restores lengths before indexed values.
 
 ## Optional AnyState source
 
-`CoCoStateLayerSource` retains its four-argument constructor. A five-argument
-overload appends `CoCoStateSource anyState`; `AnyState == null` preserves the
+`StateLayerSource` retains its four-argument constructor. A five-argument
+overload appends `StateSource anyState`; `AnyState == null` preserves the
 ordinary model. The Asset stores this optional record in a nullable
 `[SerializeReference]` slot. Existing `states`, constructors and field paths keep
 their meaning; opening an old Asset neither creates a binding nor migrates it.
@@ -135,7 +135,7 @@ their meaning; opening an old Asset neither creates a binding nor migrates it.
 AnyState has its own valid stable State ID, descriptor and Config. It is not a
 member of the ordinary tree: it cannot have a parent/initial child or serve as
 a Layer initial State, transition target, subtree root or paste parent. Its
-descriptor must derive from `CoCoAnyStateLogic` without Enter/Exit interfaces;
+descriptor must derive from `AnyStateLogic` without Enter/Exit interfaces;
 ordinary States cannot use that special Logic type.
 
 Compiled States expose `IsAnyState`; each compiled Layer exposes
@@ -182,12 +182,12 @@ original operation.
 Compilation follows one direction:
 
 ```text
-CoCoStateGraphAsset
+StateGraphAsset
   -> immutable authoring snapshot
   + frozen descriptor catalog
-  -> CoCoStateGraphCompiler
-  -> CoCoStateGraphCompileResult
-  -> immutable CoCoCompiledStateGraph
+  -> StateGraphCompiler
+  -> StateGraphCompileResult
+  -> immutable CompiledStateGraph
 ```
 
 The snapshot boundary validates the serialized envelope without evaluating
@@ -224,7 +224,7 @@ reinterpret rejected data.
 State and Condition behavior is represented by stable descriptor identities
 registered before compilation. Compilation verifies and freezes those
 descriptors; creating StateLogic, Condition, Memory, Adapter, or Reducer
-instances is a Host runtime boundary. The pure `CoCoStateGraphCompiler` itself
+instances is a Host runtime boundary. The pure `StateGraphCompiler` itself
 does not invoke a Freezer, StateLogic, Condition, Reducer, Factory, or
 Event-to-Intent Adapter.
 
@@ -268,7 +268,7 @@ This distinguishes different bindings implemented by the same type without
 catalog and CompiledGraph retain only copied token metadata, so mutating a
 later Host-owned factory cannot change an existing compiled result.
 
-`CoCoCompiledStateGraph` contains immutable per-Layer State and Transition
+`CompiledStateGraph` contains immutable per-Layer State and Transition
 tables, hierarchy and adjacency lookups, and the data required to reconstruct
 an active path. It is not generated C# and is not a second serialized authoring
 Asset.
@@ -277,13 +277,13 @@ Asset.
 
 One successful compile produces three deterministic, deduplicated manifests:
 
-- `CoCoIntentRequirementManifest`: the Intents the Graph can read, including
+- `IntentRequirementManifest`: the Intents the Graph can read, including
   stable identity, value and Reducer types, capacity, and dense index. It also
   carries a non-null collection of the Graph's static Event-to-Intent
   declarations; this does not create a fourth Manifest.
-- `CoCoGraphOperationProvisionManifest`: the OperationFrame Sections the Graph
+- `GraphOperationProvisionManifest`: the OperationFrame Sections the Graph
   can produce, including each Section's complete immutable Shape.
-- `CoCoContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
+- `ContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
   Slot state required to resume graph evaluation deterministically.
 
 State descriptors may contribute to all three manifests. Conditions may declare
@@ -325,7 +325,7 @@ metadata so High Managed Stripping does not erase the static Shape contract.
 StateGraphHost owns the scene sources, typed Inbox adapters,
 and runtime binding coverage. Transaction preflight includes Context producer,
 Operator, Claim, Actor-binding, and Outbox coverage. This preflight
-runs before Clock creation and before `CoCoStateGraphRuntime.TryCreate`, so an
+runs before Clock creation and before `StateGraphRuntime.TryCreate`, so an
 invalid setup keeps the Host in `Created` without invoking Runtime factories,
 reset/fingerprint work, Graph capture, or Router registration. Runtime binding
 remains outside graph compilation: a missing project Factory does not turn the

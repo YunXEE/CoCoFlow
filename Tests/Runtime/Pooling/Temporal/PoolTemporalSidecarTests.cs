@@ -15,8 +15,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         [Test]
         public void ForwardCaptureStoresPresentIdsAndOverwritesOldestFrame()
         {
-            CoCoTemporalEntityId firstId = EntityId(1UL);
-            CoCoTemporalEntityId secondId = EntityId(2UL);
+            TemporalEntityId firstId = EntityId(1UL);
+            TemporalEntityId secondId = EntityId(2UL);
             var first = Record(firstId, present: true);
             var second = Record(secondId, present: false);
             var records = new[] { first, second };
@@ -51,7 +51,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         [Test]
         public void CancelledCapturePublishesNoPartialPresence()
         {
-            CoCoTemporalEntityId entityId = EntityId(3UL);
+            TemporalEntityId entityId = EntityId(3UL);
             var record = Record(entityId, present: true);
             using (var history = new PoolTemporalSidecar(3))
             {
@@ -76,8 +76,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         [Test]
         public void BranchCaptureDiscardsFuturePresenceFrames()
         {
-            CoCoTemporalEntityId firstId = EntityId(4UL);
-            CoCoTemporalEntityId futureId = EntityId(5UL);
+            TemporalEntityId firstId = EntityId(4UL);
+            TemporalEntityId futureId = EntityId(5UL);
             var first = Record(firstId, present: true);
             var future = Record(futureId, present: false);
             var records = new[] { first, future };
@@ -106,8 +106,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         [Test]
         public void AuthorityResetReplacesHistoryWithCurrentPresenceBaseline()
         {
-            CoCoTemporalEntityId retainedId = EntityId(6UL);
-            CoCoTemporalEntityId historicalId = EntityId(7UL);
+            TemporalEntityId retainedId = EntityId(6UL);
+            TemporalEntityId historicalId = EntityId(7UL);
             var retained = Record(retainedId, present: false);
             var historical = Record(historicalId, present: true);
             var records = new[] { retained, historical };
@@ -142,8 +142,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         [Test]
         public void CancelledAuthorityResetPreservesEveryPublishedFrame()
         {
-            CoCoTemporalEntityId historicalId = EntityId(8UL);
-            CoCoTemporalEntityId currentId = EntityId(9UL);
+            TemporalEntityId historicalId = EntityId(8UL);
+            TemporalEntityId currentId = EntityId(9UL);
             var historical = Record(historicalId, present: true);
             var current = Record(currentId, present: false);
             var records = new[] { historical, current };
@@ -220,7 +220,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         }
 
         private static PoolTemporalRecord Record(
-            CoCoTemporalEntityId entityId,
+            TemporalEntityId entityId,
             bool present) =>
             new PoolTemporalRecord
             {
@@ -233,7 +233,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         private static void PublishForward(
             PoolTemporalSidecar history,
             PoolTemporalRecord[] records,
-            CoCoTemporalFrameInfo frameInfo)
+            TemporalFrameInfo frameInfo)
         {
             Assert.That(
                 history.TryPrepareForwardCapture(
@@ -244,61 +244,61 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             history.PublishForwardCaptureNoFail();
         }
 
-        private static CoCoTemporalEntityId EntityId(ulong low)
+        private static TemporalEntityId EntityId(ulong low)
         {
             Assert.That(
-                CoCoTemporalEntityId.TryCreate(0xCAFEUL, low, out CoCoTemporalEntityId id),
+                TemporalEntityId.TryCreate(0xCAFEUL, low, out TemporalEntityId id),
                 Is.True);
             return id;
         }
 
-        private static CoCoTemporalFrameInfo FrameInfo(ulong value)
+        private static TemporalFrameInfo FrameInfo(ulong value)
         {
             Assert.That(
-                CoCoGraphInstanceId.TryCreate(77UL, out CoCoGraphInstanceId graphId),
+                GraphInstanceId.TryCreate(77UL, out GraphInstanceId graphId),
                 Is.True);
             Assert.That(
-                CoCoTimelineId.TryCreate(88UL, 99UL, out CoCoTimelineId timelineId),
+                TimelineId.TryCreate(88UL, 99UL, out TimelineId timelineId),
                 Is.True);
             Assert.That(
-                CoCoTimelinePosition.TryCreate(
+                TimelinePosition.TryCreate(
                     value * 0.016d,
-                    out CoCoTimelinePosition position),
+                    out TimelinePosition position),
                 Is.True);
             Assert.That(
-                CoCoClockDomainId.TryCreate(1UL, out CoCoClockDomainId clockId),
+                ClockDomainId.TryCreate(1UL, out ClockDomainId clockId),
                 Is.True);
             Assert.That(
-                CoCoTickFrame.TryCreate(
+                TickFrame.TryCreate(
                     0.016d,
                     timelineId,
                     position,
-                    new CoCoTimelineTick(value),
+                    new TimelineTick(value),
                     clockId,
-                    new CoCoExecutionSequence(value),
-                    new CoCoTimelineEpoch(1UL),
-                    out CoCoTickFrame tickFrame,
+                    new ExecutionSequence(value),
+                    new TimelineEpoch(1UL),
+                    out TickFrame tickFrame,
                     out CoCoDiagnostic tickDiagnostic),
                 Is.True,
                 tickDiagnostic.Message);
 
-            ConstructorInfo constructor = typeof(CoCoTemporalFrameInfo).GetConstructor(
+            ConstructorInfo constructor = typeof(TemporalFrameInfo).GetConstructor(
                 BindingFlags.Instance | BindingFlags.NonPublic,
                 null,
                 new[]
                 {
-                    typeof(CoCoGraphInstanceId),
-                    typeof(CoCoTickFrame).MakeByRefType(),
-                    typeof(CoCoContextRevision),
-                    typeof(CoCoContextFrameOrigin)
+                    typeof(GraphInstanceId),
+                    typeof(TickFrame).MakeByRefType(),
+                    typeof(ContextRevision),
+                    typeof(ContextFrameOrigin)
                 },
                 null);
             Assert.That(constructor, Is.Not.Null);
-            var revision = new CoCoContextRevision(value);
-            CoCoContextFrameOrigin origin = CoCoContextFrameOrigin.Commit();
+            var revision = new ContextRevision(value);
+            ContextFrameOrigin origin = ContextFrameOrigin.Commit();
             object boxed = constructor.Invoke(
                 new object[] { graphId, tickFrame, revision, origin });
-            var info = (CoCoTemporalFrameInfo)boxed;
+            var info = (TemporalFrameInfo)boxed;
             Assert.That(info.IsValid, Is.True);
             return info;
         }

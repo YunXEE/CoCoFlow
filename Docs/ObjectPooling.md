@@ -39,7 +39,7 @@ never stores an Addressables handle and does not add Addressables to
 
 ## Explicit composition
 
-`CoCoPoolHost` references the intended `CoCoContentHost` explicitly. It creates
+`PoolHost` references the intended `ContentHost` explicitly. It creates
 one `PoolRuntime`; the runtime creates owner-scoped `PoolScope` instances. There
 is no global Pool singleton or implicit Host lookup.
 
@@ -181,7 +181,7 @@ for its physical-destruction observer before releasing the source lease. It
 disposes its Content Scope after all Entries finish. This order keeps source
 ownership valid through the physical instance's final destruction callbacks.
 
-`CoCoPoolHost` destruction has a force-cleanup fallback for leaked handles. It
+`PoolHost` destruction has a force-cleanup fallback for leaked handles. It
 invalidates generations, performs best-effort reset/destruction, waits for the
 same terminal barrier, releases source ownership, and records leak/forced-
 shutdown diagnostics.
@@ -220,19 +220,19 @@ Correct ownership therefore does not depend on `MonoBehaviour.OnDisable` or
 
 `CoCoFlow.Runtime.Pooling.Temporal` is an explicit, Host-scoped sidecar. It is
 used only when the same physical GameObject must remain available while a
-`CoCoStateGraphHost` history can still project that entity as present.
+`StateGraphHost` history can still project that entity as present.
 
 ```text
 TryRent inactive handle
   -> bind entity data
-  -> TryAdopt(CoCoTemporalEntityId, ref handle)
+  -> TryAdopt(TemporalEntityId, ref handle)
   -> TryActivate(entityId)
   -> TryDespawn(entityId)
 ```
 
 Successful adoption transfers rental authority to `PoolTemporalRuntime` and
 invalidates every copied consumer handle for the old generation. Consumers keep
-the pure-value `CoCoTemporalEntityId` and may resolve the currently projected
+the pure-value `TemporalEntityId` and may resolve the currently projected
 GameObject for observation; they do not regain Return authority.
 
 A despawned physical instance that remains reachable from retained history is
@@ -251,7 +251,7 @@ physical cleanup rather than a `MissingReferenceException`. The Transform
 reference belongs to the live record only; it is cleared at terminal release
 and never enters the Temporal ring or a Host snapshot.
 
-`CoCoPoolTemporalBinding` composes Pool presence projection into the Host's one
+`PoolTemporalBinding` composes Pool presence projection into the Host's one
 synchronous Context restore slot. When Map retention is enabled, the complete
 decorator chain is `Map -> optional Pool -> project restore binding`.
 `IPoolTemporalApply` provides a separate, synchronous hook for reapplying entity

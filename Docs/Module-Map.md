@@ -51,7 +51,7 @@ reflection.
 capabilities return `UnsupportedCapability`; Map never silently selects a lower
 tier.
 
-`CoCoRegionProfile.CurrentSchemaVersion` is `1`. Every Profile serializes a
+`RegionProfile.CurrentSchemaVersion` is `1`. Every Profile serializes a
 stable `RegionProfileId`; Editor authoring derives it from the asset GUID, so
 copying an asset creates a new identity while moving or renaming it preserves
 identity. Player code never uses `AssetDatabase` to recover or rewrite it.
@@ -88,9 +88,9 @@ duplicate `ContentId` ownership, and canonical Scene locators. Compiled plans
 are immutable and cached by deterministic input identity; they retain no Unity
 Object or runtime Lease.
 
-`CoCoRegionBinding` binds a compiled Profile to project content.
+`RegionBinding` binds a compiled Profile to project content.
 `RegionChunkBinding` is its serialized Chunk schema.
-`CoCoRegionChunkAnchor` is the metadata-only root in a managed Chunk Scene.
+`RegionChunkAnchor` is the metadata-only root in a managed Chunk Scene.
 
 ## Coverage and demand ownership
 
@@ -242,7 +242,7 @@ integration that loads the same managed Scene outside this contract is
 unsupported.
 
 A Map-managed Chunk Scene must cold-start with exactly one metadata-only
-`CoCoRegionChunkAnchor` root. Every other managed root starts inactive. The
+`RegionChunkAnchor` root. Every other managed root starts inactive. The
 anchor resolves the fragment only after Content returns the exact Scene lease,
 and Map scans only that leased Scene. Direct Scenes use a full asset path;
 Addressables authoring must resolve to exactly one Scene asset.
@@ -261,15 +261,15 @@ authority.
 Addressables installation only supplies Content's optional loading backend.
 Map intentionally does not guess an address-to-Scene mapping. A project using
 Addressable Region bindings must provide an
-`IRegionAddressableSceneResolver` component on `CoCoMapHost` for Player/runtime
+`IRegionAddressableSceneResolver` component on `MapHost` for Player/runtime
 compilation and register the equivalent Editor resolver through
-`CoCoMapEditorCatalogProvider.AddressableSceneResolverProvider` for Inspector
+`MapEditorCatalogProvider.AddressableSceneResolverProvider` for Inspector
 and build validation. Both paths must resolve the address to one canonical
 Scene asset path; otherwise the complete Binding compilation fails.
 
 ## Pooling boundary
 
-`CoCoDefaultRegionCatalogProvider` contains only the seven base participants.
+`DefaultRegionCatalogProvider` contains only the seven base participants.
 Pool integration is opt-in: a project catalog provider explicitly calls
 `RegionBuiltInPoolCatalog.TryRegister(catalog, poolBinding, out diagnostic)`
 from `CoCoFlow.Runtime.Modules.Map.Pooling`, where `poolBinding` owns the
@@ -295,9 +295,9 @@ The decorator chain is:
 Map -> optional Pool -> project restore binding
 ```
 
-Add `CoCoMapTemporalBinding` to the same StateGraph Host boundary, assign its
+Add `MapTemporalBinding` to the same StateGraph Host boundary, assign its
 `stateGraphHost` and `mapHost`, then make it the Host's Context Restore binding.
-If Pool projection is used, assign `CoCoPoolTemporalBinding` as Map's
+If Pool projection is used, assign `PoolTemporalBinding` as Map's
 downstream; otherwise assign the project restore component directly. Pool's
 downstream remains the project restore component.
 
@@ -311,7 +311,7 @@ While the barrier is held, demand Create, Update, and Dispose still update
 logical demand, revision, and final resolution, but only mark Regions dirty.
 They cannot load Content, prepare Pooling, or Prepare/Commit participants, and
 Retry is rejected without side effects. When the callback stack has returned,
-`CoCoMapHost.LateUpdate` deterministically dispatches only the final resolution
+`MapHost.LateUpdate` deterministically dispatches only the final resolution
 for each dirty Region and coalesces dependency recomputation. Branch-truncation
 retention decreases therefore cannot invalidate the active restore chain.
 
@@ -321,14 +321,14 @@ without adding a Map-to-Pool product dependency.
 
 ## Host composition and shutdown
 
-`CoCoMapHost` explicitly references its Content Host, bootstrap bindings, and
+`MapHost` explicitly references its Content Host, bootstrap bindings, and
 catalog provider. It does not use a singleton, `FindObjects*`, implicit
 registration, or runtime Profile write-back. Unloaded Chunk definitions come
 from the bootstrap binding; Scene anchors only resolve fragments after a lease
 exists.
 
 Player build validation requires an explicit
-`CoCoMapEditorCatalogProvider.CatalogProvider`. Its catalog is the deterministic
+`MapEditorCatalogProvider.CatalogProvider`. Its catalog is the deterministic
 union of registrations used by all bindings discovered by build validation;
 validation never borrows whichever loaded Host happens to sort first.
 

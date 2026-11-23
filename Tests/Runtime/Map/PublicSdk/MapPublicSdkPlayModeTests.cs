@@ -61,7 +61,7 @@ namespace CoCoFlow.Tests.Runtime.Map.PublicSdk
                 catalog.RegisteredTypes.ToArray());
 
             Assembly mapAssembly =
-                typeof(CoCoMapHost).Assembly;
+                typeof(MapHost).Assembly;
             Assembly fixtureAssembly =
                 typeof(ExternalWeatherParticipant).Assembly;
             Assembly testAssembly =
@@ -128,14 +128,14 @@ namespace CoCoFlow.Tests.Runtime.Map.PublicSdk
             Assert.That(coverage.Contains(chunkId), Is.True);
 
             AssertPublicInstanceMethod(
-                typeof(CoCoMapHost),
-                nameof(CoCoMapHost.TryCreateDemandScope));
+                typeof(MapHost),
+                nameof(MapHost.TryCreateDemandScope));
             AssertPublicInstanceMethod(
-                typeof(CoCoMapHost),
-                nameof(CoCoMapHost.TryRetryRegion));
+                typeof(MapHost),
+                nameof(MapHost.TryRetryRegion));
             AssertPublicInstanceMethod(
-                typeof(CoCoMapHost),
-                nameof(CoCoMapHost.CaptureSnapshot));
+                typeof(MapHost),
+                nameof(MapHost.CaptureSnapshot));
             AssertPublicInstanceMethod(
                 typeof(RegionDemandScope),
                 nameof(RegionDemandScope.TryDemand));

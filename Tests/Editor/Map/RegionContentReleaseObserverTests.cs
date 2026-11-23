@@ -590,7 +590,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             private readonly ContentRuntime runtime;
             private ContentScope scope;
             private RegionPlanNodeId registeredNodeId;
-            private CoCoRegionChunkAnchor registeredAnchor;
+            private RegionChunkAnchor registeredAnchor;
 
             internal ContentParticipantRuntimeBridge(
                 ContentRuntime runtime)
@@ -647,7 +647,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
             public bool TryRegisterChunkAnchor(
                 RegionPlanNodeId nodeId,
                 long transitionGeneration,
-                CoCoRegionChunkAnchor anchor,
+                RegionChunkAnchor anchor,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!nodeId.HasChunkId ||
@@ -668,7 +668,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Tests
 
             public void UnregisterChunkAnchor(
                 RegionPlanNodeId nodeId,
-                CoCoRegionChunkAnchor anchor)
+                RegionChunkAnchor anchor)
             {
                 if (nodeId != registeredNodeId ||
                     anchor != registeredAnchor)

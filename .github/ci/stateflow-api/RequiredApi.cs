@@ -10,47 +10,47 @@ using UnityEngine;
 
 namespace CoCoFlow.CI
 {
-    internal sealed class ExternalInputSource : MonoBehaviour, ICoCoIntentFrameSource<InputIntentData>
+    internal sealed class ExternalInputSource : MonoBehaviour, IIntentFrameSource<InputIntentData>
     {
-        bool ICoCoIntentFrameSource<InputIntentData>.TrySample(in CoCoTickFrame tick, out InputIntentData intent)
+        bool IIntentFrameSource<InputIntentData>.TrySample(in TickFrame tick, out InputIntentData intent)
         {
             intent = new InputIntentData(default, ReadOnlyMemory<RawInputRecord>.Empty);
             return true;
         }
     }
 
-    internal sealed class ExternalManagedIntent : ICoCoIntentFrameSource<string>
+    internal sealed class ExternalManagedIntent : IIntentFrameSource<string>
     {
-        bool ICoCoIntentFrameSource<string>.TrySample(in CoCoTickFrame tick, out string intent)
+        bool IIntentFrameSource<string>.TrySample(in TickFrame tick, out string intent)
         {
             intent = string.Empty;
             return true;
         }
     }
 
-    internal sealed class ExternalOperator : ICoCoOperator
+    internal sealed class ExternalOperator : IOperator
     {
-        [CoCoOperatorDefinition]
-        private static CoCoStandardOperatorDefinition Define => Definition(default, default, default, default, default);
+        [OperatorDefinition]
+        private static StandardOperatorDefinition Define => Definition(default, default, default, default, default);
 
-        CoCoOperatorDescriptor ICoCoOperator.Descriptor => Define.Descriptor;
+        OperatorDescriptor IOperator.Descriptor => Define.Descriptor;
 
-        private static CoCoStandardOperatorDefinition Definition(CoCoOperatorId id,
-            CoCoStateBlockId block, CoCoStateSlotId slot, CoCoEventTypeId type, CoCoEventDomainId domain)
+        private static StandardOperatorDefinition Definition(OperatorId id,
+            StateBlockId block, StateSlotId slot, EventTypeId type, EventDomainId domain)
         {
-            var builder = new CoCoStandardOperatorBuilder();
-            CoCoOperationSectionRequirement operation = builder.Require<IExternalSection>();
-            builder.OwnOutcome(block, slot, CoCoContextProjection.Temporal, CoCoContextRestorePolicy.Stored, 0, 1);
-            CoCoEventOutboxRequirement output = builder.Emit<int>(type, domain, 98);
+            var builder = new StandardOperatorBuilder();
+            OperationSectionRequirement operation = builder.Require<IExternalSection>();
+            builder.OwnOutcome(block, slot, ContextProjection.Temporal, ContextRestorePolicy.Stored, 0, 1);
+            EventOutboxRequirement output = builder.Emit<int>(type, domain, 98);
             return builder.Freeze<ExternalOperator>(id);
         }
 
-        bool ICoCoOperator.TryExecute(in CoCoOperatorExecutionContext context, out CoCoOperatorOutcome outcome)
+        bool IOperator.TryExecute(in OperatorExecutionContext context, out OperatorOutcome outcome)
         {
             bool found = context.TryGet<IExternalSection>(default, out var entry);
             int value = 1;
-            bool bySlot = context.TryWriteOutcome(default(CoCoStateSlot<int>), in value);
-            bool byId = context.TryWriteOutcome(default(CoCoStateSlotId), in value);
+            bool bySlot = context.TryWriteOutcome(default(StateSlot<int>), in value);
+            bool byId = context.TryWriteOutcome(default(StateSlotId), in value);
             outcome = default;
             return found && bySlot && byId;
         }
@@ -60,7 +60,7 @@ namespace CoCoFlow.CI
     {
         private delegate bool HostStep(double deltaTime, out CoCoDiagnostic diagnostic);
 
-        internal static void HostLifecycle(CoCoStateGraphHost host)
+        internal static void HostLifecycle(StateGraphHost host)
         {
             HostStep step = host.TryStep;
             bool started = host.TryStart(out _);
@@ -69,17 +69,17 @@ namespace CoCoFlow.CI
             bool stopped = host.TryStop(out _);
             bool disposed = host.TryDispose(out _);
 
-            CoCoRuntimeLifecycleState lifecycle = host.Lifecycle;
-            CoCoRuntimeFault fault = host.Fault;
+            RuntimeLifecycleState lifecycle = host.Lifecycle;
+            RuntimeFault fault = host.Fault;
             CoCoDiagnostic diagnostic = host.LastDiagnostic;
-            CoCoGraphInstanceId instance = host.GraphInstanceId;
-            IReadOnlyList<CoCoActivePath> paths = host.ActivePaths;
-            CoCoContextFrame frame = host.CurrentContext;
-            ICoCoStateFlowTrace trace = host.Trace;
-            CoCoStateGraphAsset asset = host.StateGraphAsset;
+            GraphInstanceId instance = host.GraphInstanceId;
+            IReadOnlyList<ActivePath> paths = host.ActivePaths;
+            ContextFrame frame = host.CurrentContext;
+            IStateFlowTrace trace = host.Trace;
+            StateGraphAsset asset = host.StateGraphAsset;
             ulong inputRevision = host.InputAuthorityRevision;
-            CoCoTickFrame tick = frame.Header.TickFrame;
-            CoCoContextRevision revision = frame.Revision;
+            TickFrame tick = frame.Header.TickFrame;
+            ContextRevision revision = frame.Revision;
             if (frame.Retain())
             {
                 if (frame.Layout.TryResolveSlot<int>(default, out var slot))
@@ -88,39 +88,39 @@ namespace CoCoFlow.CI
             }
         }
 
-        internal static void HostTemporalAndEvents(CoCoStateGraphHost host, in CoCoEventPacket<int> packet)
+        internal static void HostTemporalAndEvents(StateGraphHost host, in EventPacket<int> packet)
         {
             bool began = host.TryBeginTemporalPreview(out _);
             bool previewed = host.TryPreviewTemporal(0, out _);
             bool confirmed = host.TryConfirmTemporalRestore(out _);
             bool cancelled = host.TryCancelTemporalPreview(out _);
             bool corrected = host.TryCorrectWorld(out _);
-            CoCoTemporalState state = host.TemporalState;
+            TemporalState state = host.TemporalState;
             int capacity = host.TemporalHistoryCapacity;
             bool requiresCorrection = host.RequiresWorldCorrection;
-            bool valid = host.TryValidateRestore(host.CurrentContext, default, out CoCoContextCommitStatus _);
-            CoCoInboxEnqueueResult result = host.TryEnqueueLocal(in packet);
+            bool valid = host.TryValidateRestore(host.CurrentContext, default, out ContextCommitStatus _);
+            InboxEnqueueResult result = host.TryEnqueueLocal(in packet);
         }
 
-        internal static void WriteOperatorEvent(CoCoOperatorExecutionContext context,
-            CoCoEventTypeId type, CoCoEventDomainId domain, CoCoEventOutboxTarget target, int payload)
+        internal static void WriteOperatorEvent(OperatorExecutionContext context,
+            EventTypeId type, EventDomainId domain, EventOutboxTarget target, int payload)
         {
-            if (CoCoEventOutboxRequirement.TryCreate<int>(type, domain, 1, out var requirement, out _))
+            if (EventOutboxRequirement.TryCreate<int>(type, domain, 1, out var requirement, out _))
             {
-                CoCoEventOutboxWriteResult written = context.EventOutbox.TryWrite(requirement, target, in payload);
+                EventOutboxWriteResult written = context.EventOutbox.TryWrite(requirement, target, in payload);
             }
         }
 
-        internal static void CompileGraph(CoCoStateGraphAsset asset, CoCoGraphDescriptorCatalog catalog)
+        internal static void CompileGraph(StateGraphAsset asset, GraphDescriptorCatalog catalog)
         {
-            CoCoStateGraphAssetCompileResult result = new CoCoStateGraphAssetCompiler().Compile(asset, catalog);
+            StateGraphAssetCompileResult result = new StateGraphAssetCompiler().Compile(asset, catalog);
             bool succeeded = result.Succeeded;
             bool hasErrors = result.HasErrors;
-            CoCoCompiledStateGraph graph = result.Graph;
-            IReadOnlyList<CoCoGraphDiagnostic> diagnostics = result.Diagnostics;
+            CompiledStateGraph graph = result.Graph;
+            IReadOnlyList<GraphDiagnostic> diagnostics = result.Diagnostics;
         }
 
-        internal static void ReadIntent<TIntent>(ICoCoIntentFrame frame, CoCoIntentHandle<TIntent> handle)
+        internal static void ReadIntent<TIntent>(IIntentFrame frame, IntentHandle<TIntent> handle)
         {
             bool present = frame.IsPresent(handle);
             bool byHandle = frame.TryGet(handle, out TIntent value);
@@ -129,10 +129,10 @@ namespace CoCoFlow.CI
 
         internal static void Provider(IReadOnlyList<Assembly> assemblies)
         {
-            CoCoStandardBindingProvider standard = CoCoStandardBindingProvider.Build(assemblies);
-            CoCoStandardBindingProvider discovered = CoCoStandardBindingProvider.BuildForAssemblyOf<ExternalState>();
-            CoCoGraphDescriptorCatalog catalog = standard.Catalog;
-            bool installed = CoCoStateGraphProjectBindings.TryInstall(standard, out _);
+            StandardBindingProvider standard = StandardBindingProvider.Build(assemblies);
+            StandardBindingProvider discovered = StandardBindingProvider.BuildForAssemblyOf<ExternalState>();
+            GraphDescriptorCatalog catalog = standard.Catalog;
+            bool installed = StateGraphProjectBindings.TryInstall(standard, out _);
         }
     }
 }

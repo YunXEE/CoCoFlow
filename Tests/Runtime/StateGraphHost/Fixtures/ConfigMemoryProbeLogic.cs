@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
 
-[CoCoState("ConfigMemoryProbeLogic")]
-public sealed class ConfigMemoryProbeLogic : CoCoStateLogic, ICoCoStateUpdate
+[State("ConfigMemoryProbeLogic")]
+public sealed class ConfigMemoryProbeLogic : StateLogic, IStateUpdate
 {
     [Config] public float Speed = 6f;
     [Memory] public float Distance;
@@ -10,7 +10,7 @@ public sealed class ConfigMemoryProbeLogic : CoCoStateLogic, ICoCoStateUpdate
     public static readonly List<ConfigMemoryProbeLogic> Seen = new List<ConfigMemoryProbeLogic>();
     public static int Impulses;
 
-    public void Update(CoCoStateExecutionContext context)
+    public void Update(StateExecutionContext context)
     {
         if (!Seen.Contains(this)) Seen.Add(this);
         Distance += Speed * (float)context.TickFrame.DeltaTime;
@@ -20,18 +20,18 @@ public sealed class ConfigMemoryProbeLogic : CoCoStateLogic, ICoCoStateUpdate
     }
 }
 
-[CoCoState("ConfigOnlyProbe")]
-public sealed class ConfigOnlyProbe : CoCoStateLogic, ICoCoStateUpdate
+[State("ConfigOnlyProbe")]
+public sealed class ConfigOnlyProbe : StateLogic, IStateUpdate
 {
     [Config] public float Speed = 6f;
     public static int Instances;
     public ConfigOnlyProbe() { Instances++; }
-    public void Update(CoCoStateExecutionContext context) { }
+    public void Update(StateExecutionContext context) { }
 }
 
-[CoCoState("MemoryOnlyProbe")]
-public sealed class MemoryOnlyProbe : CoCoStateLogic, ICoCoStateUpdate
+[State("MemoryOnlyProbe")]
+public sealed class MemoryOnlyProbe : StateLogic, IStateUpdate
 {
     [Memory] public bool Sent = true;
-    public void Update(CoCoStateExecutionContext context) { }
+    public void Update(StateExecutionContext context) { }
 }

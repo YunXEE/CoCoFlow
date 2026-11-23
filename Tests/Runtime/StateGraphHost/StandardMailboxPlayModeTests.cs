@@ -10,10 +10,12 @@ using UnityEngine;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+
     public sealed class MailboxTestAdapter : MonoBehaviour,
-        ICoCoEventInboxAdapter<MailboxDamage>, ICoCoEventInboxAdapter<MailboxHeal>
+        IEventInboxAdapter<MailboxDamage>, IEventInboxAdapter<MailboxHeal>
     {
-        public bool Accept(in MailboxDamage payload) => payload.Target == GetComponent<CoCoStateGraphHost>().GraphInstanceId;
+        public bool Accept(in MailboxDamage payload) => payload.Target == GetComponent<StateGraphHost>().GraphInstanceId;
         public bool Accept(in MailboxHeal payload) => true;
     }
 
@@ -38,58 +40,58 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             _mailboxAgent.UnsubscribeAll();
             foreach (var gameObject in _objects.OfType<GameObject>())
-                if (gameObject != null && gameObject.TryGetComponent<CoCoStateGraphHost>(out var host))
+                if (gameObject != null && gameObject.TryGetComponent<StateGraphHost>(out var host))
                     host.TryStop(out _);
             ResetMailboxProbe();
         }
 
-        private CoCoStateGraphHost CreateMailboxHost(bool plain = false, bool adapters = true,
+        private StateGraphHost CreateMailboxHost(bool plain = false, bool adapters = true,
             bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0,
             bool any = false)
         {
-            var provider = CoCoStateGraphProjectBindings.Provider;
+            var provider = StateGraphProjectBindings.Provider;
             if (provider == null)
             {
-                provider = CoCoStandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
-                Assert.IsTrue(CoCoStateGraphProjectBindings.TryInstall(provider, out var install), install.Message);
+                provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
+                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var install), install.Message);
             }
-            var asset = ScriptableObject.CreateInstance<CoCoStateGraphAsset>();
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
             asset.EnsureAssetIdentity(Guid.NewGuid().ToString("N"));
-            var layer = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(1, 1), "Mailbox");
+            var layer = new StateGraphLayerRecord(new SerializedId128(1, 1), "Mailbox");
             for (int index = 0; index < (transition ? 2 : 1); index++)
             {
                 bool isPlain = index == 0 ? plain : !plain;
                 var type = isPlain ? typeof(MailboxPlainLogic) : typeof(MailboxProbeLogic);
                 StandardDescriptors.TryCreate(type, type.Name, out var id);
-                CoCoStateConfig config = isPlain ? new EmptyStateConfig() : new CoCoFieldConfig();
-                layer.States.Add(new CoCoStateGraphStateRecord(new CoCoSerializedId128(2, (ulong)index + 1),
-                    default, type.Name, new CoCoSerializedId128(id.High, id.Low), config));
+                StateConfig config = isPlain ? new EmptyStateConfig() : new FieldConfig();
+                layer.States.Add(new StateGraphStateRecord(new SerializedId128(2, (ulong)index + 1),
+                    default, type.Name, new SerializedId128(id.High, id.Low), config));
             }
             layer.InitialStateId = layer.States[0].StateId;
             if (transition)
             {
-                var edge = new CoCoStateGraphTransitionRecord(new CoCoSerializedId128(3, 1),
+                var edge = new StateGraphTransitionRecord(new SerializedId128(3, 1),
                     layer.States[0].StateId, layer.States[1].StateId, 1)
                 {
-                    WindowMode = CoCoTransitionWindowMode.ActionProgress,
+                    WindowMode = TransitionWindowMode.ActionProgress,
                     WindowStartInclusive = 0.75, WindowEndExclusive = 1.0
                 };
                 var condition = provider.Catalog.ConditionDescriptors.Single(
                     item => item.RuntimeRegistration.ConditionType == typeof(MailboxReadyCondition));
-                edge.Conditions.Add(new CoCoStateGraphConditionRecord(
-                    new CoCoSerializedId128(condition.DescriptorId.High, condition.DescriptorId.Low),
-                    new CoCoEmptyConditionConfig()));
+                edge.Conditions.Add(new StateGraphConditionRecord(
+                    new SerializedId128(condition.DescriptorId.High, condition.DescriptorId.Low),
+                    new EmptyConditionConfig()));
                 layer.Transitions.Add(edge);
             }
             asset.Layers.Add(layer);
             if (twoLayers)
             {
-                var sibling = new CoCoStateGraphLayerRecord(new CoCoSerializedId128(1, 2), "Sibling");
+                var sibling = new StateGraphLayerRecord(new SerializedId128(1, 2), "Sibling");
                 var state = layer.States[0];
-                sibling.InitialStateId = new CoCoSerializedId128(2, 99);
-                sibling.States.Add(new CoCoStateGraphStateRecord(sibling.InitialStateId, default,
-                    "Observer", state.StateDescriptorId, new CoCoFieldConfig()));
+                sibling.InitialStateId = new SerializedId128(2, 99);
+                sibling.States.Add(new StateGraphStateRecord(sibling.InitialStateId, default,
+                    "Observer", state.StateDescriptorId, new FieldConfig()));
                 asset.Layers.Add(sibling);
             }
             if (any)
@@ -97,17 +99,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 {
                     var type = index == 0 ? typeof(MailboxAnyLogic) : typeof(MailboxStatelessAnyLogic);
                     StandardDescriptors.TryCreate(type, type.Name, out var descriptor);
-                    CoCoStateConfig config = index == 0 ? new CoCoFieldConfig() : new EmptyStateConfig();
-                    if (config is CoCoFieldConfig fields) fields.Set(nameof(MailboxAnyLogic.Increment), 3);
-                    asset.Layers[index].AnyState = new CoCoStateGraphStateRecord(
-                        new CoCoSerializedId128(2, (ulong)index + 100), default, type.Name,
-                        new CoCoSerializedId128(descriptor.High, descriptor.Low), config);
+                    StateConfig config = index == 0 ? new FieldConfig() : new EmptyStateConfig();
+                    if (config is FieldConfig fields) fields.Set(nameof(MailboxAnyLogic.Increment), 3);
+                    asset.Layers[index].AnyState = new StateGraphStateRecord(
+                        new SerializedId128(2, (ulong)index + 100), default, type.Name,
+                        new SerializedId128(descriptor.High, descriptor.Low), config);
                 }
             var gameObject = new GameObject("Mailbox E2E");
             _objects.Add(gameObject);
-            var host = gameObject.AddComponent<CoCoStateGraphHost>();
+            var host = gameObject.AddComponent<StateGraphHost>();
             SetField(host, "autoStart", false);
-            SetField(host, "driver", CoCoStateGraphDriver.Manual);
+            SetField(host, "driver", StateGraphDriver.Manual);
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "eventOutboxCapacity", outboxCapacity);
             SetField(host, "temporalHistoryCapacity", history);
@@ -142,7 +144,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             var host = CreateMailboxHost();
             var health = new List<float>();
-            CoCoStateEventBatch<MailboxDamage> saved = default;
+            StateEventBatch<MailboxDamage> saved = default;
             var damage = new MailboxDamage(host.GraphInstanceId, 30f);
             MailboxProbeLogic.Tick = (logic, context) =>
             {
@@ -183,7 +185,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Assert.IsTrue(host.CurrentContext.IsAlive);
                 received.Add(mail.Value);
             });
-            CoCoStateEventOutboxWriter saved = default;
+            StateEventOutboxWriter saved = default;
             MailboxProbeLogic.Tick = (_, context) =>
             {
                 saved = context.Outbox;
@@ -245,12 +247,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 ReadMailboxAnyRecord<int>(host, typeof(MailboxStatelessAnyLogic), 101).ActivationId);
         }
 
-        private static CoCoGraphStateRecord<TState> ReadMailboxAnyRecord<TState>(
-            CoCoStateGraphHost host, Type logicType, ulong stateLow) where TState : unmanaged
+        private static GraphStateRecord<TState> ReadMailboxAnyRecord<TState>(
+            StateGraphHost host, Type logicType, ulong stateLow) where TState : unmanaged
         {
             StandardDescriptors.TryCreate(logicType, $"State:{2UL:x16}{stateLow:x16}", out var descriptor);
             Assert.IsTrue(host.CurrentContext.Layout.TryResolveSlot(StandardGraphState.SlotFor(descriptor),
-                out CoCoStateSlot<CoCoGraphStateRecord<TState>> slot));
+                out StateSlot<GraphStateRecord<TState>> slot));
             return host.CurrentContext.Read(slot);
         }
 

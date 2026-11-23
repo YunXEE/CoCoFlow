@@ -17,7 +17,7 @@ The required scene surface is intentionally small:
 
 ```text
 Actor GameObject
-├─ CoCoStateGraphHost        required, exactly one
+├─ StateGraphHost        required, exactly one
 │  └─ StateGraphAsset       required
 ├─ Intent Source scripts     explicit ordered Host references as required
 ├─ Event Adapters           typed Inbox filters inside the nearest Host boundary
@@ -26,29 +26,29 @@ Actor GameObject
 └─ Context Restore binding   required when Temporal history is enabled
 ```
 
-`CoCoStateGraphHost` is the only public `MonoBehaviour` introduced by this
+`StateGraphHost` is the only public `MonoBehaviour` introduced by this
 runtime and disallows duplicate instances on the same GameObject. Runtime,
 Clock, Inbox, Router, StateLogic, Condition, ActivationMemory, and Factory
 objects are ordinary C# objects, not components or extra Inspector assets.
 
 ### Standard binding startup
 
-`CoCoFlowRuntimeBootstrap` attempts standard provider installation before and
+`FlowRuntimeBootstrap` attempts standard provider installation before and
 after scene load. It leaves an already installed project provider untouched;
 otherwise it scans loaded non-package assemblies for concrete
-`CoCoStateAttribute` logic classes. Finding no attributed State is a valid
+`StateAttribute` logic classes. Finding no attributed State is a valid
 no-op for projects that do not use the standard path.
 
 Standard Intent binding matches each Host source by its exact
-ICoCoIntentFrameSource<T> payload type, not list position. InputIntentData uses the
+IIntentFrameSource<T> payload type, not list position. InputIntentData uses the
 Host-local InputIntent; CameraIntentData uses CameraIntent. Missing, extra,
 duplicate or ambiguous sources reject startup. Each Host owns its source handles.
 
 For a single source, mark the State property `[Intent]` and supply an
-`ICoCoIntentFrameSource<T>` component in the Host's Intent Sources list.
+`IIntentFrameSource<T>` component in the Host's Intent Sources list.
 The standard catalog derives the ID from the payload. Modules with multiple
-sources can declare an explicit reducer and capacity using `CoCoIntentRegistrationAttribute`.
-An operator uses `[CoCoOperatorDefinition]` and `CoCoStandardOperatorBuilder`
+sources can declare an explicit reducer and capacity using `IntentRegistrationAttribute`.
+An operator uses `[OperatorDefinition]` and `StandardOperatorBuilder`
 to declare consumed sections, owned Outcome slots and emitted packets.
 
 Standard Config arrays and `List<T>` are restored from the frozen Values by the
@@ -80,7 +80,7 @@ nested Host, and cover every Actor-owned writable Slot exactly once. It must be
 absent when the Layout contains no Actor-owned Slot.
 
 The Context Restore binding is one separate explicit Host reference and must
-implement `ICoCoContextRestoreBinding`. It is required when Temporal history
+implement `IContextRestoreBinding`. It is required when Temporal history
 is enabled with capacity of at least two, must remain inside the same Host
 boundary, and is never discovered through scene scanning. One component may
 implement both Actor capture and Context restore contracts and be assigned to
@@ -95,13 +95,13 @@ Inbox, pending staged Tick, Temporal Ring/cursor, and the latched Fault.
 
 The standard binding provider freezes the discovered State and Operator
 declarations into a catalog. To limit discovery, use
-`CoCoStandardBindingProvider.BuildForAssemblyOf<T>()` and
-`CoCoStateGraphProjectBindings.TryInstall` before starting the Host.
+`StandardBindingProvider.BuildForAssemblyOf<T>()` and
+`StateGraphProjectBindings.TryInstall` before starting the Host.
 The Host validates the assigned sources and operators against the compiled
 graph before a callback or Tick can run.
 
 Transaction preflight runs before Clock creation and before
-`CoCoStateGraphRuntime.TryCreate`. It classifies every non-Derived Context Slot
+`StateGraphRuntime.TryCreate`. It classifies every non-Derived Context Slot
 exactly once as Graph state, Graph auxiliary value, canonical Claim, Operator
 Outcome, or Actor binding output; existing rebuilders exclusively own Derived
 Slots. Invalid producer, Operator, Claim, Actor-binding, or Outbox setup is
@@ -164,9 +164,9 @@ on the next Tick. Its common ancestor path does not exit and re-enter.
 
 ## AnyState: one persistent Logic per Layer
 
-Bind a concrete `CoCoAnyStateLogic` with the usual `[CoCoState]` attribute.
+Bind a concrete `AnyStateLogic` with the usual `[State]` attribute.
 Each Layer has at most one optional binding. It implements only `Update`;
-implementing `ICoCoStateEnter` or `ICoCoStateExit` is rejected. It retains the
+implementing `IStateEnter` or `IStateExit` is rejected. It retains the
 complete Logic binding surface:
 
 | Capability | AnyState contract |
@@ -201,8 +201,8 @@ The Host explicitly binds that Intent source and the Locomotion Operator.
 using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 
-[CoCoState("PlayerLifeAny")]
-public sealed class PlayerLifeAnyLogic : CoCoAnyStateLogic
+[State("PlayerLifeAny")]
+public sealed class PlayerLifeAnyLogic : AnyStateLogic
 {
     [Config] public bool EnableDeath = true;
     [Memory] public bool DeathRequested;
@@ -210,7 +210,7 @@ public sealed class PlayerLifeAnyLogic : CoCoAnyStateLogic
     [Intent] public LifeIntent Life { get; set; }
     [Operation] public ILocomotionSection Movement { get; set; }
 
-    public override void Update(CoCoStateExecutionContext context)
+    public override void Update(StateExecutionContext context)
     {
         UpdateCount++;
         if (!Life.IsDead) DeathRequested = false;
@@ -319,7 +319,7 @@ Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
   -> no-fail Commit + Temporal Publish -> complete Outbox Publish
 ```
 
-The first Tick receives a `CoCoContextFrameReadView` backed by the layout's
+The first Tick receives a `ContextFrameReadView` backed by the layout's
 actual defaults; there is no synthetic Tick 0 or Revision 0 Frame. The first
 successful commit creates Revision 1. An Operator writer is bound to its
 Operator ID, transaction token, and exact non-Derived Operator-owned Slot
@@ -414,7 +414,7 @@ path described below. CoCoFlow does not expose a general `ClearFault()` API.
 
 ## Temporal mode and public orchestration
 
-`CoCoTemporalMode` is orthogonal to the Runtime lifecycle; it does not add a
+`TemporalMode` is orthogonal to the Runtime lifecycle; it does not add a
 sixth lifecycle state:
 
 - `Disabled`: configured history capacity is zero;
@@ -462,7 +462,7 @@ succeeds, a no-fail barrier swaps all logical authority, discards the abandoned
 future, and records the new-Epoch restore commit as the new history branch head.
 The next accepted positive-delta Tick resumes normal StateGraph execution.
 
-The callback receives only a token-scoped `CoCoContextRestoreReader`; retaining
+The callback receives only a token-scoped `ContextRestoreReader`; retaining
 it beyond the synchronous call yields an invalid reader. A preflight failure
 before any callback leaves a clean session healthy; if a previous Preview
 projection remains active, the same failure requires Correction. Once a binding
@@ -522,7 +522,7 @@ contracts above are unchanged.
 
 ### Host Inspector
 
-The inspector for `CoCoStateGraphHost` is organized into six zones:
+The inspector for `StateGraphHost` is organized into six zones:
 
 - **Overview** — StateGraph asset, driver, auto-start, time scale.
 - **Bindings** — the three ordered reference arrays (Intent Sources, Event
@@ -557,7 +557,7 @@ the debugger remain available.
 
 The debugger window is available from the `CoCoFlow/StateGraph Debugger` menu
 (the previous `Window/CoCoFlow/StateGraph Debugger` entry was removed). It
-observes one concrete scene `CoCoStateGraphHost`, not a StateGraph asset, and
+observes one concrete scene `StateGraphHost`, not a StateGraph asset, and
 answers three questions only:
 
 - **Current committed frame** — frame identity and time metadata plus each
@@ -598,7 +598,7 @@ preallocated EventOutbox candidates owned by their current transaction token.
 
 ### Direct State mailbox (D043-04/07/11/12/14/15)
 
-An attached component implements `ICoCoEventInboxAdapter<TEvent>.Accept(in TEvent)`
+An attached component implements `IEventInboxAdapter<TEvent>.Accept(in TEvent)`
 for each unmanaged event it receives. Place the component inside the nearest Host boundary. A Host supports multiple components and each component supports
 multiple event interfaces. One subscription per event type ORs their filters;
 one bus delivery enters the typed Incoming queue at most once. Separate Publish
@@ -631,11 +631,11 @@ nothing. Capacity shares the Host outbox limit. Cached typed publication items
 are reused after warm-up without per-message allocation. Ordinary bus subscribers
 and other Hosts' mailbox Adapters observe the same published event type.
 
-`[CoCoState("Attack", ProvidesActionProgress = true)]` enables the existing
+`[State("Attack", ProvidesActionProgress = true)]` enables the existing
 progress setter/window for both ordinary and Config/Memory states. Independent
 classes marked `[Condition]` register automatically with empty config and the
 existing factory/Evaluate contract. They must be concrete, non-generic subclasses
-of `CoCoStateCondition`, implement `ICoCoStateConditionEvaluator`, and expose a
+of `StateCondition`, implement `IStateConditionEvaluator`, and expose a
 public parameterless constructor. The implicit constructor in this example is
 sufficient; no explicit constructor is needed:
 
@@ -643,10 +643,10 @@ sufficient; no explicit constructor is needed:
 using CoCoFlow.Runtime.StateGraph;
 
 [Condition]
-public sealed class AttackProgressReadyCondition : CoCoStateCondition,
-    ICoCoStateConditionEvaluator
+public sealed class AttackProgressReadyCondition : StateCondition,
+    IStateConditionEvaluator
 {
-    public bool Evaluate(CoCoConditionEvaluationContext context) =>
+    public bool Evaluate(ConditionEvaluationContext context) =>
         context.ActionProgress >= 0.8;
 }
 ```
@@ -696,7 +696,7 @@ Formal Confirm uses the same single-use validation/prepare discipline:
 validate source and selection generation
   -> materialize Stored + Default + Derived Context candidate
   -> prepare Graph Path/Memory + Clock + Claim + branch-head entry
-  -> ICoCoContextRestoreBinding.TryApply(Confirm)
+  -> IContextRestoreBinding.TryApply(Confirm)
   -> no-fail authority swap + future discard + mailbox Epoch switch
 ```
 

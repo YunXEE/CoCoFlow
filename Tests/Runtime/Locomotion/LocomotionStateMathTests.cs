@@ -181,9 +181,9 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
         [Test]
         public void SectionFieldConstantsMatchFrozenAlphabeticalShape()
         {
-            Assert.IsTrue(CoCoOperationSectionShape.TryCreate(
+            Assert.IsTrue(OperationSectionShape.TryCreate(
                 typeof(ILocomotionSection),
-                out CoCoOperationSectionShape shape,
+                out OperationSectionShape shape,
                 out CoCoDiagnostic diagnostic), diagnostic.Message);
 
             AssertField(shape, LocomotionSectionFields.ForcedX, nameof(ILocomotionSection.ForcedX), typeof(float));
@@ -209,13 +209,13 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
         }
 
         private static void AssertField(
-            CoCoOperationSectionShape shape,
+            OperationSectionShape shape,
             int denseIndex,
             string name,
             Type valueType)
         {
             Assert.That(denseIndex, Is.InRange(0, shape.FieldCount - 1));
-            CoCoOperationSectionFieldShape field = shape.Fields[denseIndex];
+            OperationSectionFieldShape field = shape.Fields[denseIndex];
             Assert.AreEqual(denseIndex, field.DenseIndex);
             Assert.AreEqual(name, field.Name);
             Assert.AreEqual(valueType, field.ValueType);

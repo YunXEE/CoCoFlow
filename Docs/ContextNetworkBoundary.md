@@ -25,7 +25,7 @@ StateGraph -> OperationFrame -> Operators
   -> successful commit assigns EventSequence and publishes EventOutbox
 
 Cross Object
-CoCoEventPacket<TEvent>
+EventPacket<TEvent>
   -> Host Gateway
   -> internal EventRouter for one EventDomain
   -> Actor B Incoming EventInbox
@@ -130,7 +130,7 @@ Schema 与诊断见
 - 不包含 Inbox、IntentFrame、raw Envelope、Source、执行中局部变量、未发布 Outbox
   或 Unity Object 引用图；
 - 不同 GraphRuntimeInstance 不共享可变 StateBlock；
-- 首 Tick 使用 Layout 中的真实 Default 建立 `CoCoContextFrameReadView`，不构造伪
+- 首 Tick 使用 Layout 中的真实 Default 建立 `ContextFrameReadView`，不构造伪
   Tick 0 或 Revision 0 Frame；首次成功 Commit 产生 Revision 1；
 - Retain 一个存活 Frame 会阻止对应 Cell 被复用；Release 后 Cell 可以服务新的
   Generation，但所有旧 Handle 永久失效，不会因 Cell 复用重新变为可读；
@@ -221,7 +221,7 @@ capacity 默认为 0，Running 时不可改变。失败或取消的 Tick 不能�
 0.4 gameplay 消息使用一个原子值：
 
 ```text
-CoCoEventPacket<TEvent> = CoCoActorEventEnvelope + immutable typed payload
+EventPacket<TEvent> = ActorEventEnvelope + immutable typed payload
 ```
 
 Envelope 至少表达：
@@ -329,7 +329,7 @@ Router Callback 只能校验、路由、去重和入队；不能调用 StateGrap
 
 Host 完成全部启动检查后才最后注册 Router；Stop/Dispose 首先注销。一个 Domain 的
 最后 Host 离开时，Router 释放其 internal CoCoEventAgent subscription。Router callback
-只接收原子 `CoCoEventPacket<TEvent>` 并校验、入队，不调用 Runtime、Operator 或 Context；
+只接收原子 `EventPacket<TEvent>` 并校验、入队，不调用 Runtime、Operator 或 Context；
 它不使用旧 `PublishWithEnvelope`。Host 只在复合提交成功后通过 internal
 outbound seam 发布 EventOutbox；发布期间的 Destroy/Stop/Dispose 请求在完成整个
 committed list 后再收尾。
@@ -369,7 +369,7 @@ Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/His
 普通 ContextFrame `Retain`/`Release` 契约继续有效，只是 Temporal Ring 不使用它。
 
 Preview 只移动非权威游标并调用 Host 的唯一同步
-`ICoCoContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
+`IContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
 Condition、Transition、Operator、Actor capture、Event 或 Trace。Cancel 仅在本次
 会话至少成功完成一次 Preview 投射后通过同一 Binding 重新投射 current authority；
 Begin 后直接 Cancel 不调用 Binding。两条路径都不交换逻辑权威或切换 Epoch。
@@ -394,7 +394,7 @@ Migration、Container 与文件存储。
 - 一个 Unity Update 或 FixedUpdate 最多触发一个 CoCoTick；是否触发以及 Delta 由
   Host 内部 Clock/Driver 决定；Manual 每次调用都是独立 Tick，不使用 accumulator 或
   catch-up；
-- `CoCoTickFrame` 只接受有限正 Delta；
+- `TickFrame` 只接受有限正 Delta；
 - Actor TimeScale 同样必须有限且大于零；Pause/Suspend 等价于零 Tick，不创建 Delta
   为零的 Frame；
 - 倒放不使用负 Delta；Preview 只投射历史，Confirm 在新 Epoch 执行一次正式 Restore；
@@ -414,7 +414,7 @@ Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，才创�
 因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
 Operator 或 Actor callback，Host 保持 `Created`。
 
-`CoCoStateGraphHost` 仍是框架唯一 public MonoBehaviour；Asset 是唯一必填项，其他
+`StateGraphHost` 仍是框架唯一 public MonoBehaviour；Asset 是唯一必填项，其他
 Driver、AutoStart、TimeScale、Temporal history 与诊断容量都是同一 Host 的设置。
 这些 Host 引用只决定当前 Actor 使用哪些具体场景实例及其顺序；Project Provider 继续
 拥有冻结 Catalog、State/Condition Factory、通用 Intent/Adapter binding、Operation/

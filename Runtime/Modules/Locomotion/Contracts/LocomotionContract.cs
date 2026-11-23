@@ -13,8 +13,8 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     /// SetGravityScale / SetRotation / SetRotationInstant) plus a logic
     /// teleport override (respawn / cutscene placement).
     /// </summary>
-    [CoCoOperationSection(CoCoOperationSectionMode.Continuous)]
-    public interface ILocomotionSection : ICoCoOperationSection
+    [OperationSection(OperationSectionMode.Continuous)]
+    public interface ILocomotionSection : IOperationSection
     {
         /// <summary>Desired horizontal velocity, world X. Final-conclusion
         /// semantics: the state logic has already applied every multiplier.
@@ -113,22 +113,22 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
 
         static LocoContractIds()
         {
-            if (!CoCoOperationSectionId.TryCreate(
+            if (!OperationSectionId.TryCreate(
                     High,
                     1UL,
-                    out CoCoOperationSectionId sectionId) ||
-                !CoCoOperatorId.TryCreate(
+                    out OperationSectionId sectionId) ||
+                !OperatorId.TryCreate(
                     High,
                     2UL,
-                    out CoCoOperatorId operatorId) ||
-                !CoCoStateBlockId.TryCreate(
+                    out OperatorId operatorId) ||
+                !StateBlockId.TryCreate(
                     High,
                     3UL,
-                    out CoCoStateBlockId blockId) ||
-                !CoCoStateSlotId.TryCreate(
+                    out StateBlockId blockId) ||
+                !StateSlotId.TryCreate(
                     High,
                     4UL,
-                    out CoCoStateSlotId slotId))
+                    out StateSlotId slotId))
             {
                 throw new InvalidOperationException(
                     "Locomotion contract ids must be valid.");
@@ -140,10 +140,10 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
             StateSlotId = slotId;
         }
 
-        public static CoCoOperationSectionId SectionId { get; }
-        public static CoCoOperatorId OperatorId { get; }
-        public static CoCoStateBlockId StateBlockId { get; }
-        public static CoCoStateSlotId StateSlotId { get; }
+        public static OperationSectionId SectionId { get; }
+        public static OperatorId OperatorId { get; }
+        public static StateBlockId StateBlockId { get; }
+        public static StateSlotId StateSlotId { get; }
     }
 
     /// <summary>
@@ -180,14 +180,14 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     /// </summary>
     public sealed class LocomotionSectionView : ILocomotionSection
     {
-        private readonly CoCoOperationSectionReader _reader;
-        private readonly CoCoOperationSectionField<float>[] _floats;
-        private readonly CoCoOperationSectionField<bool>[] _bools;
+        private readonly OperationSectionReader _reader;
+        private readonly OperationSectionField<float>[] _floats;
+        private readonly OperationSectionField<bool>[] _bools;
 
         internal LocomotionSectionView(
-            CoCoOperationSectionReader reader,
-            CoCoOperationSectionField<float>[] floats,
-            CoCoOperationSectionField<bool>[] bools)
+            OperationSectionReader reader,
+            OperationSectionField<float>[] floats,
+            OperationSectionField<bool>[] bools)
         {
             _reader = reader ?? throw new ArgumentNullException(nameof(reader));
             _floats = floats ?? throw new ArgumentNullException(nameof(floats));
@@ -236,7 +236,7 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
     /// binding; same shape as the animation section factories).
     /// </summary>
     public sealed class LocomotionSectionViewFactory :
-        ICoCoOperationSectionViewFactory<ILocomotionSection>
+        IOperationSectionViewFactory<ILocomotionSection>
     {
         private static readonly int[] FloatDenseIndices =
         {
@@ -266,11 +266,11 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
             LocomotionSectionFields.TeleportRequested,
         };
 
-        private CoCoOperationSectionField<float>[] _floats;
-        private CoCoOperationSectionField<bool>[] _bools;
+        private OperationSectionField<float>[] _floats;
+        private OperationSectionField<bool>[] _bools;
 
         public ILocomotionSection Create(
-            in CoCoOperationSectionViewContext<ILocomotionSection> context)
+            in OperationSectionViewContext<ILocomotionSection> context)
         {
             _floats = ResolveFields<float>(context, FloatDenseIndices);
             _bools = ResolveFields<bool>(context, BoolDenseIndices);
@@ -280,12 +280,12 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
                 _bools);
         }
 
-        private static CoCoOperationSectionField<TValue>[] ResolveFields<TValue>(
-            in CoCoOperationSectionViewContext<ILocomotionSection> context,
+        private static OperationSectionField<TValue>[] ResolveFields<TValue>(
+            in OperationSectionViewContext<ILocomotionSection> context,
             int[] denseIndices)
             where TValue : unmanaged
         {
-            var fields = new CoCoOperationSectionField<TValue>[denseIndices.Length];
+            var fields = new OperationSectionField<TValue>[denseIndices.Length];
             for (int index = 0; index < fields.Length; index++)
             {
                 if (!context.TryGetField(denseIndices[index], out fields[index]))
@@ -312,14 +312,14 @@ namespace CoCoFlow.Runtime.Locomotion.Contracts
 
         public LocomotionSectionViewFactory Section { get; }
 
-        public static CoCoStateSlotId StateSlot => LocoContractIds.StateSlotId;
+        public static StateSlotId StateSlot => LocoContractIds.StateSlotId;
 
         public static bool TryCreateSectionRequirement(
-            out CoCoOperationSectionRequirement requirement,
+            out OperationSectionRequirement requirement,
             out CoCoDiagnostic diagnostic) =>
-            CoCoOperationSectionRequirement.TryCreate<ILocomotionSection>(
+            OperationSectionRequirement.TryCreate<ILocomotionSection>(
                 LocoContractIds.SectionId,
-                CoCoOperationSectionMode.Continuous,
+                OperationSectionMode.Continuous,
                 out requirement,
                 out diagnostic);
     }
