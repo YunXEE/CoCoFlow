@@ -1,13 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>
-    /// 极简服务定位器：按类型注册 / 获取 / 等待。
-    /// ⚠️ 非线程安全；只在主线程使用。
-    /// ⚠️ 同类型多次 Register 会覆盖前一次（适合用 MonoBehaviour 单例）。
-    /// </summary>
+    /// <summary>Maintains the current service and one-shot waiters for each exact service type.</summary>
+    /// <remarks>Use from the main thread.</remarks>
     public static class CoCoServices
     {
         private static readonly Dictionary<Type, object> Services = new Dictionary<Type, object>();
@@ -15,9 +12,11 @@ namespace CoCoFlow.Runtime.Core
 
         #region Public API
 
-        /// <summary>
-        /// 注册一个服务实现。后注册会覆盖前注册。
-        /// </summary>
+        /// <summary>Registers the service, replacing an existing entry and invoking the detached batch of waiters synchronously.</summary>
+        /// <typeparam name="T">The exact registration key.</typeparam>
+        /// <param name="impl">The non-null service instance.</param>
+        /// <exception cref="ArgumentNullException">The instance is null.</exception>
+        /// <remarks>Exceptions from queued callbacks are logged and the remaining callbacks are still processed.</remarks>
         public static void Register<T>(T impl) where T : class
         {
             if (impl == null) throw new ArgumentNullException(nameof(impl));
@@ -28,24 +27,22 @@ namespace CoCoFlow.Runtime.Core
             }
             Services[t] = impl;
 
-            // 通知所有正在等待该服务的对象
             if (Waiters.Remove(t, out var entries))
             {
-                var snapshot = entries.ToArray();
-                foreach (var entry in snapshot)
+                foreach (var entry in entries)
                 {
-                    if (entry == null || entry.IsDisposed) continue;
+                    if (entry.IsDisposed) continue;
 
                     entry.IsDisposed = true;
-                    try { entry.Callback?.Invoke(impl); }
+                    try { entry.Callback(impl); }
                     catch (Exception ex) { CoCoLog.Error($"[CoCoServices] WaitFor 回调异常: {ex}"); }
                 }
             }
         }
 
-        /// <summary>
-        /// 注销服务。仅当当前注册者就是 impl 时才会真的移除（防止误注销）。
-        /// </summary>
+        /// <summary>Removes the current service if it is the supplied instance.</summary>
+        /// <typeparam name="T">The exact registration key.</typeparam>
+        /// <param name="impl">The service instance to compare by reference.</param>
         public static void Unregister<T>(T impl) where T : class
         {
             var t = typeof(T);
@@ -55,13 +52,17 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>立即获取服务。未注册则返回 null。</summary>
+        /// <summary>Returns the current service for the exact type, or null if absent.</summary>
+        /// <typeparam name="T">The exact registration key.</typeparam>
         public static T Get<T>() where T : class
         {
             return Services.TryGetValue(typeof(T), out var s) ? (T)s : null;
         }
 
-        /// <summary>尝试获取服务。</summary>
+        /// <summary>Looks up the current service for the exact type.</summary>
+        /// <typeparam name="T">The exact registration key.</typeparam>
+        /// <param name="service">The registered instance, or null if absent.</param>
+        /// <returns>Whether the service is registered.</returns>
         public static bool TryGet<T>(out T service) where T : class
         {
             if (Services.TryGetValue(typeof(T), out var s))
@@ -73,10 +74,10 @@ namespace CoCoFlow.Runtime.Core
             return false;
         }
 
-        /// <summary>
-        /// 注册时回调；若已注册则立刻同步回调。
-        /// 适合解决 Awake 顺序无法保证或跨模块解耦的初始化场景。
-        /// </summary>
+        /// <summary>Invokes the callback synchronously if the service exists, or queues it until the next registration.</summary>
+        /// <typeparam name="T">The exact registration key.</typeparam>
+        /// <param name="onReady">The one-shot callback. Null is ignored. An immediate callback exception propagates to the caller.</param>
+        /// <returns>A token that cancels a queued callback when disposed, or a no-op token if nothing was queued.</returns>
         public static IDisposable WaitFor<T>(Action<T> onReady) where T : class
         {
             if (onReady == null) return EmptyDisposable.Instance;
@@ -100,10 +101,7 @@ namespace CoCoFlow.Runtime.Core
             return new CoCoServiceWaitSubscription(t, entry);
         }
 
-        /// <summary>
-        /// 清空所有已注册的服务和等待者。
-        /// 通常用于场景切换、单元测试或 Domain Reload 关闭时的清理。
-        /// </summary>
+        /// <summary>Clears registrations and queued waiters. A batch already being dispatched continues.</summary>
         public static void ClearAll()
         {
             Services.Clear();
@@ -114,6 +112,7 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
+        /// <summary>Holds a queued callback and its cancellation state.</summary>
         private sealed class WaiterEntry
         {
             public WaiterEntry(Action<object> callback)
@@ -125,6 +124,7 @@ namespace CoCoFlow.Runtime.Core
             public bool IsDisposed { get; set; }
         }
 
+        /// <summary>Cancels its waiter at most once.</summary>
         private sealed class CoCoServiceWaitSubscription : IDisposable
         {
             private Type _serviceType;
@@ -146,6 +146,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        /// <summary>Represents a wait that did not queue a callback.</summary>
         private sealed class EmptyDisposable : IDisposable
         {
             public static readonly EmptyDisposable Instance = new EmptyDisposable();

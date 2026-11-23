@@ -1,5 +1,4 @@
 using System.Reflection;
-using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using NUnit.Framework;
@@ -18,18 +17,11 @@ namespace CoCoFlow.Tests.Runtime.Persistence
 
             var first = context.NextEventSequence();
             var second = context.NextEventSequence();
-            var envelope = CoCoEventEnvelope.Create(
-                eventTypeId: "Test.Fire",
-                sourceEntityId: context.Identity.RuntimeInstanceId,
-                sequence: second,
-                tick: 900,
-                reliable: false);
-
             Assert.AreEqual(1, first);
             Assert.AreEqual(2, second);
-            Assert.AreEqual(2, envelope.sequence);
-            Assert.AreEqual("runtime.actor.001", envelope.sourceEntityId);
-            Assert.AreNotEqual(context.Identity.StableEntityId, envelope.sourceEntityId);
+            Assert.AreEqual(second, context.LastEventSequence);
+            Assert.AreEqual("runtime.actor.001", context.Identity.RuntimeInstanceId);
+            Assert.AreNotEqual(context.Identity.StableEntityId, context.Identity.RuntimeInstanceId);
         }
 
         [Test]
@@ -37,13 +29,13 @@ namespace CoCoFlow.Tests.Runtime.Persistence
         {
             var context = new TestEntityContext();
             context.Identity.StableEntityId = "item.persist";
-            context.Lifecycle.TransitionTo(CoCoLifecycleState.Active);
+            context.Lifecycle.TransitionTo(EntityLifecycleState.Active);
             context.SemanticStateId = 42;
 
             EntityContext entityContext = context;
 
             Assert.AreEqual("item.persist", entityContext.Identity.StableEntityId);
-            Assert.AreEqual(CoCoLifecycleState.Active, entityContext.Lifecycle.State);
+            Assert.AreEqual(EntityLifecycleState.Active, entityContext.Lifecycle.State);
             Assert.AreEqual(42, entityContext.SemanticStateId);
         }
 
@@ -56,7 +48,6 @@ namespace CoCoFlow.Tests.Runtime.Persistence
                 var persistenceContext = root.AddComponent<PersistenceContext>();
                 SetPrivateField(persistenceContext, "stableEntityId", "scene.item.001");
 
-                Assert.IsInstanceOf<ICoCoStableEntityIdProvider>(persistenceContext);
                 Assert.AreEqual("scene.item.001", persistenceContext.StableEntityId);
 
                 var context = new TestEntityContext();

@@ -132,7 +132,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       duplicate, and type-exact runtime coverage and binding.
 - [ ] One Graph uses at most one EventDomain; no declarations create no
       Inbox/Router, local ingress bypasses Router, and cross-Actor routing uses
-      atomic `EventPacket<TEvent>` rather than `PublishWithEnvelope`.
+      atomic `EventPacket<TEvent>`.
 - [ ] ContextFrame commit succeeds before final EventSequence allocation and
       EventOutbox publication. Failure produces zero Event and zero cross-Actor
       side effect.

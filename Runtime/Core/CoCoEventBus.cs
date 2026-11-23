@@ -3,117 +3,31 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>Handles a published event with access to the shared value.</summary>
+    /// <typeparam name="T">The exact event type.</typeparam>
+    /// <param name="eventData">The event value shared by all listeners in the dispatch.</param>
     public delegate void CoCoEventCallback<T>(ref T eventData);
 
+    /// <summary>Receives a specific event type from the bus.</summary>
+    /// <typeparam name="T">The exact event type.</typeparam>
     public interface ICoCoEventListener<T>
     {
+        /// <summary>Handles the current event synchronously.</summary>
+        /// <param name="eventData">The shared event value. Mutations are visible to later listeners.</param>
         void OnEvent(ref T eventData);
     }
 
-    [Serializable]
-    public struct CoCoEventEnvelope
-    {
-        public string eventTypeId;
-        public string sourceEntityId;
-        public string targetEntityId;
-        public int sequence;
-        public int tick;
-        public bool reliable;
-        public string payloadTypeId;
-        public string payload;
-
-        public bool IsValid => !string.IsNullOrEmpty(eventTypeId) &&
-                               !string.IsNullOrEmpty(sourceEntityId) &&
-                               sequence > 0;
-
-        public bool HasTarget => !string.IsNullOrEmpty(targetEntityId);
-        public bool HasPayload => !string.IsNullOrEmpty(payload);
-
-        public static CoCoEventEnvelope Create(
-            string eventTypeId,
-            string sourceEntityId,
-            int sequence,
-            int tick,
-            bool reliable,
-            string targetEntityId = "",
-            string payloadTypeId = "",
-            string payload = "")
-        {
-            return new CoCoEventEnvelope
-            {
-                eventTypeId = eventTypeId,
-                sourceEntityId = sourceEntityId,
-                targetEntityId = targetEntityId,
-                sequence = sequence,
-                tick = tick,
-                reliable = reliable,
-                payloadTypeId = payloadTypeId,
-                payload = payload
-            };
-        }
-    }
-
-    public sealed class CoCoEventAgent
-    {
-        private interface IAgentWrapper
-        {
-            void Unsubscribe();
-        }
-
-        private class Wrapper<T> : ICoCoEventListener<T>, IAgentWrapper
-        {
-            private CoCoEventCallback<T> _callback;
-
-            public Wrapper(CoCoEventCallback<T> callback)
-            {
-                this._callback = callback;
-            }
-
-            public void OnEvent(ref T eventData)
-            {
-                _callback?.Invoke(ref eventData);
-            }
-
-            public void Unsubscribe()
-            {
-                CoCoEventBus.Unsubscribe(this);
-                _callback = null;
-            }
-        }
-
-        private readonly List<IAgentWrapper> _wrappers = new List<IAgentWrapper>();
-
-        /// <summary>
-        /// 代理订阅事件
-        /// </summary>
-        public void Subscribe<T>(CoCoEventCallback<T> callback, int priority = 0)
-        {
-            if (callback == null) return;
-            var wrapper = new Wrapper<T>(callback);
-            _wrappers.Add(wrapper);
-            CoCoEventBus.Subscribe(wrapper, priority);
-        }
-
-        /// <summary>
-        /// 一键退订所有由该 Agent 订阅的事件（通常在 OnDestroy 中调用）
-        /// </summary>
-        public void UnsubscribeAll()
-        {
-            foreach (var wrapper in _wrappers)
-            {
-                wrapper.Unsubscribe();
-            }
-            _wrappers.Clear();
-        }
-    }
-
-    // Non-thread-safe. Do not call from jobs or background threads.
+    /// <summary>Dispatches typed events synchronously on the main thread using weak listener references.</summary>
     public static class CoCoEventBus
     {
         internal static Predicate<object> IsDestroyedListener { get; set; }
 
         #region Public API
 
+        /// <summary>Subscribes a weak listener. Additions during dispatch take effect after the outermost dispatch.</summary>
+        /// <typeparam name="T">The exact event type.</typeparam>
+        /// <param name="listener">The listener, which the caller must keep alive. Null is ignored.</param>
+        /// <param name="priority">Higher priorities run first. Equal priorities preserve insertion order.</param>
         public static void Subscribe<T>(ICoCoEventListener<T> listener, int priority = 0)
         {
             if (listener == null) return;
@@ -146,6 +60,9 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        /// <summary>Marks an existing active subscription for removal so subsequent callbacks skip it.</summary>
+        /// <typeparam name="T">The exact event type.</typeparam>
+        /// <param name="listener">The listener to remove. Null is ignored.</param>
         public static void Unsubscribe<T>(ICoCoEventListener<T> listener)
         {
             if (listener == null) return;
@@ -167,9 +84,9 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>
-        /// 发布普通事件
-        /// </summary>
+        /// <summary>Dispatches synchronously, skipping collected or destroyed listeners and logging callback exceptions.</summary>
+        /// <typeparam name="T">The exact event type.</typeparam>
+        /// <param name="eventData">The value shared with listeners by reference.</param>
         public static void Publish<T>(ref T eventData)
         {
             EventContext<T>.BroadcastDepth++;
@@ -217,18 +134,9 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        public static void PublishWithEnvelope<T>(
-            ref T eventData,
-            ref CoCoEventEnvelope envelope)
-        {
-            Publish(ref eventData);
-            Publish(ref envelope);
-        }
-
-        /// <summary>
-        /// 针对普通事件的非 ref 快捷调用。
-        /// 注意：如果事件是结构体，此方法会发生值拷贝。
-        /// </summary>
+        /// <summary>Dispatches synchronously using a local copy of the argument.</summary>
+        /// <typeparam name="T">The exact event type.</typeparam>
+        /// <param name="eventData">The value or object reference to copy before dispatch.</param>
         public static void Publish<T>(T eventData)
         {
             Publish(ref eventData);
@@ -238,8 +146,10 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
+        /// <summary>Stores the listener list and deferred mutations for one event type.</summary>
         private static class EventContext<T>
         {
+            /// <summary>Tracks a weak subscription and its dispatch order.</summary>
             public struct SubNode
             {
                 public int Priority;

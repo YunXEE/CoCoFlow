@@ -34,6 +34,24 @@ configuration.
 
 ## Core Engine
 
+### Runtime Core API migration for 0.4.11
+
+- Use `CoCoLog.Log(string)` for ordinary diagnostics and `CoCoLog.Warning(string)`
+  for output that previously appeared as a Unity warning through
+  `CoCoStateLog.Print`. Convert objects to text at the call site. The public
+  `CoCoStateLog.Install` custom sink has been removed. Ordinary calls and their
+  arguments are compiled out when the calling assembly lacks `COCOFLOW_LOG`.
+- Use the typed `CoCoEventBus.Publish` overloads for local events and
+  `EventPacket<TEvent>` for cross-Actor routing. The legacy
+  `CoCoEventEnvelope` and `PublishWithEnvelope` APIs have been removed.
+- Put `PersistenceContext` and `StateGraphHost` on the same GameObject.
+  Entity saves use the Host's durable context frame. Legacy provider/adapter
+  records are unsupported. `PersistenceContext.StableEntityId` and the
+  separate container save section remain available.
+- Rebuild callers of `LifecycleContext` against
+  `CoCoFlow.Runtime.StateGraphHost.EntityLifecycleState`. Existing serialized
+  state values retain their numeric mapping from 0 through 6.
+
 - [StateGraph Asset and Compiler](../Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md)
 - [State Flow / Event Boundary](../Docs/ContextNetworkBoundary.md)

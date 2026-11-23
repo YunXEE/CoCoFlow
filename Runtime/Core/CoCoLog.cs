@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -6,44 +6,49 @@ using System.Diagnostics;
 
 namespace CoCoFlow.Runtime.Core
 {
-    public enum CoCoLogLevel { Log, Warning, Error }
+    /// <summary>Indicates the severity of a log event.</summary>
+    public enum CoCoLogLevel
+    {
+        /// <summary>Ordinary diagnostic output.</summary>
+        Log,
+        /// <summary>A warning reported by the caller.</summary>
+        Warning,
+        /// <summary>An error reported by the caller.</summary>
+        Error
+    }
 
-    // 使用 struct 配合 ref EventBus，实现零 GC 传递
+    /// <summary>Carries a log entry to synchronous monitoring subscribers.</summary>
     public struct CoCoLogEvent
     {
+        /// <summary>The severity assigned by the logging entry point.</summary>
         public CoCoLogLevel Level;
+        /// <summary>The name of the source file's enclosing directory.</summary>
         public string ModuleName;
+        /// <summary>The source file name without its extension.</summary>
         public string ClassName;
+        /// <summary>The message supplied by the caller.</summary>
         public string Message;
-
-        // 记录时间戳，方便 Editor 排序
+        /// <summary>The local time when the entry was published.</summary>
         public DateTime Timestamp;
     }
 
+    /// <summary>Publishes log events and forwards warnings and errors to installed sinks.</summary>
     public static class CoCoLog
     {
-        private static readonly Dictionary<string, (string Module, string Class)> PathCache = new Dictionary<string, (string, string)>();
-
-        internal static Action<string> WarningSink { get; set; }
-        internal static Action<string> ErrorSink { get; set; }
-
         #region Public API
 
-        /// <summary>
-        /// 打印普通日志。
-        /// 仅在定义了 COCOFLOW_LOG 宏时生效，打包时若未定义则调用处会被编译器移除。
-        /// </summary>
-        // 【机制1】打包时只要不定义 COCOFLOW_LOG，所有调用此方法的代码都会被编译器抹除
+        /// <summary>Publishes an ordinary log event. The call and its arguments are omitted when COCOFLOW_LOG is undefined in the calling compilation.</summary>
+        /// <param name="message">The text to publish.</param>
+        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
         [Conditional("COCOFLOW_LOG")]
         public static void Log(string message, [CallerFilePath] string sourceFilePath = "")
         {
             DispatchLog(CoCoLogLevel.Log, message, sourceFilePath);
         }
 
-        /// <summary>
-        /// 打印警告日志。始终包含在打包版本中。
-        /// </summary>
-        // Warning 和 Error 没有 [Conditional]，所以一定会被打包进游戏
+        /// <summary>Publishes a warning event, then forwards formatted text to the installed warning sink if available.</summary>
+        /// <param name="message">The text to publish.</param>
+        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
         public static void Warning(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
@@ -52,9 +57,9 @@ namespace CoCoFlow.Runtime.Core
             WarningSink?.Invoke($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
 
-        /// <summary>
-        /// 打印错误日志。始终包含在打包版本中。
-        /// </summary>
+        /// <summary>Publishes an error event, then forwards formatted text to the installed error sink if available.</summary>
+        /// <param name="message">The text to publish.</param>
+        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
         public static void Error(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
@@ -67,7 +72,11 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
-        // 修改了一下 DispatchLog 的签名，避免重复解析路径
+        private static readonly Dictionary<string, (string Module, string Class)> PathCache = new Dictionary<string, (string, string)>();
+
+        internal static Action<string> WarningSink { get; set; }
+        internal static Action<string> ErrorSink { get; set; }
+
         private static void DispatchLog(CoCoLogLevel level, string message, (string Module, string Class) info)
         {
             var logEvent = new CoCoLogEvent
@@ -82,16 +91,12 @@ namespace CoCoFlow.Runtime.Core
             CoCoEventBus.Publish(ref logEvent);
         }
 
-        // 兼容 Log 调用的重载
         private static void DispatchLog(CoCoLogLevel level, string message, string sourceFilePath)
         {
             var info = GetFileInfo(sourceFilePath);
             DispatchLog(level, message, info);
         }
 
-        /// <summary>
-        /// 从文件路径中提取模块名和类名，并使用缓存优化性能。
-        /// </summary>
         private static (string Module, string Class) GetFileInfo(string filePath)
         {
             if (string.IsNullOrEmpty(filePath)) return ("Unknown", "Unknown");
