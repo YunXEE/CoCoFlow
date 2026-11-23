@@ -1,65 +1,64 @@
 using System;
-using CoCoFlow.Runtime.Core;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
 namespace CoCoFlow.Runtime.StateGraphHost
 {
-    [AttributeUsage(AttributeTargets.Field)]
-    public sealed class ContextProviderAttribute : PropertyAttribute
+    /// <summary>实体在 Host 中的生命周期阶段。</summary>
+    [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core", sourceClassName: "CoCoLifecycleState")]
+    public enum EntityLifecycleState
     {
-        public ContextProviderAttribute() { }
-
-        public ContextProviderAttribute(Type requiredContextType)
-        {
-            RequiredContextType = requiredContextType;
-        }
-
-        public Type RequiredContextType { get; }
+        Uninitialized = 0,
+        Spawning = 1,
+        Active = 2,
+        Disabled = 3,
+        Consumed = 4,
+        Despawning = 5,
+        Destroyed = 6
     }
 
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core", sourceClassName: "CoCoLifecycleContext")]
     [Serializable]
     public class LifecycleContext
     {
-        [SerializeField] private CoCoLifecycleState state = CoCoLifecycleState.Uninitialized;
+        [SerializeField] private EntityLifecycleState state = EntityLifecycleState.Uninitialized;
 
-        public CoCoLifecycleState State => state;
-        public bool IsAliveLike => state == CoCoLifecycleState.Active;
-        public bool IsInteractableLike => state == CoCoLifecycleState.Active;
+        public EntityLifecycleState State => state;
+        public bool IsAliveLike => state == EntityLifecycleState.Active;
+        public bool IsInteractableLike => state == EntityLifecycleState.Active;
 
-        public bool IsPersistentLike => state != CoCoLifecycleState.Uninitialized &&
-                                        state != CoCoLifecycleState.Destroyed;
+        public bool IsPersistentLike => state != EntityLifecycleState.Uninitialized &&
+                                        state != EntityLifecycleState.Destroyed;
 
-        public bool IsTerminal => state == CoCoLifecycleState.Consumed ||
-                                  state == CoCoLifecycleState.Destroyed;
+        public bool IsTerminal => state == EntityLifecycleState.Consumed ||
+                                  state == EntityLifecycleState.Destroyed;
 
-        public bool CanTransitionTo(CoCoLifecycleState nextState)
+        public bool CanTransitionTo(EntityLifecycleState nextState)
         {
             if (state == nextState) return true;
 
             switch (state)
             {
-                case CoCoLifecycleState.Destroyed:
+                case EntityLifecycleState.Destroyed:
                     return false;
-                case CoCoLifecycleState.Despawning:
-                    return nextState == CoCoLifecycleState.Destroyed;
-                case CoCoLifecycleState.Consumed:
-                    return nextState == CoCoLifecycleState.Despawning ||
-                           nextState == CoCoLifecycleState.Destroyed;
+                case EntityLifecycleState.Despawning:
+                    return nextState == EntityLifecycleState.Destroyed;
+                case EntityLifecycleState.Consumed:
+                    return nextState == EntityLifecycleState.Despawning ||
+                           nextState == EntityLifecycleState.Destroyed;
                 default:
                     return true;
             }
         }
 
-        public bool TryTransitionTo(CoCoLifecycleState nextState)
+        public bool TryTransitionTo(EntityLifecycleState nextState)
         {
             if (!CanTransitionTo(nextState)) return false;
             state = nextState;
             return true;
         }
 
-        public void TransitionTo(CoCoLifecycleState nextState)
+        public void TransitionTo(EntityLifecycleState nextState)
         {
             if (!TryTransitionTo(nextState))
             {
@@ -115,7 +114,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core", sourceClassName: "CoCoEntityContext")]
     [Serializable]
-    public class EntityContext : ICoCoContext
+    public class EntityContext
     {
         [SerializeField] private EntityIdentity identity = new EntityIdentity();
         [SerializeField] private LifecycleContext lifecycle = new LifecycleContext();

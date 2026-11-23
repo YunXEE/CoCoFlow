@@ -1,8 +1,6 @@
 using System.Collections;
 using System.IO;
 using System.Reflection;
-using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence.Container;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
@@ -34,7 +32,6 @@ namespace CoCoFlow.Tests.Runtime.Persistence
                 firstContext.EnsureStableEntityId();
                 secondContext.EnsureStableEntityId();
 
-                Assert.IsInstanceOf<ICoCoStableEntityIdProvider>(firstContext);
                 Assert.IsFalse(string.IsNullOrEmpty(firstContext.StableEntityId));
                 Assert.IsFalse(string.IsNullOrEmpty(secondContext.StableEntityId));
                 Assert.AreNotEqual(firstContext.StableEntityId, secondContext.StableEntityId);
@@ -471,25 +468,6 @@ namespace CoCoFlow.Tests.Runtime.Persistence
             return type;
         }
 
-        private static void SetHostLifecycleToRunning(Component host)
-        {
-            System.Type runtimeType = System.Type.GetType(
-                "CoCoFlow.Runtime.StateGraph.StateGraphRuntime, " +
-                "CoCoFlow.Runtime.StateGraph");
-            Assert.IsNotNull(runtimeType, "StateGraphRuntime type could not be resolved.");
-            object runtime =
-                System.Runtime.Serialization.FormatterServices.GetUninitializedObject(
-                    runtimeType);
-            FieldInfo lifecycleField = runtimeType.GetField(
-                "_lifecycle",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(lifecycleField);
-            lifecycleField.SetValue(
-                runtime,
-                System.Enum.Parse(lifecycleField.FieldType, "Running"));
-            SetPrivateField(host, "_runtime", runtime);
-        }
-
         private sealed class DeferredStateGraphHostFixture
         {
             internal DeferredStateGraphHostFixture(
@@ -510,164 +488,39 @@ namespace CoCoFlow.Tests.Runtime.Persistence
             internal PersistenceContext Persistence { get; }
         }
 
-        [OneTimeSetUp]
-        public void RegisterTestContextAdapterOnce()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void LegacyEntityRecordIsUnsupported(bool withHost)
         {
-            // F6 lifecycle: static singleton, narrow match, idempotent registration.
-            PersistenceContextAdapterRegistry.Register(TestContextAdapter.Instance);
-            PersistenceContextAdapterRegistry.Register(TestContextAdapter.Instance);
-        }
-
-        [Test]
-        public void PendingDocumentAppliesThroughRegisteredAdapterWhenContextRegisters()
-        {
-            var root = new GameObject("Pending Adapter Apply Test");
-            try
-            {
-                var provider = root.AddComponent<TestContextProviderBehaviour>();
-                var persistenceContext = root.AddComponent<PersistenceContext>();
-                SetPrivateField(persistenceContext, "stableEntityId", "scene.test.pending");
-
-                var record = new PersistenceContextRecord
-                {
-                    stableEntityId = "scene.test.pending",
-                    lifecycleState = (int)CoCoLifecycleState.Active,
-                    semanticStateId = 42
-                };
-                record.StringFacts["test.marker"] = "applied";
-
-                var contextSection = new PersistenceContextSection();
-                contextSection.AddOrReplace(record);
-                PersistenceSession.SetPendingDocument(PersistenceSaveDocument.Create(
-                    0,
-                    contextSection,
-                    new PersistenceContainerSection()));
-
-                PersistenceContextRegistry.Register(persistenceContext);
-
-                Assert.AreEqual(CoCoLifecycleState.Active, provider.Context.Lifecycle.State);
-                Assert.AreEqual(42, provider.Context.SemanticStateId);
-                Assert.AreEqual("applied", provider.Context.LastMarker);
-                Assert.AreEqual("scene.test.pending", provider.Context.Identity.StableEntityId);
-            }
-            finally
-            {
-                PersistenceSession.ClearPendingDocument();
-                Object.DestroyImmediate(root);
-            }
-        }
-
-
-        [Test]
-        public void LegacyRecordUsesAdapterPathWhenRunningStateGraphHostIsCoLocated()
-        {
-            var root = new GameObject("Co-Located Host Adapter Path Test");
-            Component host = null;
+            var root = new GameObject("Legacy entity record");
             try
             {
                 root.SetActive(false);
-                host = root.AddComponent(ResolveStateGraphHostType());
-                SetPrivateField(host, "autoStart", false);
-                SetHostLifecycleToRunning(host);
+                if (withHost)
+                {
+                    var host = root.AddComponent(ResolveStateGraphHostType());
+                    SetPrivateField(host, "autoStart", false);
+                }
 
-                var provider = root.AddComponent<TestContextProviderBehaviour>();
-                var persistenceContext = root.AddComponent<PersistenceContext>();
-                SetPrivateField(persistenceContext, "stableEntityId", "scene.test.colocated");
-                root.SetActive(true);
-
-                object lifecycle = host.GetType()
-                    .GetProperty("Lifecycle", BindingFlags.Instance | BindingFlags.Public)
-                    ?.GetValue(host);
-                Assert.AreEqual("Running", lifecycle?.ToString());
-
+                var persistence = root.AddComponent<PersistenceContext>();
                 var record = new PersistenceContextRecord
                 {
-                    stableEntityId = "scene.test.colocated",
-                    lifecycleState = (int)CoCoLifecycleState.Active,
-                    semanticStateId = 7
+                    stableEntityId = "scene.test.legacy",
+                    contextType = "LegacyAdapterContext",
+                    lifecycleState = 2
                 };
-                record.StringFacts["test.marker"] = "colocated-applied";
 
-                Assert.IsTrue(persistenceContext.TryApply(record));
-                Assert.AreEqual(CoCoLifecycleState.Active, provider.Context.Lifecycle.State);
-                Assert.AreEqual(7, provider.Context.SemanticStateId);
-                Assert.AreEqual("colocated-applied", provider.Context.LastMarker);
-                Assert.AreEqual(
-                    "scene.test.colocated",
-                    provider.Context.Identity.StableEntityId);
+                Assert.IsFalse(persistence.TryApply(record));
+                if (!withHost)
+                {
+                    Assert.IsFalse(persistence.TryCapture(out var captured));
+                    Assert.IsNull(captured);
+                }
             }
             finally
             {
-                if (host != null)
-                {
-                    SetPrivateField(host, "_runtime", null);
-                }
-
                 Object.DestroyImmediate(root);
             }
         }
-
-        internal sealed class TestEntityContext : EntityContext
-        {
-            public string LastMarker { get; private set; } = string.Empty;
-
-            public void ApplyMarker(string marker)
-            {
-                LastMarker = marker;
-            }
-        }
-
-        internal sealed class TestContextProviderBehaviour :
-            MonoBehaviour,
-            ICoCoContextProvider<TestEntityContext>
-        {
-            public TestEntityContext Context { get; } = new TestEntityContext();
-        }
-
-        internal sealed class TestContextAdapter : IPersistenceContextAdapter
-        {
-            public static readonly TestContextAdapter Instance = new TestContextAdapter();
-
-            private TestContextAdapter() { }
-
-            public bool CanCapture(ICoCoContext context)
-            {
-                return context is TestEntityContext;
-            }
-
-            public bool CanApply(PersistenceContextRecord record, ICoCoContext context)
-            {
-                return context is TestEntityContext;
-            }
-
-            public PersistenceContextRecord Capture(string stableEntityId, ICoCoContext context)
-            {
-                var entity = (TestEntityContext)context;
-                return new PersistenceContextRecord
-                {
-                    stableEntityId = stableEntityId,
-                    contextType = entity.GetType().AssemblyQualifiedName,
-                    lifecycleState = (int)entity.Lifecycle.State,
-                    semanticStateId = entity.SemanticStateId,
-                    actionStateId = entity.ActionStateId,
-                    lastEventSequence = entity.LastEventSequence
-                };
-            }
-
-            public void Apply(PersistenceContextRecord record, ICoCoContext context)
-            {
-                var entity = (TestEntityContext)context;
-                entity.Identity.StableEntityId = record.stableEntityId;
-                entity.Lifecycle.TransitionTo((CoCoLifecycleState)record.lifecycleState);
-                entity.SemanticStateId = record.semanticStateId;
-                entity.ActionStateId = record.actionStateId;
-                entity.LastEventSequence = record.lastEventSequence;
-                if (record.StringFacts.TryGetValue("test.marker", out string marker))
-                {
-                    entity.ApplyMarker(marker);
-                }
-            }
-        }
-
     }
 }

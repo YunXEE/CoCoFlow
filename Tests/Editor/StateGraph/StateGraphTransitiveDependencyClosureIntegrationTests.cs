@@ -17,7 +17,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.Contains(
                 authorReferences,
                 "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper");
-            Assert.That(TransitiveDependencyLogic.ReadCoreViaHelper(), Is.EqualTo((int)CoCoLifecycleState.Uninitialized));
+            Assert.That(TransitiveDependencyLogic.ReadCoreViaHelper(), Is.EqualTo((int)CoCoLogLevel.Warning));
 
             Assert.IsTrue(StateDescriptorId.TryCreate(
                 0xD15UL,
