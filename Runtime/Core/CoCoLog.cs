@@ -6,49 +6,41 @@ using System.Diagnostics;
 
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>Indicates the severity of a log event.</summary>
+    /// <summary>日志的严重级别。</summary>
     public enum CoCoLogLevel
     {
-        /// <summary>Ordinary diagnostic output.</summary>
         Log,
-        /// <summary>A warning reported by the caller.</summary>
         Warning,
-        /// <summary>An error reported by the caller.</summary>
         Error
     }
 
-    /// <summary>Carries a log entry to synchronous monitoring subscribers.</summary>
+    /// <summary>供日志监控订阅者读取的单条日志。</summary>
     public struct CoCoLogEvent
     {
-        /// <summary>The severity assigned by the logging entry point.</summary>
         public CoCoLogLevel Level;
-        /// <summary>The name of the source file's enclosing directory.</summary>
         public string ModuleName;
-        /// <summary>The source file name without its extension.</summary>
         public string ClassName;
-        /// <summary>The message supplied by the caller.</summary>
         public string Message;
-        /// <summary>The local time when the entry was published.</summary>
         public DateTime Timestamp;
     }
 
-    /// <summary>Publishes log events and forwards warnings and errors to installed sinks.</summary>
+    /// <summary>发布日志事件，并将警告和错误转交给已安装的输出端。</summary>
     public static class CoCoLog
     {
         #region Public API
 
-        /// <summary>Publishes an ordinary log event. The call and its arguments are omitted when COCOFLOW_LOG is undefined in the calling compilation.</summary>
-        /// <param name="message">The text to publish.</param>
-        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
+        /// <summary>发布普通日志。调用程序集未定义 COCOFLOW_LOG 时，调用及参数求值会被编译器移除。</summary>
+        /// <param name="message">要输出的日志文本。</param>
+        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
         [Conditional("COCOFLOW_LOG")]
         public static void Log(string message, [CallerFilePath] string sourceFilePath = "")
         {
             DispatchLog(CoCoLogLevel.Log, message, sourceFilePath);
         }
 
-        /// <summary>Publishes a warning event, then forwards formatted text to the installed warning sink if available.</summary>
-        /// <param name="message">The text to publish.</param>
-        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
+        /// <summary>发布警告事件，随后转发给已安装的警告输出端。</summary>
+        /// <param name="message">要输出的日志文本。</param>
+        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
         public static void Warning(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);
@@ -57,9 +49,9 @@ namespace CoCoFlow.Runtime.Core
             WarningSink?.Invoke($"[CoCoFlow: {info.Module}]{info.Class}: {message}");
         }
 
-        /// <summary>Publishes an error event, then forwards formatted text to the installed error sink if available.</summary>
-        /// <param name="message">The text to publish.</param>
-        /// <param name="sourceFilePath">The source used to identify the module and file. Defaults to the caller path.</param>
+        /// <summary>发布错误事件，随后转发给已安装的错误输出端。</summary>
+        /// <param name="message">要输出的日志文本。</param>
+        /// <param name="sourceFilePath">用于识别来源的文件路径，默认取调用处的源文件路径。</param>
         public static void Error(string message, [CallerFilePath] string sourceFilePath = "")
         {
             var info = GetFileInfo(sourceFilePath);

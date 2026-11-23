@@ -4,23 +4,16 @@ using UnityEngine.Scripting.APIUpdating;
 
 namespace CoCoFlow.Runtime.StateGraphHost
 {
-    /// <summary>Identifies an entity's lifecycle phase in the Host.</summary>
+    /// <summary>实体在 Host 中的生命周期阶段。</summary>
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core", sourceClassName: "CoCoLifecycleState")]
     public enum EntityLifecycleState
     {
-        /// <summary>The entity has not been initialized.</summary>
         Uninitialized = 0,
-        /// <summary>The entity is being brought into service.</summary>
         Spawning = 1,
-        /// <summary>The entity is alive and interactable.</summary>
         Active = 2,
-        /// <summary>The entity is present but inactive.</summary>
         Disabled = 3,
-        /// <summary>The entity has been consumed and may only advance toward destruction.</summary>
         Consumed = 4,
-        /// <summary>The entity is being removed and may only advance to destruction.</summary>
         Despawning = 5,
-        /// <summary>The entity has been destroyed.</summary>
         Destroyed = 6
     }
 

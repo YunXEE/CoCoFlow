@@ -2,15 +2,13 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>Owns callback subscriptions for the lifetime of its consumer.</summary>
+    /// <summary>集中持有和退订调用方注册的事件回调。</summary>
     public sealed class CoCoEventAgent
     {
         #region Public API
 
-        /// <summary>Subscribes a callback and holds it until this agent unsubscribes.</summary>
-        /// <typeparam name="T">The exact event type.</typeparam>
-        /// <param name="callback">The callback to invoke by reference. Null is ignored.</param>
-        /// <param name="priority">Higher priorities run first.</param>
+        /// <summary>订阅并持有事件回调，直到主动退订。</summary>
+        /// <remarks>优先级越高越先执行，空回调会被忽略。</remarks>
         public void Subscribe<T>(CoCoEventCallback<T> callback, int priority = 0)
         {
             if (callback == null) return;
@@ -19,7 +17,7 @@ namespace CoCoFlow.Runtime.Core
             CoCoEventBus.Subscribe(wrapper, priority);
         }
 
-        /// <summary>Removes all callbacks registered by this agent and releases their references.</summary>
+        /// <summary>退订本代理注册的所有回调，并释放对它们的引用。</summary>
         public void UnsubscribeAll()
         {
             foreach (var wrapper in _wrappers)
@@ -33,13 +31,13 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
-        /// <summary>Allows the agent to unsubscribe listeners of different event types.</summary>
+        /// <summary>统一不同事件类型的退订入口。</summary>
         private interface IAgentWrapper
         {
             void Unsubscribe();
         }
 
-        /// <summary>Adapts a callback to a bus listener until it is unsubscribed.</summary>
+        /// <summary>把回调包装成事件总线的监听者。</summary>
         private class Wrapper<T> : ICoCoEventListener<T>, IAgentWrapper
         {
             private CoCoEventCallback<T> _callback;

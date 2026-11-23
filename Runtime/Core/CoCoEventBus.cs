@@ -3,31 +3,25 @@ using System.Collections.Generic;
 
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>Handles a published event with access to the shared value.</summary>
-    /// <typeparam name="T">The exact event type.</typeparam>
-    /// <param name="eventData">The event value shared by all listeners in the dispatch.</param>
+    /// <summary>同步处理按引用传递的事件值。</summary>
     public delegate void CoCoEventCallback<T>(ref T eventData);
 
-    /// <summary>Receives a specific event type from the bus.</summary>
-    /// <typeparam name="T">The exact event type.</typeparam>
+    /// <summary>接收指定类型的事件。</summary>
     public interface ICoCoEventListener<T>
     {
-        /// <summary>Handles the current event synchronously.</summary>
-        /// <param name="eventData">The shared event value. Mutations are visible to later listeners.</param>
+        /// <summary>同步处理事件。对事件值的修改对后续监听者可见。</summary>
         void OnEvent(ref T eventData);
     }
 
-    /// <summary>Dispatches typed events synchronously on the main thread using weak listener references.</summary>
+    /// <summary>在主线程同步派发事件，以弱引用持有监听者。</summary>
     public static class CoCoEventBus
     {
         internal static Predicate<object> IsDestroyedListener { get; set; }
 
         #region Public API
 
-        /// <summary>Subscribes a weak listener. Additions during dispatch take effect after the outermost dispatch.</summary>
-        /// <typeparam name="T">The exact event type.</typeparam>
-        /// <param name="listener">The listener, which the caller must keep alive. Null is ignored.</param>
-        /// <param name="priority">Higher priorities run first. Equal priorities preserve insertion order.</param>
+        /// <summary>以弱引用订阅事件，调用方须持有监听者。优先级高的先执行，同级按订阅顺序执行。</summary>
+        /// <remarks>派发期间新增的订阅在最外层派发结束后生效。</remarks>
         public static void Subscribe<T>(ICoCoEventListener<T> listener, int priority = 0)
         {
             if (listener == null) return;
@@ -60,9 +54,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>Marks an existing active subscription for removal so subsequent callbacks skip it.</summary>
-        /// <typeparam name="T">The exact event type.</typeparam>
-        /// <param name="listener">The listener to remove. Null is ignored.</param>
+        /// <summary>取消已生效的订阅，后续派发会跳过该监听者。</summary>
         public static void Unsubscribe<T>(ICoCoEventListener<T> listener)
         {
             if (listener == null) return;
@@ -84,9 +76,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>Dispatches synchronously, skipping collected or destroyed listeners and logging callback exceptions.</summary>
-        /// <typeparam name="T">The exact event type.</typeparam>
-        /// <param name="eventData">The value shared with listeners by reference.</param>
+        /// <summary>按确切类型同步派发事件。跳过已回收或销毁的监听者，监听回调抛出的异常会记录为错误日志。</summary>
         public static void Publish<T>(ref T eventData)
         {
             EventContext<T>.BroadcastDepth++;
@@ -134,9 +124,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>Dispatches synchronously using a local copy of the argument.</summary>
-        /// <typeparam name="T">The exact event type.</typeparam>
-        /// <param name="eventData">The value or object reference to copy before dispatch.</param>
+        /// <summary>同步派发事件。监听者收到的是参数的局部副本。</summary>
         public static void Publish<T>(T eventData)
         {
             Publish(ref eventData);
@@ -146,10 +134,10 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
-        /// <summary>Stores the listener list and deferred mutations for one event type.</summary>
+        /// <summary>保存单种事件的订阅及派发期间的待处理变更。</summary>
         private static class EventContext<T>
         {
-            /// <summary>Tracks a weak subscription and its dispatch order.</summary>
+            /// <summary>保存一条弱引用订阅及其派发顺序。</summary>
             public struct SubNode
             {
                 public int Priority;
