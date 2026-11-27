@@ -1001,6 +1001,39 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertPosition(asset, child, new Vector2(40, 190));
         }
 
+        /// <summary>通过配置列表的新增回调验证多层字符串字段可以立即保存，并在重读时保留原值。</summary>
+        [TestCase(nameof(CollectionConfigLogic.Clips))]
+        [TestCase(nameof(CollectionConfigLogic.ClipList))]
+        public void AddConfigCollectionElementInitializesNestedStrings(string path)
+        {
+            var logic = new CollectionConfigLogic();
+            var field = typeof(CollectionConfigLogic).GetField(path);
+            var guiType = typeof(StateGraphEditorWindow).GetNestedType("ConfigFieldGUI", BindingFlags.NonPublic);
+            var gui = Activator.CreateInstance(guiType, nonPublic: true);
+            var getList = guiType.GetMethod("GetList", BindingFlags.Instance | BindingFlags.NonPublic);
+            var list = (UnityEditorInternal.ReorderableList)getList.Invoke(gui,
+                new[] { path, (object)field.FieldType, field.GetValue(logic) });
+
+            list.onAddCallback(list);
+
+            Assert.AreEqual(2, list.count);
+            var previous = (CollectionClip)list.list[0];
+            Assert.AreEqual("Existing", previous.Reference.Key);
+            Assert.AreEqual(2, previous.Speed);
+            var added = (CollectionClip)list.list[1];
+            Assert.AreEqual(string.Empty, added.Reference.Key);
+            Assert.AreEqual(0, added.Speed);
+
+            var config = new FieldConfig();
+            config.Set(path, list.list);
+            added.Reference.Key = " Attack.Light=Variant ";
+            list.list[1] = added;
+            config.Set(path, list.list);
+            var restored = new CollectionConfigLogic();
+            new FieldConfig { Values = config.Values.ToArray() }.Apply(restored);
+            CollectionAssert.AreEqual(list.list, (IList)field.GetValue(restored));
+        }
+
         /// <summary>修改标准字段草稿，检查提交前不重复构建控件且保存只触发一次分析。</summary>
         [UnityTest]
         public IEnumerator StandardConfigDraftCommitsWithoutRebuildingAndAnalyzesOnceOnSave()
@@ -1097,6 +1130,28 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             BindingFlags.Instance | BindingFlags.NonPublic);
 
         private readonly List<StateGraphAsset> assets = new List<StateGraphAsset>();
+        /// <summary>为配置编辑器提供同一种结构体的数组和列表。</summary>
+        private sealed class CollectionConfigLogic : StateLogic
+        {
+            [Config] public CollectionClip[] Clips = { new CollectionClip
+                { Reference = new CollectionClipReference { Key = "Existing" }, Speed = 2 } };
+            [Config] public List<CollectionClip> ClipList = new List<CollectionClip> { new CollectionClip
+                { Reference = new CollectionClipReference { Key = "Existing" }, Speed = 2 } };
+        }
+
+        /// <summary>组合数值和嵌套的字符串引用，以检查新增元素的默认值。</summary>
+        private struct CollectionClip
+        {
+            public CollectionClipReference Reference;
+            public int Speed;
+        }
+
+        /// <summary>为配置元素提供位于第二层的字符串字段。</summary>
+        private struct CollectionClipReference
+        {
+            public string Key;
+        }
+
         private readonly List<EditorWindow> windows = new List<EditorWindow>();
         private readonly List<StateGraphEditorCanvas> canvases =
             new List<StateGraphEditorCanvas>();

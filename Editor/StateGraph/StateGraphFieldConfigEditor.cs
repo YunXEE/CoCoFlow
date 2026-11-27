@@ -214,6 +214,7 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     list.list = Resize(type, list.list, list.count + 1, -1);
                     list.index = list.count - 1;
+                    list.list[list.index] = InitializeNewElement(element, list.list[list.index]);
                     Changed = StructureChanged = true;
                 };
                 list.onRemoveCallback = _ =>
@@ -234,6 +235,16 @@ namespace CoCoFlow.Editor.StateGraph
                 for (int source = 0, target = 0; source < items.Count; source++)
                     if (source != remove) result[target++] = items[source];
                 return result;
+            }
+
+            private static object InitializeNewElement(Type type, object value)
+            {
+                if (type == typeof(string)) return value ?? string.Empty;
+                if (StateFields.IsConfigScalar(type)) return value;
+
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                    field.SetValue(value, InitializeNewElement(field.FieldType, field.GetValue(value)));
+                return value;
             }
         }
     }
