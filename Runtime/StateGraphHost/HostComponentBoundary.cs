@@ -1,0 +1,34 @@
+using System;
+using UnityEngine;
+
+// 场景接线用组件身份与宿主类型检查归属，包括未激活的父物体和嵌套宿主。
+namespace CoCoFlow.Runtime.StateGraph
+{
+    /// <summary>按最近的宿主组件界定一台 Host 管辖的层级。</summary>
+    internal readonly struct HostComponentBoundary
+    {
+        internal Component Owner { get; }
+        private readonly Type _hostType;
+
+        internal HostComponentBoundary(Component owner, Type hostType)
+        {
+            Owner = owner;
+            _hostType = hostType;
+        }
+
+        internal bool HasOwner => Owner != null;
+
+        internal bool Contains(MonoBehaviour component)
+        {
+            if (Owner == null || component == null) return false;
+
+            for (Transform parent = component.transform; parent != null; parent = parent.parent)
+            {
+                Component nearest = parent.GetComponent(_hostType);
+                if (nearest != null) return ReferenceEquals(nearest, Owner);
+            }
+
+            return false;
+        }
+    }
+}
