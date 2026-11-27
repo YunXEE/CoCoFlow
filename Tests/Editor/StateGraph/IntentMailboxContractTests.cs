@@ -41,10 +41,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             Assert.AreEqual(EventDeliveryMode.None, default(EventDeliveryMode));
             Assert.AreEqual(EventReliability.None, default(EventReliability));
-            Assert.AreEqual(ActorEventInboxState.None, default(ActorEventInboxState));
+            Assert.AreEqual(InstanceInboxState.None, default(InstanceInboxState));
             Assert.AreEqual(InboxEnqueueResult.None, default(InboxEnqueueResult));
             Assert.AreEqual(IntentContributionResult.None, default(IntentContributionResult));
-            Assert.IsFalse(default(ActorEventEnvelope).IsValid);
+            Assert.IsFalse(default(GraphEventEnvelope).IsValid);
             Assert.IsFalse(default(EventPacket<TestEvent>).IsValid);
         }
 
@@ -331,7 +331,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(runtime.TryBegin(third, out _));
             Assert.AreEqual(IntentSourceSampleResult.Contributed, runtime.TrySample(binding, third.TickFrame));
             Assert.IsTrue(runtime.TryFreeze(out _));
-            var inbox = new ActorEventInboxCore(owner, DomainId(52UL), 1, 1, 4);
+            var inbox = new InstanceInbox(owner, DomainId(52UL), 1, 1, 4);
             Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
             Assert.IsTrue(inbox.Start(out _));
             Assert.IsTrue(inbox.BeginRewindOrRestore());
@@ -340,7 +340,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             runtime.Dispose();
             Assert.IsFalse(runtime.Frame.IsFrozen);
-            Assert.AreEqual(ActorEventInboxState.Stopped, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Stopped, inbox.State);
         }
 
         [Test]
@@ -390,10 +390,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventTypeId eventType = CreateEventTypeId(53UL);
 
             GraphInstanceId owner = GraphId(960UL);
-            var unbound = new ActorEventInboxCore(owner, domain, 1, 1, 4);
+            var unbound = new InstanceInbox(owner, domain, 1, 1, 4);
             Assert.IsTrue(unbound.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
             Assert.IsFalse(unbound.Start(out _));
-            Assert.AreEqual(ActorEventInboxState.Created, unbound.State);
+            Assert.AreEqual(InstanceInboxState.Created, unbound.State);
 
             IntentFrameRuntime unfrozenRuntime = CreateMailboxRuntime(owner, false);
             Assert.IsTrue(unbound.TryBindIntentRuntime(unfrozenRuntime, out _));
@@ -412,23 +412,23 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventTypeId eventType = CreateEventTypeId(55UL);
             GraphInstanceId createdOwner = GraphId(965UL);
             IntentFrameRuntime createdRuntime = CreateMailboxRuntime(createdOwner);
-            var createdInbox = new ActorEventInboxCore(createdOwner, domain, 1, 1, 4);
+            var createdInbox = new InstanceInbox(createdOwner, domain, 1, 1, 4);
             Assert.IsTrue(createdInbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
             Assert.IsTrue(createdInbox.TryBindIntentRuntime(createdRuntime, out _));
             createdRuntime.Dispose();
-            Assert.AreEqual(ActorEventInboxState.Created, createdInbox.State);
+            Assert.AreEqual(InstanceInboxState.Created, createdInbox.State);
             IntentFrameRuntime replacement = CreateMailboxRuntime(createdOwner);
             Assert.IsTrue(createdInbox.TryBindIntentRuntime(replacement, out _));
             Assert.IsTrue(createdInbox.Start(out _));
 
             GraphInstanceId runningOwner = GraphId(966UL);
             IntentFrameRuntime runningRuntime = CreateMailboxRuntime(runningOwner);
-            var runningInbox = new ActorEventInboxCore(runningOwner, domain, 1, 1, 4);
+            var runningInbox = new InstanceInbox(runningOwner, domain, 1, 1, 4);
             Assert.IsTrue(runningInbox.TryRegisterLane(
                 eventType,
                 1,
                 false,
-                out ActorEventLaneHandle<TestEvent> lane,
+                out InstanceInboxLaneHandle<TestEvent> lane,
                 out _));
             Assert.IsTrue(runningInbox.TryBindIntentRuntime(runningRuntime, out _));
             Assert.IsTrue(runningInbox.Start(out _));
@@ -436,7 +436,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 lane,
                 Packet(eventType, domain, GraphId(967UL), runningOwner, 1UL, 1UL, 1)));
             runningRuntime.Dispose();
-            Assert.AreEqual(ActorEventInboxState.Stopped, runningInbox.State);
+            Assert.AreEqual(InstanceInboxState.Stopped, runningInbox.State);
             Assert.AreEqual(0, runningInbox.GetSealedCount(lane));
             Assert.AreEqual(InboxEnqueueResult.MailboxUnavailable, runningInbox.TryEnqueue(
                 lane,
@@ -583,13 +583,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventDomainId domain = DomainId(60UL);
             EventTypeId eventType = CreateEventTypeId(60UL);
             IntentFrameRuntime runtime = CreateMailboxRuntime(owner);
-            var inbox = new ActorEventInboxCore(owner, domain, 1, 1, 4);
+            var inbox = new InstanceInbox(owner, domain, 1, 1, 4);
             Assert.IsTrue(inbox.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
             Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
 
             Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 1UL, 1UL, owner), out _));
             Assert.IsFalse(inbox.Start(out _));
-            Assert.AreEqual(ActorEventInboxState.Created, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Created, inbox.State);
             Assert.IsTrue(runtime.CancelCollection());
             Assert.IsTrue(inbox.Start(out _));
 
@@ -597,9 +597,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             inbox.Stop();
             Assert.IsFalse(runtime.IsCollecting);
             Assert.IsFalse(runtime.Frame.IsFrozen);
-            Assert.AreEqual(ActorEventInboxState.Stopped, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Stopped, inbox.State);
 
-            var replacement = new ActorEventInboxCore(owner, domain, 1, 1, 4);
+            var replacement = new InstanceInbox(owner, domain, 1, 1, 4);
             Assert.IsTrue(replacement.TryRegisterLane<TestEvent>(eventType, 1, false, out _, out _));
             Assert.IsTrue(runtime.TryBegin(IntentHeader(runtime.LayoutId, 3UL, 1UL, owner), out _));
             Assert.IsFalse(replacement.TryBindIntentRuntime(runtime, out _));
@@ -611,7 +611,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             replacement.Dispose();
             Assert.IsFalse(runtime.IsCollecting);
             Assert.IsFalse(runtime.Frame.IsFrozen);
-            Assert.AreEqual(ActorEventInboxState.Disposed, replacement.State);
+            Assert.AreEqual(InstanceInboxState.Disposed, replacement.State);
         }
 
         [Test]
@@ -628,14 +628,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 eventType,
                 2,
                 runtime,
-                out ActorEventLaneHandle<TestEvent> lane);
+                out InstanceInboxLaneHandle<TestEvent> lane);
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 lane,
                 Packet(eventType, domain, source, owner, 1UL, 1UL, 1)));
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
             Assert.IsTrue(inbox.TryGetSealedBatch(
                 lane,
-                out ActorEventSealedBatch<TestEvent> firstBatch));
+                out InstanceInboxSealedBatch<TestEvent> firstBatch));
             Assert.IsTrue(firstBatch.TryRead(0, out EventPacket<TestEvent> firstPacket));
             Assert.AreEqual(1, firstPacket.Payload.Value);
 
@@ -660,7 +660,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(firstBatch.IsValid);
             Assert.IsTrue(inbox.TryGetSealedBatch(
                 lane,
-                out ActorEventSealedBatch<TestEvent> secondBatch));
+                out InstanceInboxSealedBatch<TestEvent> secondBatch));
             Assert.AreEqual(1, secondBatch.Count);
             Assert.IsTrue(secondBatch.TryRead(0, out EventPacket<TestEvent> secondPacket));
             Assert.AreEqual(2, secondPacket.Payload.Value);
@@ -755,7 +755,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(101UL);
             EventDomainId domain = DomainId(1UL);
             EventTypeId eventType = CreateEventTypeId(1UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             EventPacket<TestEvent> wrongTarget = Packet(
                 eventType,
@@ -800,13 +800,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 domain,
                 eventType,
                 1,
-                out ActorEventLaneHandle<TestEvent> firstHandle);
+                out InstanceInboxLaneHandle<TestEvent> firstHandle);
             var second = CreateInbox(
                 owner,
                 domain,
                 eventType,
                 1,
-                out ActorEventLaneHandle<TestEvent> secondHandle);
+                out InstanceInboxLaneHandle<TestEvent> secondHandle);
             EventPacket<TestEvent> packet = Packet(
                 eventType,
                 domain,
@@ -832,7 +832,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(201UL);
             EventDomainId domain = DomainId(2UL);
             EventTypeId eventType = CreateEventTypeId(2UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -842,7 +842,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1, inbox.GetSealedCount(handle));
             Assert.IsTrue(inbox.TryGetSealedBatch(
                 handle,
-                out ActorEventSealedBatch<TestEvent> firstBatch));
+                out InstanceInboxSealedBatch<TestEvent> firstBatch));
             Assert.IsTrue(firstBatch.IsValid);
             Assert.AreEqual(1, firstBatch.Count);
             Assert.IsTrue(firstBatch.TryRead(0, out EventPacket<TestEvent> firstFromBatch));
@@ -873,7 +873,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(211UL);
             EventDomainId domain = DomainId(21UL);
             EventTypeId eventType = CreateEventTypeId(21UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -902,14 +902,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(221UL);
             EventDomainId domain = DomainId(22UL);
             EventTypeId eventType = CreateEventTypeId(22UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
                 Packet(eventType, domain, source, owner, 1UL, 1UL, 10)));
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
-            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out ActorEventSealedBatch<TestEvent> oldBatch));
-            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out ActorEventSealedBatch<TestEvent> alias));
+            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out InstanceInboxSealedBatch<TestEvent> oldBatch));
+            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out InstanceInboxSealedBatch<TestEvent> alias));
             Assert.IsTrue(oldBatch.IsValid);
             Assert.IsTrue(alias.IsValid);
 
@@ -924,7 +924,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(oldBatch.IsValid);
             Assert.IsFalse(oldBatch.TryRead(0, out _));
             Assert.IsFalse(alias.IsValid);
-            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out ActorEventSealedBatch<TestEvent> newBatch));
+            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out InstanceInboxSealedBatch<TestEvent> newBatch));
             Assert.IsTrue(newBatch.IsValid);
             Assert.IsTrue(newBatch.TryRead(0, out EventPacket<TestEvent> packet));
             Assert.AreEqual(20, packet.Payload.Value);
@@ -936,7 +936,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId owner = GraphId(300UL);
             EventDomainId domain = DomainId(3UL);
             EventTypeId eventType = CreateEventTypeId(3UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             EventPacket<TestEvent> echo = Packet(
                 eventType,
@@ -974,7 +974,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 domain,
                 declaredType,
                 2,
-                out ActorEventLaneHandle<TestEvent> handle);
+                out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.UndeclaredEventType, inbox.TryEnqueue(
                 handle,
@@ -1000,18 +1000,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventDomainId domain = DomainId(4UL);
             EventTypeId firstType = CreateEventTypeId(4UL);
             EventTypeId secondType = CreateEventTypeId(5UL);
-            var inbox = new ActorEventInboxCore(owner, domain, 2, 2, 8);
+            var inbox = new InstanceInbox(owner, domain, 2, 2, 8);
             Assert.IsTrue(inbox.TryRegisterLane(
                 firstType,
                 4,
                 false,
-                out ActorEventLaneHandle<TestEvent> firstHandle,
+                out InstanceInboxLaneHandle<TestEvent> firstHandle,
                 out _));
             Assert.IsTrue(inbox.TryRegisterLane(
                 secondType,
                 4,
                 false,
-                out ActorEventLaneHandle<OtherTestEvent> secondHandle,
+                out InstanceInboxLaneHandle<OtherTestEvent> secondHandle,
                 out _));
             var runtime = CreateMailboxRuntime(owner);
             Assert.IsTrue(inbox.TryBindIntentRuntime(runtime, out _));
@@ -1070,7 +1070,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(501UL);
             EventDomainId domain = DomainId(5UL);
             EventTypeId eventType = CreateEventTypeId(6UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.IsTrue(inbox.Suspend());
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
@@ -1109,14 +1109,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(511UL);
             EventDomainId domain = DomainId(51UL);
             EventTypeId eventType = CreateEventTypeId(51UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.IsTrue(inbox.Suspend());
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
                 Packet(eventType, domain, source, owner, 1UL, 1UL, 11)));
             Assert.IsFalse(inbox.BeginRewindOrRestore());
-            Assert.AreEqual(ActorEventInboxState.Suspended, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Suspended, inbox.State);
 
             Assert.IsTrue(inbox.Resume());
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
@@ -1131,13 +1131,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(521UL);
             EventDomainId domain = DomainId(52UL);
             EventTypeId eventType = CreateEventTypeId(52UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
                 Packet(eventType, domain, source, owner, 1UL, 1UL, 10)));
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
-            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out ActorEventSealedBatch<TestEvent> oldBatch));
+            Assert.IsTrue(inbox.TryGetSealedBatch(handle, out InstanceInboxSealedBatch<TestEvent> oldBatch));
             Assert.IsTrue(inbox.BeginRewindOrRestore());
             Assert.IsFalse(oldBatch.IsValid);
             Assert.IsTrue(inbox.CanCancelRewindOrRestore);
@@ -1146,7 +1146,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Packet(eventType, domain, source, owner, 1UL, 2UL, 20)));
 
             inbox.CancelRewindOrRestoreNoFail();
-            Assert.AreEqual(ActorEventInboxState.Running, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Running, inbox.State);
             Assert.AreEqual(0, inbox.GetSealedCount(handle));
             Assert.AreEqual(1UL, inbox.Counters.RewindRestoreDropped);
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
@@ -1164,7 +1164,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(531UL);
             EventDomainId domain = DomainId(53UL);
             EventTypeId eventType = CreateEventTypeId(53UL);
-            var inbox = CreateInbox(owner, domain, eventType, 2, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 2, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -1173,7 +1173,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(inbox.BeginRewindOrRestore());
             Assert.IsTrue(inbox.CanResumeAfterTimelineReset);
             inbox.ResumeAfterTimelineResetNoFail();
-            Assert.AreEqual(ActorEventInboxState.Running, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Running, inbox.State);
             Assert.IsFalse(inbox.SealForTick(MailboxTick(2UL)));
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL, 2UL, 2UL)));
         }
@@ -1184,7 +1184,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId owner = GraphId(540UL);
             EventDomainId domain = DomainId(54UL);
             EventTypeId eventType = CreateEventTypeId(54UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
             EventPacket<TestEvent> seen = Packet(
                 eventType,
                 domain,
@@ -1223,7 +1223,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId remote = GraphId(551UL);
             EventDomainId domain = DomainId(55UL);
             EventTypeId eventType = CreateEventTypeId(55UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -1253,7 +1253,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId secondRemote = GraphId(572UL);
             EventDomainId domain = DomainId(57UL);
             EventTypeId eventType = CreateEventTypeId(57UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -1297,7 +1297,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId owner = GraphId(560UL);
             EventDomainId domain = DomainId(56UL);
             EventTypeId eventType = CreateEventTypeId(56UL);
-            var inbox = CreateInbox(owner, domain, eventType, 4, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 4, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.IsTrue(inbox.BeginRewindOrRestore());
             inbox.ResumeAfterTimelineResetNoFail(new TimelineEpoch(2UL));
@@ -1330,7 +1330,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(601UL);
             EventDomainId domain = DomainId(6UL);
             EventTypeId eventType = CreateEventTypeId(7UL);
-            var inbox = CreateInbox(owner, domain, eventType, 1, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 1, out InstanceInboxLaneHandle<TestEvent> handle);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(
                 handle,
@@ -1389,14 +1389,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId source = GraphId(701UL);
             EventDomainId domain = DomainId(7UL);
             EventTypeId eventType = CreateEventTypeId(8UL);
-            var inbox = CreateInbox(owner, domain, eventType, 1, out ActorEventLaneHandle<TestEvent> handle);
+            var inbox = CreateInbox(owner, domain, eventType, 1, out InstanceInboxLaneHandle<TestEvent> handle);
             EventPacket<TestEvent> packet = Packet(eventType, domain, source, owner, 1UL, 1UL, 1);
 
             Assert.AreEqual(InboxEnqueueResult.Accepted, inbox.TryEnqueue(handle, packet));
             Assert.IsTrue(inbox.SealForTick(MailboxTick(1UL)));
             Assert.IsTrue(inbox.TryGetSealedBatch(
                 handle,
-                out ActorEventSealedBatch<TestEvent> retainedBatch));
+                out InstanceInboxSealedBatch<TestEvent> retainedBatch));
             inbox.Stop();
             Assert.AreEqual(0, inbox.GetSealedCount(handle));
             Assert.IsFalse(retainedBatch.IsValid);
@@ -1404,7 +1404,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(InboxEnqueueResult.MailboxUnavailable, inbox.TryEnqueue(handle, packet));
 
             inbox.Dispose();
-            Assert.AreEqual(ActorEventInboxState.Disposed, inbox.State);
+            Assert.AreEqual(InstanceInboxState.Disposed, inbox.State);
             Assert.AreEqual(0, inbox.GetSealedCount(handle));
         }
 
@@ -1458,12 +1458,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     owner);
             }
 
-            var inbox = new ActorEventInboxCore(owner, domain, 1, 1, 64);
+            var inbox = new InstanceInbox(owner, domain, 1, 1, 64);
             Assert.IsTrue(inbox.TryRegisterLane(
                 eventType,
                 1,
                 false,
-                out ActorEventLaneHandle<TestEvent> eventHandle,
+                out InstanceInboxLaneHandle<TestEvent> eventHandle,
                 out _));
             Assert.IsTrue(inbox.TryBindIntentRuntime(eventRuntime, out _));
             Assert.IsTrue(inbox.Start(out _));
@@ -1511,15 +1511,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0L, allocated);
         }
 
-        private static ActorEventInboxCore CreateInbox(
+        private static InstanceInbox CreateInbox(
             GraphInstanceId owner,
             EventDomainId domain,
             EventTypeId eventType,
             int laneCapacity,
-            out ActorEventLaneHandle<TestEvent> handle)
+            out InstanceInboxLaneHandle<TestEvent> handle)
         {
             var runtime = CreateMailboxRuntime(owner);
-            var inbox = new ActorEventInboxCore(owner, domain, 1, 4, 16);
+            var inbox = new InstanceInbox(owner, domain, 1, 4, 16);
             Assert.IsTrue(inbox.TryRegisterLane(
                 eventType,
                 laneCapacity,
@@ -1588,15 +1588,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return runtime;
         }
 
-        private static ActorEventInboxCore CreateBoundInbox(
+        private static InstanceInbox CreateBoundInbox(
             GraphInstanceId owner,
             EventDomainId domain,
             EventTypeId eventType,
             int laneCapacity,
             IntentFrameRuntime runtime,
-            out ActorEventLaneHandle<TestEvent> handle)
+            out InstanceInboxLaneHandle<TestEvent> handle)
         {
-            var inbox = new ActorEventInboxCore(owner, domain, 1, 4, 16);
+            var inbox = new InstanceInbox(owner, domain, 1, 4, 16);
             Assert.IsTrue(inbox.TryRegisterLane(
                 eventType,
                 laneCapacity,
@@ -1626,8 +1626,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private static bool RunInboxCycle(
-            ActorEventInboxCore inbox,
-            ActorEventLaneHandle<TestEvent> handle,
+            InstanceInbox inbox,
+            InstanceInboxLaneHandle<TestEvent> handle,
             EventTypeId eventType,
             EventDomainId domain,
             GraphInstanceId source,
@@ -1636,7 +1636,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             ulong sequence)
         {
             if (!EventSequence.TryCreate(sequence, out EventSequence eventSequence) ||
-                !ActorEventEnvelope.TryCreate(
+                !GraphEventEnvelope.TryCreate(
                     eventType,
                     domain,
                     source,
@@ -1649,7 +1649,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     default,
                     default,
                     default,
-                    out ActorEventEnvelope envelope))
+                    out GraphEventEnvelope envelope))
             {
                 return false;
             }
@@ -1658,7 +1658,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return EventPacket<TestEvent>.TryCreate(envelope, payload, out EventPacket<TestEvent> packet) &&
                    inbox.TryEnqueue(handle, packet) == InboxEnqueueResult.Accepted &&
                    inbox.SealForTick(header.TickFrame) &&
-                   inbox.TryGetSealedBatch(handle, out ActorEventSealedBatch<TestEvent> batch) &&
+                   inbox.TryGetSealedBatch(handle, out InstanceInboxSealedBatch<TestEvent> batch) &&
                    batch.TryRead(0, out var received) && received.Payload.Value == (int)sequence;
         }
 
@@ -1759,7 +1759,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventDeliveryMode mode = EventDeliveryMode.Targeted,
             EventReliability reliability = EventReliability.Unreliable)
         {
-            ActorEventEnvelope envelope = Envelope(
+            GraphEventEnvelope envelope = Envelope(
                 eventType,
                 domain,
                 source,
@@ -1781,7 +1781,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             ulong epoch,
             ulong sequence)
         {
-            ActorEventEnvelope envelope = Envelope(
+            GraphEventEnvelope envelope = Envelope(
                 eventType,
                 domain,
                 source,
@@ -1797,7 +1797,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return packet;
         }
 
-        private static ActorEventEnvelope Envelope(
+        private static GraphEventEnvelope Envelope(
             EventTypeId eventType,
             EventDomainId domain,
             GraphInstanceId source,
@@ -1808,7 +1808,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             EventReliability reliability)
         {
             Assert.IsTrue(EventSequence.TryCreate(sequence, out EventSequence eventSequence));
-            Assert.IsTrue(ActorEventEnvelope.TryCreate(
+            Assert.IsTrue(GraphEventEnvelope.TryCreate(
                 eventType,
                 domain,
                 source,
@@ -1821,7 +1821,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 default,
                 default,
                 default,
-                out ActorEventEnvelope envelope));
+                out GraphEventEnvelope envelope));
             return envelope;
         }
 

@@ -4,16 +4,23 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 
+// 从纯输入和目录编译实际拓扑，核对成功结果、诊断及失败时的空图。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>从纯输入和目录编译实际拓扑，核对成功结果、诊断及失败时的空图。</summary>
     public sealed class StateGraphCompilerTests
     {
+
+        #region Public API
+
+        /// <summary>重置 StateGraphFixtureCounters 的测试状态，确保该例能独立检查工厂或回调次数。</summary>
         [SetUp]
         public void SetUp()
         {
             StateGraphFixtureCounters.Reset();
         }
 
+        /// <summary>编译父子状态与转换，按 ID 查层、节点与邻接边并核对活动路径。</summary>
         [Test]
         public void CompileBuildsHierarchyPathsAdjacencyAndStableLookups()
         {
@@ -81,11 +88,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CompiledTransition firstTransition = layer.Transitions[0];
             Assert.AreEqual(1, firstTransition.SourceStateIndex);
             Assert.AreEqual(2, firstTransition.TargetStateIndex);
-            Assert.AreEqual(1, firstTransition.Conditions.Count);
-            Assert.AreEqual(
-                StateGraphTestFactory.ConditionDescriptorId,
-                firstTransition.Conditions[0].Descriptor.DescriptorId);
-            Assert.AreEqual(0, firstTransition.Conditions[0].AuthoringIndex);
             Assert.IsTrue(layer.TryGetState(firstChild.StateId, out CompiledState stateLookup));
             Assert.AreSame(firstChild, stateLookup);
             Assert.IsTrue(layer.TryGetTransition(
@@ -95,10 +97,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.AreEqual(0, StateGraphFixtureCounters.LogicConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.MemoryConstructed);
-            Assert.AreEqual(0, StateGraphFixtureCounters.ConditionConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.ReducerCreated);
         }
 
+        /// <summary>改变节点和边的创作顺序再编译，逐项对照规范化拓扑。</summary>
         [Test]
         public void CompileNormalizesStateAndTransitionAuthoringOrderDeterministically()
         {
@@ -131,6 +133,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ordered.Graph.ContextStateRequirements.LayoutId);
         }
 
+        /// <summary>使用与身份排序不同的图层列表，检查紧凑索引保留源层顺序。</summary>
         [Test]
         public void LayerDenseIndicesPreserveSourceOrderInsteadOfLayerIdentityOrder()
         {
@@ -175,6 +178,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreSame(result.Graph.Layers[1], second);
         }
 
+        /// <summary>编译没有出边的终端状态，验证能取得该层的可执行拓扑。</summary>
         [Test]
         public void TerminalStateWithoutTransitionsCompilesSuccessfully()
         {
@@ -193,6 +197,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, result.Graph.Layers[0].States[0].OutgoingTransitionCount);
         }
 
+        /// <summary>以不同优先级建立同源出边，检查编译后按优先级降序查询。</summary>
         [Test]
         public void OutgoingTransitionsSortByUniquePriorityDescending()
         {
@@ -225,60 +230,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new[] { higherId, lowerId, lowerPriorityId },
                 result.Graph.Layers[0].Transitions.Select(transition => transition.TransitionId));
             Assert.IsTrue(result.Graph.Layers[0].Transitions.All(
-                transition => transition.Conditions.Count == 0));
-            Assert.IsTrue(result.Graph.Layers[0].Transitions.All(
                 transition => transition.SourceStateIndex == transition.TargetStateIndex));
             Assert.AreEqual(0, result.Graph.Layers[0].States[0].FirstOutgoingTransitionIndex);
             Assert.AreEqual(3, result.Graph.Layers[0].States[0].OutgoingTransitionCount);
         }
 
-        [Test]
-        public void MultipleConditionsPreserveAuthorOrder()
-        {
-            GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-            StateId stateId = StateGraphTestFactory.RootStateId;
-            var transition = new TransitionSource(
-                StateGraphTestFactory.FirstTransitionId,
-                stateId,
-                stateId,
-                0,
-                TransitionWindow.Always,
-                new[]
-                {
-                    new ConditionSource(
-                        StateGraphTestFactory.ConditionDescriptorId,
-                        StateGraphTestFactory.ConditionConfig(7)),
-                    new ConditionSource(
-                        StateGraphTestFactory.ConditionDescriptorId,
-                        StateGraphTestFactory.ConditionConfig(3))
-                });
-            var layer = new StateLayerSource(
-                StateGraphTestFactory.LayerId,
-                stateId,
-                new[]
-                {
-                    StateGraphTestFactory.State(stateId, default, default, 1)
-                },
-                new[] { transition });
+        #endregion
 
-            StateGraphCompileResult result = new StateGraphCompiler().Compile(
-                StateGraphTestFactory.Source(layer, 2200UL),
-                catalog);
-
-            Assert.IsTrue(result.Succeeded);
-            CompiledTransition compiled = result.Graph.Layers[0].Transitions[0];
-            Assert.AreEqual(2, compiled.Conditions.Count);
-            Assert.AreEqual(0, compiled.Conditions[0].AuthoringIndex);
-            Assert.AreEqual(1, compiled.Conditions[1].AuthoringIndex);
-            Assert.IsTrue(compiled.Conditions[0].Config.TryRead(
-                TestFrozenConfigSchemas.ConditionThreshold,
-                out int firstThreshold));
-            Assert.AreEqual(7, firstThreshold);
-            Assert.IsTrue(compiled.Conditions[1].Config.TryRead(
-                TestFrozenConfigSchemas.ConditionThreshold,
-                out int secondThreshold));
-            Assert.AreEqual(3, secondThreshold);
-        }
+        #region Internal Logic
 
         private static TransitionSource Transition(
             TransitionId transitionId,
@@ -290,8 +249,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 stateId,
                 stateId,
                 priority,
-                TransitionWindow.Always,
-                System.Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
         }
+
+        #endregion
     }
 }

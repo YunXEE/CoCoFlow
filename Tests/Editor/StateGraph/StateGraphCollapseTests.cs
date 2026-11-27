@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -133,7 +132,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             _controller.SelectTransition(edge);
             Assert.IsTrue(_controller.Session.IsCanvasCollapsed(_root), "Member selection keeps the fold.");
             _controller.Locate(new GraphDiagnosticLocation(GraphElementKind.Transition,
-                GraphField.None, _asset.GraphId, _layerId, default, edge, 0, -1, 0, -1));
+                GraphField.None, _asset.GraphId, _layerId, default, edge, 0, -1, 0));
             Assert.IsFalse(_controller.Session.IsCanvasCollapsed(_root), "Explicit Locate reveals endpoints.");
             Assert.AreEqual(edge, _controller.Session.SelectedTransitionId);
         }

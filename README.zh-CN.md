@@ -18,7 +18,7 @@ StateGraph、事务式 Context 提交、Temporal 恢复和显式 Runtime ownersh
 
 - Player Intent 按采集顺序保留短按的按下与松开。每个 StateGraph Tick
   也可读取当前按住的动作和轴值。
-- 使用旧八槽 API 的输入生产方改用只读数组视图构造 `InputIntentData`。
+- 使用旧八槽 API 的输入生产方改用只读数组视图构造 `InputIntentContract`。
   见 [Input 模块](Docs/Module-Input.md)。
 
 ## 0.4.8 更新
@@ -65,7 +65,7 @@ smoke 构建、完整 Umbra 动画和脚 IK 仍未验证。修复与兼容边界
 
 | 模块 | 状态 | 准确说明 |
 |---|---|---|
-| Core Engine | **成熟** | Core、StateGraph 和 StateGraphHost；0.4 原生核心。 |
+| Core Engine | **成熟** | Core、StateGraph.Contracts 和 StateGraph；0.4 原生核心。 |
 | Camera | **成熟** | 起源于 0.3.9，当前 Rig、priority、mode API 可稳定使用。 |
 | Persistence | **成熟** | 起源于 0.3.9，现已支持 schema v2、Container 与 StateGraph ContextFrame 持久化。 |
 | UI | **成熟** | 起源于 0.3.9，Panel、Widget、Input、Content ownership API 可用且稳定，但不是高效能 UI 框架。 |
@@ -96,7 +96,7 @@ Host-local Intent sources       External struct events
 ```
 
 每个 Actor 独占自己的 Runtime 状态。StateLogic 读取不可变的 Tick 输入，更新激活
-Memory，写入已声明的 Operation Section，并暂存待发送事件。Host 在启动前校验 binding，每次只暂存一个候选 Tick；整个
+Memory，写入已声明的 Operation，并暂存待发送事件。Host 在启动前校验 binding，每次只暂存一个候选 Tick；整个
 Actor 事务要么一起提交，要么继续保留上一份权威状态。跨对象副作用只从已提交的 Event
 Outbox 离开，不通过直接 State callback 传播。
 

@@ -61,7 +61,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public static readonly FrozenConfigSchema<HostTestStateConfigSchema> State;
     }
 
-    public sealed class HostTestMemory : ActivationMemory
+    public sealed class HostTestMemory : StateActivationMemory
     {
         public int Value;
     }
@@ -89,19 +89,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public HostTestIntentReducer Create(GraphInstanceId graphInstanceId) => default;
     }
 
-    public interface IHostTestDiscreteSection : IOperationSection
+    public interface IHostTestDiscreteSection : IOperation
     {
         int Value { get; }
     }
 
     public sealed class HostTestDiscreteSectionView : IHostTestDiscreteSection
     {
-        private readonly OperationSectionReader _reader;
-        private readonly OperationSectionField<int> _valueField;
+        private readonly OperationReader _reader;
+        private readonly OperationField<int> _valueField;
 
-        public HostTestDiscreteSectionView(
-            OperationSectionReader reader,
-            OperationSectionField<int> valueField)
+        internal HostTestDiscreteSectionView(OperationReader reader,
+            OperationField<int> valueField)
         {
             _reader = reader ?? throw new ArgumentNullException(nameof(reader));
             _valueField = valueField;
@@ -111,16 +110,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     }
 
     public sealed class HostTestDiscreteSectionViewFactory :
-        IOperationSectionViewFactory<IHostTestDiscreteSection>
+        IOperationViewFactory<IHostTestDiscreteSection>
     {
-        public OperationSectionHandle<IHostTestDiscreteSection> Handle { get; private set; }
-        public OperationSectionField<int> ValueField { get; private set; }
+        public OperationHandle<IHostTestDiscreteSection> Handle { get; private set; }
+        public OperationField<int> ValueField { get; private set; }
 
-        public IHostTestDiscreteSection Create(
-            in OperationSectionViewContext<IHostTestDiscreteSection> context)
+        IHostTestDiscreteSection IOperationViewFactory<IHostTestDiscreteSection>.Create(
+            in OperationViewContext<IHostTestDiscreteSection> context)
         {
             if (!context.IsValid ||
-                !context.TryGetField(0, out OperationSectionField<int> valueField))
+                !context.TryGetField(0, out OperationField<int> valueField))
             {
                 throw new InvalidOperationException(
                     "Host test Discrete Section field could not be resolved.");
@@ -145,8 +144,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         private static readonly Dictionary<GraphInstanceId, int> MemoryByInstance =
             new Dictionary<GraphInstanceId, int>();
         private readonly GraphInstanceId _graphInstanceId;
-        private readonly OperationSectionHandle<IHostTestDiscreteSection> _operationHandle;
-        private readonly OperationSectionField<int> _operationField;
+        private readonly OperationHandle<IHostTestDiscreteSection> _operationHandle;
+        private readonly OperationField<int> _operationField;
 
         public HostTestLogic()
         {
@@ -154,8 +153,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
         public HostTestLogic(
             GraphInstanceId graphInstanceId,
-            OperationSectionHandle<IHostTestDiscreteSection> operationHandle = default,
-            OperationSectionField<int> operationField = default)
+            OperationHandle<IHostTestDiscreteSection> operationHandle = default,
+            OperationField<int> operationField = default)
         {
             _graphInstanceId = graphInstanceId;
             _operationHandle = operationHandle;

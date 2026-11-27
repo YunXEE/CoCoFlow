@@ -2,22 +2,65 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
+// 在标准 Host 启动与步进时读取图节点的集合和字符串配置，核对项目服务收到的片段键。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
+    /// <summary>在标准 Host 启动与步进时读取图节点的集合和字符串配置，核对项目服务收到的片段键。</summary>
     public sealed partial class StandardBindingPlayModeTests
     {
-        [TearDown]
-        public void ClearCollectionProbes() => ConfigCollectionProbeLogic.Seen.Clear();
 
+        #region Public API
+
+        /// <summary>清理前一次运行留下的配置观测值，使每个节点与 Host 的记录独立。</summary>
+        [TearDown]
+        public void ClearCollectionProbes()
+        {
+            if (_library != null) CoCoServices.Unregister(_library);
+            _library = null;
+            ConfigCollectionProbeLogic.Seen.Clear();
+        }
+
+        /// <summary>用空串、大小写、分隔符和未覆盖字段检查标准赋值，复位后核对声明初值。</summary>
+        [Test]
+        public void StringConfigPreservesLiteralValuesAndUsesDeclaredDefaultAfterReset()
+        {
+            var logic = new ConfigCollectionProbeLogic();
+            var config = new FieldConfig();
+            config.Apply(logic);
+            Assert.AreEqual("Idle", logic.ClipKey);
+
+            const string literal = " Attack.Light=Case.$count=9 ";
+            config.Set(nameof(logic.ClipKey), string.Empty);
+            config.Set(nameof(logic.Names), new[] { literal, "" });
+            config.Set(nameof(logic.Aliases), new List<string> { "", literal });
+            config.Set(nameof(logic.Clip), new ClipReference { Key = literal });
+            config.Values = config.Values.Reverse().ToArray();
+            config.Apply(logic);
+            Assert.AreEqual("", logic.ClipKey);
+            Assert.AreEqual(literal, logic.Clip.Key);
+            CollectionAssert.AreEqual(new[] { literal, "" }, logic.Names);
+            CollectionAssert.AreEqual(new[] { "", literal }, logic.Aliases);
+            string[] existing = config.Values.ToArray();
+            Assert.Throws<ArgumentException>(() => config.Set(nameof(logic.ClipKey), null));
+            CollectionAssert.AreEqual(existing, config.Values);
+
+            var defaults = new ConfigCollectionProbeLogic();
+            new FieldConfig().Apply(defaults);
+            Assert.AreEqual("Idle", defaults.ClipKey);
+            CollectionAssert.AreEqual(new[] { "", "" }, StateFields.CreateConfigCollection(typeof(string[]), 2));
+            CollectionAssert.AreEqual(new[] { "", "" }, StateFields.CreateConfigCollection(typeof(List<string>), 2));
+        }
+
+        /// <summary>依次替换数组与列表的完整覆盖，核对冻结、应用后的元素数量与次序。</summary>
         [TestCase(0)]
         [TestCase(1)]
         [TestCase(3)]
@@ -58,6 +101,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CollectionAssert.AreEqual(valid, config.Values);
         }
 
+        /// <summary>传入不合法集合条目，检查失败时已有值保留且冻结器拒绝此配置。</summary>
         [TestCase("Windows.$count=-1")]
         [TestCase("Windows.$count=invalid")]
         [TestCase("Windows[5].startSeconds=1")]
@@ -78,6 +122,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsFalse(diagnostic.IsNone);
         }
 
+        /// <summary>比较历史字段编码和声明默认值，并验证冻结集合与来源副本独立。</summary>
         [Test]
         public void LegacyLeavesDefaultsAndFrozenCollectionCopiesRemainCompatible()
         {
@@ -101,9 +146,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(original[0], frozen[0]);
         }
 
+        /// <summary>让两个 Host 使用同一资产的多个节点，核对各自 Logic 读到的集合、片段键和项目服务结果。</summary>
         [UnityTest]
         public IEnumerator ConfigCollectionsBindPerNodeAndPerHost()
         {
+            var library = ScriptableObject.CreateInstance<TestMontageLibrary>();
+            _objects.Add(library);
+            _library = library;
+            CoCoServices.Register(_library);
+            string[] keys = { "Attack.Light", "Attack.Heavy", "unmapped.Clip=1" };
             var type = typeof(ConfigCollectionProbeLogic);
             var provider = StandardBindingProvider.Build(new[] { type.Assembly });
             Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
@@ -114,6 +165,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             for (ulong i = 0; i < 3; i++)
             {
                 var config = new FieldConfig();
+                config.Set(nameof(ConfigCollectionProbeLogic.ClipKey), keys[i]);
                 int count = i == 2 ? 3 : (int)i;
                 var windows = Enumerable.Repeat(new ConfigCollectionWindow { startSeconds = i + 0.5f }, count).ToArray();
                 config.Set("Numbers", Enumerable.Repeat((float)i, count).ToArray());
@@ -147,6 +199,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             foreach (var host in hosts) Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
             var seen = ConfigCollectionProbeLogic.Seen;
             Assert.AreEqual(6, seen.Count);
+            CollectionAssert.AreEqual(keys.Concat(keys), seen.Select(logic => logic.ClipKey));
+            CollectionAssert.AreEqual(new[] { 12, 28, 0, 12, 28, 0 }, seen.Select(logic => logic.Segment.Frames));
+            CollectionAssert.AreEqual(new[] { true, true, false, true, true, false }, seen.Select(logic => logic.FoundSegment));
             CollectionAssert.AreEqual(new[] { 0, 1, 3, 0, 1, 3 }, seen.Select(logic => logic.Numbers.Length));
             foreach (var logic in seen)
             {
@@ -161,5 +216,24 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(1.5f, seen[4].WindowList[0].startSeconds);
             Assert.AreEqual(2.5f, seen[2].WindowList[0].startSeconds);
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private IMontageLibrary _library;
+        /// <summary>通过项目侧 ScriptableObject 按键查找测试片段，供标准配置测试注册为服务。</summary>
+        private sealed class TestMontageLibrary : ScriptableObject, IMontageLibrary
+        {
+            private readonly Dictionary<string, MontageSegment> _segments = new Dictionary<string, MontageSegment>
+            {
+                { "Attack.Light", new MontageSegment(12) },
+                { "Attack.Heavy", new MontageSegment(28) }
+            };
+
+            public bool TryGet(string key, out MontageSegment segment) => _segments.TryGetValue(key, out segment);
+        }
+
+        #endregion
     }
 }

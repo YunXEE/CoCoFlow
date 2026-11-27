@@ -52,7 +52,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(TransitionId.TryCreate(0UL, 0UL, out var transitionId));
             Assert.IsFalse(TimelineId.TryCreate(0UL, 0UL, out var timelineId));
             Assert.IsFalse(FrameLayoutId.TryCreate(0UL, 0UL, out var frameLayoutId));
-            Assert.IsFalse(OperationSectionId.TryCreate(0UL, 0UL, out var operationSectionId));
+            Assert.IsFalse(OperationId.TryCreate(0UL, 0UL, out var operationSectionId));
             Assert.IsFalse(OperatorId.TryCreate(0UL, 0UL, out var operatorId));
             Assert.IsFalse(OperatorClaimId.TryCreate(0UL, 0UL, out var operatorClaimId));
             Assert.IsFalse(IntentId.TryCreate(0UL, 0UL, out var intentId));
@@ -87,7 +87,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         public void StateFlowStableIdsUseTwoUlongPartsAndRoundTrip()
         {
             Assert.IsTrue(FrameLayoutId.TryCreate(1UL, 2UL, out var frameLayoutId));
-            Assert.IsTrue(OperationSectionId.TryCreate(3UL, 4UL, out var operationSectionId));
+            Assert.IsTrue(OperationId.TryCreate(3UL, 4UL, out var operationSectionId));
             Assert.IsTrue(OperatorId.TryCreate(5UL, 6UL, out var operatorId));
             Assert.IsTrue(OperatorClaimId.TryCreate(7UL, 8UL, out var operatorClaimId));
             Assert.IsTrue(IntentId.TryCreate(9UL, 10UL, out var intentId));
@@ -100,7 +100,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(CodecId.TryCreate(23UL, 24UL, out var codecId));
 
             AssertStableIdRoundTrip(frameLayoutId, 1UL, 2UL, FrameLayoutId.TryParse);
-            AssertStableIdRoundTrip(operationSectionId, 3UL, 4UL, OperationSectionId.TryParse);
+            AssertStableIdRoundTrip(operationSectionId, 3UL, 4UL, OperationId.TryParse);
             AssertStableIdRoundTrip(operatorId, 5UL, 6UL, OperatorId.TryParse);
             AssertStableIdRoundTrip(operatorClaimId, 7UL, 8UL, OperatorClaimId.TryParse);
             AssertStableIdRoundTrip(intentId, 9UL, 10UL, IntentId.TryParse);
@@ -178,7 +178,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertImmutableId(typeof(ActivationId), "Value");
             AssertImmutableId(typeof(ClockDomainId), "Value");
             AssertImmutableId(typeof(FrameLayoutId), "High", "Low");
-            AssertImmutableId(typeof(OperationSectionId), "High", "Low");
+            AssertImmutableId(typeof(OperationId), "High", "Low");
             AssertImmutableId(typeof(OperatorId), "High", "Low");
             AssertImmutableId(typeof(OperatorClaimId), "High", "Low");
             AssertImmutableId(typeof(IntentId), "High", "Low");
@@ -226,8 +226,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(ClockDomainId.TryCreate(13UL, out var rightClockDomain));
             Assert.IsTrue(FrameLayoutId.TryCreate(14UL, 15UL, out var leftFrameLayout));
             Assert.IsTrue(FrameLayoutId.TryCreate(14UL, 15UL, out var rightFrameLayout));
-            Assert.IsTrue(OperationSectionId.TryCreate(16UL, 17UL, out var leftOperationSection));
-            Assert.IsTrue(OperationSectionId.TryCreate(16UL, 17UL, out var rightOperationSection));
+            Assert.IsTrue(OperationId.TryCreate(16UL, 17UL, out var leftOperationSection));
+            Assert.IsTrue(OperationId.TryCreate(16UL, 17UL, out var rightOperationSection));
             Assert.IsTrue(OperatorId.TryCreate(18UL, 19UL, out var leftOperator));
             Assert.IsTrue(OperatorId.TryCreate(18UL, 19UL, out var rightOperator));
             Assert.IsTrue(OperatorClaimId.TryCreate(20UL, 21UL, out var leftOperatorClaim));
@@ -313,7 +313,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 typeof(ActivationId),
                 typeof(ClockDomainId),
                 typeof(FrameLayoutId),
-                typeof(OperationSectionId),
+                typeof(OperationId),
                 typeof(OperatorId),
                 typeof(OperatorClaimId),
                 typeof(IntentId),

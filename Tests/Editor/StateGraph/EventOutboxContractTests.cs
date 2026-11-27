@@ -110,7 +110,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var descriptorBuilder = new OperatorDescriptorBuilder();
             Assert.IsTrue(descriptorBuilder.TryRequire<ITestSection>(
                 CreateSectionId(19UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 out _,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
@@ -210,9 +210,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return id;
         }
 
-        private static OperationSectionId CreateSectionId(ulong low)
+        private static OperationId CreateSectionId(ulong low)
         {
-            Assert.IsTrue(OperationSectionId.TryCreate(0UL, low, out OperationSectionId id));
+            Assert.IsTrue(OperationId.TryCreate(0UL, low, out OperationId id));
             return id;
         }
 
@@ -254,7 +254,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public int Value { get; }
         }
 
-        private interface ITestSection : IOperationSection
+        private interface ITestSection : IOperation
         {
             int Value { get; }
         }
@@ -336,7 +336,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             public int Count { get; private set; }
             public Type PayloadType { get; private set; }
-            public ActorEventEnvelope Envelope { get; private set; }
+            public GraphEventEnvelope Envelope { get; private set; }
 
             public bool TryPublish<TEvent>(in EventPacket<TEvent> packet)
                 where TEvent : unmanaged

@@ -4,8 +4,10 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using Unity.Collections.LowLevel.Unsafe;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// 标准 Provider 按带配置与记忆标记的字段选择冻结器、记忆复制方式和项目工厂。
+namespace CoCoFlow.Runtime.StateGraph
 {
+    /// <summary>扫描项目状态与依赖，向图编译器提供目录并向 Host 提供实例工厂。</summary>
     public sealed partial class StandardBindingProvider
     {
         private static bool HasFields(Type type) =>
@@ -50,7 +52,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         private static bool RegisterFields<TLogic, TState>(GraphDescriptorCatalogBuilder builder,
             StateDescriptorId descriptorId, IntentId[] consumedIntents,
-            OperationSectionId[] providedSections, StateBlockId[] contextBlocks)
+            OperationId[] providedSections, StateBlockId[] contextBlocks)
             where TLogic : StateLogic, IStateUpdate, new() where TState : unmanaged
         {
             FieldMemory<TLogic, TState>.Transfer ??= FieldTransfer<TState>(typeof(TLogic));

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal readonly struct PreparedActorRestore
     {
@@ -618,14 +618,14 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 return;
             }
 
-            OperationSectionRegistry registry =
+            OperationRegistry registry =
                 stagedStep.FinalizedOperationFrame.Registry;
-            for (int sectionIndex = 0; sectionIndex < registry.Sections.Count; sectionIndex++)
+            for (int operationIndex = 0; operationIndex < registry.Operations.Count; operationIndex++)
             {
                 _trace.Append(StateFlowTraceEntry.Operation(
                     _graphInstanceId,
                     stagedStep.TickFrame,
-                    registry.Sections[sectionIndex].SectionId,
+                    registry.Operations[operationIndex].OperationId,
                     _activePreviousContextTrace));
             }
         }

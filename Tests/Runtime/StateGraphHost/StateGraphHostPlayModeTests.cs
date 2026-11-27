@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;
@@ -12,7 +11,7 @@ using UnityEngine.TestTools;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public sealed class StateGraphHostPlayModeTests
     {
@@ -1172,7 +1171,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             EventReliability reliability)
         {
             Require(EventSequence.TryCreate(sequence, out EventSequence eventSequence));
-            Require(ActorEventEnvelope.TryCreate(
+            Require(GraphEventEnvelope.TryCreate(
                 ids.EventTypeId,
                 ids.EventDomainId,
                 source,
@@ -1185,7 +1184,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 default,
                 default,
                 default,
-                out ActorEventEnvelope envelope));
+                out GraphEventEnvelope envelope));
             var payload = new HostTestEvent { Value = value };
             Require(EventPacket<HostTestEvent>.TryCreate(envelope, payload, out EventPacket<HostTestEvent> packet));
             return packet;
@@ -1198,7 +1197,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             int value)
         {
             Require(EventSequence.TryCreate(sequence, out EventSequence eventSequence));
-            Require(ActorEventEnvelope.TryCreate(
+            Require(GraphEventEnvelope.TryCreate(
                 ids.EventTypeId,
                 ids.EventDomainId,
                 source,
@@ -1211,7 +1210,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 default,
                 default,
                 default,
-                out ActorEventEnvelope envelope));
+                out GraphEventEnvelope envelope));
             var payload = new HostTestEvent { Value = value };
             Require(EventPacket<HostTestEvent>.TryCreate(
                 envelope,
@@ -1227,7 +1226,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             ulong sequence)
         {
             if (!EventSequence.TryCreate(sequence, out EventSequence eventSequence) ||
-                !ActorEventEnvelope.TryCreate(
+                !GraphEventEnvelope.TryCreate(
                     ids.EventTypeId,
                     ids.EventDomainId,
                     source,
@@ -1240,7 +1239,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     default,
                     default,
                     default,
-                    out ActorEventEnvelope envelope))
+                    out GraphEventEnvelope envelope))
             {
                 return false;
             }
@@ -1538,11 +1537,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
                 if (_withDiscreteOperation &&
                     !builder.TryRegisterOperation(
-                        _ids.OperationSectionId,
-                        OperationSectionMode.Discrete,
+                        _ids.OperationId,
+                        Mode.Discrete,
                         OperationFactory,
                         OperationFingerprint,
-                        out OperationSectionRequirement operationRequirement,
+                        out OperationRequirement operationRequirement,
                         out diagnostic))
                 {
                     return false;
@@ -1612,7 +1611,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 var builder = new GraphDescriptorCatalogBuilder();
                 IntentId[] intents = null;
-                OperationSectionId[] operations = null;
+                OperationId[] operations = null;
                 if (withIntentSource)
                 {
                     Require(builder.TryRegisterIntent(
@@ -1628,14 +1627,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
                 if (withDiscreteOperation)
                 {
-                    Require(builder.TryRegisterOperationSection(
-                        ids.OperationSectionId,
-                        OperationSectionMode.Discrete,
-                        new OperationSectionViewFactoryToken<
+                    Require(builder.TryRegisterOperation(
+                        ids.OperationId,
+                        Mode.Discrete,
+                        new OperationViewFactoryToken<
                             IHostTestDiscreteSection,
                             HostTestDiscreteSectionViewFactory>(OperationFingerprint),
                         out CoCoDiagnostic operation));
-                    operations = new[] { ids.OperationSectionId };
+                    operations = new[] { ids.OperationId };
                 }
 
                 Require(TryRegisterGraphState(builder, ids, out CoCoDiagnostic graphState));
@@ -1667,7 +1666,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 IntentId intentId,
                 EventTypeId eventTypeId,
                 EventDomainId eventDomainId,
-                OperationSectionId operationSectionId,
+                OperationId operationSectionId,
                 StateBlockId graphStateBlockId,
                 StateSlotId graphStateSlotId)
             {
@@ -1677,7 +1676,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 IntentId = intentId;
                 EventTypeId = eventTypeId;
                 EventDomainId = eventDomainId;
-                OperationSectionId = operationSectionId;
+                OperationId = operationSectionId;
                 GraphStateBlockId = graphStateBlockId;
                 GraphStateSlotId = graphStateSlotId;
             }
@@ -1688,7 +1687,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public IntentId IntentId { get; }
             public EventTypeId EventTypeId { get; }
             public EventDomainId EventDomainId { get; }
-            public OperationSectionId OperationSectionId { get; }
+            public OperationId OperationId { get; }
             public StateBlockId GraphStateBlockId { get; }
             public StateSlotId GraphStateSlotId { get; }
 
@@ -1703,10 +1702,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(IntentId.TryCreate(104UL, 1UL, out IntentId intentId));
                 Require(EventTypeId.TryCreate(105UL, 1UL, out EventTypeId eventTypeId));
                 Require(EventDomainId.TryCreate(106UL, out EventDomainId domainId));
-                Require(OperationSectionId.TryCreate(
+                Require(OperationId.TryCreate(
                     107UL,
                     1UL,
-                    out OperationSectionId operationSectionId));
+                    out OperationId operationSectionId));
                 Require(StateBlockId.TryCreate(
                     108UL,
                     1UL,

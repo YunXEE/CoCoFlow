@@ -23,11 +23,12 @@ version is in `[2.9.1,3.0.0)`.
 | Assembly | Direct package/module references | Unity engine reference |
 |---|---|---|
 | `CoCoFlow.Runtime.Core` | None | No |
-| `CoCoFlow.Runtime.StateGraph` | Core | No |
-| `CoCoFlow.Runtime.StateGraphHost` | Core, StateGraph | Yes |
+| `CoCoFlow.Runtime.StateGraph.Contracts` | Core | No |
+| `CoCoFlow.Runtime.Input.Contracts` | None | No |
+| `CoCoFlow.Runtime.StateGraph` | Core, StateGraph.Contracts | Yes |
 
-Use Core for services, diagnostics, logging and the event bus. Add StateGraph for
-gameplay logic and frame contracts. Add StateGraphHost for graph assets, scene
+Use Core for services, diagnostics, logging and the event bus. Add StateGraph.Contracts for
+gameplay logic and frame contracts. Add StateGraph for graph assets, scene
 components, compilation and Unity lifecycle integration. The corresponding
 Editor directories are Core, StateGraph and StateGraphHost. PlayerMetadata stays
 in its own engine-free Editor assembly for isolated Player DLL inspection.
@@ -51,9 +52,7 @@ is not a supported way to bypass an asmdef version range.
 
 | Runtime assembly | External assembly references | Compile constraints |
 |---|---|---|
-| `CoCoFlow.Runtime.Animation.Contracts` | none | none |
 | `CoCoFlow.Runtime.Locomotion.Contracts` | none | none |
-| `CoCoFlow.Runtime.Modules.Animation` | none | none |
 | `CoCoFlow.Runtime.Modules.Locomotion` | none | none |
 | `CoCoFlow.Runtime.Modules.Camera` | `Unity.Cinemachine`, `Unity.InputSystem` | none |
 | `CoCoFlow.Runtime.Modules.Input` | `Unity.InputSystem` | none |

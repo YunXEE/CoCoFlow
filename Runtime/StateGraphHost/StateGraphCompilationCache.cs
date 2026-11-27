@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal readonly struct StateGraphCompilationCacheKey :
         IEquatable<StateGraphCompilationCacheKey>

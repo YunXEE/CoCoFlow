@@ -2,7 +2,7 @@ using System;
 using CoCoFlow.Runtime.Core;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>
     /// Automatic installation for the standard binding provider. Scans all

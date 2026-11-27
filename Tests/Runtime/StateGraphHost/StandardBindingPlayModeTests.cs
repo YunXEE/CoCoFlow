@@ -1,9 +1,8 @@
+using CoCoFlow.Runtime.Input.Contracts;
 using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
-using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Input;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using NUnit.Framework;
@@ -14,14 +13,14 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     using Fixtures;
     /// <summary>
     /// C4.5 standard path end-to-end: a State-attributed logic (declared
     /// below in this test assembly) is registered through
     /// StandardBindingProvider.Build, installed, and a one-state graph
-    /// runs a tick where the state logic receives InputIntentData records.
+    /// runs a tick where the state logic receives InputIntentContract records.
     /// </summary>
     public sealed partial class StandardBindingPlayModeTests : InputTestFixture
     {
@@ -153,18 +152,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         [UnityTest]
-        public IEnumerator AnimRegistrarBindsBothCompiledSectionsOnlyWhenRequired()
+        public IEnumerator MovementOperationBindsWithoutAnIntentSource()
         {
             StandardBindingProvider provider =
                 StandardBindingProvider.Build(
-                    new[] { typeof(AnimOperationProbeLogic).Assembly });
+                    new[] { typeof(LocoMoveProbeLogic).Assembly });
             Assert.IsTrue(StateGraphProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install.Message);
 
             Assert.IsTrue(StandardDescriptors.TryCreate(
-                typeof(AnimOperationProbeLogic),
-                "AnimOperationProbe",
+                typeof(LocoMoveProbeLogic),
+                "LocoMoveProbe",
                 out StateDescriptorId descriptorId));
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);
@@ -173,7 +172,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var state = new StateGraphStateRecord(
                 stateId,
                 default,
-                "AnimProbe",
+                "MoveProbe",
                 new SerializedId128(descriptorId.High, descriptorId.Low),
                 new EmptyStateConfig());
             var layer = new StateGraphLayerRecord(
@@ -183,16 +182,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             layer.States.Add(state);
             asset.Layers.Add(layer);
 
-            var gameObject = new GameObject("AnimRegistrationE2E");
+            var gameObject = new GameObject("MovementRegistrationE2E");
             _objects.Add(gameObject);
             var host = gameObject.AddComponent<StateGraphHost>();
-            gameObject.AddComponent<Animator>();
-            var animOperator = gameObject.AddComponent<AnimAutoOperator>();
+            gameObject.AddComponent<CharacterController>();
+            var movement = gameObject.AddComponent<LocomotionOperator>();
             SetField(host, "stateGraphAsset", asset);
             SetField(host, "driver", (StateGraphDriver)2 /* Manual */);
             SetField(host, "autoStart", false);
             SetField(host, "intentSources", new MonoBehaviour[0]);
-            SetField(host, "operators", new MonoBehaviour[] { animOperator });
+            SetField(host, "operators", new MonoBehaviour[] { movement });
 
             yield return null;
             Assert.IsTrue(host.TryStart(out CoCoDiagnostic start),

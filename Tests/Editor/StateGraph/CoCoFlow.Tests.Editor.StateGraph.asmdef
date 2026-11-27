@@ -6,14 +6,15 @@
         "CoCoFlow.Editor.StateGraph",
         "CoCoFlow.Editor.PlayerMetadata",
         "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.StateGraph",
-        "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Tests.StateGraphAuthoringDependencyFixtures",
         "CoCoFlow.Tests.StateGraphAuthoringFixtures",
         "CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures",
         "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
         "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
-        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor"
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
+        "CoCoFlow.Runtime.Input.Contracts"
     ],
     "includePlatforms": [
         "Editor"

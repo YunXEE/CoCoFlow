@@ -1,16 +1,19 @@
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+// 编辑器用实际诊断打开对应资产元素，检查定位、选择和反馈展示。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>编辑器用实际诊断打开对应资产元素，检查定位、选择和反馈展示。</summary>
     public sealed class StateGraphEditorDiagnosticTests
     {
-        private StateGraphAsset asset;
 
+        #region Public API
+
+        /// <summary>创建临时图资产并分配固定图身份，供导航诊断查找字段。</summary>
         [SetUp]
         public void SetUp()
         {
@@ -18,12 +21,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(asset.EnsureAssetIdentity("test-asset-guid"));
         }
 
+        /// <summary>释放为诊断导航创建的临时 Unity 图对象。</summary>
         [TearDown]
         public void TearDown()
         {
             Object.DestroyImmediate(asset);
         }
 
+        /// <summary>逐一按稳定 ID 定位图、层、节点和转换，核对选中的序列化字段。</summary>
         [Test]
         public void NavigatorLocatesGraphLayerStateAndTransitionFieldsByStableId()
         {
@@ -75,6 +80,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 transitionId), "layers.Array.data[0].transitions.Array.data[0].priority");
         }
 
+        /// <summary>传入不属于当前资产的位置，确认导航器拒绝选择。</summary>
         [Test]
         public void NavigatorRejectsALocationThatDoesNotBelongToTheAsset()
         {
@@ -93,6 +99,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsNull(property);
         }
 
+        /// <summary>传入另一张图的标识，确认在解析局部字段前就拒绝导航。</summary>
         [Test]
         public void NavigatorRejectsForeignGraphIdentityBeforeResolvingAField()
         {
@@ -107,7 +114,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 default,
                 -1,
                 -1,
-                -1,
                 -1);
 
             Assert.IsFalse(StateGraphDiagnosticNavigator.TryFindProperty(
@@ -117,6 +123,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsNull(property);
         }
 
+        /// <summary>构造重复层 ID，确认使用诊断中的源索引定位实际错误行。</summary>
         [Test]
         public void NavigatorUsesTheDiagnosticIndexForADuplicateLayerId()
         {
@@ -137,6 +144,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "layers.Array.data[1].layerId");
         }
 
+        /// <summary>构造重复节点 ID，确认使用诊断记录的节点索引定位错误字段。</summary>
         [Test]
         public void NavigatorUsesTheDiagnosticIndexForADuplicateStateId()
         {
@@ -170,6 +178,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "layers.Array.data[0].states.Array.data[1].stateId");
         }
 
+        /// <summary>构造重复转换 ID，确认诊断仍指向实际发生冲突的边。</summary>
         [Test]
         public void NavigatorUsesTheDiagnosticIndexForADuplicateTransitionId()
         {
@@ -215,6 +224,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "layers.Array.data[0].transitions.Array.data[1].transitionId");
         }
 
+        /// <summary>选中清单级诊断，检查导航目标是当前图资产根。</summary>
         [Test]
         public void NavigatorMapsManifestDiagnosticsToTheAssetRoot()
         {
@@ -231,6 +241,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "layers");
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private StateGraphAsset asset;
+
         private GraphDiagnosticLocation Location(
             GraphElementKind kind,
             GraphField field,
@@ -239,8 +255,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             TransitionId transitionId,
             int layerIndex = -1,
             int stateIndex = -1,
-            int transitionIndex = -1,
-            int conditionIndex = -1)
+            int transitionIndex = -1)
         {
             return new GraphDiagnosticLocation(
                 kind,
@@ -251,8 +266,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 transitionId,
                 layerIndex,
                 stateIndex,
-                transitionIndex,
-                conditionIndex);
+                transitionIndex);
         }
 
         private static void AssertPath(
@@ -272,5 +286,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(StateDescriptorId.TryCreate(1UL, low, out StateDescriptorId id));
             return id;
         }
+
+        #endregion
     }
 }

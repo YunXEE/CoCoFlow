@@ -1,0 +1,124 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4123cdeecc154cdca56d605fc6bfaad8, type: 3}
+  m_Name: StateGraph
+  m_EditorClassIdentifier: CoCoFlow.Runtime.StateGraphHost::CoCoFlow.Runtime.StateGraphHost.StateGraphAsset
+  schemaVersion: 1
+  graphId:
+    high: 6529330204332935223
+    low: 12872796911264060366
+  assetGuidStamp: c7723ff27124f4f0fba916bff8269504
+  layers:
+  - layerId:
+      high: 7275680587032510597
+      low: 11175144582675357443
+    displayName: Layer
+    initialStateId:
+      high: 15075321221562646673
+      low: 9972607157708956280
+    states:
+    - stateId:
+        high: 15075321221562646673
+        low: 9972607157708956280
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: First
+      stateDescriptorId:
+        high: 5
+        low: 1
+      config:
+        rid: 7613975712015319040
+      initialChildStateId:
+        high: 0
+        low: 0
+    - stateId:
+        high: 16941090109746200641
+        low: 13527034713615966678
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: Second
+      stateDescriptorId:
+        high: 5
+        low: 1
+      config:
+        rid: 7613975712015319040
+      initialChildStateId:
+        high: 0
+        low: 0
+    anyState:
+      rid: 7613975712015319041
+    transitions:
+    - transitionId:
+        high: 2028650247966653
+        low: 12354553696933989335
+      sourceStateId:
+        high: 15075321221562646673
+        low: 9972607157708956280
+      targetStateId:
+        high: 16941090109746200641
+        low: 13527034713615966678
+      priority: 7
+      conditions: []
+      windowMode: 1
+      windowStartInclusive: 0
+      windowEndExclusive: 0
+  eventAdapterDeclarations: []
+  editorLayout:
+    version: 1
+    statePositions:
+    - stateId:
+        high: 15075321221562646673
+        low: 9972607157708956280
+      localPosition: {x: 40, y: 60}
+    - stateId:
+        high: 16941090109746200641
+        low: 13527034713615966678
+      localPosition: {x: 260, y: 60}
+    - stateId:
+        high: 4835937234851612369
+        low: 13612477745925084330
+      localPosition: {x: 0, y: 0}
+  references:
+    version: 2
+    RefIds:
+    - rid: 7613975712015319040
+      type: {class: TestStateAuthoringConfig, ns: CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures, asm: CoCoFlow.Tests.StateGraphAuthoringFixtures}
+      data:
+        Value: 27
+        Values: 
+        Items: 
+    - rid: 7613975712015319041
+      type: {class: StateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraphHost, asm: CoCoFlow.Runtime.StateGraphHost}
+      data:
+        stateId:
+          high: 4835937234851612369
+          low: 13612477745925084330
+        parentStateId:
+          high: 0
+          low: 0
+        displayName: AnyState
+        stateDescriptorId:
+          high: 5
+          low: 2
+        config:
+          rid: 7613975712015319042
+        initialChildStateId:
+          high: 0
+          low: 0
+    - rid: 7613975712015319042
+      type: {class: TestStateAuthoringConfig, ns: CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures, asm: CoCoFlow.Tests.StateGraphAuthoringFixtures}
+      data:
+        Value: 73
+        Values: 
+        Items: 

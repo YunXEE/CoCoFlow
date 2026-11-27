@@ -1,49 +1,35 @@
-using CoCoFlow.Runtime.Animation.Contracts;
+using CoCoFlow.Runtime.Input.Contracts;
 using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 
+// 端到端移动测试用这些状态响应输入、请求行走或跳跃，并通过移动操作驱动角色。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
-    /// <summary>
-    /// Shared observation board for the journey e2e fixtures. The state
-    /// logics record engine facts here every tick so tests can assert on
-    /// committed slot values without touching Host internals.
-    /// </summary>
+    /// <summary>保存端到端移动用例从实际状态回调读到的最近节点、位置和着地事实。</summary>
     public static class JourneyMemory
     {
         public static string Current = "None";
         public static float LastSlotZ;
         public static bool LastSlotGrounded = true;
-        public static int LastAnimHash;
-        public static float LastAnimTime;
-        public static bool AttackTriggerWritten;
         public static bool WasAirborne;
 
+        /// <summary>清空各旅程状态记录的节点与位姿，使新一轮步进独立。</summary>
         public static void Reset()
         {
             Current = "None";
             LastSlotZ = 0f;
             LastSlotGrounded = true;
-            LastAnimHash = 0;
-            LastAnimTime = 0f;
-            AttackTriggerWritten = false;
             WasAirborne = false;
         }
     }
 
-    /// <summary>
-    /// Raw input action names and trigger binding contract shared by the
-    /// journey fixture states and the e2e tests.
-    /// </summary>
+    /// <summary>为测试图的移动、跳跃和攻击输入以及它们的出边提供稳定身份。</summary>
     public static class JourneyContract
     {
         public const string Move = "Move";
         public const string Jump = "Jump";
         public const string Attack = "Attack";
-        public const ulong AttackTriggerBindingId = 77UL;
 
-        // Graph transition serialized ids (runtime ids derive 1:1 from
-        // High/Low — the fixture addresses edges by id, never by order).
         public const ulong IdleToMove = 11UL;
         public const ulong IdleToJump = 12UL;
         public const ulong IdleToAttack = 13UL;
@@ -52,7 +38,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public const ulong JumpToIdle = 16UL;
         public const ulong AttackToIdle = 17UL;
 
-        // Dense field indices on ILocomotionSection (declaration order).
+        /// <summary>在当前节点出边中按稳定 ID 选择匹配项并向框架提出请求。</summary>
         public static void RequestTransition(
             StateExecutionContext context,
             ulong transitionId)
@@ -68,55 +54,49 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             }
         }
 
-        public const int FieldMoveX = LocomotionSectionFields.MoveX;
-        public const int FieldMoveZ = LocomotionSectionFields.MoveZ;
-        public const int FieldUseGravity = LocomotionSectionFields.UseGravity;
-        public const int FieldJumpRequested = LocomotionSectionFields.JumpRequested;
-        public const int FieldVerticalImpulse = LocomotionSectionFields.VerticalImpulse;
     }
 
-    /// <summary>
-    /// Idle: watches raw input and requests the matching outgoing edge
-    /// (edge order fixed by the test graph build: 0=Move, 1=Jump, 2=Attack).
-    /// </summary>
+    /// <summary>在待机时检查玩家本步输入，按实际动作请求已有的出边。</summary>
     [State("JourneyIdle")]
-    [IntentConsume(typeof(InputIntentData))]
-    [OperationProvide(typeof(ILocomotionSection))]
-    [OperationProvide(typeof(IAnimParameterOperationSection))]
     public sealed class JourneyIdleLogic : StateLogic, IStateUpdate
     {
+
+        #region Public API
+
+        [Intent] public InputIntentContract Input { get; set; }
+        [Operation] public ILocomotionOperation Movement { get; set; }
+        /// <summary>按原始输入中的移动、跳跃或攻击记录请求对应的已连接出边。</summary>
         public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Idle";
-            if (TryReadMove(context, out float moveX, out float z) &&
+            if (TryReadMove(Input, out float moveX, out float z) &&
                 (moveX != 0f || z != 0f))
             {
                 JourneyContract.RequestTransition(context, JourneyContract.IdleToMove);
                 return;
             }
 
-            if (TryReadPressed(context, JourneyContract.Jump))
+            if (TryReadPressed(Input, JourneyContract.Jump))
             {
                 JourneyContract.RequestTransition(context, JourneyContract.IdleToJump);
             }
-            else if (TryReadPressed(context, JourneyContract.Attack))
+            else if (TryReadPressed(Input, JourneyContract.Attack))
             {
                 JourneyContract.RequestTransition(context, JourneyContract.IdleToAttack);
             }
         }
 
+        #endregion
+
+        #region Internal Logic
+
         internal static bool TryReadMove(
-            StateExecutionContext context,
+            InputIntentContract intent,
             out float moveX,
             out float moveZ)
         {
             moveX = 0f;
             moveZ = 0f;
-            if (!context.Intents.TryFirst(out InputIntentData intent))
-            {
-                return false;
-            }
-
             for (int index = 0; index < intent.Count; index++)
             {
                 if (intent.TryGet(index, out RawInputRecord record) &&
@@ -132,14 +112,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
 
         internal static bool TryReadPressed(
-            StateExecutionContext context,
+            InputIntentContract intent,
             string action)
         {
-            if (!context.Intents.TryFirst(out InputIntentData intent))
-            {
-                return false;
-            }
-
             var name = FixedString64.FromString(action);
             for (int index = 0; index < intent.Count; index++)
             {
@@ -153,49 +128,34 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
             return false;
         }
+
+        #endregion
     }
 
-    /// <summary>
-    /// Move: translates raw Move records into locomotion section desires;
-    /// returns to Idle (edge 0) when input stops, Jump (edge 1) on Space.
-    /// Records the committed locomotion slot for convergence assertions.
-    /// </summary>
+    /// <summary>从本步输入写入角色移动操作并记录上一提交的移动结果。</summary>
     [State("JourneyMove")]
-    [IntentConsume(typeof(InputIntentData))]
-    [OperationProvide(typeof(ILocomotionSection))]
     public sealed class JourneyMoveLogic : StateLogic, IStateUpdate
     {
+
+        #region Public API
+
+        [Intent] public InputIntentContract Input { get; set; }
+        [Operation] public ILocomotionOperation Movement { get; set; }
+        /// <summary>保存上一提交的移动结果并按输入方向写连续输出，再按动作决定是否申请离开。</summary>
         public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Move";
             RecordSlot(context);
             bool hasMove = JourneyIdleLogic.TryReadMove(
-                context,
+                Input,
                 out float moveX,
                 out float moveZ);
 
-            var gravity = context.Operations.ResolveField<ILocomotionSection, bool>(
-                JourneyContract.FieldUseGravity);
-            var fieldX = context.Operations.ResolveField<ILocomotionSection, float>(
-                JourneyContract.FieldMoveX);
-            var fieldZ = context.Operations.ResolveField<ILocomotionSection, float>(
-                JourneyContract.FieldMoveZ);
-            if (gravity.IsValid)
-            {
-                _ = context.Operations.Write(gravity, true);
-            }
+            Movement.UseGravity = true;
+            Movement.MoveX = moveX;
+            Movement.MoveZ = moveZ;
 
-            if (fieldX.IsValid)
-            {
-                _ = context.Operations.Write(fieldX, moveX);
-            }
-
-            if (fieldZ.IsValid)
-            {
-                _ = context.Operations.Write(fieldZ, moveZ);
-            }
-
-            if (JourneyIdleLogic.TryReadPressed(context, JourneyContract.Jump))
+            if (JourneyIdleLogic.TryReadPressed(Input, JourneyContract.Jump))
             {
                 JourneyContract.RequestTransition(context, JourneyContract.MoveToJump);
             }
@@ -204,6 +164,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 JourneyContract.RequestTransition(context, JourneyContract.MoveToIdle);
             }
         }
+
+        #endregion
+
+        #region Internal Logic
 
         internal static void RecordSlot(StateExecutionContext context)
         {
@@ -217,56 +181,41 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 JourneyMemory.LastSlotGrounded = state.IsGrounded;
             }
         }
+
+        #endregion
     }
 
-    /// <summary>
-    /// Jump: one-shot impulse on the first tick, hover-free gravity after;
-    /// back to Idle (edge 0) once the committed slot reports grounded.
-    /// Records the committed Animator snapshot for restore assertions.
-    /// </summary>
+    /// <summary>在进入跳跃后写一次跳跃冲量，并依据实际移动状态决定返回待机。</summary>
     [State("JourneyJump")]
-    [IntentConsume(typeof(InputIntentData))]
-    [OperationProvide(typeof(ILocomotionSection))]
     public sealed class JourneyJumpLogic : StateLogic, IStateEnter, IStateUpdate
     {
+        [Intent] public InputIntentContract Input { get; set; }
+        [Operation] public ILocomotionOperation Movement { get; set; }
         private bool _impulseWritten;
 
+        #region Public API
+
+        /// <summary>清除本次激活的冲量标记，使首次更新能够提出一次跳跃。</summary>
         public void OnEnter(StateExecutionContext context)
         {
             _impulseWritten = false;
         }
 
+        /// <summary>写入尚未提交过的跳跃请求，并根据角色着地信息申请返回待机。</summary>
         public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Jump";
             JourneyMoveLogic.RecordSlot(context);
-            RecordAnimSlot(context);
-
-            var gravity = context.Operations.ResolveField<ILocomotionSection, bool>(
-                JourneyContract.FieldUseGravity);
-            if (gravity.IsValid)
-            {
-                _ = context.Operations.Write(gravity, true);
-            }
-
+            Movement.UseGravity = true;
             if (!_impulseWritten)
             {
-                var request = context.Operations.ResolveField<ILocomotionSection, bool>(
-                    JourneyContract.FieldJumpRequested);
-                var impulse = context.Operations.ResolveField<ILocomotionSection, float>(
-                    JourneyContract.FieldVerticalImpulse);
-                if (request.IsValid && impulse.IsValid)
-                {
-                    _ = context.Operations.Write(request, true);
-                    _ = context.Operations.Write(impulse, 6f);
-                    _impulseWritten = true;
-                }
+                Movement.Jump(6f);
+                _impulseWritten = true;
             }
 
             if (!JourneyMemory.LastSlotGrounded)
             {
-                // Grounded lags the launch for a few ticks — only a real
-                // airborne sample arms the landing check.
+
                 JourneyMemory.WasAirborne = true;
             }
 
@@ -278,60 +227,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             }
         }
 
-        internal static void RecordAnimSlot(StateExecutionContext context)
-        {
-            if (context.PreviousContext.Layout != null &&
-                context.PreviousContext.Layout.TryResolveSlot(
-                    AnimContractIds.SnapshotSlotId,
-                    out StateSlot<AnimSnapshotState> slot))
-            {
-                AnimSnapshotState snapshot = context.PreviousContext.Read(slot);
-                JourneyMemory.LastAnimHash = snapshot.LayerStateHash(0);
-                JourneyMemory.LastAnimTime = snapshot.LayerTime(0);
-            }
-        }
+        #endregion
+
     }
 
-    /// <summary>
-    /// Attack: presentation-only — fires the Attack trigger lane once on
-    /// the first tick, holds ground (no locomotion writes), returns to
-    /// Idle (edge 0) after a short beat.
-    /// </summary>
+    /// <summary>经过创作的动作时段后显式请求回到待机节点。</summary>
     [State("JourneyAttack")]
-    [IntentConsume(typeof(InputIntentData))]
-    [OperationProvide(typeof(IAnimTriggerOperationSection))]
-    public sealed class JourneyAttackLogic : StateLogic, IStateEnter, IStateUpdate
+    public sealed class JourneyAttackLogic : StateLogic, IStateUpdate
     {
-        private bool _triggerWritten;
-
-        public void OnEnter(StateExecutionContext context)
-        {
-            _triggerWritten = false;
-        }
-
+        /// <summary>记录当前攻击态，本地时间超过测试图规定的时长时请求回到待机。</summary>
         public void Update(StateExecutionContext context)
         {
             JourneyMemory.Current = "Attack";
-            if (!_triggerWritten &&
-                context.Operations.TryEnableDiscrete<IAnimTriggerOperationSection>())
-            {
-                var lane = context.Operations.ResolveField
-                    <IAnimTriggerOperationSection, AnimTriggerCommand>(0);
-                if (lane.IsValid &&
-                    AnimBindingId.TryCreate(
-                        JourneyContract.AttackTriggerBindingId,
-                        out AnimBindingId bindingId) &&
-                    AnimTriggerCommand.TryCreate(
-                        AnimTriggerCommandKind.Set,
-                        bindingId,
-                        context.ActivationId,
-                        out AnimTriggerCommand command))
-                {
-                    _ = context.Operations.Write(lane, command);
-                    _triggerWritten = true;
-                    JourneyMemory.AttackTriggerWritten = true;
-                }
-            }
 
             if (context.LocalSeconds > 0.15d)
             {

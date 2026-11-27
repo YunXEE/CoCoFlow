@@ -3,26 +3,31 @@ using System.Collections.Generic;
 using System.Linq;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;
 
+// 在手动 Host 上投递直接事件并观察回调、选边与发布，另将 0.4.10 实写图重存后再次运行。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
+    /// <summary>在事件入队前按本实例或测试条件过滤载荷，以验证实际接收者。</summary>
     public sealed class MailboxTestAdapter : MonoBehaviour,
         IEventInboxAdapter<MailboxDamage>, IEventInboxAdapter<MailboxHeal>
     {
+        /// <summary>在事件进入 State 的直接收件通道前检查载荷，返回 true 才允许该事件进入本步可见的队列。</summary>
         public bool Accept(in MailboxDamage payload) => payload.Target == GetComponent<StateGraphHost>().GraphInstanceId;
+        /// <summary>在事件进入 State 的直接收件通道前检查载荷，返回 true 才允许该事件进入本步可见的队列。</summary>
         public bool Accept(in MailboxHeal payload) => true;
     }
 
+    /// <summary>在手动 Host 上投递直接事件并观察回调、选边与发布，另将 0.4.10 实写图重存后再次运行。</summary>
     public sealed partial class StandardBindingPlayModeTests
     {
-        private readonly CoCoEventAgent _mailboxAgent = new CoCoEventAgent();
+        #region Public API
 
+        /// <summary>重置状态和观察计数，隔离各用例的收件与转换结果。</summary>
         [SetUp]
         public void ResetMailboxProbe()
         {
@@ -30,11 +35,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             MailboxProbeLogic.Enter = MailboxProbeLogic.Exit = null;
             MailboxPlainLogic.Tick = null;
             MailboxProbeLogic.IgnoreDamage = false;
-            MailboxReadyCondition.Calls = 0;
-            MailboxReadyCondition.Allowed = true;
             MailboxAnyLogic.Tick = null;
         }
 
+        /// <summary>解除本用例安装的订阅，避免事件投递到已结束的 Host。</summary>
         [TearDown]
         public void ReleaseMailboxSubscriptions()
         {
@@ -45,80 +49,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             ResetMailboxProbe();
         }
 
-        private StateGraphHost CreateMailboxHost(bool plain = false, bool adapters = true,
-            bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0,
-            bool any = false)
-        {
-            var provider = StateGraphProjectBindings.Provider;
-            if (provider == null)
-            {
-                provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
-                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var install), install.Message);
-            }
-            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
-            _objects.Add(asset);
-            asset.EnsureAssetIdentity(Guid.NewGuid().ToString("N"));
-            var layer = new StateGraphLayerRecord(new SerializedId128(1, 1), "Mailbox");
-            for (int index = 0; index < (transition ? 2 : 1); index++)
-            {
-                bool isPlain = index == 0 ? plain : !plain;
-                var type = isPlain ? typeof(MailboxPlainLogic) : typeof(MailboxProbeLogic);
-                StandardDescriptors.TryCreate(type, type.Name, out var id);
-                StateConfig config = isPlain ? new EmptyStateConfig() : new FieldConfig();
-                layer.States.Add(new StateGraphStateRecord(new SerializedId128(2, (ulong)index + 1),
-                    default, type.Name, new SerializedId128(id.High, id.Low), config));
-            }
-            layer.InitialStateId = layer.States[0].StateId;
-            if (transition)
-            {
-                var edge = new StateGraphTransitionRecord(new SerializedId128(3, 1),
-                    layer.States[0].StateId, layer.States[1].StateId, 1)
-                {
-                    WindowMode = TransitionWindowMode.ActionProgress,
-                    WindowStartInclusive = 0.75, WindowEndExclusive = 1.0
-                };
-                var condition = provider.Catalog.ConditionDescriptors.Single(
-                    item => item.RuntimeRegistration.ConditionType == typeof(MailboxReadyCondition));
-                edge.Conditions.Add(new StateGraphConditionRecord(
-                    new SerializedId128(condition.DescriptorId.High, condition.DescriptorId.Low),
-                    new EmptyConditionConfig()));
-                layer.Transitions.Add(edge);
-            }
-            asset.Layers.Add(layer);
-            if (twoLayers)
-            {
-                var sibling = new StateGraphLayerRecord(new SerializedId128(1, 2), "Sibling");
-                var state = layer.States[0];
-                sibling.InitialStateId = new SerializedId128(2, 99);
-                sibling.States.Add(new StateGraphStateRecord(sibling.InitialStateId, default,
-                    "Observer", state.StateDescriptorId, new FieldConfig()));
-                asset.Layers.Add(sibling);
-            }
-            if (any)
-                for (int index = 0; index < asset.Layers.Count; index++)
-                {
-                    var type = index == 0 ? typeof(MailboxAnyLogic) : typeof(MailboxStatelessAnyLogic);
-                    StandardDescriptors.TryCreate(type, type.Name, out var descriptor);
-                    StateConfig config = index == 0 ? new FieldConfig() : new EmptyStateConfig();
-                    if (config is FieldConfig fields) fields.Set(nameof(MailboxAnyLogic.Increment), 3);
-                    asset.Layers[index].AnyState = new StateGraphStateRecord(
-                        new SerializedId128(2, (ulong)index + 100), default, type.Name,
-                        new SerializedId128(descriptor.High, descriptor.Low), config);
-                }
-            var gameObject = new GameObject("Mailbox E2E");
-            _objects.Add(gameObject);
-            var host = gameObject.AddComponent<StateGraphHost>();
-            SetField(host, "autoStart", false);
-            SetField(host, "driver", StateGraphDriver.Manual);
-            SetField(host, "stateGraphAsset", asset);
-            SetField(host, "eventOutboxCapacity", outboxCapacity);
-            SetField(host, "temporalHistoryCapacity", history);
-            if (adapters) SetField(host, "eventAdapters", new MonoBehaviour[]
-                { gameObject.AddComponent<MailboxTestAdapter>(), gameObject.AddComponent<MailboxTestAdapter>() });
-            Assert.IsTrue(host.TryStart(out var start), start.Message);
-            return host;
-        }
-
+        /// <summary>同时投递不同类型和经过适配器过滤的事件，核对每条只被对应状态看见一次。</summary>
         [TestCase(1)]
         [TestCase(10)]
         [TestCase(100)]
@@ -139,6 +70,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(86f, health[0]);
         }
 
+        /// <summary>在回调后继续投递，核对旧批次失效、晚到事件留到下一步且忽略的邮件没有跨步累积。</summary>
         [Test]
         public void MailboxFreezesLateMailAndInvalidatesViewsWithoutAccumulatingIgnoredMail()
         {
@@ -171,6 +103,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CollectionAssert.AreEqual(new[] { 76f, 52f, 52f, 52f }, health);
         }
 
+        /// <summary>发布未预登记的载荷，检查冻结值独立且只有成功提交后订阅者才收到。</summary>
         [TestCase(false, 1, false)]
         [TestCase(true, 1, false)]
         [TestCase(false, 0, false)]
@@ -211,6 +144,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(0, allocated, "Warmed-up delayed Publish must not allocate per Tick.");
         }
 
+        /// <summary>以两层 AnyState 交错更新和恢复，核对两份常驻记忆分别保留。</summary>
         [Test]
         public void AnyStateStandardBindingsKeepIndependentMemoryAndRestoreBothLayers()
         {
@@ -247,34 +181,92 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 ReadMailboxAnyRecord<int>(host, typeof(MailboxStatelessAnyLogic), 101).ActivationId);
         }
 
-        private static GraphStateRecord<TState> ReadMailboxAnyRecord<TState>(
-            StateGraphHost host, Type logicType, ulong stateLow) where TState : unmanaged
+#if UNITY_EDITOR
+        /// <summary>将 0.4.10 保存的普通 Mailbox 图导入当前程序集，由真实 Host 在重存前后各请求一次原有出边。</summary>
+        [Test]
+        public void Released0410MailboxRunsBeforeAndAfterSavingWithCurrentAssemblies()
         {
-            StandardDescriptors.TryCreate(logicType, $"State:{2UL:x16}{stateLow:x16}", out var descriptor);
-            Assert.IsTrue(host.CurrentContext.Layout.TryResolveSlot(StandardGraphState.SlotFor(descriptor),
-                out StateSlot<GraphStateRecord<TState>> slot));
-            return host.CurrentContext.Read(slot);
-        }
+            const string folder = "Assets/__P002ReleasedMailbox";
+            const string path = folder + "/Mailbox.asset";
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410Mailbox.asset.bytes";
+            UnityEditor.AssetDatabase.CreateFolder("Assets", "__P002ReleasedMailbox");
+            try
+            {
+                var bytes = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes;
+                System.IO.File.WriteAllBytes(path, bytes);
+                System.IO.File.WriteAllText(path + ".meta", "fileFormatVersion: 2\nguid: 5bc4ff4a71ed34d7a91be41c151d9371\n");
+                UnityEditor.AssetDatabase.ImportAsset(path, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
+                var asset = UnityEditor.AssetDatabase.LoadAssetAtPath<StateGraphAsset>(path);
+                var provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
+                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
+                Run(asset);
+                UnityEditor.EditorUtility.SetDirty(asset);
+                UnityEditor.AssetDatabase.SaveAssetIfDirty(asset);
+                Resources.UnloadAsset(asset);
+                UnityEditor.AssetDatabase.ImportAsset(path, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
+                Run(UnityEditor.AssetDatabase.LoadAssetAtPath<StateGraphAsset>(path));
+            }
+            finally
+            {
+                UnityEditor.AssetDatabase.DeleteAsset(folder);
+            }
 
+            void Run(StateGraphAsset graph)
+            {
+                Assert.IsFalse(UnityEditor.SerializationUtility.HasManagedReferencesWithMissingTypes(graph));
+                var layer = graph.Layers.Single();
+                Assert.IsInstanceOf<FieldConfig>(layer.States[0].Config);
+                Assert.IsInstanceOf<EmptyStateConfig>(layer.States[1].Config);
+                var edge = layer.Transitions.Single();
+                Assert.AreEqual(layer.InitialStateId, edge.SourceStateId);
+                Assert.AreEqual(layer.States[1].StateId, edge.TargetStateId);
+                Assert.AreEqual(1, edge.Priority);
+                Assert.AreEqual(0.75d, edge.WindowStartInclusive);
+                Assert.AreEqual(1d, edge.WindowEndExclusive);
+                var go = new GameObject("Released Mailbox");
+                _objects.Add(go);
+                var host = go.AddComponent<StateGraphHost>();
+                SetField(host, "autoStart", false);
+                SetField(host, "driver", StateGraphDriver.Manual);
+                SetField(host, "stateGraphAsset", graph);
+                Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
+                var initial = host.ActivePaths[0].ActiveLeaf;
+                MailboxProbeLogic.Tick = null;
+                Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+                Assert.AreEqual(initial, host.ActivePaths[0].ActiveLeaf);
+                MailboxProbeLogic.Tick = (_, context) => Assert.IsTrue(context.TryRequestTransitionTo<MailboxPlainLogic>());
+                Assert.IsTrue(host.TryStep(0.1, out diagnostic), diagnostic.Message);
+                Assert.AreEqual(edge.TargetStateId.High, host.ActivePaths[0].ActiveLeaf.High);
+                Assert.AreEqual(edge.TargetStateId.Low, host.ActivePaths[0].ActiveLeaf.Low);
+                Assert.IsTrue(host.TryStop(out diagnostic), diagnostic.Message);
+            }
+        }
+#endif
+        /// <summary>分别给入就绪与未就绪的收件值，核对状态只在满足玩法条件时登记转换。</summary>
         [TestCase(false)]
         [TestCase(true)]
-        public void MailboxProgressAndConditionRequireARequestedTransition(bool plain)
+        public void MailboxStateLogicRequestsTransitionOnlyWhenReady(bool plain)
         {
             var host = CreateMailboxHost(plain: plain, transition: true);
             var initial = host.ActivePaths[0].ActiveLeaf;
             Assert.IsTrue(host.TryStep(0.1, out _));
-            Assert.AreEqual(0, MailboxReadyCondition.Calls);
-            if (plain) MailboxPlainLogic.Tick = context => context.TryRequestTransitionTo<MailboxProbeLogic>();
-            else MailboxProbeLogic.Tick = (_, context) => context.TryRequestTransitionTo<MailboxPlainLogic>();
-            MailboxReadyCondition.Allowed = false;
+            bool ready = false;
+            if (plain) MailboxPlainLogic.Tick = context =>
+            {
+                if (ready) context.TryRequestTransitionTo<MailboxProbeLogic>();
+            };
+            else MailboxProbeLogic.Tick = (_, context) =>
+            {
+                if (ready) context.TryRequestTransitionTo<MailboxPlainLogic>();
+            };
             Assert.IsTrue(host.TryStep(0.1, out _));
             Assert.AreEqual(initial, host.ActivePaths[0].ActiveLeaf);
-            MailboxReadyCondition.Allowed = true;
+            ready = true;
             Assert.IsTrue(host.TryStep(0.1, out _));
             Assert.AreNotEqual(initial, host.ActivePaths[0].ActiveLeaf);
-            Assert.AreEqual(2, MailboxReadyCondition.Calls);
         }
 
+        /// <summary>让多个状态读取同一冻结批次，验证先读取的状态不会消费其他状态的邮件。</summary>
         [Test]
         public void MailboxReadersInDifferentStatesDoNotConsumeEachOthersBatch()
         {
@@ -287,6 +279,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CollectionAssert.AreEqual(new[] { 76f, 76f }, health);
         }
 
+        /// <summary>在进入、更新和退出回调各发布事件，核对成功提交后的分发顺序。</summary>
         [Test]
         public void MailboxPublishesEnterUpdateExitInOrderAfterCommit()
         {
@@ -304,6 +297,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CollectionAssert.AreEqual(new[] { 1, 2, 3 }, received);
         }
 
+        /// <summary>超过收件容量时检查只丢弃多余邮件，Host 仍能完成本步。</summary>
         [Test]
         public void MailboxOverflowDropsExcessMailWithoutFaultingHost()
         {
@@ -314,6 +308,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(host.TryStep(0.1, out var diagnostic), diagnostic.Message);
         }
 
+        /// <summary>经过停止重启或暂停后再采样，核对上一次运行的收件不再进入新步。</summary>
         [TestCase(0)]
         [TestCase(2)]
         public void MailboxStopRestartAndSuspendClearPreviousInput(int history)
@@ -334,5 +329,92 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(host.TryStep(0.1, out _));
             CollectionAssert.AreEqual(new[] { 100f, 100f, 100f, 76f }, health);
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private readonly CoCoEventAgent _mailboxAgent = new CoCoEventAgent();
+
+        private StateGraphHost CreateMailboxHost(bool plain = false, bool adapters = true,
+            bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0,
+            bool any = false)
+        {
+            var provider = StateGraphProjectBindings.Provider;
+            if (provider == null)
+            {
+                provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
+                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var install), install.Message);
+            }
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
+            _objects.Add(asset);
+            asset.EnsureAssetIdentity(Guid.NewGuid().ToString("N"));
+            var layer = new StateGraphLayerRecord(new SerializedId128(1, 1), "Mailbox");
+            for (int index = 0; index < (transition ? 2 : 1); index++)
+            {
+                bool isPlain = index == 0 ? plain : !plain;
+                var type = isPlain ? typeof(MailboxPlainLogic) : typeof(MailboxProbeLogic);
+                StandardDescriptors.TryCreate(type, type.Name, out var id);
+                StateConfig config = isPlain ? new EmptyStateConfig() : new FieldConfig();
+                layer.States.Add(new StateGraphStateRecord(new SerializedId128(2, (ulong)index + 1),
+                    default, type.Name, new SerializedId128(id.High, id.Low), config));
+            }
+            layer.InitialStateId = layer.States[0].StateId;
+            if (transition)
+            {
+                var edge = new StateGraphTransitionRecord(new SerializedId128(3, 1),
+                    layer.States[0].StateId, layer.States[1].StateId, 1)
+                {
+                    WindowMode = TransitionWindowMode.ActionProgress,
+                    WindowStartInclusive = 0.75, WindowEndExclusive = 1.0
+                };
+                layer.Transitions.Add(edge);
+            }
+            asset.Layers.Add(layer);
+            if (twoLayers)
+            {
+                var sibling = new StateGraphLayerRecord(new SerializedId128(1, 2), "Sibling");
+                var state = layer.States[0];
+                sibling.InitialStateId = new SerializedId128(2, 99);
+                sibling.States.Add(new StateGraphStateRecord(sibling.InitialStateId, default,
+                    "Observer", state.StateDescriptorId, new FieldConfig()));
+                asset.Layers.Add(sibling);
+            }
+            if (any)
+                for (int index = 0; index < asset.Layers.Count; index++)
+                {
+                    var type = index == 0 ? typeof(MailboxAnyLogic) : typeof(MailboxStatelessAnyLogic);
+                    StandardDescriptors.TryCreate(type, type.Name, out var descriptor);
+                    StateConfig config = index == 0 ? new FieldConfig() : new EmptyStateConfig();
+                    if (config is FieldConfig fields) fields.Set(nameof(MailboxAnyLogic.Increment), 3);
+                    asset.Layers[index].AnyState = new StateGraphStateRecord(
+                        new SerializedId128(2, (ulong)index + 100), default, type.Name,
+                        new SerializedId128(descriptor.High, descriptor.Low), config);
+                }
+            var gameObject = new GameObject("Mailbox E2E");
+            _objects.Add(gameObject);
+            var host = gameObject.AddComponent<StateGraphHost>();
+            SetField(host, "autoStart", false);
+            SetField(host, "driver", StateGraphDriver.Manual);
+            SetField(host, "stateGraphAsset", asset);
+            SetField(host, "eventOutboxCapacity", outboxCapacity);
+            SetField(host, "temporalHistoryCapacity", history);
+            if (adapters) SetField(host, "eventAdapters", new MonoBehaviour[]
+                { gameObject.AddComponent<MailboxTestAdapter>(), gameObject.AddComponent<MailboxTestAdapter>() });
+            Assert.IsTrue(host.TryStart(out var start), start.Message);
+            return host;
+        }
+
+        private static GraphStateRecord<TState> ReadMailboxAnyRecord<TState>(
+            StateGraphHost host, Type logicType, ulong stateLow) where TState : unmanaged
+        {
+            StandardDescriptors.TryCreate(logicType, $"State:{2UL:x16}{stateLow:x16}", out var descriptor);
+            Assert.IsTrue(host.CurrentContext.Layout.TryResolveSlot(StandardGraphState.SlotFor(descriptor),
+                out StateSlot<GraphStateRecord<TState>> slot));
+            return host.CurrentContext.Read(slot);
+        }
+
+        #endregion
+
     }
 }

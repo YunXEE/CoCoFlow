@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
@@ -13,7 +12,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>
     /// C6.5 end-to-end: standard binding auto-registers the locomotion

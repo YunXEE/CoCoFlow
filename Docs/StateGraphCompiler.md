@@ -48,7 +48,7 @@ ID-derived sort position.
 ## Constrained Editor and presentation state
 
 The Editor edits one Layer and one recursive State scope at a time. It supports Layer,
-State, and Transition creation, deletion, reordering, Condition/Window/Priority
+State, and Transition creation, deletion, reordering, Window/Priority
 editing, breadcrumb navigation, validation, search, and layout. It is not an
 unrestricted visual-scripting surface: an ordinary leaf or AnyState can be the
 source; the target must be an ordinary leaf in the selected Layer. There is no Completion, Interrupt, or
@@ -88,22 +88,31 @@ workflow.
 Declare a concrete `[State("Name")]` on a `StateLogic` with a public
 parameterless constructor and `IStateUpdate`. The attribute name supplies
 the stable descriptor identity. Use `[Intent]` for a payload, `[Operation]` for
-a section interface, and `[Config]` or `[Memory]` for public instance fields.
+an Operation interface, and `[Config]` or `[Memory]` for public instance fields.
 The standard binding creates the graph-owned state slot and its Temporal and
 Durable projections. States with no config or memory fields use
 `EmptyStateConfig` and `StatelessMemory`. An attributed `AnyStateLogic`
 belongs in the layer's optional AnyState slot.
 
-A section carries `[OperationSection]`. An operator declares a static
-`[OperatorDefinition]` and calls `StandardOperatorBuilder.Require<TSection>()`.
+An output interface inherits `IOperation` and carries `[Operation(Mode.Continuous)]` or `[Operation(Mode.Discrete)]`. An operator declares a static
+`[OperatorDefinition]` and calls `StandardOperatorBuilder.Require<TOperation>()`.
 The source generator supplies the top-level or accessible nested interface's view.
 The Editor and the standard Host read these declarations from the same catalog.
 [StateGraph Runtime and Host](StateGraphRuntime.md)
 
+### String Config
+
+Declare `[Config] public string ClipKey = "Idle";` on the Logic, set a per-node key
+such as `Attack.Light` in the graph editor, then save. On startup the standard Host
+applies the frozen key to that node's Logic. Read `ClipKey` in Update to query
+the project's clip library. Values retain case, whitespace, dots and equals signs.
+Empty text overrides the default with an empty string. Reset restores the initial
+field value. The same scalar rule applies to struct fields, arrays and lists.
+
 ### Standard Config collections
 
 Standard `[Config]` fields support one-dimensional arrays and `List<T>` of
-editable numeric, boolean, or enum values, and pure data structs made from
+editable numeric, boolean, enum, or string values, and pure data structs made from
 these public fields. Nested collections, multidimensional arrays, arbitrary
 classes, and Unity object collections are unsupported. `[Memory]` retains its
 unmanaged layout and transfer rules.
@@ -112,7 +121,7 @@ The Config editor provides initialization, add/remove, ordering, and element
 editing. An uninitialized collection stays null until explicitly initialized;
 an empty collection is saved as an explicit override. Reset removes the field's
 overrides and restores its Logic constructor default. Each node saves its own
-configuration and participates in Undo/Redo.
+configuration and participates in Undo/Redo. A string override preserves case, spaces and equals signs. An explicit empty string overrides the field default.
 
 Numeric text is committed on confirmation or focus loss. Intermediate text such
 as `2.` or `-` is kept in the active control; invalid submissions show an error
@@ -221,11 +230,11 @@ readonly instance state, dictionaries, delegates, Unity objects, and
 unsupported types are compile Errors. No reflective fallback attempts to
 reinterpret rejected data.
 
-State and Condition behavior is represented by stable descriptor identities
+State behavior is represented by stable descriptor identities
 registered before compilation. Compilation verifies and freezes those
-descriptors; creating StateLogic, Condition, Memory, Adapter, or Reducer
+descriptors; creating StateLogic, Memory, Adapter, or Reducer
 instances is a Host runtime boundary. The pure `StateGraphCompiler` itself
-does not invoke a Freezer, StateLogic, Condition, Reducer, Factory, or
+does not invoke a Freezer, StateLogic, Reducer, Factory, or
 Event-to-Intent Adapter.
 
 The compiler records graph-level Event-to-Intent declarations. Each declaration
@@ -247,19 +256,19 @@ Existing graph assets keep their serialized event declarations, diagnostic
 locations and fingerprint data. Remove these declarations when migrating to
 the standard Host. States read the typed Inbox in their callbacks.
 
-Descriptor logic, Conditions, Freezers, and token implementations must live in
+Descriptor logic, Freezers, and token implementations must live in
 `noEngineReferences` author assemblies whose complete dependency closure is
 engine-independent. It may depend on the BCL, Core, StateGraph and pure
 gameplay helpers. Host, Editor, Unity and engine-facing modules are forbidden. Runtime registration retains its direct-reference
 guard as a fast boundary check. Editor Analyze and the Player build preflight
 then walk the complete resolved assembly dependency graph from every registered
-Logic, Condition, Config, Schema, Memory, Freezer, Intent, Reducer, Factory,
-Operation Section, View Factory, StateBlock/Slot value, Rebuilder, Event, and
+Logic, Config, Schema, Memory, Freezer, Intent, Reducer, Factory,
+Operation, View Factory, StateBlock/Slot value, Rebuilder, Event, and
 provided-Intent root. Missing asmdefs, engine references, forbidden assemblies,
 and unprovable custom precompiled dependencies fail closed. The pure compiler
 still performs no assembly discovery or scanning.
 
-Intent reducers, Operation Section views, and derived StateSlot rebuilders are
+Intent reducers, Operation views, and derived StateSlot rebuilders are
 registered through closed generic AOT tokens, never executable instances. A
 token contains its compile-time implementation type plus a nonzero,
 deterministic semantic fingerprint; both contribute to the catalog fingerprint.
@@ -281,18 +290,12 @@ One successful compile produces three deterministic, deduplicated manifests:
   stable identity, value and Reducer types, capacity, and dense index. It also
   carries a non-null collection of the Graph's static Event-to-Intent
   declarations; this does not create a fourth Manifest.
-- `GraphOperationProvisionManifest`: the OperationFrame Sections the Graph
-  can produce, including each Section's complete immutable Shape.
+- `GraphOperationProvisionManifest`: the Operations in a frame the Graph
+  can produce, including each Operation's complete immutable Shape.
 - `ContextFrameStateRequirementManifest`: the ContextFrame StateBlock and
   Slot state required to resume graph evaluation deterministically.
 
-State descriptors may contribute to all three manifests. Conditions may declare
-the Intent and previous Context state they read, but cannot declare or write an
-Operation Section. A Condition only reads frozen Intent, previous Context,
-Tick, Config, LocalSeconds, and ActionProgress during runtime evaluation.
-Repeated identical requirement IDs canonicalize to one sorted entry. Reusing a
-Manifest ID for different registered metadata is a compile-time
-`ManifestConflict`.
+State descriptors declare the input, output, and context requirements used to build these three manifests.
 
 These are static declarations, not live StateFlow layouts or registries. The
 Compiler does not retain factories/rebuilders or materialize runtime layouts
@@ -313,13 +316,13 @@ token compared with the Manifest; it is not a canonical hash that the framework
 recomputes from `defaultValue`. Adding canonical value hashing would change this
 frozen contract and requires an explicit contract change.
 
-An Operation Section Shape is complete: total byte size, deterministic
+An Operation Shape is complete: total byte size, deterministic
 field count, and each field's dense index, ordinal name, unmanaged value type,
 byte offset, and size. Catalog registration and the StateFlow Registry use the
 same Shape builder. Their fingerprints include the Shape fingerprint, but
 binding correctness compares every field rather than trusting the fingerprint
 alone. The Editor linker step emits temporary `Library/` preservation metadata
-for the validated Section interfaces and recursively used unmanaged value
+for the validated Operation interfaces and recursively used unmanaged value
 metadata so High Managed Stripping does not erase the static Shape contract.
 
 StateGraphHost owns the scene sources, typed Inbox adapters,
@@ -333,11 +336,11 @@ immutable Asset compile result into a scene-dependent error.
 
 All three manifests may be empty where the graph contract permits it. A valid
 terminal or no-operation graph is not rejected merely because it has no Intent
-or Operation Section entry.
+or Operation entry.
 
 The Editor overlay presents exactly these three existing manifests. Event-to-Intent
 declarations remain entries within the Intent manifest and do not create a
-fourth Manifest or a ContextGraph. The Editor obtains State and Condition choices
+fourth Manifest or a ContextGraph. The Editor obtains State choices
 through deterministic internal Catalog enumeration by stable identity; it adds
 no public label/category metadata or runtime discovery API.
 
@@ -355,7 +358,7 @@ timing, Samples, Machine/Node concepts, or cross-Layer references.
   declared source must use unique Priorities; another source or Layer may reuse the
   same value.
 - State Update requests zero or more predeclared outgoing Transition handles.
-  It cannot invent an edge or target at runtime. Window and Condition evaluation
+  It cannot invent an edge or target at runtime. Window evaluation
   happens after ordinary path Update and AnyState.Update. AnyState's highest
   eligible Priority wins first; otherwise the ordinary source may win. Each
   Layer still has at most one winner per Tick.
@@ -373,9 +376,7 @@ timing, Samples, Machine/Node concepts, or cross-Layer references.
   Fault. Transactional rollback restores the last committed authority but never
   permits progress to move backwards. Reaching `1` does not complete or exit the
   State.
-- Zero Conditions means true. Multiple Conditions are retained in author order
-  and evaluated as AND; OR remains internal to a registered Condition rather
-  than becoming a public expression tree.
+- The source Logic evaluates gameplay rules before requesting an edge.
 - Completion, `RequireSourceCompletion`, `AllowDuringSourceActivation`, and the
   entire InterruptPolicy are absent. A leaf with no outgoing edge is valid and
   performs no Transition evaluation. Self-loops and ordinary cycles are valid.
@@ -395,14 +396,14 @@ hierarchy cycles, invalid initial children, non-leaf Transition endpoints,
 duplicate outgoing Priority, illegal descriptor or Config data, invalid or
 duplicate Event-to-Intent declarations, mixed EventDomains, capacity
 violations, and every Cross-Layer edge. An unreachable State is a Warning. A
-parent and child declaring the same Operation Section also produces a
+parent and child declaring the same Operation also produces a
 non-blocking warning because the child will override the parent; the same
-Section declared in different Layers is normal composition and is not warned.
+Operation declared in different Layers is normal composition and is not warned.
 A State with no outgoing Transition is valid, and ordinary Transition cycles
 are valid HFSM behavior.
 
 Every graph diagnostic carries severity, code, and a location that can identify
-the Graph, Layer, State, Transition, Condition, Event Adapter declaration, and
+the Graph, Layer, State, Transition, Event Adapter declaration, and
 serialized field path involved. Editor navigation consumes this location; the
 pure compiler does not depend on `UnityEditor`.
 
@@ -426,7 +427,7 @@ invalidation remain on the Unity main thread. The Compiler does not add Jobs, Bu
 parallel scheduling, or a background compilation service.
 
 Multiple Hosts using one Asset share only the immutable compiled graph. Each
-owns a separate GraphInstance, StateLogic/Condition instances, double Memory
+owns a separate GraphInstance, StateLogic instances, double Memory
 banks, ActiveLeaf values, Clock, Intent Runtime, ContextFrame storage, Inbox,
 Temporal Ring/cursor, pending staged Tick, and Fault state. Its ContextFrame is
 the sole retainable complete Actor commit record; the Temporal Ring stores only
@@ -435,7 +436,7 @@ and Claim caches are mirrors or can be rebuilt uniquely from restored Context.
 
 ## Boundaries
 
-- Animation projection and Animator behavior belong to the Animation module.
+- Projects own their animation assets and playback.
 - Durable save documents and schema migration belong to Persistence.
 - Production gameplay States and project content are consumer-owned.
 - Compiler maturity does not claim background compilation, Jobs/Burst

@@ -5,10 +5,16 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 
+// 让实际状态回调尝试重入、跨实例复用与过期句柄，核对失败后时钟和已提交状态。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>让实际状态回调尝试重入、跨实例复用与过期句柄，核对失败后时钟和已提交状态。</summary>
     public sealed class StateGraphRuntimeSafetyTests
     {
+
+        #region Public API
+
+        /// <summary>创建实例后立即尝试停止，核对不允许的迁移保留创建阶段。</summary>
         [Test]
         public void CreatedRuntimeRejectsStopAndPreservesCreatedState()
         {
@@ -25,6 +31,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(setup.Runtime.IsFaulted);
         }
 
+        /// <summary>分别从运行与暂停执行停止，检查通过已定义的生命周期边进入停止状态。</summary>
         [TestCase(RuntimeLifecycleState.Running)]
         [TestCase(RuntimeLifecycleState.Suspended)]
         public void RunningAndSuspendedRuntimeStopThroughFrozenEdge(
@@ -45,6 +52,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(setup.Runtime.IsFaulted);
         }
 
+        /// <summary>分别释放各个可达阶段的实例，检查生命周期按允许的路径终止。</summary>
         [TestCase(RuntimeLifecycleState.Created)]
         [TestCase(RuntimeLifecycleState.Running)]
         [TestCase(RuntimeLifecycleState.Suspended)]
@@ -76,6 +84,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(RuntimeLifecycleState.Disposed, setup.Runtime.Lifecycle);
         }
 
+        /// <summary>在 Update 回调内再次步进或改变实例生命周期，检查重入被拒绝。</summary>
         [TestCase(ReentryAction.Suspend)]
         [TestCase(ReentryAction.Stop)]
         [TestCase(ReentryAction.Step)]
@@ -95,6 +104,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1UL, setup.Runtime.Clock.Tick.Value);
         }
 
+        /// <summary>在回调内请求释放，检查运行时在安全边界取消候选并终止。</summary>
         [Test]
         public void DisposeRequestedInsideUpdateCancelsCandidateAtSafeBoundary()
         {
@@ -117,6 +127,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(setup.Runtime.HasStagedStep);
         }
 
+        /// <summary>保留旧候选再停止实例，验证之后无法接受这份旧步进。</summary>
         [Test]
         public void StoppedRuntimeCannotAcceptPreviouslyStagedTick()
         {
@@ -130,6 +141,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(RuntimeLifecycleState.Stopped, setup.Runtime.Lifecycle);
         }
 
+        /// <summary>交换两个实例的时钟与输出帧，验证归属检查拒绝跨实例组合。</summary>
         [Test]
         public void RuntimeRejectsOperationFrameAndClockFromAnotherGraphInstance()
         {
@@ -163,6 +175,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(clockDiagnostic.IsError);
         }
 
+        /// <summary>尝试重复认领同一时钟或操作帧，检查只有第一个实例获得所有权。</summary>
         [Test]
         public void RuntimeClaimsClockAndOperationFrameExactlyOnce()
         {
@@ -201,6 +214,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             first.Dispose();
         }
 
+        /// <summary>让工厂给候选和提交返回同一个记忆对象，验证实例启动拒绝别名。</summary>
         [Test]
         public void RuntimeRejectsAliasedMemoryBanks()
         {
@@ -218,14 +232,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
+        /// <summary>让两个实例的工厂返回同一 Logic 或记忆，核对第二个实例无法取得共享对象。</summary>
         [Test]
-        public void RuntimeRejectsLogicMemoryAndConditionSingletonsAcrossInstances()
+        public void RuntimeRejectsLogicAndMemorySingletonsAcrossInstances()
         {
             AssertCrossRuntimeSingletonRejected(SingletonKind.Logic);
             AssertCrossRuntimeSingletonRejected(SingletonKind.Memory);
-            AssertCrossRuntimeSingletonRejected(SingletonKind.Condition);
         }
 
+        /// <summary>准备后修改候选记忆，检查提交前检测到变更并报告故障。</summary>
         [Test]
         public void StagedMemoryMutationIsRejectedAndFaultedBeforeCommit()
         {
@@ -246,6 +261,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(setup.Runtime.HasStagedStep);
         }
 
+        /// <summary>在提交前使输出候选失效，核对时钟与图的上次提交保持原值。</summary>
         [Test]
         public void OperationReadinessFailureFaultsBeforeGraphOrClockAuthorityChanges()
         {
@@ -274,6 +290,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.Root).Value);
         }
 
+        /// <summary>在提交前使时钟候选失效，核对操作和图都没有局部提交。</summary>
         [Test]
         public void ClockReadinessFailureFaultsBeforeOperationOrGraphAuthorityChanges()
         {
@@ -308,6 +325,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(staged.OperationFrame.IsValid);
         }
 
+        /// <summary>在两步之间修改已提交记忆，验证下一次玩法回调前就能发现。</summary>
         [Test]
         public void CommittedMemoryMutationIsDetectedBeforeNextCallback()
         {
@@ -333,6 +351,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1UL, setup.Runtime.Clock.Tick.Value);
         }
 
+        /// <summary>向未声明的操作字段写值，检查候选故障及路径、时钟与记忆回滚。</summary>
         [Test]
         public void UndeclaredOperationWriteFaultsAndRollsBackTickPathAndMemory()
         {
@@ -370,6 +389,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.LeafA).Value);
         }
 
+        /// <summary>请求启用未声明的离散操作，核对本步未发布且已提交状态保留。</summary>
         [Test]
         public void UndeclaredDiscreteOperationEnableFaultsAndRollsBackTick()
         {
@@ -381,7 +401,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             OperationSafetySetup setup = OperationSafetySetup.Create(
                 false,
                 control,
-                OperationSectionMode.Discrete);
+                Mode.Discrete);
             Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
             Assert.IsTrue(setup.Runtime.TryPreviewNextTick(
                 0.1d,
@@ -406,6 +426,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.LeafA).Value);
         }
 
+        /// <summary>在后续回调复用旧写入者，核对过期写入被拒绝且该候选失败。</summary>
         [Test]
         public void EscapedOperationWriterExpiresAndFaultsTheLaterCallback()
         {
@@ -445,15 +466,27 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ReadCommittedSafetyMemory(setup.Runtime, 0, Ids.LeafA).Value);
         }
 
+        /// <summary>指定测试要在活动回调内尝试的重入操作。</summary>
+        public enum ReentryAction
+        {
+            None = 0,
+            Suspend = 1,
+            Stop = 2,
+            Step = 3,
+            Dispose = 4
+        }
+
+        #endregion
+
+        #region Internal Logic
+
         private static void AssertCrossRuntimeSingletonRejected(SingletonKind kind)
         {
-            bool withCondition = kind == SingletonKind.Condition;
-            SafetyDefinition definition = SafetyDefinition.Create(withCondition);
+            SafetyDefinition definition = SafetyDefinition.Create(false);
             var control = new SafetyControl();
             var singletonLogic = new RuntimeSafetyFixtureLogic(control);
             var memory0 = new RuntimeSafetyFixtureMemory();
             var memory1 = new RuntimeSafetyFixtureMemory();
-            var singletonCondition = new RuntimeSafetyFixtureCondition();
             int memoryIndex = 0;
             StateGraphLogicBindings bindings = definition.CreateBindings(
                 control,
@@ -463,10 +496,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 memoryFactory: kind == SingletonKind.Memory
                     ? new Func<RuntimeSafetyFixtureMemory>(
                         () => (memoryIndex++ & 1) == 0 ? memory0 : memory1)
-                    : null,
-                conditionFactory: kind == SingletonKind.Condition
-                    ? new Func<ConditionFactoryContext, RuntimeSafetyFixtureCondition>(
-                        _ => singletonCondition)
                     : null);
 
             Assert.IsTrue(definition.TryCreateRuntime(
@@ -520,22 +549,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return null;
         }
 
-        public enum ReentryAction
-        {
-            None = 0,
-            Suspend = 1,
-            Stop = 2,
-            Step = 3,
-            Dispose = 4
-        }
-
+        /// <summary>选择让工厂跨实例复用 Logic 或记忆以触发归属检查。</summary>
         private enum SingletonKind : ulong
         {
             Logic = 1UL,
             Memory = 2UL,
-            Condition = 3UL
         }
 
+        /// <summary>在安全测试回调内记录执行结果并触发指定的重入或记忆修改。</summary>
         private sealed class SafetyControl : IRuntimeSafetyFixtureObserver
         {
             public ReentryAction Action;
@@ -573,13 +594,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>控制测试对当前或过期输出写入者所执行的操作。</summary>
         private sealed class OperationSafetyControl : IRuntimeSafetyOperationFixtureObserver
         {
             public StateId UnauthorizedWriteState;
             public StateId CaptureWriterState;
             public StateId UseEscapedWriterState;
-            public OperationSectionField<int> OperationField;
-            public OperationSectionHandle<IRuntimeSafetyOperationSection> OperationHandle;
+            public OperationField<int> OperationField;
+            public OperationHandle<IRuntimeSafetyOperationSection> OperationHandle;
             public StateOperationWriter EscapedWriter;
             public bool UnauthorizedEnableDiscrete;
             public bool UnauthorizedWriteAttempted;
@@ -622,24 +644,25 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>为操作写入安全测试组装真实实例、合同和时钟。</summary>
         private sealed class OperationSafetySetup
         {
             private OperationSafetySetup(
                 StateGraphRuntime runtime,
-                OperationSectionHandle<IRuntimeSafetyOperationSection> operationHandle)
+                OperationHandle<IRuntimeSafetyOperationSection> operationHandle)
             {
                 Runtime = runtime;
                 OperationHandle = operationHandle;
             }
 
             public StateGraphRuntime Runtime { get; }
-            public OperationSectionHandle<IRuntimeSafetyOperationSection> OperationHandle { get; }
+            public OperationHandle<IRuntimeSafetyOperationSection> OperationHandle { get; }
 
             public static OperationSafetySetup Create(
                 bool leafDeclaresOperation,
                 OperationSafetyControl control,
-                OperationSectionMode operationMode =
-                    OperationSectionMode.Continuous)
+                Mode operationMode =
+                    Mode.Continuous)
             {
                 GraphDescriptorCatalog catalog = CreateOperationCatalog(operationMode);
                 StateGraphCompileResult result = new StateGraphCompiler().Compile(
@@ -648,24 +671,24 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.IsTrue(result.Succeeded, "Operation safety graph must compile.");
                 CompiledStateGraph graph = result.Graph;
 
-                var registryBuilder = new OperationSectionRegistryBuilder();
+                var registryBuilder = new OperationRegistryBuilder();
                 Assert.IsTrue(registryBuilder.TryRegister(
-                    Ids.OperationSection,
+                    Ids.Operation,
                     operationMode,
                     new RuntimeSafetyOperationSectionViewFactory(),
-                    out OperationSectionRequirement operationRequirement,
+                    out OperationRequirement operationRequirement,
                     out CoCoDiagnostic registerDiagnostic), registerDiagnostic.Message);
                 Assert.IsTrue(registryBuilder.TryFreeze(
                     graph.OperationProvides.LayoutId,
-                    out OperationSectionRegistry registry,
+                    out OperationRegistry registry,
                     out CoCoDiagnostic registryDiagnostic), registryDiagnostic.Message);
                 Assert.IsTrue(registry.TryResolve(
                     operationRequirement,
-                    out OperationSectionHandle<IRuntimeSafetyOperationSection> operationHandle));
+                    out OperationHandle<IRuntimeSafetyOperationSection> operationHandle));
                 Assert.IsTrue(registry.TryResolveField(
                     operationHandle,
                     0,
-                    out OperationSectionField<int> operationField));
+                    out OperationField<int> operationField));
                 control.OperationField = operationField;
                 control.OperationHandle = operationHandle;
 
@@ -729,20 +752,20 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
 
             private static GraphDescriptorCatalog CreateOperationCatalog(
-                OperationSectionMode operationMode)
+                Mode operationMode)
             {
                 var builder = new GraphDescriptorCatalogBuilder();
-                Assert.IsTrue(builder.TryRegisterOperationSection(
-                    Ids.OperationSection,
+                Assert.IsTrue(builder.TryRegisterOperation(
+                    Ids.Operation,
                     operationMode,
-                    new OperationSectionViewFactoryToken<
+                    new OperationViewFactoryToken<
                         IRuntimeSafetyOperationSection,
                         RuntimeSafetyOperationSectionViewFactory>(0x5101UL),
                     out CoCoDiagnostic operationDiagnostic), operationDiagnostic.Message);
                 RegisterOperationState(
                     builder,
                     Ids.OperationProviderDescriptor,
-                    new[] { Ids.OperationSection });
+                    new[] { Ids.Operation });
                 RegisterOperationState(
                     builder,
                     Ids.OperationConsumerDescriptor,
@@ -756,7 +779,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             private static void RegisterOperationState(
                 GraphDescriptorCatalogBuilder builder,
                 StateDescriptorId descriptorId,
-                OperationSectionId[] operationProvides)
+                OperationId[] operationProvides)
             {
                 Assert.IsTrue(builder.TryRegisterState(
                     descriptorId,
@@ -845,6 +868,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>将测试图、工厂和运行实例组合成可操作的安全用例。</summary>
         private sealed class SafetySetup
         {
             private SafetySetup(StateGraphRuntime runtime)
@@ -854,12 +878,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public StateGraphRuntime Runtime { get; }
 
-            public static SafetySetup Create(bool withCondition, SafetyControl control)
+            public static SafetySetup Create(bool withTransitions, SafetyControl control)
             {
-                SafetyDefinition definition = SafetyDefinition.Create(withCondition);
+                SafetyDefinition definition = SafetyDefinition.Create(withTransitions);
                 StateGraphLogicBindings bindings = definition.CreateBindings(control);
                 Assert.IsTrue(definition.TryCreateRuntime(
-                    Ids.GraphInstance(9001UL + (withCondition ? 1UL : 0UL)),
+                    Ids.GraphInstance(9001UL + (withTransitions ? 1UL : 0UL)),
                     bindings,
                     out StateGraphRuntime runtime,
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
@@ -884,31 +908,29 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>保存安全测试共享的已编译拓扑，并按用例装配实例。</summary>
         private sealed class SafetyDefinition
         {
-            private SafetyDefinition(CompiledStateGraph graph, bool withCondition)
+            private SafetyDefinition(CompiledStateGraph graph)
             {
                 Graph = graph;
-                WithCondition = withCondition;
             }
 
             public CompiledStateGraph Graph { get; }
-            public bool WithCondition { get; }
 
-            public static SafetyDefinition Create(bool withCondition)
+            public static SafetyDefinition Create(bool withTransitions)
             {
-                GraphDescriptorCatalog catalog = CreateCatalog(withCondition);
-                StateGraphSource source = CreateSource(withCondition);
+                GraphDescriptorCatalog catalog = CreateCatalog();
+                StateGraphSource source = CreateSource(withTransitions);
                 StateGraphCompileResult result = new StateGraphCompiler().Compile(source, catalog);
                 Assert.IsTrue(result.Succeeded, "Safety graph must compile.");
-                return new SafetyDefinition(result.Graph, withCondition);
+                return new SafetyDefinition(result.Graph);
             }
 
             public StateGraphLogicBindings CreateBindings(
                 SafetyControl control,
                 Func<StateFactoryContext, RuntimeSafetyFixtureLogic> logicFactory = null,
-                Func<RuntimeSafetyFixtureMemory> memoryFactory = null,
-                Func<ConditionFactoryContext, RuntimeSafetyFixtureCondition> conditionFactory = null)
+                Func<RuntimeSafetyFixtureMemory> memoryFactory = null)
             {
                 var builder = new StateGraphLogicBindingsBuilder(Graph);
                 Assert.IsTrue(builder.TryBindState(
@@ -922,14 +944,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         memory => memory.Value = 0,
                         memory => unchecked((ulong)(uint)memory.Value)),
                     out CoCoDiagnostic stateDiagnostic), stateDiagnostic.Message);
-                if (WithCondition)
-                {
-                    Assert.IsTrue(builder.TryBindCondition(
-                        Ids.ConditionDescriptor,
-                        new ConditionRuntimeFactory<RuntimeSafetyFixtureCondition>(
-                            conditionFactory ?? (_ => new RuntimeSafetyFixtureCondition())),
-                        out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
-                }
 
                 Assert.IsTrue(builder.TryFreeze(
                     out StateGraphLogicBindings bindings,
@@ -953,15 +967,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public OperationFrame CreateOperationFrame(GraphInstanceId graphInstanceId)
             {
-                var registryBuilder = new OperationSectionRegistryBuilder();
+                var registryBuilder = new OperationRegistryBuilder();
                 Assert.IsTrue(registryBuilder.TryFreeze(
                     Graph.OperationProvides.LayoutId,
-                    out OperationSectionRegistry registry,
+                    out OperationRegistry registry,
                     out CoCoDiagnostic registryDiagnostic), registryDiagnostic.Message);
                 Assert.IsTrue(OperationFrame.TryCreate(
                     registry,
                     graphInstanceId,
-                    Array.Empty<OperationSectionRequirement>(),
+                    Array.Empty<OperationRequirement>(),
                     out OperationFrame frame,
                     out CoCoDiagnostic frameDiagnostic), frameDiagnostic.Message);
                 return frame;
@@ -979,7 +993,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return clock;
             }
 
-            private static GraphDescriptorCatalog CreateCatalog(bool withCondition)
+            private static GraphDescriptorCatalog CreateCatalog()
             {
                 var builder = new GraphDescriptorCatalogBuilder();
                 Assert.IsTrue(builder.TryRegisterState(
@@ -994,19 +1008,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     null,
                     null,
                     out CoCoDiagnostic stateDiagnostic), stateDiagnostic.Message);
-                if (withCondition)
-                {
-                    Assert.IsTrue(builder.TryRegisterCondition(
-                        Ids.ConditionDescriptor,
-                        1U,
-                        new RuntimeFixtureConditionConfigFreezer(),
-                        new ConditionRuntimeRegistration<
-                            RuntimeSafetyFixtureCondition,
-                            RuntimeFixtureConditionConfigSchema>(RuntimeFixtureSchemas.Condition),
-                        null,
-                        null,
-                        out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
-                }
 
                 Assert.IsTrue(builder.TryFreeze(
                     out GraphDescriptorCatalog catalog,
@@ -1014,12 +1015,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return catalog;
             }
 
-            private static StateGraphSource CreateSource(bool withCondition)
+            private static StateGraphSource CreateSource(bool withTransitions)
             {
-                StateSource root = State(Ids.Root, default, withCondition ? Ids.LeafA : default);
+                StateSource root = State(Ids.Root, default, withTransitions ? Ids.LeafA : default);
                 StateSource[] states;
                 TransitionSource[] transitions;
-                if (withCondition)
+                if (withTransitions)
                 {
                     states = new[]
                     {
@@ -1034,13 +1035,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                             Ids.LeafA,
                             Ids.LeafB,
                             1,
-                            TransitionWindow.Always,
-                            new[]
-                            {
-                                new ConditionSource(
-                                    Ids.ConditionDescriptor,
-                                    ConditionConfig())
-                            })
+                            TransitionWindow.Always)
                     };
                 }
                 else
@@ -1051,7 +1046,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 return new StateGraphSource(
                     StateGraphCompiler.CurrentSchemaVersion,
-                    withCondition ? 802UL : 801UL,
+                    withTransitions ? 802UL : 801UL,
                     Ids.Graph,
                     new[]
                     {
@@ -1080,16 +1075,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return snapshot;
             }
 
-            private static FrozenConfigSnapshot ConditionConfig()
-            {
-                FrozenConfigWriter<RuntimeFixtureConditionConfigSchema> writer =
-                    RuntimeFixtureSchemas.Condition.CreateWriter();
-                Assert.IsTrue(writer.TryWrite(RuntimeFixtureSchemas.ConditionValue, 0, out _));
-                Assert.IsTrue(writer.TrySeal(out FrozenConfigSnapshot snapshot, out _));
-                return snapshot;
-            }
         }
 
+        /// <summary>为安全测试的节点、层和边指定稳定身份。</summary>
         private static class Ids
         {
             static Ids()
@@ -1101,7 +1089,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateId.TryCreate(0x51UL, 5UL, out LeafB);
                 TransitionId.TryCreate(0x51UL, 6UL, out Transition);
                 StateDescriptorId.TryCreate(0x51UL, 7UL, out StateDescriptor);
-                ConditionDescriptorId.TryCreate(0x51UL, 8UL, out ConditionDescriptor);
                 TimelineId.TryCreate(0x51UL, 9UL, out Timeline);
                 ClockDomainId.TryCreate(10UL, out ClockDomain);
                 StateDescriptorId.TryCreate(
@@ -1112,10 +1099,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     0x51UL,
                     12UL,
                     out OperationConsumerDescriptor);
-                OperationSectionId.TryCreate(
+                OperationId.TryCreate(
                     0x51UL,
                     13UL,
-                    out OperationSection);
+                    out Operation);
             }
 
             public static readonly GraphId Graph;
@@ -1125,12 +1112,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public static readonly StateId LeafB;
             public static readonly TransitionId Transition;
             public static readonly StateDescriptorId StateDescriptor;
-            public static readonly ConditionDescriptorId ConditionDescriptor;
             public static readonly TimelineId Timeline;
             public static readonly ClockDomainId ClockDomain;
             public static readonly StateDescriptorId OperationProviderDescriptor;
             public static readonly StateDescriptorId OperationConsumerDescriptor;
-            public static readonly OperationSectionId OperationSection;
+            public static readonly OperationId Operation;
 
             public static GraphInstanceId GraphInstance(ulong value)
             {
@@ -1154,5 +1140,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return tick;
             }
         }
+
+        #endregion
     }
 }

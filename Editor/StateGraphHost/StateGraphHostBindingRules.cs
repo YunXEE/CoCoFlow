@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.Text;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>装配期提示级别（N6：authoring hints，非启动权威）。</summary>
     internal enum BindingHintKind
@@ -85,7 +84,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         internal static bool IsActorContextBinding(MonoBehaviour component)
         {
-            return component != null && component is IActorContextBinding;
+            return component != null && component is IHostContextBinding;
         }
 
         // ----- 描述（列表行 desc，双语成对） -----
@@ -246,9 +245,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return new BindingHint(
                     BindingHintKind.Error,
                     component,
-                    component.name + " does not implement IActorContextBinding " +
+                    component.name + " does not implement IHostContextBinding " +
                         "— startup rejects the Actor Context binding",
-                    component.name + " 未实现 IActorContextBinding——启动时" +
+                    component.name + " 未实现 IHostContextBinding——启动时" +
                         "将拒绝该 Actor Context 绑定");
             }
 
@@ -687,7 +686,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         }
 
         /// <summary>
-        /// Actor Context 候选：边界内实现 IActorContextBinding 的组件
+        /// Actor Context 候选：边界内实现 IHostContextBinding 的组件
         /// （Runtime 要求 Actor 绑定位于边界内），排除已分配。
         /// </summary>
         internal static void CollectActorContextCandidates(
@@ -707,7 +706,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 MonoBehaviour component = components[index];
                 if (component != null &&
                     component != assigned &&
-                    component is IActorContextBinding &&
+                    component is IHostContextBinding &&
                     StateGraphHostBoundary.Contains(host, component))
                 {
                     results.Add(component);

@@ -7,24 +7,25 @@ using System.Threading.Tasks;
 using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;
 
+// EditMode 读取编译后的层、节点与边，核对索引、稳定 ID 及只读性。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>EditMode 读取编译后的层、节点与边，核对索引、稳定 ID 及只读性。</summary>
     public sealed class CompiledStateGraphTests
     {
+
+        #region Public API
+
+        /// <summary>建立图源后改变原始集合，检查每个对外集合仍保留构造时的数据。</summary>
         [Test]
         public void SourceModelDefensivelyCopiesEveryPublicCollection()
         {
-            var originalCondition = new ConditionSource(
-                StateGraphTestFactory.ConditionDescriptorId,
-                StateGraphTestFactory.ConditionConfig(1));
-            var conditions = new[] { originalCondition };
             var transition = new TransitionSource(
                 StateGraphTestFactory.FirstTransitionId,
                 StateGraphTestFactory.RootStateId,
                 StateGraphTestFactory.RootStateId,
                 0,
-                TransitionWindow.Always,
-                conditions);
+                TransitionWindow.Always);
             var originalState = StateGraphTestFactory.State(
                 StateGraphTestFactory.RootStateId,
                 default,
@@ -45,7 +46,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 layers,
                 Array.Empty<EventToIntentDeclarationSource>());
 
-            conditions[0] = null;
             states[0] = null;
             transitions[0] = null;
             layers[0] = null;
@@ -53,17 +53,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreSame(layer, source.Layers[0]);
             Assert.AreSame(originalState, source.Layers[0].States[0]);
             Assert.AreSame(transition, source.Layers[0].Transitions[0]);
-            Assert.AreSame(originalCondition, source.Layers[0].Transitions[0].Conditions[0]);
             Assert.Throws<NotSupportedException>(() =>
                 ((IList<StateLayerSource>)source.Layers).Add(layer));
             Assert.Throws<NotSupportedException>(() =>
                 ((IList<StateSource>)source.Layers[0].States).Add(originalState));
             Assert.Throws<NotSupportedException>(() =>
                 ((IList<TransitionSource>)source.Layers[0].Transitions).Add(transition));
-            Assert.Throws<NotSupportedException>(() =>
-                ((IList<ConditionSource>)transition.Conditions).Add(originalCondition));
         }
 
+        /// <summary>尝试修改诊断和编译清单的集合，检查通过公共视图不能改动冻结结果。</summary>
         [Test]
         public void CompiledGraphDiagnosticsAndManifestsExposeReadOnlyCollections()
         {
@@ -85,9 +83,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.Throws<NotSupportedException>(() =>
                 ((IList<int>)layer.States[1].RootPathStateIndices).Add(99));
             Assert.Throws<NotSupportedException>(() =>
-                ((IList<CompiledCondition>)layer.Transitions[0].Conditions).Add(
-                    layer.Transitions[0].Conditions[0]));
-            Assert.Throws<NotSupportedException>(() =>
                 ((IList<IntentRequirement>)graph.IntentRequirements.Requirements).Add(
                     graph.IntentRequirements.Requirements[0]));
             Assert.Throws<NotSupportedException>(() =>
@@ -100,6 +95,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ((IList<GraphDiagnostic>)result.Diagnostics).Add(default));
         }
 
+        /// <summary>多个读者同时按稳定 ID 查图，检查返回的层、节点和边一致。</summary>
         [Test]
         public void CompiledLookupsAreSafeForConcurrentReadOnlyAccess()
         {
@@ -128,6 +124,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, failures);
         }
 
+        /// <summary>预热后连续执行一万次拓扑查询，以分配计数验证热路径无新增托管内存。</summary>
         [Test]
         public void WarmedTenThousandLookupPassAllocatesZeroBytes()
         {
@@ -182,6 +179,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0L, allocated);
         }
 
+        /// <summary>记录冷编译实际规模与耗时，供后续按相同拓扑比较。</summary>
         [TestCase(1)]
         [TestCase(10)]
         [TestCase(100)]
@@ -199,6 +197,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             TestContext.Progress.WriteLine(
                 $"StateGraph cold compile baseline: states={stateCount}, elapsedMs={stopwatch.Elapsed.TotalMilliseconds:F3}");
         }
+
+        #endregion
+
+        #region Internal Logic
 
         private static CompiledStateGraph CompileGraph()
         {
@@ -232,8 +234,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     states[0].StateId,
                     stateId,
                     index,
-                    TransitionWindow.Always,
-                    Array.Empty<ConditionSource>());
+                    TransitionWindow.Always);
             }
 
             var layer = new StateLayerSource(
@@ -243,5 +244,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 transitions);
             return StateGraphTestFactory.Source(layer, unchecked(6000UL + (ulong)stateCount));
         }
+
+        #endregion
     }
 }

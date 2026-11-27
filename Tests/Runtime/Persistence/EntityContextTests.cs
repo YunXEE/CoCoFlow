@@ -1,5 +1,5 @@
 using System.Reflection;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using NUnit.Framework;
 using UnityEngine;

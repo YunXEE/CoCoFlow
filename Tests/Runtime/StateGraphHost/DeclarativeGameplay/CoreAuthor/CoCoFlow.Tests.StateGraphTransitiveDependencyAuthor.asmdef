@@ -3,7 +3,7 @@
     "rootNamespace": "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper"
     ],
     "includePlatforms": [],

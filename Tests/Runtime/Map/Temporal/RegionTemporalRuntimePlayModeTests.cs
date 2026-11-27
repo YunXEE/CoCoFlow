@@ -6,7 +6,6 @@ using System.Text;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
@@ -15,7 +14,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public sealed class RegionTemporalRuntimePlayModeTests
     {

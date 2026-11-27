@@ -5,17 +5,22 @@ using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
+// Player 构建前扫描玩法类型和已生成的 Operation 视图，提供链接器所需的保留条目。
 namespace CoCoFlow.Editor.PlayerMetadata
 {
+    /// <summary>将反射取得的类型名转换成 Player 链接器可识别的拼写。</summary>
     public static class PlayerOperationMetadataNaming
     {
+        /// <summary>返回链接器使用的嵌套类型全名，将 CLR 的加号转换为斜线，无法取得名称时返回 null。</summary>
         public static string GetLinkerTypeFullName(Type type) =>
             type?.FullName?.Replace('+', '/');
     }
 
+    /// <summary>将一个需要保留的操作合同和生成绑定关联到来源程序集。</summary>
     [Serializable]
     public sealed class PlayerOperationMetadataEntry
     {
+        /// <summary>保存链接器所需的程序集名、类型全名与保留范围。</summary>
         public PlayerOperationMetadataEntry(
             string assemblyName,
             string typeFullName,
@@ -31,9 +36,11 @@ namespace CoCoFlow.Editor.PlayerMetadata
         public string Preserve { get; }
     }
 
+    /// <summary>汇总扫描得到的 Player 保留条目与诊断。</summary>
     [Serializable]
     public sealed class PlayerOperationMetadataResult
     {
+        /// <summary>打包扫描出的保留条目和诊断，让构建方在写入链接器配置前检查。</summary>
         public PlayerOperationMetadataResult(
             PlayerOperationMetadataEntry[] entries,
             string[] diagnostics)
@@ -46,8 +53,13 @@ namespace CoCoFlow.Editor.PlayerMetadata
         public string[] Diagnostics { get; }
     }
 
+    /// <summary>从指定的项目程序集和操作声明收集 Player 构建所需的元数据。</summary>
     public sealed class PlayerOperationMetadataScanner : MarshalByRefObject
     {
+
+        #region Public API
+
+        /// <summary>扫描提供的程序集并按程序集和类型名输出已去重的保留项，同时返回加载或声明错误。</summary>
         public PlayerOperationMetadataResult Scan(
             string assemblyDirectory,
             string[] playerAssemblyNames)
@@ -55,6 +67,7 @@ namespace CoCoFlow.Editor.PlayerMetadata
             return Scan(assemblyDirectory, playerAssemblyNames, true);
         }
 
+        /// <summary>扫描提供的程序集并按程序集和类型名输出已去重的保留项，同时返回加载或声明错误。</summary>
         public PlayerOperationMetadataResult Scan(
             string assemblyDirectory,
             string[] playerAssemblyNames,
@@ -115,6 +128,10 @@ namespace CoCoFlow.Editor.PlayerMetadata
                 diagnostics);
         }
 
+        #endregion
+
+        #region Internal Logic
+
         private static void ScanAssembly(
             Assembly assembly,
             IDictionary<string, PlayerOperationMetadataEntry> entries,
@@ -151,14 +168,12 @@ namespace CoCoFlow.Editor.PlayerMetadata
                 CollectStandardBindingMetadata(type, entries);
                 if (type == null ||
                     !type.IsInterface ||
-                    type == typeof(IOperationSection) ||
-                    !typeof(IOperationSection).IsAssignableFrom(type))
+                    type == typeof(IOperation) ||
+                    !typeof(IOperation).IsAssignableFrom(type))
                 {
                     continue;
                 }
 
-                // 运行时创建的图也需要完整声明；无资产构建保留无效声明，
-                // 由运行时注册路径报告原有诊断，不在构建时提前拒绝。
                 if (!validateSections)
                 {
                     AddEntry(type, "all", entries);
@@ -171,9 +186,9 @@ namespace CoCoFlow.Editor.PlayerMetadata
                     continue;
                 }
 
-                if (!OperationSectionShape.TryCreate(
+                if (!OperationShape.TryCreate(
                         type,
-                        out OperationSectionShape shape,
+                        out OperationShape shape,
                         out CoCoDiagnostic diagnostic))
                 {
                     messages.Add($"{type.FullName}: {diagnostic.Message}");
@@ -200,13 +215,11 @@ namespace CoCoFlow.Editor.PlayerMetadata
                              BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                     if (property.IsDefined(typeof(OperatorDefinitionAttribute), false)) AddEntry(type, "all", entries);
             }
-            if (!type.IsDefined(typeof(StateAttribute), false) && !type.IsDefined(typeof(ConditionAttribute), false))
+            if (!type.IsDefined(typeof(StateAttribute), false))
             {
                 return;
             }
 
-            // 标准绑定按声明发现类型，再通过泛型反射创建实例、绑定属性和配置字段。
-            // 保留声明类型本身，避免测试里偶然存在的 new 调用成为构造函数的唯一根。
             AddEntry(type, "all", entries);
             var visited = new HashSet<string>(StringComparer.Ordinal);
             foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
@@ -293,5 +306,7 @@ namespace CoCoFlow.Editor.PlayerMetadata
         private static string Key(Type type) =>
             $"{type.Assembly.GetName().Name}\0" +
             PlayerOperationMetadataNaming.GetLinkerTypeFullName(type);
+
+        #endregion
     }
 }

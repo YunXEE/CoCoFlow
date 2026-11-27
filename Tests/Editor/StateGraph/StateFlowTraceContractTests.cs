@@ -370,7 +370,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateBlockId blockId = CreateBlockId(layoutId.High, layoutId.Low);
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,

@@ -38,12 +38,12 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 - [ ] StateGraph reads the current frozen IntentFrame, callback-scoped typed
       Inbox payload batches (D043-11), and Previous
       ContextFrame; it cannot observe an Outcome produced during the same Tick.
-- [ ] IntentFrame does not reuse OperationFrame Sections and does not enter
+- [ ] IntentFrame does not reuse Operations and does not enter
       Temporal or Durable storage.
-- [ ] OperationFrame is a complete read-only execution guide; identical Section
+- [ ] OperationFrame is a complete read-only execution guide; identical Operation
       identities deduplicate, shape-equal identities remain distinct, and
-      Section-to-Section inheritance is rejected.
-- [ ] Every compiled Operation provide contains the complete Section Shape, and
+      Operation-to-Operation inheritance is rejected.
+- [ ] Every compiled Operation provide contains the complete Operation shape, and
       Catalog/Registry binding compares every field rather than treating the
       Shape fingerprint as correctness proof.
 - [ ] FrozenConfig snapshots are framework-owned canonical Schema values:
@@ -68,13 +68,13 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       per-Host activation, lifecycle, Inbox, and Context state is never cached in
       the Asset result.
 - [ ] The only required Actor component is `StateGraphHost` with one
-      `StateGraphAsset`; Runtime, Clock, Inbox, Router, Logic, Condition, and
+      `StateGraphAsset`; Runtime, Clock, Inbox, Router, Logic, and
       Memory are not components, and Host performs no scene/child/legacy scan.
 - [ ] Runtime binding coverage is immutable and exact for every State,
-      Condition, Memory, Intent Source, and Event Adapter; a mismatch leaves the
+      Memory, Intent Source, and Event Adapter; a mismatch leaves the
       Host in Created with zero callback, Tick, or Router registration.
 - [ ] Context/Operator/Claim/Actor/Outbox transaction preflight completes before
-      Clock or Runtime creation; invalid setup invokes no Logic, Condition,
+      Clock or Runtime creation; invalid setup invokes no Logic,
       Memory factory/reset/fingerprint, Graph capture, Operator, or Actor callback.
 - [ ] Legacy Event-to-Intent Adapter execution follows Asset declaration-list order preserved by
       the compiled manifest; the binding Provider cannot reorder semantics.
@@ -92,9 +92,9 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
       sender registration, shares bounded outbox capacity, publishes only after
       successful commit, and clears candidates on cancellation. Existing Packet
       Operator publication remains supported.
-- [ ] D043-09/10: [Condition] classes are discovered and factory-bound by the
-      standard Provider; ProvidesActionProgress reaches both State registration
-      paths. Existing transition-request, progress and evaluation rules remain.
+- [ ] D043-09/10: the State evaluates its gameplay rule before requesting an edge.
+      ProvidesActionProgress reaches both registration paths. Window, priority, and
+      the commit decide whether the requested transition takes effect.
 - [ ] Start selects ordinary leaves and initializes AnyState. Enter is parent-to-child, mandatory
       Update is root-to-leaf, Exit is leaf-to-parent, and a Transition keeps its
       source path effective until the target enters on the next accepted Tick.
@@ -162,7 +162,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 - [ ] New 0.4 Editor and public documentation use only Graph, Layer, State, and
       Transition vocabulary. Sources are ordinary leaves or AnyState; targets
       remain same-Layer ordinary leaves. Transitions expose
-      Conditions, one Window, and a source-unique Priority; Interrupt is not an
+      one Window, and a source-unique Priority; Interrupt is not an
       authoring field.
 - [ ] Every topology write uses the Editor authoring-operation boundary and one
       Unity Undo group per accepted gesture. Rejected operations do not dirty
@@ -417,7 +417,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 
 - [ ] Clean package import completed without Console compile errors.
 - [ ] Core contract EditMode tests passed.
-- [ ] State Flow Frame/Section/Descriptor EditMode tests passed.
+- [ ] State Flow Frame/Operation/Descriptor EditMode tests passed.
 - [ ] Mailbox, Intent projection, Commit protocol, and Restore contract tests
       passed for the scope owned by this Pre.
 - [ ] Architecture/package-boundary EditMode tests passed.
@@ -501,7 +501,7 @@ Player、IL2CPP、裁剪或其他平台通过。以下冻结契约保留原始�
 - [ ] After 100 warm-up and 10,000 measured iterations, normal Step, layered
       composition, Transition, Router-to-Inbox-to-Step, and Suspend/Resume meet
       the zero steady-state managed-allocation gate.
-- [ ] Required generic Section, EventPacket, Adapter, Codec, StateGraph snapshot,
+- [ ] Required generic Operation, EventPacket, Adapter, Codec, StateGraph snapshot,
       descriptor, and manifest paths passed an IL2CPP/AOT smoke build with the
       configured stripping level.
 - [ ] macOS Universal IL2CPP with High Managed Stripping completed as the smoke

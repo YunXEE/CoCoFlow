@@ -1,8 +1,8 @@
+using CoCoFlow.Runtime.Input.Contracts;
 using System.Collections;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Input;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
@@ -13,7 +13,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>
     /// C4 end-to-end: InputReader -> InputIntent -> IntentFrame ->
@@ -138,7 +138,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(sampled, Has.Count.EqualTo(2));
 
             InputSystem.Update();
-            Assert.That(input.TrySample(default, out InputIntentData remaining), Is.True);
+            Assert.That(input.TrySample(default, out InputIntentContract remaining), Is.True);
             var pending = new List<ulong>();
             foreach (var record in remaining.Changes.ToArray())
                 if (record.Action.ToString() == SubmitAction) pending.Add(record.Sequence);
@@ -266,7 +266,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         _intentId,
                         2,
                         new IntentReducerFactoryToken<
-                            InputIntentData,
+                            InputIntentContract,
                             RawInputProbeReducer,
                             RawInputProbeReducerFactory>(1UL),
                         out CoCoDiagnostic intentDiagnostic) ||
@@ -312,21 +312,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoDiagnostic diagnostic)
             {
                 if (!bindingBuilder.TryRegisterIntent<
-                        InputIntentData, RawInputProbeReducer, RawInputProbeReducerFactory>(
+                        InputIntentContract, RawInputProbeReducer, RawInputProbeReducerFactory>(
                         _intentId,
                         new RawInputProbeReducerFactory(),
                         1UL,
-                        out IntentHandle<InputIntentData> intent,
+                        out IntentHandle<InputIntentContract> intent,
                         out diagnostic) ||
                     !bindingBuilder.TryBeginIntentBindings(out diagnostic))
                 {
                     return false;
                 }
 
-                if (!IntentSourceRequirement<InputIntentData>.TryCreate(
+                if (!IntentSourceRequirement<InputIntentContract>.TryCreate(
                         intent,
                         1,
-                        out IntentSourceRequirement<InputIntentData> requirement) ||
+                        out IntentSourceRequirement<InputIntentContract> requirement) ||
                     !bindingBuilder.TryBindIntentSource(0, requirement, out diagnostic) ||
                     !bindingBuilder.TryBindGraphStateSlot<
                         RawInputProbeMemory,

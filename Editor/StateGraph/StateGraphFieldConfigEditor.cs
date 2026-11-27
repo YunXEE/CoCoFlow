@@ -5,14 +5,15 @@ using System.Globalization;
 using System.Reflection;
 using System.Linq;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+// 详情面板按玩法字段类型绘制节点覆盖，文本框保留字符串原文，复位时移除指定覆盖。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>连接当前图资产、画布和详情，在编辑与撤销后刷新受影响的视图。</summary>
     internal sealed partial class StateGraphEditorWindow
     {
         private bool DrawFieldConfig(VisualElement parent, StateGraphStateRecord state)
@@ -91,6 +92,7 @@ namespace CoCoFlow.Editor.StateGraph
             return new GUIContent(ObjectNames.NicifyVariableName(name), path);
         }
 
+        /// <summary>按类型递归绘制配置叶、结构体和集合，在修改后写回选中的节点。</summary>
         private sealed class ConfigFieldGUI
         {
             private readonly Dictionary<string, (string Text, string Error)> _inputs = new();
@@ -160,6 +162,14 @@ namespace CoCoFlow.Editor.StateGraph
                     }
                     return value;
                 }
+                if (type == typeof(string))
+                {
+                    EditorGUI.BeginChangeCheck();
+                    string text = EditorGUI.DelayedTextField(row, label, (string)value ?? string.Empty);
+                    if (!EditorGUI.EndChangeCheck()) return value;
+                    Changed = true;
+                    return text;
+                }
                 object result;
                 if (value is float f) result = EditorGUI.DelayedFloatField(row, label, f);
                 else if (value is double d) result = EditorGUI.DelayedDoubleField(row, label, d);
@@ -204,6 +214,7 @@ namespace CoCoFlow.Editor.StateGraph
                 {
                     list.list = Resize(type, list.list, list.count + 1, -1);
                     list.index = list.count - 1;
+                    list.list[list.index] = InitializeNewElement(element, list.list[list.index]);
                     Changed = StructureChanged = true;
                 };
                 list.onRemoveCallback = _ =>
@@ -224,6 +235,16 @@ namespace CoCoFlow.Editor.StateGraph
                 for (int source = 0, target = 0; source < items.Count; source++)
                     if (source != remove) result[target++] = items[source];
                 return result;
+            }
+
+            private static object InitializeNewElement(Type type, object value)
+            {
+                if (type == typeof(string)) return value ?? string.Empty;
+                if (StateFields.IsConfigScalar(type)) return value;
+
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                    field.SetValue(value, InitializeNewElement(field.FieldType, field.GetValue(value)));
+                return value;
             }
         }
     }

@@ -4,12 +4,10 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 
+// Setup 根据模块表和现场程序集检查依赖状态，并向窗口提供逐项结果。
 namespace CoCoFlow.Editor.Core
 {
-    /// <summary>
-    /// Setup 状态扫描结果（数据层）。消息以双语对保存（原始数据），视图按语言投影；
-    /// D-18 后 define 检查聚焦 active build target，含 UPM 形态遗留手工 define 识别（#20-b）。
-    /// </summary>
+    /// <summary>汇总模块的依赖及其可用情况。</summary>
     internal sealed class CoCoSetupDependencyStatus
     {
         public string ManifestError { get; set; }
@@ -33,14 +31,12 @@ namespace CoCoFlow.Editor.Core
         public CoCoSetupModuleCatalog.BilingualText NewtonsoftMessage { get; private set; }
         public CoCoSetupModuleCatalog.BilingualText DotweenMessage { get; private set; }
 
-        /// <summary>行状态语义（Error/Warning/InfoSuccess/InfoOptional，视图映射 BadgeKind）。</summary>
-        public DependencyRowState UniTaskState { get; private set; }
+                public DependencyRowState UniTaskState { get; private set; }
         public DependencyRowState AddressablesState { get; private set; }
         public DependencyRowState NewtonsoftState { get; private set; }
         public DependencyRowState DotweenState { get; private set; }
 
-        /// <summary>define → active target 缺失名单（空列表 = 已满足；无键 = 该 define 不在手动检查集）。</summary>
-        public Dictionary<string, List<string>> MissingDefineTargets { get; set; } =
+                public Dictionary<string, List<string>> MissingDefineTargets { get; set; } =
             new Dictionary<string, List<string>>();
 
         public Dictionary<string, bool> AssemblyStates { get; } = new Dictionary<string, bool>();
@@ -138,8 +134,6 @@ namespace CoCoFlow.Editor.Core
                 UniTaskState = DependencyRowState.InfoSuccess;
             }
 
-            // D-02 保持（#20-b）：UPM 形态下 active target 存在遗留手工 define 时，
-            // 不得显示健康/自治——手工符号可旁路 versionDefines 版本边界。
             if (UniTaskDefineAutomatic && LegacyUniTaskManualDefinePresent)
             {
                 UniTaskMessage = new CoCoSetupModuleCatalog.BilingualText(
@@ -259,8 +253,7 @@ namespace CoCoFlow.Editor.Core
         {
             if (!string.IsNullOrEmpty(ManifestError))
             {
-                // 声明非等价项 #19（错误反馈优化）：DOTween 行遇 manifest error
-                // 规范化为 Error（旧实现文案为 Manifest error 但行状态仍 Info/Warning）。
+
                 DotweenMessage = new CoCoSetupModuleCatalog.BilingualText(
                     "Manifest error: " + ManifestError,
                     "manifest 错误：" + ManifestError);
@@ -292,7 +285,7 @@ namespace CoCoFlow.Editor.Core
         }
     }
 
-    /// <summary>依赖行状态语义（视图按 §2.2 映射表转 BadgeKind）。</summary>
+    /// <summary>表示 Setup 面板一行依赖检查的状态。</summary>
     internal enum DependencyRowState
     {
         Error,
@@ -301,10 +294,7 @@ namespace CoCoFlow.Editor.Core
         InfoOptional
     }
 
-    /// <summary>
-    /// Setup 状态扫描器：manifest 解析、程序集/类型探测、active target define 检查
-    /// （D-18：仅 EditorUserBuildSettings 当前目标；UPM 形态识别遗留手工 UniTask define）。
-    /// </summary>
+    /// <summary>对照实际模块与其依赖生成 Setup 的显示数据。</summary>
     internal static class CoCoSetupStatusScanner
     {
         public static CoCoSetupDependencyStatus BuildStatus()
@@ -355,7 +345,6 @@ namespace CoCoFlow.Editor.Core
             status.DotweenInstalled = IsDotweenInstalled();
             status.DotweenModulesInstalled = IsAssemblyInstalled("DOTween.Modules");
 
-            // D-18：active target 唯一检查目标。
             var activeSymbols = ReadActiveTargetDefineSymbols(status, out var activeTargetReadable);
             status.ActiveTargetReadable = activeTargetReadable;
             status.MissingDefineTargets = GetMissingDefineTargets(
@@ -365,21 +354,16 @@ namespace CoCoFlow.Editor.Core
 
             if (unitaskForm == CoCoUniTaskInstallForm.UpmRegistered && status.UniTaskDefineAutomatic && status.UniTaskInstalled)
             {
-                // versionDefines is the authority here; record the define as
-                // satisfied so module status does not show it as partial.
-                // UniTaskInstalled is required: an unresolved dependency cannot
-                // emit versionDefines yet (fresh open / failed git fetch).
+
                 status.MissingDefineTargets[CoCoFlowUtility.UniTaskDefine] = new List<string>();
             }
             else if (status.UniTaskVersionBlocked)
             {
-                // Blocked UPM version: linked assemblies are disabled; the define
-                // must not be reported as enabled on the active target.
+
                 status.MissingDefineTargets[CoCoFlowUtility.UniTaskDefine] =
                     new List<string> { status.ActiveTargetName };
             }
 
-            // D-02 保持（#20-b）：UPM 形态下遗留手工 UniTask define 识别（仅 active target）。
             status.LegacyUniTaskManualDefinePresent =
                 unitaskForm == CoCoUniTaskInstallForm.UpmRegistered &&
                 activeSymbols != null &&
@@ -410,13 +394,7 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-        /// <summary>
-        /// active build target（D-18 唯一目标）。权威链：activeBuildTarget → group →
-        /// NamedBuildTarget；Standalone 子目标为 Dedicated Server 时 define 存储
-        /// 身份是 NamedBuildTarget.Server（BUG-050：不得用 selectedBuildTargetGroup，
-        /// 它在 Build Profiles selected≠active 时漂移，且无法区分 Server）。
-        /// </summary>
-        internal static NamedBuildTarget GetActiveNamedBuildTarget()
+                internal static NamedBuildTarget GetActiveNamedBuildTarget()
         {
             var activeTarget = EditorUserBuildSettings.activeBuildTarget;
             var group = BuildPipeline.GetBuildTargetGroup(activeTarget);
@@ -426,11 +404,7 @@ namespace CoCoFlow.Editor.Core
                 EditorUserBuildSettings.standaloneBuildSubtarget);
         }
 
-        /// <summary>
-        /// 纯决策函数（可单测）：Standalone 子目标为 Server ⇒ NamedBuildTarget.Server；
-        /// 其余按 group 解析。
-        /// </summary>
-        internal static NamedBuildTarget ResolveActiveNamedTarget(
+                internal static NamedBuildTarget ResolveActiveNamedTarget(
             BuildTarget activeTarget,
             BuildTargetGroup group,
             StandaloneBuildSubtarget subtarget)
@@ -451,8 +425,6 @@ namespace CoCoFlow.Editor.Core
         {
             var result = new Dictionary<string, List<string>>();
 
-            // UPM 形态下 UniTask define 由 versionDefines 自动管理，
-            // 不要求手动出现在 ScriptingDefineSymbols（否则误报 missing）。
             var manualDefines = unitaskForm == CoCoUniTaskInstallForm.UpmRegistered
                 ? new[] { CoCoFlowUtility.DotweenDefine, CoCoFlowUtility.UniTaskDotweenDefine }
                 : new[] { CoCoFlowUtility.UniTaskDefine, CoCoFlowUtility.DotweenDefine, CoCoFlowUtility.UniTaskDotweenDefine };
@@ -481,22 +453,14 @@ namespace CoCoFlow.Editor.Core
                 IsAssemblyInstalled("CoCoFlow.Runtime.Pooling");
             status.AssemblyStates["CoCoFlow.Runtime.Pooling.Temporal"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Pooling.Temporal");
-            status.AssemblyStates["CoCoFlow.Runtime.StateGraphHost"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.StateGraphHost");
+            status.AssemblyStates["CoCoFlow.Runtime.StateGraph"] =
+                IsAssemblyInstalled("CoCoFlow.Runtime.StateGraph");
             status.AssemblyStates["CoCoFlow.Runtime.Modules.Map"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map");
             status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Pooling"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Pooling");
             status.AssemblyStates["CoCoFlow.Runtime.Modules.Map.Temporal"] =
                 IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Map.Temporal");
-            status.AssemblyStates["CoCoFlow.Runtime.Animation.Contracts"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Animation.Contracts");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.DOTween"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.DOTween");
-            status.AssemblyStates["CoCoFlow.Runtime.Modules.Animation.UniTask"] =
-                IsAssemblyInstalled("CoCoFlow.Runtime.Modules.Animation.UniTask");
             status.AssemblyStates["Unity.InputSystem"] = IsAssemblyInstalled("Unity.InputSystem");
             status.AssemblyStates["Unity.Localization"] =
                 IsAssemblyInstalled("Unity.Localization");

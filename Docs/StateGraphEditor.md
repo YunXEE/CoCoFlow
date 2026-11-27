@@ -37,7 +37,7 @@ every State, at any nesting depth, is placed on the same canvas (positions are
 composed from the per-scope local EditorLayout coordinates), and parent-child
 structure is drawn as white flowchart-style elbow lines (genealogy lines). A
 Transition goes from an ordinary leaf or AnyState to an ordinary leaf of the Layer. Its runtime
-declaration consists of Conditions, one Window, and a Priority that is unique
+declaration consists of one Window and a Priority that is unique
 among the outgoing Transitions of its source. Completion and Interrupt are not
 authoring fields. The interaction rejects a cross-Layer or composite endpoint
 before mutation, while Compiler validation remains the final gate.
@@ -96,7 +96,7 @@ Unaffected parallel edges and visible leaf self-loops keep their existing presen
 Click a line or triangle to select its only member, or open a Unity menu when it
 contains several. Each menu item gives the full source and target paths, Priority,
 and complete Transition ID. Choosing one edits that original Transition, including
-its Window, Conditions and Config, through the normal Undo commands. Cancelling
+its Window and Priority, through the normal Undo commands. Cancelling
 the menu leaves selection intact. Selection keeps the submachine collapsed;
 explicit state navigation or diagnostic **Locate** reveals the necessary ancestors.
 Selection ancestry and direct-target highlighting follow the visible cards.
@@ -130,7 +130,7 @@ Transitions instead. Clicking empty canvas clears selection and keeps the curren
 Layer. Add State selects an existing Logic and creates a named State; Add Logic
 generates a reusable project Logic script.
 The Transition list and creation controls stay
-expanded; their asset order, priorities, and Condition order keep their existing
+expanded; their asset order and priorities keep their existing
 meaning. Selecting a State shows only its outgoing Transitions;
 creating a Transition fixes the source to that State. Selecting an edge keeps
 the list scoped to that edge's source. With nothing selected, all Transitions
@@ -165,8 +165,8 @@ still creates ordinary Logic; AnyState requires the explicit special base class.
    Edit Name, Logic and StateConfig through the same **Save / Discard** draft.
 4. Add outgoing transitions in **Transitions**, or right-drag its canvas card
    to an ordinary leaf. Source choices include AnyState and ordinary leaves;
-   target choices include only ordinary leaves. Set unique source Priorities,
-   Conditions and a Window as usual.
+   target choices include only ordinary leaves. Set unique source Priorities
+   and a Window as usual.
 5. **Delete AnyState** (`删除 AnyState`) clears the binding and its associated
    transitions in one Undo operation. Undo/Redo restores the same IDs and Config.
 
@@ -200,7 +200,7 @@ start it automatically.
 Every topology mutation and explicit layout movement goes through the Editor
 authoring operations and records one Unity Undo group per user gesture. This
 includes topology creation, deletion, reordering, renaming, Transition
-declarations, Condition list changes, and preset creation. State/Condition
+declarations and preset creation. State
 authoring configs and Event Adapter declarations use bound serialized fields
 outside the topology command boundary.
 
@@ -288,7 +288,7 @@ Restore references when their manifests require them. Driver, TimeScale, Clock,
 capacity, and lifecycle remain Host-owned settings.
 
 The Project Provider retains authority for the frozen Catalog, State and
-Condition factories, generic Intent and Adapter bindings, Operation and Context
+State factories, generic Intent and Adapter bindings, Operation and Context
 types, Codecs, defaults, and all AOT-safe construction. Host references choose
 the concrete scene instances and their order; they do not replace Provider type
 authority. Inspector suggestions are advisory and remain unsaved until the user
@@ -313,7 +313,7 @@ Snapshot and Trace have different jobs:
 - **Snapshot** answers “what is committed now?” and is replaced only by another
   committed point-in-time capture.
 - **Trace** answers “what identity-only events happened recently?” It is an
-  optional fixed-capacity history of Tick, Candidate/Winner, Operation Section,
+  optional fixed-capacity history of Tick, Candidate/Winner, Operation,
   Operator Outcome, Context commit, Active Path, Event sequence/publication,
   cancellation, and diagnostic identities.
 
@@ -365,8 +365,7 @@ See [StateGraph Asset and Compiler](StateGraphCompiler.md),
 
 ## Boundaries
 
-- Animator/Playable integration and concrete animation timing belong to the
-  Animation module.
+- Gameplay projects implement animation playback and own the related assets.
 - Persistence owns durable save schema and migration; Editor layout is never
   save-game data.
 - Production gameplay States and project content are consumer-owned.

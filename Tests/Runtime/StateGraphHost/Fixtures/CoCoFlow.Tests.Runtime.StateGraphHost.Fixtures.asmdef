@@ -2,10 +2,10 @@
     "name": "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
     "rootNamespace": "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
     "references": [
-        "CoCoFlow.Runtime.Animation.Contracts",
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph",
-        "CoCoFlow.Runtime.Locomotion.Contracts"
+        "CoCoFlow.Runtime.StateGraph.Contracts",
+        "CoCoFlow.Runtime.Locomotion.Contracts",
+        "CoCoFlow.Runtime.Input.Contracts"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

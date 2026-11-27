@@ -229,19 +229,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         public void ClaimStateHasCanonicalUnheldAndCompleteHeldForms()
         {
             OperatorClaimId claimId = CreateClaimId(20UL);
-            OperationSectionId sectionId = CreateSectionId(21UL);
-            OperatorClaimState unheld = OperatorClaimState.Unheld(claimId, sectionId);
+            OperationId operationId = CreateSectionId(21UL);
+            OperatorClaimState unheld = OperatorClaimState.Unheld(claimId, operationId);
             Assert.IsFalse(unheld.IsHeld);
             Assert.IsTrue(unheld.IsValid);
             Assert.AreEqual(claimId, unheld.ClaimId);
-            Assert.AreEqual(sectionId, unheld.SectionId);
+            Assert.AreEqual(operationId, unheld.OperationId);
             Assert.IsFalse(unheld.OwnerOperatorId.IsValid);
             Assert.IsFalse(unheld.ActivationId.IsValid);
             Assert.IsFalse(default(OperatorClaimState).IsValid);
 
             Assert.IsTrue(OperatorClaimState.TryCreateHeld(
                 claimId,
-                sectionId,
+                operationId,
                 CreateOperatorId(22UL),
                 CreateActivationId(23UL),
                 out OperatorClaimState held));
@@ -249,14 +249,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(held.IsValid);
             Assert.IsTrue(OperatorClaimState.TryCreateHeld(
                 claimId,
-                sectionId,
+                operationId,
                 CreateOperatorId(22UL),
                 CreateActivationId(23UL),
                 out OperatorClaimState equivalent));
             Assert.AreEqual(held, equivalent);
             Assert.IsFalse(OperatorClaimState.TryCreateHeld(
                 claimId,
-                sectionId,
+                operationId,
                 default,
                 CreateActivationId(24UL),
                 out _));
@@ -267,7 +267,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             StateSlotId intSlot = CreateSlotId(30UL);
             StateSlotId floatSlot = CreateSlotId(31UL);
-            var builder = new ActorContextBindingDescriptorBuilder();
+            var builder = new HostContextBindingDescriptorBuilder();
 
             Assert.IsTrue(builder.TryProduce<int>(intSlot, out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
@@ -279,7 +279,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.IsTrue(builder.TryFreeze<TestActorBinding>(
                 0xA17C0UL,
-                out ActorContextBindingDescriptor descriptor,
+                out HostContextBindingDescriptor descriptor,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.IsFrozen);
@@ -299,7 +299,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 out diagnostic));
             Assert.AreEqual(CoCoDiagnosticCode.RegistryFrozen, diagnostic.Code);
 
-            var empty = new ActorContextBindingDescriptorBuilder();
+            var empty = new HostContextBindingDescriptorBuilder();
             Assert.IsFalse(empty.TryFreeze<TestActorBinding>(1UL, out _, out diagnostic));
             Assert.AreEqual(CoCoDiagnosticCode.InvalidStateBlock, diagnostic.Code);
         }
@@ -309,14 +309,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             StateSlotId declaredId = CreateSlotId(51UL);
             StateSlotId undeclaredId = CreateSlotId(41UL);
-            var descriptorBuilder = new ActorContextBindingDescriptorBuilder();
+            var descriptorBuilder = new HostContextBindingDescriptorBuilder();
             Assert.IsTrue(descriptorBuilder.TryProduce<int>(
                 declaredId,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(descriptorBuilder.TryFreeze<TestActorBinding>(
                 0xB17DUL,
-                out ActorContextBindingDescriptor descriptor,
+                out HostContextBindingDescriptor descriptor,
                 out diagnostic),
                 diagnostic.Message);
             var binding = new TestActorBinding(descriptor, declaredId, 42);
@@ -337,8 +337,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 block,
                 binding,
                 101UL);
-            var writer = new ActorContextWriter(binding, descriptor, sink, 101UL);
-            var context = new ActorContextCaptureContext(
+            var writer = new HostContextWriter(binding, descriptor, sink, 101UL);
+            var context = new HostContextCaptureContext(
                 graphId,
                 CreateTickFrame(1UL),
                 arena.Previous,
@@ -372,7 +372,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode code));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -397,22 +397,22 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId graphId,
             TickFrame tick)
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(60UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(OperationFrame.TryCreate(
                 registry,
                 graphId,
-                Array.Empty<OperationSectionRequirement>(),
+                Array.Empty<OperationRequirement>(),
                 out OperationFrame frame,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(frame.TryBegin(tick, out OperationFrameWriter writer));
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
-            return new StagedOperationFrame(finalized);
+            return finalized.ReadView;
         }
 
         private static GraphInstanceId CreateGraphInstanceId(ulong value)
@@ -469,9 +469,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return id;
         }
 
-        private static OperationSectionId CreateSectionId(ulong low)
+        private static OperationId CreateSectionId(ulong low)
         {
-            Assert.IsTrue(OperationSectionId.TryCreate(0UL, low, out OperationSectionId id));
+            Assert.IsTrue(OperationId.TryCreate(0UL, low, out OperationId id));
             return id;
         }
 
@@ -508,7 +508,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public override int GetHashCode() => Value;
         }
 
-        private sealed class TestMemory : ActivationMemory
+        private sealed class TestMemory : StateActivationMemory
         {
             public int Value { get; set; }
         }
@@ -644,13 +644,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        private sealed class TestActorBinding : IActorContextBinding
+        private sealed class TestActorBinding : IHostContextBinding
         {
             private readonly StateSlotId _slotId;
             private readonly int _value;
 
             public TestActorBinding(
-                ActorContextBindingDescriptor descriptor,
+                HostContextBindingDescriptor descriptor,
                 StateSlotId slotId,
                 int value)
             {
@@ -659,10 +659,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 _value = value;
             }
 
-            public ActorContextBindingDescriptor Descriptor { get; }
+            public HostContextBindingDescriptor Descriptor { get; }
 
             public bool TryCapture(
-                in ActorContextCaptureContext context,
+                in HostContextCaptureContext context,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!context.IsValid || !context.Writer.TryWrite(_slotId, _value))
@@ -676,12 +676,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        private sealed class ActorValueSink : IActorContextValueSink
+        private sealed class ActorValueSink : IHostContextValueSink
         {
             private readonly PreparedContextCommit _prepared;
             private readonly ContextFrameLayout _layout;
             private readonly StateBlockHandle _block;
-            private readonly IActorContextBinding _binding;
+            private readonly IHostContextBinding _binding;
             private readonly ulong _token;
             private bool _active = true;
 
@@ -689,7 +689,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 PreparedContextCommit prepared,
                 ContextFrameLayout layout,
                 StateBlockHandle block,
-                IActorContextBinding binding,
+                IHostContextBinding binding,
                 ulong token)
             {
                 _prepared = prepared;
@@ -703,12 +703,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public bool IsActive(
                 ulong token,
-                IActorContextBinding binding) =>
+                IHostContextBinding binding) =>
                 _active && token == _token && ReferenceEquals(binding, _binding);
 
             public void RejectWrite(
                 ulong token,
-                IActorContextBinding binding)
+                IHostContextBinding binding)
             {
                 if (IsActive(token, binding))
                 {
@@ -718,7 +718,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public bool TryWrite<TValue>(
                 ulong token,
-                IActorContextBinding binding,
+                IHostContextBinding binding,
                 StateSlotId slotId,
                 in TValue value)
                 where TValue : unmanaged
