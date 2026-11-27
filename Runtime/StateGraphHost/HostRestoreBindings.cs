@@ -267,7 +267,7 @@ namespace CoCoFlow.Runtime.StateGraph
                 ApplyProjection callback = entry.Callback(Projection);
                 if (callback == null) continue;
                 if (!TryInvoke(callback, kind, source, target, values, ref worldMayBeDirty, out diagnostic) ||
-                    !OperatorsLive() || _isCancelled())
+                    !IsLive || _isCancelled())
                 {
                     return Reject(ref diagnostic);
                 }

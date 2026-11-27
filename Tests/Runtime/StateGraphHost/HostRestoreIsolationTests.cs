@@ -107,6 +107,46 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
+        [Test]
+        public void RestoreStopsBeforeCallingABindingMovedUnderAnotherHost()
+        {
+            var first = new GameObject("Restoring Host");
+            var second = new GameObject("Other Host");
+            try
+            {
+                var host = first.AddComponent<HostComponent>();
+                second.AddComponent<HostComponent>();
+                var child = new GameObject("Scene binding");
+                child.transform.SetParent(first.transform, false);
+                var binding = child.AddComponent<RestoreProbe>();
+                var outcome = first.AddComponent<RestoreOperator>();
+                using var arena = CreateArena(out var block, out var slot);
+                binding.Slot = outcome.Slot = slot.SlotId;
+                outcome.AfterRead = () => child.transform.SetParent(second.transform, false);
+                using var history = new HostHistoryController(null);
+                Commit(arena, block, slot, Tick(1), 37, history);
+                HostHistoryFrame frame = HostHistoryFrame.From(arena.Current);
+                var recovery = new HostOperatorRecovery { component = outcome, temporal = true };
+                using var scene = new HostRestoreBindings(HostComponentBoundary.For(host),
+                    new MonoBehaviour[] { outcome }, new[] { recovery }, arena.Layout, binding, () => false);
+                scene.Projection = ContextProjection.Temporal;
+
+                Assert.That(scene.TryApply(HostRestoreKind.Cancel, frame, frame.TickFrame, arena.Previous,
+                    out bool dirty, out var diagnostic), Is.False);
+                Assert.That(dirty, Is.True);
+                Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.WorldCorrectionRequired));
+                Assert.That(outcome.LastValue, Is.EqualTo(37));
+                Assert.That(child.transform.parent, Is.SameAs(second.transform));
+                Assert.That(child.transform.localPosition.x, Is.Zero);
+                Assert.That(arena.Current.Revision, Is.EqualTo(frame.Revision));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(first);
+                UnityEngine.Object.DestroyImmediate(second);
+            }
+        }
+
         private static ContextFrameArena CreateArena(out StateBlockHandle block, out StateSlot<int> slot)
         {
             Assert.That(StateBlockId.TryCreate(31, 1, out var blockId), Is.True);
@@ -149,6 +189,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             internal StateSlotId Slot;
             internal HostRestoreReader Escaped;
             internal int LastValue;
+            internal Action AfterRead;
             private OperatorDescriptor _descriptor;
 
             public OperatorDescriptor Descriptor
@@ -176,7 +217,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 diagnostic = CoCoDiagnostic.None;
                 Escaped = context.Reader;
-                return Escaped.TryRead(Slot, out LastValue);
+                if (!Escaped.TryRead(Slot, out LastValue)) return false;
+                AfterRead?.Invoke();
+                return true;
             }
         }
 
