@@ -8,13 +8,16 @@ namespace CoCoFlow.Runtime.StateGraph
     internal readonly struct HostComponentBoundary
     {
         internal Component Owner { get; }
-        private readonly Type _hostType;
+        private readonly Func<Transform, Component> _findHost;
 
-        internal HostComponentBoundary(Component owner, Type hostType)
+        private HostComponentBoundary(Component owner, Func<Transform, Component> findHost)
         {
             Owner = owner;
-            _hostType = hostType;
+            _findHost = findHost;
         }
+
+        internal static HostComponentBoundary For<THost>(THost owner) where THost : Component =>
+            new HostComponentBoundary(owner, parent => parent.GetComponent<THost>());
 
         internal bool HasOwner => Owner != null;
 
@@ -24,7 +27,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
             for (Transform parent = component.transform; parent != null; parent = parent.parent)
             {
-                Component nearest = parent.GetComponent(_hostType);
+                Component nearest = _findHost(parent);
                 if (nearest != null) return ReferenceEquals(nearest, Owner);
             }
 

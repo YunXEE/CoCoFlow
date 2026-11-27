@@ -19,7 +19,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 HostComponent host = owner.AddComponent<HostComponent>();
                 var binding = owner.AddComponent<RestoreProbe>();
                 var outcome = owner.AddComponent<RestoreOperator>();
-                var boundary = new HostComponentBoundary(host, typeof(HostComponent));
+                var boundary = HostComponentBoundary.For(host);
                 using var arena = CreateArena(out StateBlockHandle block, out StateSlot<int> slot);
                 binding.Slot = slot.SlotId;
                 outcome.Slot = slot.SlotId;
@@ -87,7 +87,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 binding.ThrowAfterMutation = true;
                 using var history = new HostHistoryController(null);
                 Assert.That(history.TryBeginPreview(), Is.False);
-                using var scene = new HostRestoreBindings(new HostComponentBoundary(host, typeof(HostComponent)),
+                using var scene = new HostRestoreBindings(HostComponentBoundary.For(host),
                     Array.Empty<MonoBehaviour>(), Array.Empty<HostOperatorRecovery>(), arena.Layout, binding, () => false);
                 scene.Projection = ContextProjection.Durable;
                 Commit(arena, block, slot, Tick(1), 37, history);

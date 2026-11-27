@@ -17,8 +17,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             {
                 var child = new GameObject("Nested Host");
                 child.transform.SetParent(parent.transform);
-                var outer = new HostComponentBoundary(parent.AddComponent<HostComponent>(), typeof(HostComponent));
-                var inner = new HostComponentBoundary(child.AddComponent<HostComponent>(), typeof(HostComponent));
+                var outer = HostComponentBoundary.For(parent.AddComponent<HostComponent>());
+                var inner = HostComponentBoundary.For(child.AddComponent<HostComponent>());
                 var filter = child.AddComponent<PositiveFilter>();
                 child.SetActive(false);
                 var explicitAdapters = new MonoBehaviour[] { filter };
@@ -46,11 +46,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             using var secondInbox = new HostInboxBindings(secondId, 2, () => true, () => overflows++);
             try
             {
-                var boundary = new HostComponentBoundary(receiver.AddComponent<HostComponent>(), typeof(HostComponent));
+                var boundary = HostComponentBoundary.For(receiver.AddComponent<HostComponent>());
                 var filter = receiver.AddComponent<PositiveFilter>();
                 firstInbox.Subscribe(boundary, new MonoBehaviour[] { filter },
                     receiver.GetComponentsInChildren<MonoBehaviour>(true), new[] { typeof(Payload) });
-                var otherBoundary = new HostComponentBoundary(second.AddComponent<HostComponent>(), typeof(HostComponent));
+                var otherBoundary = HostComponentBoundary.For(second.AddComponent<HostComponent>());
                 secondInbox.Subscribe(otherBoundary, Array.Empty<MonoBehaviour>(), Array.Empty<MonoBehaviour>(),
                     new[] { typeof(Payload) });
                 Assert.That(EventDomainId.TryCreate(47, out var domain), Is.True);
