@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using CoCoFlow.Editor.StateGraphHost;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -12,7 +11,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal struct EditorHostIntent
     {
@@ -71,12 +70,12 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
     internal sealed class EditorHostActorContextComponent :
         MonoBehaviour,
-        IActorContextBinding
+        IHostContextBinding
     {
-        public ActorContextBindingDescriptor Descriptor => null;
+        public HostContextBindingDescriptor Descriptor => null;
 
         public bool TryCapture(
-            in ActorContextCaptureContext context,
+            in HostContextCaptureContext context,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;

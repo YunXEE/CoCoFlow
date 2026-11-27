@@ -3,22 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+// 编辑器测试对图及 Unity 引用执行复制、移动或重导入，对照资产身份和引用目标。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>编辑器测试对图及 Unity 引用执行复制、移动或重导入，对照资产身份和引用目标。</summary>
     public sealed class StateGraphCopyIdentityTests
     {
-        private const string TestRoot = "Assets/__CoCoFlowStateGraphCopyTests";
-        private const string SourcePath = TestRoot + "/Source.asset";
-        private const string CopyPath = TestRoot + "/Copy.asset";
-        private const string MovedCopyPath = TestRoot + "/MovedCopy.asset";
 
+        #region Public API
+
+        /// <summary>清理上一次的临时资产并为本例创建独立测试目录。</summary>
         [SetUp]
         public void SetUp()
         {
@@ -26,6 +26,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.CreateFolder("Assets", "__CoCoFlowStateGraphCopyTests");
         }
 
+        /// <summary>释放本次资产测试使用的临时目录并刷新 AssetDatabase。</summary>
         [TearDown]
         public void TearDown()
         {
@@ -34,6 +35,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.Refresh();
         }
 
+        /// <summary>复制含 AnyState 的层或子树，检查所有者重新关联且配置对象相互独立。</summary>
         [Test]
         public void AnyStateCopiesRemapOwnerAndKeepSubtreeIndependent()
         {
@@ -64,6 +66,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1, source.Transitions.Count(edge => edge.SourceStateId == anyId));
         }
 
+        /// <summary>复制完整资产，逐一对照图、层、节点、边的新 ID 及其内部引用。</summary>
         [Test]
         public void WholeAssetCopyRemapsEveryTopologyIdAndInternalReference()
         {
@@ -97,17 +100,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         sourceLayer.Transitions[transitionIndex];
                     StateGraphTransitionRecord copyTransition =
                         copyLayer.Transitions[transitionIndex];
-                    Assert.AreEqual(
-                        sourceTransition.Conditions.Count,
-                        copyTransition.Conditions.Count);
-                    for (int conditionIndex = 0;
-                         conditionIndex < sourceTransition.Conditions.Count;
-                         conditionIndex++)
-                    {
-                        Assert.AreEqual(
-                            sourceTransition.Conditions[conditionIndex].ConditionDescriptorId,
-                            copyTransition.Conditions[conditionIndex].ConditionDescriptorId);
-                    }
                 }
             }
 
@@ -144,6 +136,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>仅复制选中子树，检查其节点和内部转换生成新 ID，外部节点保持原身份。</summary>
         [Test]
         public void SubtreeCopyRemapsOnlyCopiedStatesAndInternalTransitions()
         {
@@ -188,6 +181,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>复制图层并改动副本，验证所有拓扑引用已重映射，源配置不受修改。</summary>
         [Test]
         public void DuplicateLayerDeepCopiesAuthoringDataAndRemapsEveryTopologyReference()
         {
@@ -277,32 +271,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.AreEqual(
                     sourceTransition.WindowEndExclusive,
                     duplicatedTransition.WindowEndExclusive);
-                Assert.AreEqual(
-                    sourceTransition.Conditions.Count,
-                    duplicatedTransition.Conditions.Count);
-                for (int conditionIndex = 0;
-                     conditionIndex < sourceTransition.Conditions.Count;
-                     conditionIndex++)
-                {
-                    StateGraphConditionRecord sourceCondition =
-                        sourceTransition.Conditions[conditionIndex];
-                    StateGraphConditionRecord duplicatedCondition =
-                        duplicatedTransition.Conditions[conditionIndex];
-                    Assert.AreEqual(
-                        sourceCondition.ConditionDescriptorId,
-                        duplicatedCondition.ConditionDescriptorId);
-                    Assert.AreEqual(sourceCondition.Config?.GetType(), duplicatedCondition.Config?.GetType());
-                    if (sourceCondition.Config != null)
-                    {
-                        Assert.AreNotSame(sourceCondition.Config, duplicatedCondition.Config);
-                        Assert.AreEqual(
-                            ((TestConditionAuthoringConfig)sourceCondition.Config).Threshold,
-                            ((TestConditionAuthoringConfig)duplicatedCondition.Config).Threshold);
-                    }
-                }
             }
         }
 
+        /// <summary>使用存在重复 ID 的图层执行复制，核对失败后源资产各项仍为原值。</summary>
         [Test]
         public void DuplicateLayerRejectsDuplicateTopologyIdsWithoutMutatingTheAsset()
         {
@@ -324,6 +296,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(EditorUtility.IsDirty(asset));
         }
 
+        /// <summary>对含悬空引用的图层执行复制，验证编辑器拒绝操作并保留原资产。</summary>
         [Test]
         public void DuplicateLayerRejectsDanglingTopologyReferencesWithoutMutatingTheAsset()
         {
@@ -345,6 +318,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsFalse(EditorUtility.IsDirty(asset));
         }
 
+        /// <summary>复制资产后立即移动并重导入，对照首次复制得到的 ID 没有再次重映射。</summary>
         [Test]
         public void WholeAssetCopyKeepsItsFirstRemapAcrossImmediateMoveAndReimport()
         {
@@ -368,6 +342,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(copyGuid, reloaded.AssetGuidStamp);
             CollectionAssert.AreEqual(firstRemap, CaptureTopology(reloaded));
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private const string TestRoot = "Assets/__CoCoFlowStateGraphCopyTests";
+        private const string SourcePath = TestRoot + "/Source.asset";
+        private const string CopyPath = TestRoot + "/Copy.asset";
+        private const string MovedCopyPath = TestRoot + "/MovedCopy.asset";
 
         private static StateGraphAsset CreatePopulatedAsset()
         {
@@ -428,10 +411,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             firstTransition.FindPropertyRelative("windowStartInclusive").doubleValue = 0.25d;
             firstTransition.FindPropertyRelative("windowEndExclusive").doubleValue = 0.75d;
             serialized.ApplyModifiedPropertiesWithoutUndo();
-            ConditionDescriptorId conditionDescriptorId = CreateConditionDescriptorId(11UL);
-            asset.Layers[0].Transitions[0].Conditions.Add(new StateGraphConditionRecord(
-                new SerializedId128(conditionDescriptorId.High, conditionDescriptorId.Low),
-                new TestConditionAuthoringConfig { Threshold = 3 }));
             EditorUtility.SetDirty(asset);
             AssetDatabase.SaveAssetIfDirty(asset);
             return asset;
@@ -440,15 +419,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static StateDescriptorId CreateStateDescriptorId(ulong low)
         {
             Assert.IsTrue(StateDescriptorId.TryCreate(1UL, low, out StateDescriptorId id));
-            return id;
-        }
-
-        private static ConditionDescriptorId CreateConditionDescriptorId(ulong low)
-        {
-            Assert.IsTrue(ConditionDescriptorId.TryCreate(
-                2UL,
-                low,
-                out ConditionDescriptorId id));
             return id;
         }
 
@@ -507,5 +477,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsNotNull(saveMethod);
             saveMethod.Invoke(null, null);
         }
+
+        #endregion
     }
 }

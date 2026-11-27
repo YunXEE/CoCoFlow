@@ -5,16 +5,20 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 
+// 编译不同要件的图并检查生成清单，供 Host 按实际依赖准备绑定。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>编译不同要件的图并检查生成清单，供 Host 按实际依赖准备绑定。</summary>
     public sealed class StateGraphManifestTests
     {
+        /// <summary>重置 StateGraphFixtureCounters 的测试状态，确保该例能独立检查工厂或回调次数。</summary>
         [SetUp]
         public void SetUp()
         {
             StateGraphFixtureCounters.Reset();
         }
 
+        /// <summary>冻结含重复要件的目录并编译，检查精确去重的清单及工厂调用计数。</summary>
         [Test]
         public void CompilerBuildsExactDeduplicatedManifestsWithoutInvokingFactories()
         {
@@ -43,10 +47,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsNotNull(operations);
             Assert.AreEqual(1, operations.Count);
             Assert.AreEqual(
-                StateGraphTestFactory.OperationSectionId,
-                operations.Provides[0].SectionId);
-            Assert.AreEqual(OperationSectionMode.Continuous, operations.Provides[0].Mode);
-            Assert.AreEqual(typeof(ITestOperationSection), operations.Provides[0].SectionType);
+                StateGraphTestFactory.OperationId,
+                operations.Provides[0].OperationId);
+            Assert.AreEqual(Mode.Continuous, operations.Provides[0].Mode);
+            Assert.AreEqual(typeof(ITestOperationSection), operations.Provides[0].OperationType);
             Assert.AreEqual(
                 typeof(TestOperationSectionViewFactory),
                 operations.Provides[0].ViewFactoryType);
@@ -73,12 +77,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.AreEqual(0, StateGraphFixtureCounters.LogicConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.MemoryConstructed);
-            Assert.AreEqual(0, StateGraphFixtureCounters.ConditionConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.ReducerCreated);
             Assert.AreEqual(0, StateGraphFixtureCounters.OperationViewCreated);
             Assert.AreEqual(0, StateGraphFixtureCounters.RebuilderCalled);
         }
 
+        /// <summary>编译没有要件的图，确认使用方取得可枚举的只读空清单。</summary>
         [Test]
         public void EmptyManifestsRemainNonNullStaticContracts()
         {
@@ -98,6 +102,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, result.Graph.ContextStateRequirements.SlotCount);
         }
 
+        /// <summary>向图的 Context 清单声明不能物化的类型，验证编译给出可定位诊断。</summary>
         [Test]
         public void ContextManifestRejectsValuesStateFlowCannotMaterialize()
         {
@@ -133,6 +138,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
+        /// <summary>对同一张图重复编译，比较输入、输出和 Context 的布局身份。</summary>
         [Test]
         public void LayoutIdentityIsStableAcrossRepeatedCompile()
         {
@@ -150,6 +156,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 second.ContextStateRequirements.LayoutId);
         }
 
+        /// <summary>让并发读者访问已编译清单，核对工厂 token 的身份保持一致。</summary>
         [Test]
         public void CompiledManifestTokensAreStableUnderConcurrentReads()
         {
@@ -183,77 +190,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, StateGraphFixtureCounters.RebuilderCalled);
         }
 
-        [Test]
-        public void ConditionContributesOnlyReadRequirementManifestKinds()
-        {
-            var builder = new GraphDescriptorCatalogBuilder();
-            Assert.IsTrue(builder.TryRegisterIntent(
-                StateGraphTestFactory.IntentId,
-                4,
-                new IntentReducerFactoryToken<
-                    TestIntent,
-                    TestIntentReducer,
-                    TestIntentReducerFactory>(700UL),
-                out CoCoDiagnostic intentDiagnostic), intentDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterOperationSection(
-                StateGraphTestFactory.OperationSectionId,
-                OperationSectionMode.Continuous,
-                new OperationSectionViewFactoryToken<
-                    ITestOperationSection,
-                    TestOperationSectionViewFactory>(701UL),
-                out CoCoDiagnostic operationDiagnostic), operationDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterStateBlock(
-                StateGraphTestFactory.StateBlockId,
-                StateBlockOwner.Graph,
-                out CoCoDiagnostic blockDiagnostic), blockDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterStateSlot(
-                StateGraphTestFactory.StateBlockId,
-                StateGraphTestFactory.StateSlotId,
-                ContextProjection.Temporal,
-                ContextRestorePolicy.Stored,
-                0,
-                702UL,
-                default,
-                null,
-                out CoCoDiagnostic slotDiagnostic), slotDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterState(
-                StateGraphTestFactory.StateDescriptorId,
-                1U,
-                new TestStateConfigFreezer(),
-                new StateRuntimeRegistration<
-                    TestStateLogic,
-                    TestStateConfigSchema,
-                    TestActivationMemory>(TestFrozenConfigSchemas.StateSchema),
-                null,
-                null,
-                null,
-                out CoCoDiagnostic stateDiagnostic), stateDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterCondition(
-                StateGraphTestFactory.ConditionDescriptorId,
-                1U,
-                new TestConditionConfigFreezer(),
-                new ConditionRuntimeRegistration<
-                    TestStateCondition,
-                    TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                new[] { StateGraphTestFactory.IntentId },
-                new[] { StateGraphTestFactory.StateBlockId },
-                out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
-            Assert.IsTrue(builder.TryFreeze(
-                out GraphDescriptorCatalog catalog,
-                out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
-
-            StateGraphCompileResult result = new StateGraphCompiler().Compile(
-                StateGraphTestFactory.CreateHierarchicalSource(),
-                catalog);
-
-            Assert.IsTrue(result.Succeeded);
-            Assert.AreEqual(1, result.Graph.IntentRequirements.Count);
-            Assert.AreEqual(0, result.Graph.OperationProvides.Count);
-            Assert.AreEqual(1, result.Graph.ContextStateRequirements.BlockCount);
-            Assert.AreEqual(1, result.Graph.ContextStateRequirements.SlotCount);
-            Assert.AreEqual(0, StateGraphFixtureCounters.OperationViewCreated);
-        }
-
+        /// <summary>编译带派生槽的图，核对清单只包含重建合同所需的 token 元数据。</summary>
         [Test]
         public void DerivedSlotManifestCarriesOnlyRebuilderTokenMetadata()
         {

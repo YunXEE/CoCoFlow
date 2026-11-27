@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Pooling;
 using CoCoFlow.Runtime.Pooling.Temporal;
 using Cysharp.Threading.Tasks;
@@ -17,7 +17,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public sealed class MapTemporalBindingPlayModeTests
     {
@@ -510,7 +510,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     Is.False);
                 Assert.That(
                     diagnostic.Code,
-                    Is.EqualTo(CoCoDiagnosticCode.InvalidActorBinding));
+                    Is.EqualTo(CoCoDiagnosticCode.InvalidHostConfiguration));
                 Assert.That(
                     ReadPrivateField(
                         fixture.MapTemporalBinding,

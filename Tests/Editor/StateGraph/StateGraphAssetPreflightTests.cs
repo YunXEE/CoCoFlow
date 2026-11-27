@@ -1,19 +1,22 @@
 using System.Linq;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+// 图预检读取实际 Unity 资产中的节点与配置，将丢失引用或无法冻结的字段定位到来源记录。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>图预检读取实际 Unity 资产中的节点与配置，将丢失引用或无法冻结的字段定位到来源记录。</summary>
     public sealed class StateGraphAssetPreflightTests
     {
-        private GraphDescriptorCatalog catalog;
 
+        #region Public API
+
+        /// <summary>重置 StateGraphFixtureCounters 的测试状态，确保该例能独立检查工厂或回调次数。</summary>
         [SetUp]
         public void SetUp()
         {
@@ -21,14 +24,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             catalog = StateGraphTestFactory.CreateCatalog(false);
         }
 
+        /// <summary>清理本用例创建的 Undo 记录，避免下一次图预检使用旧撤销状态。</summary>
         [TearDown]
         public void TearDown()
         {
             Undo.ClearAll();
         }
 
+        /// <summary>用计数 freezer 编译合法资产，核对每份节点配置只冻结一次。</summary>
         [Test]
-        public void ValidAssetFreezesEachStateAndConditionConfigExactlyOnce()
+        public void ValidAssetFreezesEachStateConfigExactlyOnce()
         {
             StateGraphAsset asset = CreateValidAsset();
             try
@@ -37,7 +42,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 Assert.IsTrue(result.Succeeded);
                 Assert.AreEqual(1, StateGraphFixtureCounters.StateFreezeCalls);
-                Assert.AreEqual(1, StateGraphFixtureCounters.ConditionFreezeCalls);
             }
             finally
             {
@@ -45,6 +49,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>给图声明不支持的 schema，核对返回诊断并且没有调用任何节点 freezer。</summary>
         [TestCase(0U)]
         [TestCase(2U)]
         public void UnsupportedSchemaSkipsEveryFreezer(uint schemaVersion)
@@ -58,7 +63,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
-                Assert.AreEqual(0, StateGraphFixtureCounters.ConditionFreezeCalls);
                 Assert.IsTrue(result.Diagnostics.Any(diagnostic =>
                     diagnostic.Diagnostic.Code == CoCoDiagnosticCode.UnsupportedSchemaVersion &&
                     diagnostic.Location.Field == GraphField.SchemaVersion));
@@ -71,6 +75,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>使图身份无效，检查在冻结节点配置前就报告资产错误。</summary>
         [Test]
         public void InvalidGraphIdentitySkipsEveryFreezer()
         {
@@ -87,7 +92,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
-                Assert.AreEqual(0, StateGraphFixtureCounters.ConditionFreezeCalls);
                 Assert.IsTrue(result.Diagnostics.Any(diagnostic =>
                     diagnostic.Diagnostic.Code == CoCoDiagnosticCode.InvalidIdentifier &&
                     diagnostic.Location.Field == GraphField.Identifier));
@@ -98,6 +102,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>清空资产 GUID 标记，核对诊断精确定位该字段且 freezer 调用数为零。</summary>
         [Test]
         public void BlankAssetGuidStampSkipsEveryFreezerAndUsesItsOwnLocationField()
         {
@@ -112,7 +117,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
-                Assert.AreEqual(0, StateGraphFixtureCounters.ConditionFreezeCalls);
                 Assert.IsTrue(result.Diagnostics.Any(diagnostic =>
                     diagnostic.Diagnostic.Code == CoCoDiagnosticCode.InvalidIdentifier &&
                     diagnostic.Location.Field == GraphField.AssetGuidStamp));
@@ -123,55 +127,21 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        [TestCase(true)]
-        [TestCase(false)]
-        public void MissingSingleConfigSkipsOnlyThatItemAndFreezesOtherValidItems(bool missingState)
+        /// <summary>移除一个节点的配置，确认诊断定位该节点，同时其他有效节点仍能冻结。</summary>
+        [Test]
+        public void MissingStateConfigSkipsOnlyThatStateAndFreezesOtherValidStates()
         {
             StateGraphAsset asset = CreateValidAsset();
             try
             {
-                if (missingState)
-                {
-                    StateGraphAuthoringOperations.AddState(
-                        asset,
-                        ToLayerId(asset.Layers[0].LayerId),
-                        default,
-                        StateGraphTestFactory.StateDescriptorId,
-                        null,
-                        "Missing Config");
-                }
-                else
-                {
-                    asset.Layers[0].Transitions[0].Conditions.Add(
-                        new StateGraphConditionRecord(
-                            Serialize(StateGraphTestFactory.ConditionDescriptorId),
-                            null));
-                }
-
+                StateGraphAuthoringOperations.AddState(asset, ToLayerId(asset.Layers[0].LayerId),
+                    default, StateGraphTestFactory.StateDescriptorId, null, "Missing Config");
                 StateGraphAssetCompileResult result = Compile(asset);
-
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(1, StateGraphFixtureCounters.StateFreezeCalls);
-                Assert.AreEqual(1, StateGraphFixtureCounters.ConditionFreezeCalls);
-                Assert.IsTrue(result.Diagnostics.Any(diagnostic =>
-                    diagnostic.Location.ElementKind == (missingState
-                        ? GraphElementKind.State
-                        : GraphElementKind.Condition) &&
+                Assert.IsTrue(result.Diagnostics.Any(diagnostic => diagnostic.IsError &&
+                    diagnostic.Location.ElementKind == GraphElementKind.State &&
                     diagnostic.Location.Field == GraphField.Config));
-                if (!missingState)
-                {
-                    GraphDiagnostic[] preciseErrors = result.Diagnostics.Where(diagnostic =>
-                        diagnostic.IsError &&
-                        diagnostic.Location.ElementKind == GraphElementKind.Condition &&
-                        diagnostic.Location.Field == GraphField.Config).ToArray();
-                    Assert.AreEqual(1, preciseErrors.Length);
-                    Assert.AreEqual(
-                        ToStateId(asset.Layers[0].Transitions[0].SourceStateId),
-                        preciseErrors[0].Location.StateId);
-                    Assert.AreNotEqual(
-                        CoCoDiagnosticCode.DescriptorTypeMismatch,
-                        preciseErrors[0].Diagnostic.Code);
-                }
             }
             finally
             {
@@ -179,104 +149,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        [Test]
-        public void ConditionFreezerFailureUsesOnePreciseSourceStateLocation()
-        {
-            StateGraphAsset asset = CreateValidAsset();
-            try
-            {
-                catalog = CreateCatalog(new ThrowingConditionConfigFreezer());
+        #endregion
 
-                StateGraphAssetCompileResult result = Compile(asset);
+        #region Internal Logic
 
-                AssertSinglePreciseConditionConfigError(asset, result);
-            }
-            finally
-            {
-                Object.DestroyImmediate(asset);
-            }
-        }
-
-        [Test]
-        public void ConditionAuthoringTypeMismatchUsesOnePreciseSourceStateLocation()
-        {
-            StateGraphAsset asset = CreateValidAsset();
-            try
-            {
-                StateGraphConditionRecord condition =
-                    asset.Layers[0].Transitions[0].Conditions[0];
-                asset.Layers[0].Transitions[0].Conditions[0] =
-                    new StateGraphConditionRecord(
-                        condition.ConditionDescriptorId,
-                        new AlternateConditionAuthoringConfig { Value = 7 });
-
-                StateGraphAssetCompileResult result = Compile(asset);
-
-                AssertSinglePreciseConditionConfigError(asset, result);
-            }
-            finally
-            {
-                Object.DestroyImmediate(asset);
-            }
-        }
+        private GraphDescriptorCatalog catalog;
 
         private StateGraphAssetCompileResult Compile(StateGraphAsset asset) =>
             new StateGraphAssetCompiler(new StateGraphCompilationCache()).Compile(asset, catalog);
-
-        private static void AssertSinglePreciseConditionConfigError(
-            StateGraphAsset asset,
-            StateGraphAssetCompileResult result)
-        {
-            GraphDiagnostic[] preciseErrors = result.Diagnostics.Where(diagnostic =>
-                diagnostic.IsError &&
-                diagnostic.Location.ElementKind == GraphElementKind.Condition &&
-                diagnostic.Location.Field == GraphField.Config).ToArray();
-            Assert.IsFalse(result.Succeeded);
-            Assert.AreEqual(1, preciseErrors.Length);
-            Assert.AreEqual(
-                CoCoDiagnosticCode.InvalidFrozenConfig,
-                preciseErrors[0].Diagnostic.Code);
-            Assert.AreEqual(
-                ToStateId(asset.Layers[0].Transitions[0].SourceStateId),
-                preciseErrors[0].Location.StateId);
-            Assert.IsFalse(result.Diagnostics.Any(diagnostic =>
-                diagnostic.Diagnostic.Code == CoCoDiagnosticCode.DescriptorTypeMismatch &&
-                diagnostic.Location.ElementKind == GraphElementKind.Condition &&
-                diagnostic.Location.Field == GraphField.Config));
-        }
-
-        private static GraphDescriptorCatalog CreateCatalog(
-            IConfigFreezer<TestConditionAuthoringConfig, TestConditionConfigSchema>
-                conditionFreezer)
-        {
-            var builder = new GraphDescriptorCatalogBuilder();
-            Assert.IsTrue(builder.TryRegisterState(
-                StateGraphTestFactory.StateDescriptorId,
-                1U,
-                new TestStateConfigFreezer(),
-                new StateRuntimeRegistration<
-                    TestStateLogic,
-                    TestStateConfigSchema,
-                    TestActivationMemory>(TestFrozenConfigSchemas.StateSchema),
-                null,
-                null,
-                null,
-                out CoCoDiagnostic stateDiagnostic), stateDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterCondition(
-                StateGraphTestFactory.ConditionDescriptorId,
-                1U,
-                conditionFreezer,
-                new ConditionRuntimeRegistration<
-                    TestStateCondition,
-                    TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                null,
-                null,
-                out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
-            Assert.IsTrue(builder.TryFreeze(
-                out GraphDescriptorCatalog result,
-                out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
-            return result;
-        }
 
         private static StateGraphAsset CreateValidAsset()
         {
@@ -296,9 +176,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 stateId,
                 stateId,
                 priority: 0);
-            asset.Layers[0].Transitions[0].Conditions.Add(new StateGraphConditionRecord(
-                Serialize(StateGraphTestFactory.ConditionDescriptorId),
-                new TestConditionAuthoringConfig { Threshold = 1 }));
             return asset;
         }
 
@@ -312,9 +189,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        private static SerializedId128 Serialize(ConditionDescriptorId id) =>
-            new SerializedId128(id.High, id.Low);
-
         private static LayerId ToLayerId(SerializedId128 id)
         {
             Assert.IsTrue(LayerId.TryCreate(id.High, id.Low, out LayerId layerId));
@@ -326,5 +200,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(StateId.TryCreate(id.High, id.Low, out StateId stateId));
             return stateId;
         }
+
+        #endregion
     }
 }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEditor.Callbacks;
 using UnityEditor.UIElements;
@@ -10,13 +9,10 @@ using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.UIElements;
 
+// 维护者通过此窗口打开图资产、编辑拓扑并查看编译反馈。窗口负责连接画布、详情和控制器。
 namespace CoCoFlow.Editor.StateGraph
 {
-    /// <summary>
-    /// StateGraph 主编辑器窗口（P03 重做）。
-    /// 视图=纯重建：拓扑写全部经 Controller→AuthoringOperations；本类不直接改序列化数据。
-    /// 视觉语言复用 Editor/Common（ccflow-），画布/布局专用样式走 sg-*（方案 D3）。
-    /// </summary>
+    /// <summary>连接当前图资产、画布和详情，在编辑与撤销后刷新受影响的视图。</summary>
     [MovedFrom(true, sourceClassName: "CoCoStateGraphEditorWindow")]
     internal sealed partial class StateGraphEditorWindow : EditorWindow
     {
@@ -37,12 +33,8 @@ namespace CoCoFlow.Editor.StateGraph
         private SerializedObject serializedAsset;
         private StateDescriptorId addStateDescriptorId;
 
-        // Set when a "Create New Logic Script" generation is awaiting the
-        // script compilation; on the next editor update after the domain
-        // reload the Add State panel preselects this logic's descriptor.
         private string pendingCreateSelectName;
         private bool awaitingCompilation;
-        private ConditionDescriptorId addConditionDescriptorId;
         private Vector2 contextPosition = new Vector2(80f, 80f);
 
         private readonly LocalizedTextRegistry texts = new LocalizedTextRegistry();
@@ -80,12 +72,10 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnEnable()
         {
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged; // 唯一订阅点（P02 §3.2）
+            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
             if (awaitingCompilation)
             {
-                // The domain reloaded and this window reopened: the generated
-                // script compiled. Rescan the standard catalog and preselect
-                // the fresh descriptor in the Add State panel.
+
                 awaitingCompilation = false;
                 EditorApplication.delayCall += () =>
                 {
@@ -98,7 +88,7 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnDisable()
         {
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged; // 对称退订
+            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
             DisposeController();
         }
 
@@ -110,8 +100,6 @@ namespace CoCoFlow.Editor.StateGraph
                 return;
             }
 
-            // 只刷新静态文案，不重建结构（方案 §3.2）；
-            // 反馈区内容在下次 RefreshFeedback 时按当前语言重绘。
             texts.ApplyCurrentLanguage();
             RefreshStateDraftStatus();
             RefreshFeedback();
@@ -141,7 +129,6 @@ namespace CoCoFlow.Editor.StateGraph
                 rootVisualElement.styleSheets.Add(styleSheet);
             }
 
-            // 维护者反馈 5：顶部页头并入左栏最上方，不再占独立横条。
             toolbarHost = new VisualElement { name = "state-graph-toolbar-host" };
             rootVisualElement.Add(toolbarHost);
 
@@ -452,12 +439,7 @@ namespace CoCoFlow.Editor.StateGraph
             slot.Add(layerPopup);
         }
 
-        /// <summary>
-        /// After a generated state script compiles, finds its descriptor in
-        /// the refreshed catalog and stores it as the Add State default so
-        /// the reopened panel preselects it.
-        /// </summary>
-        private void TryPreselectPendingDescriptor()
+                private void TryPreselectPendingDescriptor()
         {
             if (string.IsNullOrEmpty(pendingCreateSelectName))
             {
@@ -614,8 +596,7 @@ namespace CoCoFlow.Editor.StateGraph
             if ((invalidation & StateGraphEditorInvalidation.StateDraft) != 0 &&
                 serializedAsset != null && serializedAsset.targetObject != null)
             {
-                // Name / Logic edits and bound Config inputs share the same
-                // draft: do not let a stale SerializedObject overwrite either.
+
                 serializedAsset?.Update();
             }
             RefreshStateDraftStatus();
@@ -636,7 +617,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
             else if ((invalidation & StateGraphEditorInvalidation.Feedback) != 0)
             {
-                RefreshHeader(); // 分析状态随 Feedback 失效更新
+                RefreshHeader();
                 RefreshFeedback();
             }
 
@@ -708,8 +689,7 @@ namespace CoCoFlow.Editor.StateGraph
             menu.ShowAsContext();
         }
 
-        /// <summary>卡片右键菜单：子状态机的画布内建立/下钻入口（维护者反馈：可发现性）。</summary>
-        private void OnCardContextRequested(SerializedId128 stateId)
+                private void OnCardContextRequested(SerializedId128 stateId)
         {
             if (!StateId.TryCreate(stateId.High, stateId.Low, out StateId id))
             {
@@ -744,7 +724,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
             else if (StateGraphAuthoringOperations.CanEdit(out _))
             {
-                // 契约：有 Transition 的叶子不能成为 Composite——禁用并给出原因，而非允许后报错。
+
                 menu.AddDisabledItem(new GUIContent(L(
                     "Add Child State (remove incident Transitions first)",
                     "添加子 State（需先移除相关 Transition）")));
@@ -757,12 +737,7 @@ namespace CoCoFlow.Editor.StateGraph
             menu.ShowAsContext();
         }
 
-        /// <summary>
-        /// 一步式子状态机（维护者反馈：Animator 式 Create Sub-state Machine）。
-        /// 模型不变：Composite=有子 State 的普通 State。本动作=建容器+建首个子 State
-        /// （两次 AuthoringOperations 命令，Undo 折叠为一组），随后选中新容器（全展开画布）。
-        /// </summary>
-        internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
+                internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
         {
             if (controller == null || !StateGraphAuthoringOperations.CanEdit(out string failure))
             {
@@ -822,7 +797,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
 
             Undo.CollapseUndoOperations(undoGroup);
-            controller.SelectState(containerId); // 全量失效刷新 + 选中新建容器
+            controller.SelectState(containerId);
             return true;
         }
 
@@ -971,22 +946,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-        private ConditionDescriptor ResolveConditionDescriptor(ConditionDescriptor fallback)
-        {
-            if (controller?.Catalog != null)
-            {
-                foreach (ConditionDescriptor descriptor in controller.Catalog.ConditionDescriptors)
-                {
-                    if (descriptor.DescriptorId == addConditionDescriptorId)
-                    {
-                        return descriptor;
-                    }
-                }
-            }
-
-            return fallback;
-        }
-
         private Vector2 NextPosition()
         {
             int index = controller.VisibleStates.Count;
@@ -1054,7 +1013,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-
         private static StateGraphTransitionRecord FindTransition(
             StateGraphLayerRecord layer,
             TransitionId transitionId)
@@ -1108,8 +1066,7 @@ namespace CoCoFlow.Editor.StateGraph
 
         private void DisposeController()
         {
-            // Tests and rebuilt windows can have their old tree attached to a
-            // different panel. Release its bindings before disposing the draft.
+
             details?.Unbind();
             details?.Clear();
             if (canvas != null)
@@ -1157,21 +1114,20 @@ namespace CoCoFlow.Editor.StateGraph
         private static string ShortId(string value) =>
             string.IsNullOrEmpty(value) || value.Length <= 8 ? value : value.Substring(0, 8);
 
+        /// <summary>将可选节点的稳定标识与下拉列表中的显示内容关联。</summary>
         private sealed class StateIdChoice
         {
             internal StateId Value;
             internal bool HasExplicitSelection;
         }
 
+        /// <summary>将创建节点所用的描述符与编辑器选项关联。</summary>
         private sealed class StateDescriptorChoice
         {
             internal StateDescriptor Value;
         }
 
-        /// <summary>
-        /// 静态文案注册表：语言切换时只刷新文本，不重建结构（方案 §3.2；
-        /// P02 D14 无 deferral，切换后即时生效）。
-        /// </summary>
+        /// <summary>在切换显示语言后刷新已登记的可视元素文本。</summary>
         private sealed class LocalizedTextRegistry
         {
             private readonly List<(VisualElement Element, string English, string Chinese)> entries =
@@ -1196,7 +1152,7 @@ namespace CoCoFlow.Editor.StateGraph
                     string text = isChinese ? zh : english;
                     switch (element)
                     {
-                        case Button button: // ToolbarButton : Button，同一分支覆盖
+                        case Button button:
                             button.text = text;
                             break;
                         case Label label:
@@ -1216,6 +1172,7 @@ namespace CoCoFlow.Editor.StateGraph
         }
     }
 
+    /// <summary>接收 Unity 打开图资产的请求，并定位到对应的图编辑器窗口。</summary>
     internal static class StateGraphEditorAssetOpenHandler
     {
         [OnOpenAsset]

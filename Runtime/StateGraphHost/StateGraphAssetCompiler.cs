@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     public sealed class StateGraphAssetCompileResult
     {
@@ -146,7 +146,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
     }
 
-    public sealed class StateGraphAssetCompiler
+    internal sealed class StateGraphAssetCompiler
     {
         private readonly IStateGraphCompilationCache cache;
 

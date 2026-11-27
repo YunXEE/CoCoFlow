@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.Input.Contracts;
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
@@ -5,31 +6,18 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 
+// 输入系统的回调在此收集动作变化。InputIntent 按游标读取并为每次成功步进保留变更顺序。
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(
     "CoCoFlow.Tests.Runtime.Input")]
 
 namespace CoCoFlow.Runtime.Modules.Input
 {
+    /// <summary>收集 Input System 的动作变化与当前值，供玩法组件及 Host 按各自游标读取。</summary>
     [DefaultExecutionOrder(-100)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(PlayerInput))]
     public sealed class InputReader : MonoBehaviour
     {
-        private struct BufferedInput
-        {
-            public string ActionName;
-            public float Timestamp;
-
-            public bool IsValid(float currentTime, float bufferWindow) =>
-                !string.IsNullOrEmpty(ActionName) &&
-                currentTime - Timestamp <= bufferWindow;
-
-            public void Clear()
-            {
-                ActionName = string.Empty;
-                Timestamp = 0f;
-            }
-        }
 
         [Header("Input Authority")]
         [SerializeField] private PlayerInput playerInput;
@@ -79,6 +67,263 @@ namespace CoCoFlow.Runtime.Modules.Input
         public event Action InputFenced;
         public event Action<string> OnActionPerformed;
         public event Action<string> OnActionCanceled;
+
+        #region Public API
+
+        /// <summary>从当前可读的已绑定动作取得指定类型的值，动作不可用时输出默认值并返回 false。</summary>
+        public bool TryReadValue<TValue>(
+            InputActionReference actionReference,
+            out TValue value)
+            where TValue : struct
+        {
+            if (TryGetReadableAction(actionReference, out InputAction action))
+            {
+                value = action.ReadValue<TValue>();
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        /// <summary>读取已绑定动作当前是否按下，动作不可读时返回 false 并将按下状态清空。</summary>
+        public bool TryReadPressed(InputActionReference actionReference, out bool pressed)
+        {
+            bool readable = TryGetReadableAction(actionReference, out InputAction action);
+            pressed = readable && action.IsPressed();
+            return readable;
+        }
+
+        /// <summary>在本读取器实际使用的动作资产中解析引用或 GUID，找不到匹配动作时返回 false。</summary>
+        public bool TryResolveAction(
+            InputActionReference actionReference,
+            out InputAction action)
+        {
+            action = null;
+            InputAction referencedAction = actionReference != null
+                ? actionReference.action
+                : null;
+            return referencedAction != null &&
+                   TryResolveAction(referencedAction.id, out action);
+        }
+
+        /// <summary>在本读取器实际使用的动作资产中解析引用或 GUID，找不到匹配动作时返回 false。</summary>
+        public bool TryResolveAction(Guid actionId, out InputAction action)
+        {
+            action = null;
+            InputActionAsset actions = Actions;
+            if (actions == null || actionId == Guid.Empty)
+            {
+                return false;
+            }
+
+            action = actions.FindAction(actionId);
+            return action != null;
+        }
+
+        /// <summary>根据当前动作及输入设备生成提示快照，动作未绑定或提示不可用时返回 false。</summary>
+        public bool TryGetPrompt(
+            InputActionReference actionReference,
+            out InputPromptSnapshot snapshot)
+        {
+            snapshot = default;
+            if (!TryResolveAction(actionReference, out InputAction action) ||
+                !TrySelectPromptBinding(action, out int bindingIndex))
+            {
+                return false;
+            }
+
+            string bindingDisplay = action.GetBindingDisplayString(
+                bindingIndex,
+                out string deviceLayout,
+                out string controlPath);
+            Sprite glyph = null;
+            glyphCatalog?.TryResolve(deviceLayout, controlPath, out glyph);
+
+            snapshot = new InputPromptSnapshot(
+                action.id,
+                bindingIndex,
+                bindingDisplay,
+                deviceLayout,
+                controlPath,
+                glyph);
+            return snapshot.IsValid;
+        }
+
+        /// <summary>切换本读取器使用的动作图，更新接下来的采样来源与输入绑定。</summary>
+        public void SwitchActionMap(InputActionMap actionMap)
+        {
+            if (playerInput == null || actionMap == null)
+            {
+                return;
+            }
+
+            SwitchActionMap(actionMap.name);
+        }
+
+        /// <summary>在缓冲窗口内消费指定动作。已失效或未记录的动作返回 false。</summary>
+        public bool TryConsumeBufferedAction(string actionName)
+        {
+            if (!isUsingInputBuffering ||
+                string.IsNullOrEmpty(actionName) ||
+                !_currentBuffer.IsValid(Time.time, inputBufferTime) ||
+                !string.Equals(
+                    _currentBuffer.ActionName,
+                    actionName,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _currentBuffer.Clear();
+            return true;
+        }
+
+        /// <summary>清除待消费的缓冲动作，下一次读取只看到随后收到的输入。</summary>
+        public void ClearBuffer()
+        {
+            _currentBuffer.Clear();
+        }
+
+        /// <summary>划分新的采样代次并清除过期输入，避免旧变化跨越控制权切换。</summary>
+        public void FenceInput()
+        {
+            ClearBuffer();
+            _pendingInput.Clear();
+            _fenceGeneration++;
+            MoveInput = Vector2.zero;
+            LookInput = Vector2.zero;
+            ZoomInput = Vector2.zero;
+            PublishBoundaryEvent(InputFenced, nameof(InputFenced));
+        }
+
+        /// <summary>返回当前动作资产的绑定覆盖数据，用于恢复或撤销本次重绑定。</summary>
+        public string CaptureBindingOverrides()
+        {
+            return Actions != null
+                ? Actions.SaveBindingOverridesAsJson()
+                : string.Empty;
+        }
+
+        /// <summary>尝试保存当前的绑定覆盖，成功时确认变更，失败时给出错误原因。</summary>
+        public bool TryCommitBindingOverrides(
+            string previousOverrideJson,
+            out string error)
+        {
+            error = string.Empty;
+            InputActionAsset actions = Actions;
+            IInputBindingOverrideStore store =
+                bindingOverrideStore as IInputBindingOverrideStore;
+            if (actions == null)
+            {
+                error = "InputReader has no PlayerInput actions.";
+                return false;
+            }
+
+            if (store == null)
+            {
+                RestoreBindingOverrides(previousOverrideJson);
+                error =
+                    "InputReader requires an IInputBindingOverrideStore to commit a rebind.";
+                return false;
+            }
+
+            try
+            {
+                string nextOverrideJson =
+                    actions.SaveBindingOverridesAsJson();
+                if (!store.TrySave(
+                        bindingOverrideStorageKey,
+                        nextOverrideJson))
+                {
+                    RestoreBindingOverrides(previousOverrideJson);
+                    error =
+                        "The binding override store rejected the new override JSON.";
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                RestoreBindingOverrides(previousOverrideJson);
+                error =
+                    "The binding override store failed: " +
+                    exception.Message;
+                return false;
+            }
+
+            NotifyBindingsChanged();
+            return true;
+        }
+
+        /// <summary>将保存的覆盖应用到当前动作资产，使后续采样按恢复的按键绑定运行。</summary>
+        public void RestoreBindingOverrides(string overrideJson)
+        {
+            InputActionAsset actions = Actions;
+            if (actions == null)
+            {
+                return;
+            }
+
+            actions.RemoveAllBindingOverrides();
+            if (!string.IsNullOrEmpty(overrideJson))
+            {
+                actions.LoadBindingOverridesFromJson(overrideJson, false);
+            }
+
+            NotifyBindingsChanged();
+        }
+
+        /// <summary>通知输入绑定已改变，供依赖当前提示或映射的读者刷新。</summary>
+        public void NotifyBindingsChanged()
+        {
+            RefreshNeutralGates(Actions);
+            FenceInput();
+            UpdatePresentationAuthority(true);
+        }
+
+        /// <summary>切换本读取器使用的动作图，更新接下来的采样来源与输入绑定。</summary>
+        public void SwitchActionMap(string mapName)
+        {
+            if (playerInput == null || string.IsNullOrEmpty(mapName))
+            {
+                return;
+            }
+
+            FenceInput();
+            _controlledTransitionDepth++;
+            try
+            {
+                playerInput.SwitchCurrentActionMap(mapName);
+            }
+            finally
+            {
+                _controlledTransitionDepth--;
+                RefreshNeutralGates(Actions);
+                FenceInput();
+                UpdatePresentationAuthority(true);
+            }
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        /// <summary>保存一次待消费的动作及时间，用于判定输入是否仍在缓冲窗口内。</summary>
+        private struct BufferedInput
+        {
+            public string ActionName;
+            public float Timestamp;
+
+            public bool IsValid(float currentTime, float bufferWindow) =>
+                !string.IsNullOrEmpty(ActionName) &&
+                currentTime - Timestamp <= bufferWindow;
+
+            public void Clear()
+            {
+                ActionName = string.Empty;
+                Timestamp = 0f;
+            }
+        }
 
         private void Reset()
         {
@@ -156,29 +401,6 @@ namespace CoCoFlow.Runtime.Modules.Input
             UnsubscribeActions();
         }
 
-        public bool TryReadValue<TValue>(
-            InputActionReference actionReference,
-            out TValue value)
-            where TValue : struct
-        {
-            if (TryGetReadableAction(actionReference, out InputAction action))
-            {
-                value = action.ReadValue<TValue>();
-                return true;
-            }
-
-            value = default;
-            return false;
-        }
-
-        /// <summary>Reads current button state without advancing any Host's input cursor.</summary>
-        public bool TryReadPressed(InputActionReference actionReference, out bool pressed)
-        {
-            bool readable = TryGetReadableAction(actionReference, out InputAction action);
-            pressed = readable && action.IsPressed();
-            return readable;
-        }
-
         private bool TryGetReadableAction(InputActionReference reference, out InputAction action)
         {
             action = null;
@@ -245,11 +467,10 @@ namespace CoCoFlow.Runtime.Modules.Input
                 return 0;
             }
 
-            // Once a fence clears the buffer, the remaining sequence range is contiguous.
             return (int)(delivered - _pendingInput[0].Sequence + 1);
         }
 
-        internal bool TrySnapshot(ulong delivered, out InputIntentData intent)
+        internal bool TrySnapshot(ulong delivered, out InputIntentContract intent)
         {
             intent = default;
             if (!isActiveAndEnabled || !_runtimeInitialized || _subscribedActions == null ||
@@ -263,7 +484,7 @@ namespace CoCoFlow.Runtime.Modules.Input
             int count = _pendingInput.Count - first;
             var changes = count == 0 ? Array.Empty<RawInputRecord>() : new RawInputRecord[count];
             _pendingInput.CopyTo(first, changes, 0, count);
-            intent = new InputIntentData(
+            intent = new InputIntentContract(
                 FixedString64.FromString(playerInput.currentActionMap?.name),
                 changes, SampleCurrent(), _fenceGeneration);
             return true;
@@ -347,91 +568,6 @@ namespace CoCoFlow.Runtime.Modules.Input
             });
         }
 
-        public bool TryResolveAction(
-            InputActionReference actionReference,
-            out InputAction action)
-        {
-            action = null;
-            InputAction referencedAction = actionReference != null
-                ? actionReference.action
-                : null;
-            return referencedAction != null &&
-                   TryResolveAction(referencedAction.id, out action);
-        }
-
-        public bool TryResolveAction(Guid actionId, out InputAction action)
-        {
-            action = null;
-            InputActionAsset actions = Actions;
-            if (actions == null || actionId == Guid.Empty)
-            {
-                return false;
-            }
-
-            action = actions.FindAction(actionId);
-            return action != null;
-        }
-
-        public bool TryGetPrompt(
-            InputActionReference actionReference,
-            out InputPromptSnapshot snapshot)
-        {
-            snapshot = default;
-            if (!TryResolveAction(actionReference, out InputAction action) ||
-                !TrySelectPromptBinding(action, out int bindingIndex))
-            {
-                return false;
-            }
-
-            string bindingDisplay = action.GetBindingDisplayString(
-                bindingIndex,
-                out string deviceLayout,
-                out string controlPath);
-            Sprite glyph = null;
-            glyphCatalog?.TryResolve(deviceLayout, controlPath, out glyph);
-
-            snapshot = new InputPromptSnapshot(
-                action.id,
-                bindingIndex,
-                bindingDisplay,
-                deviceLayout,
-                controlPath,
-                glyph);
-            return snapshot.IsValid;
-        }
-
-        public void SwitchActionMap(InputActionMap actionMap)
-        {
-            if (playerInput == null || actionMap == null)
-            {
-                return;
-            }
-
-            SwitchActionMap(actionMap.name);
-        }
-
-        public bool TryConsumeBufferedAction(string actionName)
-        {
-            if (!isUsingInputBuffering ||
-                string.IsNullOrEmpty(actionName) ||
-                !_currentBuffer.IsValid(Time.time, inputBufferTime) ||
-                !string.Equals(
-                    _currentBuffer.ActionName,
-                    actionName,
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            _currentBuffer.Clear();
-            return true;
-        }
-
-        public void ClearBuffer()
-        {
-            _currentBuffer.Clear();
-        }
-
         internal void DisableActionForTransition(InputAction action)
         {
             if (action == null)
@@ -476,97 +612,6 @@ namespace CoCoFlow.Runtime.Modules.Input
                 FenceInput();
                 UpdatePresentationAuthority(true);
             }
-        }
-
-        public void FenceInput()
-        {
-            ClearBuffer();
-            _pendingInput.Clear();
-            _fenceGeneration++;
-            MoveInput = Vector2.zero;
-            LookInput = Vector2.zero;
-            ZoomInput = Vector2.zero;
-            PublishBoundaryEvent(InputFenced, nameof(InputFenced));
-        }
-
-        public string CaptureBindingOverrides()
-        {
-            return Actions != null
-                ? Actions.SaveBindingOverridesAsJson()
-                : string.Empty;
-        }
-
-        public bool TryCommitBindingOverrides(
-            string previousOverrideJson,
-            out string error)
-        {
-            error = string.Empty;
-            InputActionAsset actions = Actions;
-            IInputBindingOverrideStore store =
-                bindingOverrideStore as IInputBindingOverrideStore;
-            if (actions == null)
-            {
-                error = "InputReader has no PlayerInput actions.";
-                return false;
-            }
-
-            if (store == null)
-            {
-                RestoreBindingOverrides(previousOverrideJson);
-                error =
-                    "InputReader requires an IInputBindingOverrideStore to commit a rebind.";
-                return false;
-            }
-
-            try
-            {
-                string nextOverrideJson =
-                    actions.SaveBindingOverridesAsJson();
-                if (!store.TrySave(
-                        bindingOverrideStorageKey,
-                        nextOverrideJson))
-                {
-                    RestoreBindingOverrides(previousOverrideJson);
-                    error =
-                        "The binding override store rejected the new override JSON.";
-                    return false;
-                }
-            }
-            catch (Exception exception)
-            {
-                RestoreBindingOverrides(previousOverrideJson);
-                error =
-                    "The binding override store failed: " +
-                    exception.Message;
-                return false;
-            }
-
-            NotifyBindingsChanged();
-            return true;
-        }
-
-        public void RestoreBindingOverrides(string overrideJson)
-        {
-            InputActionAsset actions = Actions;
-            if (actions == null)
-            {
-                return;
-            }
-
-            actions.RemoveAllBindingOverrides();
-            if (!string.IsNullOrEmpty(overrideJson))
-            {
-                actions.LoadBindingOverridesFromJson(overrideJson, false);
-            }
-
-            NotifyBindingsChanged();
-        }
-
-        public void NotifyBindingsChanged()
-        {
-            RefreshNeutralGates(Actions);
-            FenceInput();
-            UpdatePresentationAuthority(true);
         }
 
         private void TryInitializeRuntime()
@@ -731,28 +776,6 @@ namespace CoCoFlow.Runtime.Modules.Input
             if (presentationChanged)
             {
                 UpdatePresentationAuthority(false);
-            }
-        }
-
-        public void SwitchActionMap(string mapName)
-        {
-            if (playerInput == null || string.IsNullOrEmpty(mapName))
-            {
-                return;
-            }
-
-            FenceInput();
-            _controlledTransitionDepth++;
-            try
-            {
-                playerInput.SwitchCurrentActionMap(mapName);
-            }
-            finally
-            {
-                _controlledTransitionDepth--;
-                RefreshNeutralGates(Actions);
-                FenceInput();
-                UpdatePresentationAuthority(true);
             }
         }
 
@@ -1235,5 +1258,7 @@ namespace CoCoFlow.Runtime.Modules.Input
                     this);
             }
         }
+
+        #endregion
     }
 }

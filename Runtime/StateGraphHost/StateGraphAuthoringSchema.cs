@@ -5,8 +5,10 @@ using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// 图资产保存这些层、节点和转换记录。快照构建器读取稳定标识、窗口、优先级及托管配置。
+namespace CoCoFlow.Runtime.StateGraph
 {
+    /// <summary>将图元素的稳定标识拆成 Unity 能保存的两段数值。</summary>
     [Serializable]
     internal struct SerializedId128 : IEquatable<SerializedId128>
     {
@@ -45,6 +47,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         public static bool operator !=(SerializedId128 left, SerializedId128 right) => !left.Equals(right);
     }
 
+    /// <summary>储存图层初始节点、普通节点、可选 AnyState 和该层转换。</summary>
     [Serializable]
     internal sealed class StateGraphLayerRecord : ISerializationCallbackReceiver
     {
@@ -93,8 +96,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             set => anyState = value;
         }
 
-        // Child managed references have finished deserializing by the first
-        // read or save. Their own callbacks may run after the layer callback.
         void ISerializationCallbackReceiver.OnAfterDeserialize() { }
         void ISerializationCallbackReceiver.OnBeforeSerialize() => UpgradeLegacyAnyState();
 
@@ -124,6 +125,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             transitions ?? (transitions = new List<StateGraphTransitionRecord>());
     }
 
+    /// <summary>储存节点身份、父子关系、描述符与可共享的节点配置。</summary>
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core.StateGraphAuthoring", sourceClassName: "CoCoStateGraphStateRecord")]
     [Serializable]
     internal class StateGraphStateRecord : ISerializationCallbackReceiver
@@ -193,8 +195,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
     }
 
-    // The intermediate Host assembly also wrote AnyState records under the
-    // original Core namespace. The main record handles the older Authoring DLL.
+    /// <summary>在旧 Host 类型名下读取历史图保存的托管节点记录。</summary>
     [Serializable]
     [MovedFrom(false, "CoCoFlow.Runtime.Core", "CoCoFlow.Runtime.StateGraphHost", "CoCoStateGraphStateRecord")]
     internal class LegacyHostStateRecord : StateGraphStateRecord
@@ -209,11 +210,17 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
     }
 
-    // A graph saved after the assembly move can still contain the prefixed CLR name.
+    /// <summary>接收带旧模块前缀的历史节点记录并保留原序列化字段。</summary>
     [Serializable]
     [MovedFrom(false, "CoCoFlow.Runtime.StateGraphHost", "CoCoFlow.Runtime.StateGraphHost", "CoCoStateGraphStateRecord")]
     internal sealed class LegacyPrefixedStateRecord : LegacyHostStateRecord { }
 
+    /// <summary>接收 0.4.10 原 Host 程序集保存的节点记录，供当前图导入与重存。</summary>
+    [Serializable]
+    [MovedFrom(false, "CoCoFlow.Runtime.StateGraphHost", "CoCoFlow.Runtime.StateGraphHost", "StateGraphStateRecord")]
+    internal sealed class ReleasedHostStateRecord : LegacyHostStateRecord { }
+
+    /// <summary>储存一条有向边的源、目标、执行窗口和优先级。</summary>
     [Serializable]
     internal sealed class StateGraphTransitionRecord
     {
@@ -221,8 +228,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
         [SerializeField, HideInInspector] private SerializedId128 sourceStateId;
         [SerializeField, HideInInspector] private SerializedId128 targetStateId;
         [SerializeField] private int priority;
-        [SerializeField] private List<StateGraphConditionRecord> conditions =
-            new List<StateGraphConditionRecord>();
         [SerializeField] private TransitionWindowMode windowMode = TransitionWindowMode.Always;
         [SerializeField] private double windowStartInclusive;
         [SerializeField] private double windowEndExclusive;
@@ -262,8 +267,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             get => priority;
             set => priority = value;
         }
-        internal List<StateGraphConditionRecord> Conditions =>
-            conditions ?? (conditions = new List<StateGraphConditionRecord>());
         internal TransitionWindowMode WindowMode
         {
             get => windowMode;
@@ -283,40 +286,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
     }
 
-    [Serializable]
-    internal sealed class StateGraphConditionRecord : ISerializationCallbackReceiver
-    {
-        [SerializeField] private SerializedId128 conditionDescriptorId;
-        [SerializeReference] private ConditionConfig config;
-
-        internal StateGraphConditionRecord(
-            SerializedId128 conditionDescriptorId,
-            ConditionConfig config)
-        {
-            this.conditionDescriptorId = conditionDescriptorId;
-            this.config = config;
-        }
-
-        internal SerializedId128 ConditionDescriptorId
-        {
-            get => conditionDescriptorId;
-            set => conditionDescriptorId = value;
-        }
-
-        void ISerializationCallbackReceiver.OnBeforeSerialize() { }
-
-        void ISerializationCallbackReceiver.OnAfterDeserialize()
-        {
-            if (config is ILegacyGraphConfig<ConditionConfig> legacy) config = legacy.Current;
-        }
-
-        internal ConditionConfig Config
-        {
-            get => config;
-            set => config = value;
-        }
-    }
-
+    /// <summary>记录图资产中显式的事件到输入声明，供编译器校验。</summary>
     [Serializable]
     internal sealed class StateGraphEventAdapterDeclarationRecord
     {

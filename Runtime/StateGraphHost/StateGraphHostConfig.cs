@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     public sealed partial class StateGraphHost
     {

@@ -2,12 +2,13 @@ using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
+// 图编辑器从这里同步选择、要件与编译结果，在资产变化后使相关视图失效。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>标出哪些编辑器数据应在本次资产变化后重建。</summary>
     [Flags]
     internal enum StateGraphEditorInvalidation
     {
@@ -21,6 +22,7 @@ namespace CoCoFlow.Editor.StateGraph
         All = Toolbar | Tree | Details | Canvas | Feedback
     }
 
+    /// <summary>把编辑命令、选择和图编译结果同步到编辑器面板。</summary>
     internal sealed partial class StateGraphEditorController : IDisposable
     {
         private static StateGraphSubtreeClipboard clipboard;
@@ -38,9 +40,7 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Asset = asset != null ? asset : throw new ArgumentNullException(nameof(asset));
             Session = StateGraphEditorSessionState.Load(asset);
-            // D9 renders the complete Layer as one flat genealogy canvas. Older
-            // sessions may still carry a pre-D9 drill root; keeping it active
-            // would make root-level authoring silently target that stale State.
+
             Session.DrillRootStateId = default;
             ReloadCatalog();
             if (Session.AnalysisRequested && catalog != null)
@@ -155,7 +155,6 @@ namespace CoCoFlow.Editor.StateGraph
                     out StateDescriptorId descriptorId))
                 return SetFailure("Select a valid Logic before saving.", StateGraphEditorInvalidation.Feedback);
 
-            // One asset transaction: the draft never changes topology or execution order.
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             if (!StateGraphAuthoringOperations.TryRenameState(Asset, Session.SelectedLayerId,
@@ -353,7 +352,7 @@ namespace CoCoFlow.Editor.StateGraph
                 if (child != null && Matches(child.ParentStateId, stateId)) composite = true;
             if (!composite) return;
             Session.SetCanvasCollapsed(stateId, !Session.IsCanvasCollapsed(stateId));
-            // This view action neither switches selection nor resolves an unsaved Logic draft.
+
             SaveAndNotify(StateGraphEditorInvalidation.Canvas);
         }
 
@@ -761,46 +760,6 @@ namespace CoCoFlow.Editor.StateGraph
                 out string failure), failure);
         }
 
-        internal bool AddCondition(ConditionDescriptor descriptor)
-        {
-            string failure = string.Empty;
-            if (descriptor == null ||
-                !TryCreateConditionConfig(descriptor, out ConditionConfig config, out failure))
-            {
-                return SetFailure(descriptor == null ? "Select a Condition descriptor first." : failure);
-            }
-
-            return Complete(StateGraphAuthoringOperations.TryAddCondition(
-                Asset,
-                Session.SelectedLayerId,
-                Session.SelectedTransitionId,
-                descriptor.DescriptorId,
-                config,
-                out _,
-                out failure), failure);
-        }
-
-        internal bool DeleteCondition(int conditionIndex)
-        {
-            return Complete(StateGraphAuthoringOperations.TryDeleteCondition(
-                Asset,
-                Session.SelectedLayerId,
-                Session.SelectedTransitionId,
-                conditionIndex,
-                out string failure), failure);
-        }
-
-        internal bool MoveCondition(int sourceIndex, int targetIndex)
-        {
-            return Complete(StateGraphAuthoringOperations.TryMoveCondition(
-                Asset,
-                Session.SelectedLayerId,
-                Session.SelectedTransitionId,
-                sourceIndex,
-                targetIndex,
-                out string failure), failure);
-        }
-
         internal void Locate(GraphDiagnosticLocation location)
         {
             if (!ResolveStateDraft()) return;
@@ -871,8 +830,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             if (_stateDraftAsset != null && !Session.SelectedTransitionId.IsValid)
             {
-                // Bound PropertyFields also report their initial value: only a
-                // changed Config is an edit, so merely selecting a State stays clean.
+
                 string snapshot = JsonUtility.ToJson(BeginStateDraft()?.Config);
                 if (snapshot != _stateDraftConfigSnapshot)
                 {
@@ -925,35 +883,9 @@ namespace CoCoFlow.Editor.StateGraph
                 : $"Unresolved  {descriptorId}";
         }
 
-        internal string ConditionDescriptorLabel(StateGraphConditionRecord condition)
-        {
-            if (condition == null ||
-                !ConditionDescriptorId.TryCreate(
-                    condition.ConditionDescriptorId.High,
-                    condition.ConditionDescriptorId.Low,
-                    out ConditionDescriptorId descriptorId))
-            {
-                return "Unassigned";
-            }
-
-            return catalog != null &&
-                   catalog.TryGetConditionDescriptor(descriptorId, out ConditionDescriptor descriptor)
-                ? $"{descriptor.ConditionType.Name}  {descriptorId}"
-                : $"Unresolved  {descriptorId}";
-        }
-
-
         internal static bool TryCreateStateConfig(
             StateDescriptor descriptor,
             out StateConfig config,
-            out string failure)
-        {
-            return TryCreateConfig(descriptor?.AuthoringConfigType, out config, out failure);
-        }
-
-        internal static bool TryCreateConditionConfig(
-            ConditionDescriptor descriptor,
-            out ConditionConfig config,
             out string failure)
         {
             return TryCreateConfig(descriptor?.AuthoringConfigType, out config, out failure);
@@ -1146,7 +1078,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-
         private static SerializedId128 Serialize(StateId id) =>
             new SerializedId128(id.High, id.Low);
 
@@ -1167,7 +1098,7 @@ namespace CoCoFlow.Editor.StateGraph
 
     }
 
-    /// <summary>需求条目的语义类别（P03 视图结构化呈现用）。</summary>
+    /// <summary>区分要件列表中的输入、输出与图状态数据。</summary>
     internal enum RequirementEntryKind
     {
         Intent,
@@ -1175,7 +1106,7 @@ namespace CoCoFlow.Editor.StateGraph
         ContextBlock
     }
 
-    /// <summary>单条 Host 需求：类别 + 可选类型名 + 完整稳定 ID（视图负责缩短与本地化）。</summary>
+    /// <summary>为详情面板保存一项编译要件的标识、来源及显示内容。</summary>
     internal readonly struct RequirementEntry
     {
         internal RequirementEntry(
@@ -1193,14 +1124,14 @@ namespace CoCoFlow.Editor.StateGraph
         internal string FullId { get; }
     }
 
-    /// <summary>需求分组：选中 State / 选中条件 / 编译结果。</summary>
+    /// <summary>区分要件所属的图、图层或所选节点。</summary>
     internal enum RequirementScopeKind
     {
         SelectedState,
-        SelectedCondition,
         Compiled
     }
 
+    /// <summary>将同一范围的要件组成详情面板的一个分组。</summary>
     internal sealed class RequirementSection
     {
         internal RequirementSection(
@@ -1221,14 +1152,10 @@ namespace CoCoFlow.Editor.StateGraph
         internal IReadOnlyList<RequirementEntry> Entries { get; }
     }
 
+    /// <summary>把编辑命令、选择和图编译结果同步到编辑器面板。</summary>
     internal sealed partial class StateGraphEditorController
     {
-        /// <summary>
-        /// 结构化需求查询（P03 视图消费，只读）。
-        /// 选中 State 的 descriptor 需求、选中 Transition 各条件的需求、编译产出的
-        /// 三 manifest Host 需求。
-        /// </summary>
-        internal IReadOnlyList<RequirementSection> BuildRequirementSections()
+                internal IReadOnlyList<RequirementSection> BuildRequirementSections()
         {
             var sections = new List<RequirementSection>();
 
@@ -1248,34 +1175,6 @@ namespace CoCoFlow.Editor.StateGraph
                     DescriptorEntries(stateDescriptor)));
             }
 
-            StateGraphTransitionRecord transition =
-                FindTransition(SelectedLayer, Session.SelectedTransitionId);
-            if (transition != null && catalog != null)
-            {
-                for (int index = 0; index < transition.Conditions.Count; index++)
-                {
-                    StateGraphConditionRecord condition = transition.Conditions[index];
-                    if (condition != null &&
-                        ConditionDescriptorId.TryCreate(
-                            condition.ConditionDescriptorId.High,
-                            condition.ConditionDescriptorId.Low,
-                            out ConditionDescriptorId conditionDescriptorId) &&
-                        catalog.TryGetConditionDescriptor(
-                            conditionDescriptorId,
-                            out ConditionDescriptor conditionDescriptor))
-                    {
-                        var entries = new List<RequirementEntry>();
-                        AddIdEntries(entries, RequirementEntryKind.Intent, conditionDescriptor.IntentRequirements);
-                        AddIdEntries(entries, RequirementEntryKind.ContextBlock, conditionDescriptor.ContextStateRequirements);
-                        sections.Add(new RequirementSection(
-                            RequirementScopeKind.SelectedCondition,
-                            $"{conditionDescriptor.ConditionType.Name} #{index + 1}",
-                            conditionDescriptor.DescriptorId.ToString(),
-                            entries));
-                    }
-                }
-            }
-
             if (analysisResult?.Succeeded == true)
             {
                 sections.Add(BuildCompiledSection(analysisResult, catalog));
@@ -1284,11 +1183,7 @@ namespace CoCoFlow.Editor.StateGraph
             return sections;
         }
 
-        /// <summary>
-        /// 编译产出的 Host 需求分组（静态形态供 Inspector 复用）。
-        /// 维护者反馈：显示名全部优先类名/结构体名（目录可解析时），短 ID 仅作后缀。
-        /// </summary>
-        internal static RequirementSection BuildCompiledSection(
+                internal static RequirementSection BuildCompiledSection(
             StateGraphAssetCompileResult result,
             GraphDescriptorCatalog catalog = null)
         {
@@ -1305,8 +1200,8 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 entries.Add(new RequirementEntry(
                     RequirementEntryKind.Operation,
-                    provision.SectionType.Name,
-                    provision.SectionId.ToString()));
+                    provision.OperationType.Name,
+                    provision.OperationId.ToString()));
             }
 
             foreach (ContextStateBlockRequirement block in result.Graph.ContextStateRequirements.Blocks)
@@ -1324,8 +1219,7 @@ namespace CoCoFlow.Editor.StateGraph
                 entries);
         }
 
-        /// <summary>Context 块显示名：块内各 State 槽的值类型名（可解析时）。</summary>
-        private static string ResolveContextBlockName(
+                private static string ResolveContextBlockName(
             GraphDescriptorCatalog catalog,
             StateBlockId blockId)
         {
@@ -1376,8 +1270,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
         }
 
-        /// <summary>目录反解显示名：Intent→值类型名；Operation→Section 类型名；Context 块→槽类型名。</summary>
-        private string ResolveIdDisplayName<TId>(RequirementEntryKind kind, TId id)
+                private string ResolveIdDisplayName<TId>(RequirementEntryKind kind, TId id)
         {
             if (catalog == null)
             {
@@ -1392,9 +1285,9 @@ namespace CoCoFlow.Editor.StateGraph
                         ? intent.ValueType?.Name
                         : null;
                 case RequirementEntryKind.Operation:
-                    return id is OperationSectionId operationId &&
+                    return id is OperationId operationId &&
                            catalog.TryGetOperation(operationId, out IGraphOperationRegistration operation)
-                        ? operation.SectionType?.Name
+                        ? operation.OperationType?.Name
                         : null;
                 case RequirementEntryKind.ContextBlock:
                     return id is StateBlockId blockId

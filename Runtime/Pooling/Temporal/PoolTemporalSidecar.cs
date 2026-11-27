@@ -1,6 +1,5 @@
 using System;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal
 {

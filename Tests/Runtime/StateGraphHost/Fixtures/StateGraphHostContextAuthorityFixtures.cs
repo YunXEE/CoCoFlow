@@ -17,7 +17,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             StateSlotId secondGraphStateSlotId,
             StateBlockId actorStateBlockId,
             StateSlotId actorStateSlotId,
-            OperationSectionId operationSectionId,
+            OperationId operationSectionId,
             OperatorId operatorId)
         {
             LayerId = layerId;
@@ -30,7 +30,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             SecondGraphStateSlotId = secondGraphStateSlotId;
             ActorStateBlockId = actorStateBlockId;
             ActorStateSlotId = actorStateSlotId;
-            OperationSectionId = operationSectionId;
+            OperationId = operationSectionId;
             OperatorId = operatorId;
         }
 
@@ -44,7 +44,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public StateSlotId SecondGraphStateSlotId { get; }
         public StateBlockId ActorStateBlockId { get; }
         public StateSlotId ActorStateSlotId { get; }
-        public OperationSectionId OperationSectionId { get; }
+        public OperationId OperationId { get; }
         public OperatorId OperatorId { get; }
 
         public static ContextAuthorityTestIds Create()
@@ -77,10 +77,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                     705UL,
                     3UL,
                     out StateSlotId actorStateSlotId) ||
-                !OperationSectionId.TryCreate(
+                !OperationId.TryCreate(
                     709UL,
                     1UL,
-                    out OperationSectionId operationSectionId) ||
+                    out OperationId operationSectionId) ||
                 !OperatorId.TryCreate(706UL, 1UL, out OperatorId operatorId))
             {
                 throw new InvalidOperationException(
@@ -204,7 +204,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    public sealed class ContextAuthorityMemory : ActivationMemory
+    public sealed class ContextAuthorityMemory : StateActivationMemory
     {
         public int Value;
     }
@@ -296,13 +296,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     public sealed class ContextAuthorityLogic : StateLogic, IStateUpdate
     {
         private readonly TransitionHandle _transition;
-        private readonly OperationSectionHandle<IOperatorCommitPrimarySection> _operation;
-        private readonly OperationSectionField<int> _operationValue;
+        private readonly OperationHandle<IOperatorCommitPrimarySection> _operation;
+        private readonly OperationField<int> _operationValue;
 
         public ContextAuthorityLogic(
             StateFactoryContext context,
-            OperationSectionHandle<IOperatorCommitPrimarySection> operation = default,
-            OperationSectionField<int> operationValue = default)
+            OperationHandle<IOperatorCommitPrimarySection> operation = default,
+            OperationField<int> operationValue = default)
         {
             _transition = context.OutgoingTransitions.Count == 0
                 ? default

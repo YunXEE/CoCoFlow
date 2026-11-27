@@ -1,21 +1,27 @@
 using System;
 using System.Linq;
 using CoCoFlow.Runtime.Core;
+using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;
 
+// 向编译器传入独立的错误拓扑和配置，逐项核对诊断位置以及图能否生成。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>向编译器传入独立的错误拓扑和配置，逐项核对诊断位置以及图能否生成。</summary>
     public sealed class StateGraphValidatorTests
     {
-        private GraphDescriptorCatalog catalog;
 
+        #region Public API
+
+        /// <summary>创建本用例使用的合法基线目录，之后只修改该例针对的拓扑或合同。</summary>
         [SetUp]
         public void SetUp()
         {
             catalog = StateGraphTestFactory.CreateCatalog(false);
         }
 
+        /// <summary>构造转换错误，核对诊断保留该边的定位且结果不含已编译图。</summary>
         [Test]
         public void AnyErrorSuppressesCompiledGraphAndPreservesTransitionLocation()
         {
@@ -25,8 +31,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphTestFactory.RootStateId,
                 missingTarget,
                 0,
-                TransitionWindow.Always,
-                Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
             var layer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 StateGraphTestFactory.RootStateId,
@@ -58,6 +63,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, diagnostic.Location.TransitionIndex);
         }
 
+        /// <summary>创建不可达节点，检查诊断仅为警告且合法拓扑仍能编译。</summary>
         [Test]
         public void UnreachableStateIsWarningAndDoesNotSuppressCompiledGraph()
         {
@@ -94,6 +100,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1, warning.Location.StateIndex);
         }
 
+        /// <summary>形成父子关系循环，核对错误明确定位回边的父字段。</summary>
         [Test]
         public void ParentHierarchyCycleIsRejectedAtParentField()
         {
@@ -119,6 +126,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Location.Field == GraphField.ParentState));
         }
 
+        /// <summary>使复合状态缺少直接初始子节点，核对错误定位初始子字段。</summary>
         [Test]
         public void CompositeWithoutDirectInitialChildIsRejectedAtInitialChildField()
         {
@@ -151,6 +159,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(StateGraphTestFactory.RootStateId, diagnostic.Location.StateId);
         }
 
+        /// <summary>用两个不同图层的节点作为端点，核对错误定位到越层的端点。</summary>
         [Test]
         public void CrossLayerTransitionIsRejectedAtEndpointField()
         {
@@ -161,8 +170,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphTestFactory.RootStateId,
                 secondLayerStateId,
                 0,
-                TransitionWindow.Always,
-                Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
             var firstLayer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 StateGraphTestFactory.RootStateId,
@@ -201,6 +209,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, diagnostic.Location.LayerIndex);
         }
 
+        /// <summary>在同层第二次使用同一节点 ID，核对错误指向第二项的身份字段。</summary>
         [Test]
         public void DuplicateStateIdIsRejectedAtSecondStateIdentity()
         {
@@ -235,6 +244,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1, diagnostic.Location.StateIndex);
         }
 
+        /// <summary>同时破坏图头多个字段，检查每个位置都有诊断且没有输出图。</summary>
         [Test]
         public void InvalidGraphHeaderFieldsAreAllLocatedAndSuppressOutput()
         {
@@ -260,15 +270,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Location.Field == GraphField.Identifier));
         }
 
+        /// <summary>给描述符传入另一 schema 的冻结配置，核对诊断定位该节点配置。</summary>
         [Test]
         public void DescriptorConfigTypeMismatchIsRejectedAtConfigField()
         {
+            var writer = TestFrozenConfigSchemas.ArraySchema.CreateWriter();
+            Assert.IsTrue(writer.TryWriteArray(TestFrozenConfigSchemas.ArrayValues, new[] { 5 }, out _));
+            Assert.IsTrue(writer.TrySeal(out var wrongSchema, out _));
             var invalidState = new StateSource(
                 StateGraphTestFactory.RootStateId,
                 default,
                 default,
                 StateGraphTestFactory.StateDescriptorId,
-                StateGraphTestFactory.ConditionConfig(5));
+                wrongSchema);
             var layer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 invalidState.StateId,
@@ -286,6 +300,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(GraphElementKind.State, diagnostic.Location.ElementKind);
         }
 
+        /// <summary>构造不合规的转换窗口，核对编译器报告对应边与窗口字段。</summary>
         [Test]
         public void InvalidTransitionWindowIsReported()
         {
@@ -294,8 +309,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphTestFactory.RootStateId,
                 StateGraphTestFactory.RootStateId,
                 0,
-                default,
-                Array.Empty<ConditionSource>());
+                default);
             var layer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 StateGraphTestFactory.RootStateId,
@@ -319,6 +333,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 GraphField.Window);
         }
 
+        /// <summary>覆盖有限值、起止和模式组合，检查窗口创建遵循已定的区间。</summary>
         [TestCase(TransitionWindowMode.LocalSeconds, 0d, 1d, true)]
         [TestCase(TransitionWindowMode.LocalSeconds, 0d, double.MaxValue, true)]
         [TestCase(TransitionWindowMode.LocalSeconds, -1d, 1d, false)]
@@ -353,6 +368,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>用始终开放的窗口模式创建窗口，核对规范化后的边界。</summary>
         [Test]
         public void AlwaysWindowCanonicalizesItsInterval()
         {
@@ -366,12 +382,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0d, window.EndExclusive);
         }
 
+        /// <summary>读取进度窗口枚举的数字，检查已有图所保存的值仍可识别。</summary>
         [Test]
         public void ActionProgressKeepsItsSerializedNumericValue()
         {
             Assert.AreEqual(3, (int)TransitionWindowMode.ActionProgress);
         }
 
+        /// <summary>让复合状态成为转换的源或目标，分别核对错误精确定位相应端点。</summary>
         [Test]
         public void CompositeTransitionEndpointsAreRejectedAtTheirExactFields()
         {
@@ -380,8 +398,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphTestFactory.RootStateId,
                 StateGraphTestFactory.RootStateId,
                 0,
-                TransitionWindow.Always,
-                Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
             var layer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 StateGraphTestFactory.RootStateId,
@@ -414,6 +431,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 GraphField.TargetState);
         }
 
+        /// <summary>为同一叶的两条出边设置相同优先级，检查诊断指向冲突边。</summary>
         [Test]
         public void DuplicateOutgoingPrioritiesFromOneLeafAreRejected()
         {
@@ -447,6 +465,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     diagnostic.Location.Field == GraphField.Priority));
         }
 
+        /// <summary>给来自不同叶的出边设置相同优先级，验证这些边可通过编译。</summary>
         [Test]
         public void EqualPrioritiesFromDifferentSourceLeavesAreAllowed()
         {
@@ -482,6 +501,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Diagnostic.Code == CoCoDiagnosticCode.DuplicateTransitionPriority));
         }
 
+        /// <summary>在未声明进度能力的状态上使用进度窗口，检查诊断定位源状态。</summary>
         [Test]
         public void ActionProgressWindowRequiresAnOptedInSourceState()
         {
@@ -507,6 +527,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Diagnostic.Code == CoCoDiagnosticCode.MissingActionProgressProvider));
         }
 
+        /// <summary>让父子同时提供同一操作，核对编译结果保留警告且仍可运行。</summary>
         [Test]
         public void ParentAndChildOperationOverlapWarnsButStillCompiles()
         {
@@ -524,6 +545,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     diagnostic.Location.Field == GraphField.Descriptor));
         }
 
+        /// <summary>在不同层声明同一操作，确认不会触发只针对父子重叠的警告。</summary>
         [Test]
         public void SameOperationAcrossLayersDoesNotWarn()
         {
@@ -566,6 +588,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Diagnostic.Code == CoCoDiagnosticCode.ActivePathOperationOverlap));
         }
 
+        /// <summary>对含多个独立错误的图反复编译，逐项比较诊断顺序和字段定位。</summary>
         [Test]
         public void MultiErrorDiagnosticOrderIsDeterministicAcrossRepeatedCompile()
         {
@@ -583,6 +606,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.AreEqual(first.Diagnostics, second.Diagnostics);
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private GraphDescriptorCatalog catalog;
+
         private StateGraphCompileResult Compile(StateGraphSource source) =>
             new StateGraphCompiler().Compile(source, catalog);
 
@@ -593,8 +622,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphTestFactory.RootStateId,
                 StateGraphTestFactory.RootStateId,
                 0,
-                window,
-                Array.Empty<ConditionSource>());
+                window);
             var layer = new StateLayerSource(
                 StateGraphTestFactory.LayerId,
                 StateGraphTestFactory.RootStateId,
@@ -620,8 +648,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 sourceStateId,
                 targetStateId,
                 priority,
-                TransitionWindow.Always,
-                Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
 
         private static GraphDiagnostic RequireDiagnostic(
             StateGraphCompileResult result,
@@ -636,5 +663,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 $"Expected exactly one {code} diagnostic at {field}, but found {matches.Length}.");
             return matches[0];
         }
+
+        #endregion
     }
 }

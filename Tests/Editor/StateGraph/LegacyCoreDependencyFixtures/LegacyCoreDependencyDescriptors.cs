@@ -37,7 +37,7 @@ namespace CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures
         public static Type ReferencedLegacyCoreType => typeof(CoCoServices);
     }
 
-    public sealed class LegacyCoreDependencyMemory : ActivationMemory
+    public sealed class LegacyCoreDependencyMemory : StateActivationMemory
     {
     }
 

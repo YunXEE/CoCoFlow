@@ -5,7 +5,7 @@ using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal enum StateGraphDriver
     {

@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Xml;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Editor.PlayerMetadata;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraph;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -74,16 +73,16 @@ namespace CoCoFlow.Editor.StateGraph
             throw new BuildFailedException(string.Join(Environment.NewLine, messages));
         }
 
-        internal static Type[] CollectAndValidateOperationSections(
+        internal static Type[] CollectAndValidateOperations(
             AssembliesType assembliesType,
             out CoCoDiagnostic[] diagnostics)
         {
-            return CollectAndValidateOperationSections(
+            return CollectAndValidateOperations(
                 CompilationPipeline.GetAssemblies(assembliesType),
                 out diagnostics);
         }
 
-        internal static Type[] CollectAndValidateOperationSections(
+        internal static Type[] CollectAndValidateOperations(
             UnityAssembly[] unityAssemblies,
             out CoCoDiagnostic[] diagnostics)
         {
@@ -130,7 +129,7 @@ namespace CoCoFlow.Editor.StateGraph
                     continue;
                 }
 
-                ScanOperationSections(assembly, sections, messages);
+                ScanOperations(assembly, sections, messages);
             }
 
             sections.Sort((left, right) => StringComparer.Ordinal.Compare(
@@ -533,7 +532,7 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 diagnostics.Add(CoCoDiagnostic.Error(
                     CoCoDiagnosticDomain.Operation,
-                    CoCoDiagnosticCode.InvalidOperationSection,
+                    CoCoDiagnosticCode.InvalidOperationContract,
                     message));
             }
 
@@ -566,7 +565,7 @@ namespace CoCoFlow.Editor.StateGraph
             throw new BuildFailedException(string.Join(Environment.NewLine, messages));
         }
 
-        private static void ScanOperationSections(
+        private static void ScanOperations(
             SystemAssembly assembly,
             ICollection<Type> sections,
             ISet<string> messages)
@@ -596,13 +595,13 @@ namespace CoCoFlow.Editor.StateGraph
                 Type type = types[typeIndex];
                 if (type == null ||
                     !type.IsInterface ||
-                    IsOperationSectionMarker(type) ||
+                    IsOperationMarker(type) ||
                     !InheritsOperationSectionMarker(type))
                 {
                     continue;
                 }
 
-                if (!OperationSectionShape.TryCreate(
+                if (!OperationShape.TryCreate(
                         type,
                         out _,
                         out CoCoDiagnostic diagnostic))
@@ -629,7 +628,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             for (int index = 0; index < inherited.Length; index++)
             {
-                if (IsOperationSectionMarker(inherited[index]))
+                if (IsOperationMarker(inherited[index]))
                 {
                     return true;
                 }
@@ -638,9 +637,9 @@ namespace CoCoFlow.Editor.StateGraph
             return false;
         }
 
-        private static bool IsOperationSectionMarker(Type type)
+        private static bool IsOperationMarker(Type type)
         {
-            Type marker = typeof(IOperationSection);
+            Type marker = typeof(IOperation);
             return type == marker ||
                    (type != null &&
                     string.Equals(type.FullName, marker.FullName, StringComparison.Ordinal) &&
@@ -655,9 +654,9 @@ namespace CoCoFlow.Editor.StateGraph
             var types = new Dictionary<Type, string>();
             for (int index = 0; index < sectionTypes.Length; index++)
             {
-                Type sectionType = sectionTypes[index];
-                types[sectionType] = "all";
-                if (!OperationSectionShape.TryCreate(sectionType, out OperationSectionShape shape, out _))
+                Type operationType = sectionTypes[index];
+                types[operationType] = "all";
+                if (!OperationShape.TryCreate(operationType, out OperationShape shape, out _))
                 {
                     continue;
                 }

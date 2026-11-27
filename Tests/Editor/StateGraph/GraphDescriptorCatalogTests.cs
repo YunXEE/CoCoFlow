@@ -9,23 +9,29 @@ using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using CoCoFlow.Tests.StateGraphLegacyCoreDependencyFixtures;
 using NUnit.Framework;
 
+// EditMode 向目录登记状态及其合同，核对冻结校验、错误定位和语义指纹。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>EditMode 向目录登记状态及其合同，核对冻结校验、错误定位和语义指纹。</summary>
     public sealed class GraphDescriptorCatalogTests
     {
+
+        #region Public API
+
+        /// <summary>重置 StateGraphFixtureCounters 的测试状态，确保该例能独立检查工厂或回调次数。</summary>
         [SetUp]
         public void SetUp()
         {
             StateGraphFixtureCounters.Reset();
         }
 
+        /// <summary>冻结纯描述符并检查计数器，确保此阶段无需构造实例 Logic 或记忆。</summary>
         [Test]
         public void CatalogFreezesPureDescriptorsWithoutConstructingRuntimeObjects()
         {
             StateDescriptorId stateDescriptorId = CreateStateDescriptorId(1UL);
-            ConditionDescriptorId conditionDescriptorId = CreateConditionDescriptorId(2UL);
             IntentId intentId = CreateIntentId(3UL);
-            OperationSectionId sectionId = SectionId(4UL);
+            OperationId operationId = CreateOperationId(4UL);
             StateBlockId blockId = BlockId(5UL);
             var builder = new GraphDescriptorCatalogBuilder();
 
@@ -38,10 +44,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     TestIntentReducerFactory>(101UL),
                 out CoCoDiagnostic intentDiagnostic),
                 intentDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterOperationSection(
-                sectionId,
-                OperationSectionMode.Continuous,
-                new OperationSectionViewFactoryToken<
+            Assert.IsTrue(builder.TryRegisterOperation(
+                operationId,
+                Mode.Continuous,
+                new OperationViewFactoryToken<
                     ITestOperationSection,
                     TestOperationSectionViewFactory>(102UL),
                 out CoCoDiagnostic operationDiagnostic),
@@ -60,21 +66,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     TestStateConfigSchema,
                     TestActivationMemory>(TestFrozenConfigSchemas.StateSchema),
                 new[] { intentId },
-                new[] { sectionId },
+                new[] { operationId },
                 new[] { blockId },
                 out CoCoDiagnostic stateDiagnostic),
                 stateDiagnostic.Message);
-            Assert.IsTrue(builder.TryRegisterCondition(
-                conditionDescriptorId,
-                1U,
-                new TestConditionConfigFreezer(),
-                new ConditionRuntimeRegistration<
-                    TestStateCondition,
-                    TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                new[] { intentId },
-                new[] { blockId },
-                out CoCoDiagnostic conditionDiagnostic),
-                conditionDiagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 out GraphDescriptorCatalog catalog,
                 out CoCoDiagnostic freezeDiagnostic),
@@ -84,7 +79,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(catalog.IsFrozen);
             Assert.AreNotEqual(0UL, catalog.Fingerprint);
             Assert.AreEqual(1, catalog.StateDescriptorCount);
-            Assert.AreEqual(1, catalog.ConditionDescriptorCount);
             Assert.IsTrue(catalog.TryGetStateDescriptor(
                 stateDescriptorId,
                 out StateDescriptor stateDescriptor));
@@ -97,28 +91,20 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(typeof(TestActivationMemory), stateDescriptor.ActivationMemoryType);
             Assert.IsFalse(stateDescriptor.ProvidesActionProgress);
             CollectionAssert.AreEqual(new[] { intentId }, stateDescriptor.IntentRequirements);
-            CollectionAssert.AreEqual(new[] { sectionId }, stateDescriptor.OperationProvides);
+            CollectionAssert.AreEqual(new[] { operationId }, stateDescriptor.OperationProvides);
             CollectionAssert.AreEqual(new[] { blockId }, stateDescriptor.ContextStateRequirements);
-            Assert.IsTrue(catalog.TryGetConditionDescriptor(
-                conditionDescriptorId,
-                out ConditionDescriptor conditionDescriptor));
-            Assert.AreEqual(typeof(TestStateCondition), conditionDescriptor.ConditionType);
-            CollectionAssert.AreEqual(new[] { intentId }, conditionDescriptor.IntentRequirements);
-            CollectionAssert.AreEqual(new[] { blockId }, conditionDescriptor.ContextStateRequirements);
 
             Assert.AreEqual(0, StateGraphFixtureCounters.LogicConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.MemoryConstructed);
-            Assert.AreEqual(0, StateGraphFixtureCounters.ConditionConstructed);
             Assert.AreEqual(0, StateGraphFixtureCounters.ReducerCreated);
         }
 
+        /// <summary>以不同顺序加入描述符，验证枚举结果按稳定 ID 排列且不能修改。</summary>
         [Test]
         public void DescriptorEnumerationIsImmutableAndSortedByStableId()
         {
             StateDescriptorId laterStateId = CreateStateDescriptorId(90UL);
             StateDescriptorId earlierStateId = CreateStateDescriptorId(10UL);
-            ConditionDescriptorId laterConditionId = CreateConditionDescriptorId(80UL);
-            ConditionDescriptorId earlierConditionId = CreateConditionDescriptorId(20UL);
             var builder = new GraphDescriptorCatalogBuilder();
 
             foreach (StateDescriptorId descriptorId in new[] { laterStateId, earlierStateId })
@@ -137,21 +123,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
             }
 
-            foreach (ConditionDescriptorId descriptorId in
-                     new[] { laterConditionId, earlierConditionId })
-            {
-                Assert.IsTrue(builder.TryRegisterCondition(
-                    descriptorId,
-                    1U,
-                    new TestConditionConfigFreezer(),
-                    new ConditionRuntimeRegistration<
-                        TestStateCondition,
-                        TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                    null,
-                    null,
-                    out CoCoDiagnostic diagnostic), diagnostic.Message);
-            }
-
             Assert.IsTrue(builder.TryFreeze(
                 out GraphDescriptorCatalog catalog,
                 out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
@@ -159,13 +130,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.AreEqual(
                 new[] { earlierStateId, laterStateId },
                 catalog.StateDescriptors.Select(descriptor => descriptor.DescriptorId));
-            CollectionAssert.AreEqual(
-                new[] { earlierConditionId, laterConditionId },
-                catalog.ConditionDescriptors.Select(descriptor => descriptor.DescriptorId));
             Assert.IsFalse(catalog.StateDescriptors is StateDescriptor[]);
-            Assert.IsFalse(catalog.ConditionDescriptors is ConditionDescriptor[]);
         }
 
+        /// <summary>冻结后再修改可编辑对象，验证运行时结构仍读到原配置。</summary>
         [Test]
         public void FrozenConfigSnapshotIsDetachedFromItsAuthoringConfig()
         {
@@ -207,6 +175,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, StateGraphFixtureCounters.MemoryConstructed);
         }
 
+        /// <summary>用来自 Editor 测试 DLL 的类型注册创作数据，检查目录给出程序集诊断。</summary>
         [Test]
         public void CatalogRejectsAuthoringTypesFromTheUnityEditorTestAssembly()
         {
@@ -228,6 +197,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
+        /// <summary>向普通槽登记 Unity 值类型，验证布局前置检查拒绝该声明。</summary>
         [Test]
         public void OrdinaryStateSlotRejectsUnityValueTypes()
         {
@@ -248,6 +218,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
+        /// <summary>将帧系统无法物化的值类型登记到普通槽，检查类型诊断与注册结果。</summary>
         [Test]
         public void OrdinaryStateSlotsRejectValuesStateFlowCannotMaterialize()
         {
@@ -256,6 +227,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertOrdinaryStateSlotRejected(default(TestPointerSizedStateValue));
         }
 
+        /// <summary>将同一类不可物化类型用于派生槽，验证重建器也不能绕过类型边界。</summary>
         [Test]
         public void DerivedStateSlotsRejectValuesStateFlowCannotMaterialize()
         {
@@ -276,6 +248,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     TestRejectedValueStateRebuilder<TestPointerSizedStateValue>>(3UL));
         }
 
+        /// <summary>注册合法引用 Core 的项目描述符，验证目录可正常冻结。</summary>
         [Test]
         public void CatalogAcceptsDescriptorAssembliesThatUseCore()
         {
@@ -297,6 +270,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsNone, diagnostic.Message);
         }
 
+        /// <summary>传入直接依赖 Unity 创作程序集的描述符，检查目录拒绝该依赖。</summary>
         [Test]
         public void CatalogRejectsDescriptorAssembliesThatReferenceUnityAuthoring()
         {
@@ -319,6 +293,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
+        /// <summary>同一描述符重复声明等价要件，核对清单只保留一份。</summary>
         [Test]
         public void DescriptorCanonicalizesDuplicateManifestRequirements()
         {
@@ -355,6 +330,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.AreEqual(new[] { intentId }, descriptor.IntentRequirements);
         }
 
+        /// <summary>重复使用清单 ID 并改变元数据，检查冲突诊断指明对应合同。</summary>
         [Test]
         public void SameManifestIdWithDifferentMetadataIsAConflict()
         {
@@ -382,24 +358,25 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(conflict.IsError);
         }
 
+        /// <summary>为同一个操作或 Context 标识登记不同元数据，验证冲突不能通过冻结。</summary>
         [Test]
         public void OperationAndContextIdsRejectConflictingMetadata()
         {
-            OperationSectionId sectionId = SectionId(33UL);
+            OperationId operationId = CreateOperationId(33UL);
             StateBlockId blockId = BlockId(34UL);
             Assert.IsTrue(StateSlotId.TryCreate(6UL, 35UL, out StateSlotId slotId));
             var builder = new GraphDescriptorCatalogBuilder();
-            Assert.IsTrue(builder.TryRegisterOperationSection(
-                sectionId,
-                OperationSectionMode.Continuous,
-                new OperationSectionViewFactoryToken<
+            Assert.IsTrue(builder.TryRegisterOperation(
+                operationId,
+                Mode.Continuous,
+                new OperationViewFactoryToken<
                     ITestOperationSection,
                     TestOperationSectionViewFactory>(204UL),
                 out CoCoDiagnostic operationDiagnostic), operationDiagnostic.Message);
-            Assert.IsFalse(builder.TryRegisterOperationSection(
-                sectionId,
-                OperationSectionMode.Discrete,
-                new OperationSectionViewFactoryToken<
+            Assert.IsFalse(builder.TryRegisterOperation(
+                operationId,
+                Mode.Discrete,
+                new OperationViewFactoryToken<
                     ITestOperationSection,
                     TestOperationSectionViewFactory>(205UL),
                 out CoCoDiagnostic operationConflict));
@@ -411,7 +388,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 out CoCoDiagnostic blockDiagnostic), blockDiagnostic.Message);
             Assert.IsFalse(builder.TryRegisterStateBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnostic blockConflict));
             Assert.AreEqual(CoCoDiagnosticCode.ManifestConflict, blockConflict.Code);
 
@@ -438,6 +415,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(CoCoDiagnosticCode.ManifestConflict, slotConflict.Code);
         }
 
+        /// <summary>只改变描述符修订号，验证冻结目录的语义指纹随之变化。</summary>
         [Test]
         public void DescriptorRevisionContributesToCatalogFingerprint()
         {
@@ -447,6 +425,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreNotEqual(first.Fingerprint, second.Fingerprint);
         }
 
+        /// <summary>仅切换状态提供动作进度的能力，验证目录指纹能区分两种合同。</summary>
         [Test]
         public void StateActionProgressCapabilityContributesToCatalogFingerprint()
         {
@@ -465,6 +444,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(descriptor.RuntimeRegistration.ProvidesActionProgress);
         }
 
+        /// <summary>将同一描述符 ID 登记为两个修订，验证后一次注册被拒绝。</summary>
         [Test]
         public void SameDescriptorIdWithDifferentRevisionIsRejected()
         {
@@ -500,6 +480,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(conflict.IsError);
         }
 
+        /// <summary>沿用工厂类型但更换语义指纹，核对目录和编译清单都能区分两者。</summary>
         [Test]
         public void SameFactoryTypesWithDifferentSemanticsHaveDifferentCatalogAndManifestIdentity()
         {
@@ -542,6 +523,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 secondGraph.IntentRequirements.Requirements[0].ReducerFactorySemanticFingerprint);
         }
 
+        /// <summary>冻结后重新指定源 token，核对已编译清单仍持有冻结时的身份。</summary>
         [Test]
         public void TokenReassignmentAfterCatalogFreezeCannotChangeCompiledManifest()
         {
@@ -570,6 +552,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, StateGraphFixtureCounters.ReducerCreated);
         }
 
+        /// <summary>让配置 freezer 主动失败，检查返回的数据始终不是有效快照。</summary>
         [TestCase(true)]
         [TestCase(false)]
         public void StateFreezerFailureAlwaysReturnsInvalidFrozenConfig(bool throws)
@@ -606,40 +589,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
-        [TestCase(true)]
-        [TestCase(false)]
-        public void ConditionFreezerFailureAlwaysReturnsInvalidFrozenConfig(bool throws)
-        {
-            ConditionDescriptorId descriptorId = CreateConditionDescriptorId(41UL);
-            IConfigFreezer<TestConditionAuthoringConfig, TestConditionConfigSchema> freezer = throws
-                ? new ThrowingConditionConfigFreezer()
-                : new FalseWithoutDiagnosticConditionConfigFreezer();
-            var builder = new GraphDescriptorCatalogBuilder();
-            Assert.IsTrue(builder.TryRegisterCondition(
-                descriptorId,
-                1U,
-                freezer,
-                new ConditionRuntimeRegistration<
-                    TestStateCondition,
-                    TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                null,
-                null,
-                out CoCoDiagnostic registrationDiagnostic), registrationDiagnostic.Message);
-            Assert.IsTrue(builder.TryFreeze(
-                out GraphDescriptorCatalog catalog,
-                out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
-
-            Assert.IsFalse(catalog.TryFreezeConditionConfig(
-                descriptorId,
-                new TestConditionAuthoringConfig { Threshold = 1 },
-                out FrozenConfigSnapshot snapshot,
-                out CoCoDiagnostic diagnostic));
-
-            Assert.IsNull(snapshot);
-            Assert.AreEqual(CoCoDiagnosticCode.InvalidFrozenConfig, diagnostic.Code);
-            Assert.IsTrue(diagnostic.IsError);
-        }
-
+        /// <summary>尝试把可变或不支持的嵌套值加入 schema，检查字段注册被拒绝。</summary>
         [Test]
         public void SchemaRejectsMutableOrNestedValueShapes()
         {
@@ -671,6 +621,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(CoCoDiagnosticCode.InvalidFrozenConfig, nullableDiagnostic.Code);
         }
 
+        /// <summary>修改传入冻结器的数组，按元素核对冻结副本未被随后修改。</summary>
         [Test]
         public void FrozenArrayInputIsDefensivelyCopied()
         {
@@ -708,6 +659,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(3, frozenValues.Count);
         }
 
+        /// <summary>制造一次写入失败或遗漏必填字段，检查 writer 均无法生成有效快照。</summary>
         [Test]
         public void WriterFailureIsPermanentAndSealingRequiresEveryField()
         {
@@ -736,6 +688,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(duplicateDiagnostic.Message, sealDiagnostic.Message);
         }
 
+        /// <summary>封存后再次写同一 writer，检查已有快照的字段值保持原样。</summary>
         [Test]
         public void SealedWriterCannotMutateAnExistingSnapshot()
         {
@@ -758,6 +711,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(7, value);
         }
 
+        /// <summary>写入未知字段或 null 后再写入合法值，检查此前失败的 writer 无法重新封存。</summary>
         [Test]
         public void UnknownAndNullWritesPermanentlyFailTheirWriter()
         {
@@ -790,6 +744,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(CoCoDiagnosticCode.InvalidFrozenConfig, nullDiagnostic.Code);
         }
 
+        /// <summary>以错误元素类型或数组种类写字段，验证 writer 进入不可封存状态。</summary>
         [Test]
         public void WrongTypedOrArrayKindFieldPermanentlyFailsItsWriter()
         {
@@ -820,6 +775,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(CoCoDiagnosticCode.InvalidFrozenConfig, wrongKindDiagnostic.Code);
         }
 
+        /// <summary>冻结不含字段的合法 schema，核对所得空快照仍有效且不能改写。</summary>
         [Test]
         public void EmptySchemaProducesAValidImmutableSnapshot()
         {
@@ -837,6 +793,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(schema.Fingerprint, snapshot.SchemaFingerprint);
         }
 
+        /// <summary>预热后并发读取同一快照，核对类型化值一致并测量分配量。</summary>
         [Test]
         public void WarmedTypedReadsAllocateNothingAndAreSafeForParallelReaders()
         {
@@ -890,6 +847,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0, failures);
         }
 
+        /// <summary>调整写入顺序再改变字段值，核对指纹只受规范化合同和实际值影响。</summary>
         [Test]
         public void SchemaAndSnapshotFingerprintsAreCanonicalAndValueSensitive()
         {
@@ -918,6 +876,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 out int wrongSchemaValue));
         }
 
+        /// <summary>按不同次序注册项目程序集，验证目录暴露排序稳定的只读根集合。</summary>
         [Test]
         public void CatalogKeepsSortedImmutableAuthorAssemblyRoots()
         {
@@ -935,6 +894,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 actual,
                 typeof(TestStateLogic).Assembly.GetName().Name);
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static readonly FrozenConfigSchema<EditorAssemblyConfigSchema> EditorAssemblySchema =
+            CreateEditorAssemblySchema();
 
         private static StateDescriptorId CreateStateDescriptorId(ulong low)
         {
@@ -983,21 +949,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(diagnostic.IsError);
         }
 
-        private static ConditionDescriptorId CreateConditionDescriptorId(ulong low)
-        {
-            Assert.IsTrue(ConditionDescriptorId.TryCreate(2UL, low, out ConditionDescriptorId id));
-            return id;
-        }
-
         private static IntentId CreateIntentId(ulong low)
         {
             Assert.IsTrue(IntentId.TryCreate(3UL, low, out IntentId id));
             return id;
         }
 
-        private static OperationSectionId SectionId(ulong low)
+        private static OperationId CreateOperationId(ulong low)
         {
-            Assert.IsTrue(OperationSectionId.TryCreate(4UL, low, out OperationSectionId id));
+            Assert.IsTrue(OperationId.TryCreate(4UL, low, out OperationId id));
             return id;
         }
 
@@ -1056,30 +1016,33 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return schema;
         }
 
+        /// <summary>为目录测试构造具有本地类型身份的冻结 schema。</summary>
         private readonly struct LocalConfigSchema : IFrozenConfigSchema
         {
         }
 
+        /// <summary>让目录检查来自 Editor 测试程序集的 schema 身份。</summary>
         private readonly struct EditorAssemblyConfigSchema : IFrozenConfigSchema
         {
         }
 
-        private static readonly FrozenConfigSchema<EditorAssemblyConfigSchema> EditorAssemblySchema =
-            CreateEditorAssemblySchema();
-
+        /// <summary>使目录测试能尝试注册来自编辑器而非纯玩法程序集的配置。</summary>
         [Serializable]
         private sealed class EditorAssemblyAuthoringConfig : StateConfig
         {
         }
 
+        /// <summary>让目录测试验证项目 Logic 对 Editor 程序集的禁止依赖。</summary>
         private sealed class EditorAssemblyStateLogic : StateLogic
         {
         }
 
-        private sealed class EditorAssemblyMemory : ActivationMemory
+        /// <summary>为同一负例提供来自 Editor 程序集的激活记忆。</summary>
+        private sealed class EditorAssemblyMemory : StateActivationMemory
         {
         }
 
+        /// <summary>从 Editor 侧实现冻结合同以检验目录按实际程序集校验创作类型。</summary>
         private sealed class EditorAssemblyConfigFreezer :
             IConfigFreezer<EditorAssemblyAuthoringConfig, EditorAssemblyConfigSchema>
         {
@@ -1092,5 +1055,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return true;
             }
         }
+
+        #endregion
     }
 }

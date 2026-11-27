@@ -4,7 +4,6 @@ using System.IO;
 using System.Xml;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Editor.PlayerMetadata;
 using CoCoFlow.Tests.StateGraphPlayerMetadataFixtures;
@@ -122,7 +121,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void EditorAssemblyScanFindsValidOperationSectionShape()
         {
-            Type[] sections = StateGraphBuildValidation.CollectAndValidateOperationSections(
+            Type[] sections = StateGraphBuildValidation.CollectAndValidateOperations(
                 AssembliesType.Editor,
                 out _);
 
@@ -346,12 +345,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     "Synthetic.Values.Payload")?.Attributes?["preserve"]?.Value);
         }
 
-        public interface ILinkerTestSection : IOperationSection
+        public interface ILinkerTestSection : IOperation
         {
             LinkerOuterValue Payload { get; }
         }
 
-        public interface IInvalidRuntimeLinkerSection : IOperationSection
+        public interface IInvalidRuntimeLinkerSection : IOperation
         {
             string Value { get; }
         }
@@ -373,7 +372,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public int Value;
         }
 
-        public interface IGenericLinkerSection : IOperationSection
+        public interface IGenericLinkerSection : IOperation
         {
             ValueTuple<GenericNestedValue, int> Payload { get; }
         }

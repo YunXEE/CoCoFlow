@@ -7,26 +7,33 @@ using CoCoFlow.Editor.StateGraph;
 using NUnit.Framework;
 using UnityEditor.Compilation;
 
+// 创作依赖测试沿直接与传递程序集引用查找禁止的 Unity 依赖，并检查报告的来源。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>创作依赖测试沿直接与传递程序集引用查找禁止的 Unity 依赖，并检查报告的来源。</summary>
     public sealed class StateGraphDependencyClosureValidationTests
     {
+
+        #region Public API
+
+        /// <summary>沿实际移动合同的程序集引用检查纯系统依赖，确认通过创作校验。</summary>
         [Test]
-        public void UnityAnimationContractSystemReferencesAreAccepted()
+        public void UnityLocomotionContractSystemReferencesAreAccepted()
         {
             var assembly = CompilationPipeline.GetAssemblies(AssembliesType.Player)
-                .Single(item => item.name == "CoCoFlow.Runtime.Animation.Contracts");
+                .Single(item => item.name == "CoCoFlow.Runtime.Locomotion.Contracts");
             var nodes = Capture(assembly);
             Assert.IsEmpty(nodes[0].PrecompiledReferences,
                 "Unity's own BCL reference packs must not be treated as custom DLLs.");
         }
 
+        /// <summary>使用与随包基础库相同文件名的项目 DLL，确认仍核对来源并报告违规依赖。</summary>
         [TestCase("Microsoft.Bcl.AsyncInterfaces")]
         [TestCase("Microsoft.Extensions.DependencyInjection.Abstractions")]
         public void ProjectDllWithBundledBclNameStillFailsClosed(string name)
         {
             var assembly = new UnityEditor.Compilation.Assembly(
-                "CoCoFlow.Runtime.Animation.Contracts", string.Empty,
+                "CoCoFlow.Runtime.Locomotion.Contracts", string.Empty,
                 Array.Empty<string>(), Array.Empty<string>(), Array.Empty<UnityEditor.Compilation.Assembly>(),
                 new[] { Path.Combine(Path.GetTempPath(), "CoCoFlow-ProjectDll", name + ".dll") }, default);
             var nodes = Capture(assembly);
@@ -35,24 +42,21 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new[] { assembly.name }, nodes).Length);
         }
 
-        private static StateGraphAssemblyGraphNode[] Capture(UnityEditor.Compilation.Assembly assembly) =>
-            (StateGraphAssemblyGraphNode[])typeof(StateGraphAuthoringDependencyClosureValidator)
-                .GetMethod("Capture", BindingFlags.NonPublic | BindingFlags.Static)
-                .Invoke(null, new object[] { new[] { assembly } });
-
+        /// <summary>从项目程序集直接引用禁止的 Unity 程序集，检查诊断列出完整路径。</summary>
         [Test]
         public void DirectForbiddenDependencyReportsTheCompletePath()
         {
             CoCoDiagnostic[] diagnostics = Validate(
                 new[] { "Author" },
-                Node("Author", references: new[] { "CoCoFlow.Runtime.StateGraphHost" }));
+                Node("Author", references: new[] { "CoCoFlow.Runtime.StateGraph" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
-                "Graph author dependency closure Author -> CoCoFlow.Runtime.StateGraphHost " +
+                "Graph author dependency closure Author -> CoCoFlow.Runtime.StateGraph " +
                 "references a forbidden framework boundary.");
         }
 
+        /// <summary>沿多级依赖引入禁止程序集，检查诊断保留从根到目标的每一段。</summary>
         [Test]
         public void TransitiveForbiddenDependencyReportsEveryPathSegment()
         {
@@ -60,17 +64,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new[] { "Author" },
                 Node("Helper", references: new[]
                 {
-                    "CoCoFlow.Runtime.StateGraphHost"
+                    "CoCoFlow.Runtime.StateGraph"
                 }),
                 Node("Author", references: new[] { "Helper" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
                 "Graph author dependency closure Author -> Helper -> " +
-                "CoCoFlow.Runtime.StateGraphHost " +
+                "CoCoFlow.Runtime.StateGraph " +
                 "references a forbidden framework boundary.");
         }
 
+        /// <summary>由两条路径汇合到同一违规依赖，核对每条不同路径都有记录。</summary>
         [Test]
         public void SharedTransitiveViolationReportsEachDistinctCompletePath()
         {
@@ -79,16 +84,17 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Node("Author", references: new[] { "Helper.B", "Helper.A" }),
                 Node("Helper.A", references: new[] { "Shared" }),
                 Node("Helper.B", references: new[] { "Shared" }),
-                Node("Shared", references: new[] { "CoCoFlow.Runtime.StateGraphHost" }));
+                Node("Shared", references: new[] { "CoCoFlow.Runtime.StateGraph" }));
 
             AssertDiagnosticMessages(
                 diagnostics,
                 "Graph author dependency closure Author -> Helper.A -> Shared -> " +
-                "CoCoFlow.Runtime.StateGraphHost references a forbidden framework boundary.",
+                "CoCoFlow.Runtime.StateGraph references a forbidden framework boundary.",
                 "Graph author dependency closure Author -> Helper.B -> Shared -> " +
-                "CoCoFlow.Runtime.StateGraphHost references a forbidden framework boundary.");
+                "CoCoFlow.Runtime.StateGraph references a forbidden framework boundary.");
         }
 
+        /// <summary>构造允许的循环依赖，验证遍历能结束且没有额外诊断。</summary>
         [Test]
         public void CyclicSafeClosureTerminatesWithoutDiagnostics()
         {
@@ -100,6 +106,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsEmpty(diagnostics);
         }
 
+        /// <summary>将作者程序集声明为允许引擎引用，检查闭包校验拒绝该根。</summary>
         [Test]
         public void NoEngineReferencesFalseIsRejected()
         {
@@ -112,6 +119,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "Graph author dependency closure Author must set noEngineReferences:true.");
         }
 
+        /// <summary>对无法找到 asmdef 的项目程序集执行验证，核对产生可定位的失败。</summary>
         [Test]
         public void AssemblyWithoutAsmdefFailsClosed()
         {
@@ -125,6 +133,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "noEngineReferences.");
         }
 
+        /// <summary>从作者程序集引用无法解析的自定义依赖，核对失败的依赖身份。</summary>
         [Test]
         public void UnresolvedCustomDependencyFailsClosed()
         {
@@ -138,6 +147,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "Player asmdef.");
         }
 
+        /// <summary>给编译闭包加入自定义或禁止的预编译依赖，检查校验逐项拒绝。</summary>
         [Test]
         public void CustomAndForbiddenPrecompiledDependenciesFailClosed()
         {
@@ -159,6 +169,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "references an unverifiable custom precompiled assembly.");
         }
 
+        /// <summary>把带系统前缀的项目 asmdef 加入闭包，核对仍追踪其实际依赖。</summary>
         [Test]
         public void SystemPrefixedCustomAsmdefCannotBypassClosureValidation()
         {
@@ -173,6 +184,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "noEngineReferences:true.");
         }
 
+        /// <summary>将带系统前缀的自定义预编译 DLL 加入作者闭包，确认不能替代已知框架来源。</summary>
         [Test]
         public void SystemPrefixedCustomPrecompiledDependencyFailsClosed()
         {
@@ -186,6 +198,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "unverifiable custom precompiled assembly.");
         }
 
+        /// <summary>给自定义程序集提供系统类型身份，核对其实际来源仍导致诊断。</summary>
         [Test]
         public void SystemIdentityCustomPrecompiledDependencyCannotSpoofFrameworkProvenance()
         {
@@ -199,6 +212,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "unverifiable custom precompiled assembly.");
         }
 
+        /// <summary>改变根和节点输入次序后复核诊断，确认报告的路径和顺序稳定。</summary>
         [Test]
         public void DiagnosticsAreCanonicalAcrossRootAndNodeInputOrder()
         {
@@ -225,6 +239,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertDiagnosticMessages(reverse, expected);
         }
 
+        /// <summary>传入空目录，检查明确报告无法验证的创作根。</summary>
         [Test]
         public void NullCatalogProducesAClosedFailureDiagnostic()
         {
@@ -237,6 +252,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostics,
                 "A frozen Graph Descriptor Catalog is required for dependency closure validation.");
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static StateGraphAssemblyGraphNode[] Capture(UnityEditor.Compilation.Assembly assembly) =>
+            (StateGraphAssemblyGraphNode[])typeof(StateGraphAuthoringDependencyClosureValidator)
+                .GetMethod("Capture", BindingFlags.NonPublic | BindingFlags.Static)
+                .Invoke(null, new object[] { new[] { assembly } });
 
         private static CoCoDiagnostic[] Validate(
             string[] roots,
@@ -271,5 +295,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.AreEqual(expectedMessages[index], diagnostics[index].Message);
             }
         }
+
+        #endregion
     }
 }

@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
+// 编辑器将图选择、画布位置与诊断记录保存为可恢复的窗口会话状态。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>管理窗口重载后仍需恢复的选择、视口和反馈。</summary>
     internal sealed class StateGraphEditorSessionState
     {
         private const string KeyPrefix = "CoCoFlow.StateGraph.Editor.";
@@ -52,7 +53,7 @@ namespace CoCoFlow.Editor.StateGraph
                 }
                 catch (Exception)
                 {
-                    // Corrupt per-session UI data is intentionally discarded.
+
                 }
             }
 
@@ -352,7 +353,6 @@ namespace CoCoFlow.Editor.StateGraph
                 layerIndex = value.LayerIndex,
                 stateIndex = value.StateIndex,
                 transitionIndex = value.TransitionIndex,
-                conditionIndex = value.ConditionIndex,
                 eventAdapterDeclarationIndex = value.EventAdapterDeclarationIndex
             };
         }
@@ -377,10 +377,10 @@ namespace CoCoFlow.Editor.StateGraph
                 dto.layerIndex,
                 dto.stateIndex,
                 dto.transitionIndex,
-                dto.conditionIndex,
                 dto.eventAdapterDeclarationIndex);
         }
 
+        /// <summary>保存窗口会话的序列化数据，供编辑器重载时重新应用。</summary>
         [Serializable]
         private sealed class StateGraphEditorSessionDto
         {
@@ -396,6 +396,7 @@ namespace CoCoFlow.Editor.StateGraph
             public StateGraphDiagnosticDto selectedDiagnostic;
         }
 
+        /// <summary>保存可序列化的画布缩放与平移。</summary>
         [Serializable]
         private sealed class StateGraphCanvasViewDto
         {
@@ -405,6 +406,7 @@ namespace CoCoFlow.Editor.StateGraph
             public float zoom;
         }
 
+        /// <summary>保存可在窗口重载后重新显示的诊断及定位。</summary>
         [Serializable]
         private sealed class StateGraphDiagnosticDto
         {
@@ -416,11 +418,11 @@ namespace CoCoFlow.Editor.StateGraph
             public int layerIndex;
             public int stateIndex;
             public int transitionIndex;
-            public int conditionIndex;
             public int eventAdapterDeclarationIndex;
         }
     }
 
+    /// <summary>表示当前画布的可见位置与缩放，供布局与交互计算使用。</summary>
     internal readonly struct StateGraphCanvasView
     {
         internal StateGraphCanvasView(Vector2 pan, float zoom)

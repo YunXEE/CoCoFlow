@@ -3,8 +3,8 @@
     "references": [
         "CoCoFlow.Tests.GameplayBinding.Contracts",
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph",
-        "CoCoFlow.Runtime.StateGraphHost"
+        "CoCoFlow.Runtime.StateGraph.Contracts",
+        "CoCoFlow.Runtime.StateGraph"
     ],
     "autoReferenced": false,
     "defineConstraints": [

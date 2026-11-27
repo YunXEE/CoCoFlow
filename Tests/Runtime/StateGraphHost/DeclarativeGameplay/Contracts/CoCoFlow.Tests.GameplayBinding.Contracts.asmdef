@@ -1,10 +1,11 @@
 {
     "name": "CoCoFlow.Tests.GameplayBinding.Contracts",
     "references": [
-        "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.Camera.Contracts",
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper"
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
+        "CoCoFlow.Runtime.Locomotion.Contracts"
     ],
     "noEngineReferences": true,
     "autoReferenced": false,

@@ -12,25 +12,25 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void EmptyOperationRegistryFreezesAndProducesAValidEmptyFrame()
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
 
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(1UL, 1UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out CoCoDiagnostic freezeDiagnostic),
                 freezeDiagnostic.Message);
             Assert.IsTrue(registry.IsFrozen);
             Assert.AreEqual(0, registry.Count);
             Assert.AreEqual(0, registry.ByteSize);
-            Assert.IsEmpty(registry.Sections);
+            Assert.IsEmpty(registry.Operations);
             Assert.IsTrue(registry.TryValidateProvides(
-                Array.Empty<OperationSectionRequirement>(),
+                Array.Empty<OperationRequirement>(),
                 out CoCoDiagnostic providesDiagnostic),
                 providesDiagnostic.Message);
             Assert.IsTrue(OperationFrame.TryCreate(
                 registry,
                 CreateGraphInstanceId(1UL),
-                Array.Empty<OperationSectionRequirement>(),
+                Array.Empty<OperationRequirement>(),
                 out OperationFrame frame,
                 out CoCoDiagnostic createDiagnostic),
                 createDiagnostic.Message);
@@ -49,7 +49,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             AssertCallbackFreeRole(typeof(StateLogic));
             AssertCallbackFreeRole(typeof(StateConfig));
-            AssertCallbackFreeRole(typeof(ActivationMemory));
+            AssertCallbackFreeRole(typeof(StateActivationMemory));
         }
 
         [Test]
@@ -93,23 +93,23 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationSectionRegistryDeduplicatesExactInterfacesButKeepsSameShapeDistinct()
         {
-            var builder = new OperationSectionRegistryBuilder();
-            OperationSectionId movementId = CreateSectionId(80UL, 1UL);
-            OperationSectionId alternateMovementId = CreateSectionId(80UL, 2UL);
+            var builder = new OperationRegistryBuilder();
+            OperationId movementId = CreateSectionId(80UL, 1UL);
+            OperationId alternateMovementId = CreateSectionId(80UL, 2UL);
             var movementFactory = new MovementViewFactory();
 
             Assert.IsTrue(builder.TryRegister(
                 movementId,
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 movementFactory,
-                out OperationSectionRequirement movementRequirement,
+                out OperationRequirement movementRequirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryRegister(
                 movementId,
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 movementFactory,
-                out OperationSectionRequirement duplicateRequirement,
+                out OperationRequirement duplicateRequirement,
                 out diagnostic),
                 diagnostic.Message);
             Assert.AreEqual(movementRequirement, duplicateRequirement);
@@ -117,7 +117,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.IsFalse(builder.TryRegister(
                 movementId,
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new MovementViewFactory(),
                 out _,
                 out diagnostic));
@@ -126,31 +126,31 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.IsTrue(builder.TryRegister(
                 alternateMovementId,
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new AlternateMovementViewFactory(),
-                out OperationSectionRequirement alternateRequirement,
+                out OperationRequirement alternateRequirement,
                 out diagnostic),
                 diagnostic.Message);
-            Assert.AreNotEqual(movementRequirement.SectionType, alternateRequirement.SectionType);
+            Assert.AreNotEqual(movementRequirement.OperationType, alternateRequirement.OperationType);
             Assert.AreEqual(2, builder.Count);
 
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(80UL, 3UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.AreEqual(2, registry.Count);
             Assert.IsTrue(registry.TryResolve(
                 movementRequirement,
-                out OperationSectionHandle<IMovementSection> movementHandle));
+                out OperationHandle<IMovementSection> movementHandle));
             Assert.IsTrue(registry.TryResolve(
                 alternateRequirement,
-                out OperationSectionHandle<IAlternateMovementSection> alternateHandle));
+                out OperationHandle<IAlternateMovementSection> alternateHandle));
             Assert.AreNotEqual(movementHandle.DenseIndex, alternateHandle.DenseIndex);
 
             Assert.IsFalse(builder.TryRegister(
                 CreateSectionId(80UL, 4UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 movementFactory,
                 out _,
                 out diagnostic));
@@ -160,31 +160,31 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationRequirementCarriesCompleteDeterministicShape()
         {
-            Assert.IsTrue(OperationSectionRequirement.TryCreate<ICompositeShapeSection>(
+            Assert.IsTrue(OperationRequirement.TryCreate<ICompositeShapeSection>(
                 CreateSectionId(80UL, 10UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement requirement,
+                Mode.Continuous,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
-            Assert.IsTrue(OperationSectionRequirement.TryCreate<ICompositeShapeTwinSection>(
+            Assert.IsTrue(OperationRequirement.TryCreate<ICompositeShapeTwinSection>(
                 CreateSectionId(80UL, 11UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement twin,
+                Mode.Continuous,
+                out OperationRequirement twin,
                 out diagnostic),
                 diagnostic.Message);
-            Assert.IsTrue(OperationSectionRequirement.TryCreate<IDifferentCompositeShapeSection>(
+            Assert.IsTrue(OperationRequirement.TryCreate<IDifferentCompositeShapeSection>(
                 CreateSectionId(80UL, 12UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement different,
+                Mode.Continuous,
+                out OperationRequirement different,
                 out diagnostic),
                 diagnostic.Message);
-            Assert.IsTrue(OperationSectionShape.TryCreate(
+            Assert.IsTrue(OperationShape.TryCreate(
                 typeof(ICompositeShapeSection),
-                out OperationSectionShape toolShape,
+                out OperationShape toolShape,
                 out diagnostic),
                 diagnostic.Message);
 
-            OperationSectionShape shape = requirement.Shape;
+            OperationShape shape = requirement.Shape;
             Assert.IsNotNull(shape);
             Assert.IsTrue(shape.IsValid);
             Assert.AreEqual(14, shape.ByteSize);
@@ -194,7 +194,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertShapeField(shape.Fields[1], 1, "Middle", typeof(long), 4, 8);
             AssertShapeField(shape.Fields[2], 2, "Zulu", typeof(short), 12, 2);
             Assert.Throws<NotSupportedException>(() =>
-                ((IList<OperationSectionFieldShape>)shape.Fields)[0] = shape.Fields[0]);
+                ((IList<OperationFieldShape>)shape.Fields)[0] = shape.Fields[0]);
 
             Assert.AreNotSame(shape, twin.Shape);
             Assert.AreEqual(shape.ShapeFingerprint, twin.Shape.ShapeFingerprint);
@@ -204,7 +204,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreNotEqual(shape.ShapeFingerprint, different.Shape.ShapeFingerprint);
             Assert.IsFalse(shape.Equals(different.Shape));
 
-            FieldInfo fingerprintField = typeof(OperationSectionShape).GetField(
+            FieldInfo fingerprintField = typeof(OperationShape).GetField(
                 "<ShapeFingerprint>k__BackingField",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(fingerprintField);
@@ -218,28 +218,28 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationRegistryReusesTheRequirementShapeLayout()
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(80UL, 20UL),
-                OperationSectionMode.Discrete,
+                Mode.Discrete,
                 new CompositeShapeViewFactory(),
-                out OperationSectionRequirement requirement,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(80UL, 21UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
 
-            OperationSectionDescriptor descriptor = registry.Sections[0];
+            OperationDescriptor descriptor = registry.Operations[0];
             Assert.AreSame(requirement.Shape, descriptor.Shape);
             Assert.AreEqual(requirement.Shape.ByteSize, descriptor.ByteSize);
             Assert.AreEqual(requirement.Shape.FieldCount, descriptor.Fields.Count);
             for (int index = 0; index < requirement.Shape.FieldCount; index++)
             {
-                OperationSectionFieldShape expected = requirement.Shape.Fields[index];
-                OperationSectionFieldDescriptor actual = descriptor.Fields[index];
+                OperationFieldShape expected = requirement.Shape.Fields[index];
+                OperationFieldDescriptor actual = descriptor.Fields[index];
                 AssertShapeField(
                     expected,
                     actual.DenseIndex,
@@ -254,41 +254,41 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         public void OperationHandlesRejectASeparateRegistryWithTheSameLayoutIdentity()
         {
             FrameLayoutId layoutId = CreateLayoutId(81UL, 1UL);
-            OperationSectionId sectionId = CreateSectionId(81UL, 2UL);
-            var firstBuilder = new OperationSectionRegistryBuilder();
+            OperationId operationId = CreateSectionId(81UL, 2UL);
+            var firstBuilder = new OperationRegistryBuilder();
             Assert.IsTrue(firstBuilder.TryRegister(
-                sectionId,
-                OperationSectionMode.Continuous,
+                operationId,
+                Mode.Continuous,
                 new MovementViewFactory(),
-                out OperationSectionRequirement movementRequirement,
+                out OperationRequirement movementRequirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(firstBuilder.TryFreeze(
                 layoutId,
-                out OperationSectionRegistry firstRegistry,
+                out OperationRegistry firstRegistry,
                 out diagnostic),
                 diagnostic.Message);
 
-            var secondBuilder = new OperationSectionRegistryBuilder();
+            var secondBuilder = new OperationRegistryBuilder();
             Assert.IsTrue(secondBuilder.TryRegister(
-                sectionId,
-                OperationSectionMode.Continuous,
+                operationId,
+                Mode.Continuous,
                 new AlternateMovementViewFactory(),
-                out OperationSectionRequirement alternateRequirement,
+                out OperationRequirement alternateRequirement,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(secondBuilder.TryFreeze(
                 layoutId,
-                out OperationSectionRegistry secondRegistry,
+                out OperationRegistry secondRegistry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(secondRegistry.TryResolve(
                 alternateRequirement,
-                out OperationSectionHandle<IAlternateMovementSection> foreignHandle));
+                out OperationHandle<IAlternateMovementSection> foreignHandle));
             Assert.IsFalse(firstRegistry.TryResolveField(
                 foreignHandle,
                 0,
-                out OperationSectionField<int> _));
+                out OperationField<int> _));
 
             Assert.IsTrue(OperationFrame.TryCreate(
                 firstRegistry,
@@ -303,7 +303,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsFalse(finalized.TryGet(
                 foreignHandle,
-                out OperationSectionEntry<IAlternateMovementSection> _));
+                out OperationEntry<IAlternateMovementSection> _));
             Assert.IsTrue(finalized.Commit());
         }
 
@@ -321,19 +321,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void SectionSettersAndDataMethodsKeepTheSameFieldShape()
         {
-            Assert.IsTrue(OperationSectionShape.TryCreate(typeof(IWritableSection), out var writable, out _));
-            Assert.IsTrue(OperationSectionShape.TryCreate(typeof(IMethodSection), out var method, out _));
+            Assert.IsTrue(OperationShape.TryCreate(typeof(IWritableSection), out var writable, out _));
+            Assert.IsTrue(OperationShape.TryCreate(typeof(IMethodSection), out var method, out _));
             Assert.AreEqual(1, writable.FieldCount);
             Assert.AreEqual(1, method.FieldCount);
             Assert.AreEqual(writable.Fields[0].Name, method.Fields[0].Name);
             Assert.AreEqual(writable.Fields[0].ValueType, method.Fields[0].ValueType);
         }
 
-        [TestCase(OperationSectionMode.Continuous)]
-        [TestCase(OperationSectionMode.Discrete)]
-        public void CustomSectionViewWritesThroughTheExistingFrame(OperationSectionMode mode)
+        [TestCase(Mode.Continuous)]
+        [TestCase(Mode.Discrete)]
+        public void CustomSectionViewWritesThroughTheExistingFrame(Mode mode)
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(CreateSectionId(91UL, 1UL), mode,
                 new WritableViewFactory(), out var requirement, out _));
             Assert.IsTrue(builder.TryFreeze(CreateLayoutId(91UL, 2UL), out var registry, out _));
@@ -344,8 +344,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var view = (IWritableSection)registry.CreateWriteView(typeof(IWritableSection), target);
             view.Value = 3;
             view.Value = 7;
-            Assert.AreEqual(mode == OperationSectionMode.Discrete ? 2 : 0, target.Enables);
-            Assert.IsTrue(registry.TryResolve(requirement, out OperationSectionHandle<IWritableSection> handle));
+            Assert.AreEqual(mode == Mode.Discrete ? 2 : 0, target.Enables);
+            Assert.IsTrue(registry.TryResolve(requirement, out OperationHandle<IWritableSection> handle));
             Assert.IsTrue(writer.TryFinalize(out var finalized));
             Assert.IsTrue(finalized.TryGet(handle, out var entry));
             Assert.AreEqual(7, entry.View.Value);
@@ -354,34 +354,36 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private sealed class WritableView : IWritableSection
         {
-            private readonly OperationSectionReader _access;
-            private readonly OperationSectionField<int> _field;
-            public WritableView(OperationSectionReader access, OperationSectionField<int> field)
+            private readonly OperationReader _access;
+            private readonly OperationField<int> _field;
+            internal WritableView(OperationReader access, OperationField<int> field)
             { _access = access; _field = field; }
             public int Value { get => _access.Read(_field); set => _access.Write(_field, value); }
         }
 
-        private sealed class WritableViewFactory : IOperationSectionViewFactory<IWritableSection>
+        private sealed class WritableViewFactory : IOperationViewFactory<IWritableSection>
         {
-            public IWritableSection Create(in OperationSectionViewContext<IWritableSection> context)
+            IWritableSection IOperationViewFactory<IWritableSection>.Create(in OperationViewContext<IWritableSection> context)
             {
-                context.TryGetField(0, out OperationSectionField<int> field);
+                context.TryGetField(0, out OperationField<int> field);
                 return new WritableView(context.Reader, field);
             }
         }
 
-        private sealed class SectionWriteTarget : IOperationSectionWriteTarget
+        private sealed class SectionWriteTarget : IOperationWriteTarget
         {
-            private readonly OperationSectionRegistry _registry;
+            private readonly OperationRegistry _registry;
             private readonly OperationFrameWriter _writer;
             public int Enables;
-            public SectionWriteTarget(OperationSectionRegistry registry, OperationFrameWriter writer)
+            public SectionWriteTarget(OperationRegistry registry, OperationFrameWriter writer)
             { _registry = registry; _writer = writer; }
-            public void Write<T>(OperationSectionField<T> field, in T value) where T : unmanaged =>
+            public void Write<T>(OperationField<T> field, in T value) where T : unmanaged =>
                 _writer.Write(field, value);
-            public void Enable<T>() where T : class, IOperationSection
+            public void Write(OperationDescriptor operation, int index, ReadOnlySpan<byte> bytes) =>
+                Assert.IsTrue(_writer.WriteField(OperationWriteRank.Base, operation, index, bytes));
+            public void Enable<T>() where T : class, IOperation
             {
-                _registry.TryResolveTypedHandle(out OperationSectionHandle<T> handle);
+                _registry.TryResolveTypedHandle(out OperationHandle<T> handle);
                 ActivationId.TryCreate(1UL, out var activation);
                 Assert.IsTrue(_writer.EnableDiscrete(handle, activation));
                 Enables++;
@@ -391,21 +393,21 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationRequirementRejectsIncompleteShapesAtDeclarationTime()
         {
-            OperationSectionId sectionId = CreateSectionId(89UL, 1UL);
+            OperationId operationId = CreateSectionId(89UL, 1UL);
 
-            Assert.IsFalse(OperationSectionRequirement.TryCreate<IManifestOnlySection>(
-                sectionId,
-                OperationSectionMode.Continuous,
+            Assert.IsFalse(OperationRequirement.TryCreate<IManifestOnlySection>(
+                operationId,
+                Mode.Continuous,
                 out _,
                 out CoCoDiagnostic runtimeDiagnostic));
-            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationSection, runtimeDiagnostic.Code);
-            Assert.IsFalse(OperationSectionShape.TryCreate(
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationContract, runtimeDiagnostic.Code);
+            Assert.IsFalse(OperationShape.TryCreate(
                 typeof(IManifestOnlySection),
                 out _,
                 out CoCoDiagnostic toolDiagnostic));
             Assert.AreEqual(runtimeDiagnostic, toolDiagnostic);
 
-            AssertInvalidSection<IOperationSection>();
+            AssertInvalidSection<IOperation>();
             AssertInvalidSection<IInheritedMovementSection>();
             AssertInvalidSection<ManifestSectionClass>();
         }
@@ -413,47 +415,47 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationFrameUsesContinuousZeroAndDiscreteActivationHeaders()
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(90UL, 1UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new MovementViewFactory(),
-                out OperationSectionRequirement movementRequirement,
+                out OperationRequirement movementRequirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(90UL, 2UL),
-                OperationSectionMode.Discrete,
+                Mode.Discrete,
                 new AttackViewFactory(),
-                out OperationSectionRequirement attackRequirement,
+                out OperationRequirement attackRequirement,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(90UL, 3UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(registry.TryResolve(
                 movementRequirement,
-                out OperationSectionHandle<IMovementSection> movementHandle));
+                out OperationHandle<IMovementSection> movementHandle));
             Assert.IsTrue(registry.TryResolve(
                 attackRequirement,
-                out OperationSectionHandle<IAttackSection> attackHandle));
+                out OperationHandle<IAttackSection> attackHandle));
             Assert.IsTrue(registry.TryResolveField(
                 movementHandle,
                 0,
-                out OperationSectionField<int> distanceField));
+                out OperationField<int> distanceField));
             Assert.IsTrue(registry.TryResolveField(
                 attackHandle,
                 0,
-                out OperationSectionField<int> damageField));
+                out OperationField<int> damageField));
             Assert.IsFalse(OperationFrame.TryCreate(
                 registry,
                 CreateGraphInstanceId(901UL),
                 new[] { movementRequirement },
                 out _,
                 out diagnostic));
-            Assert.AreEqual(CoCoDiagnosticCode.MissingOperationSection, diagnostic.Code);
+            Assert.AreEqual(CoCoDiagnosticCode.MissingOperationContract, diagnostic.Code);
             Assert.IsFalse(OperationFrame.TryCreate(
                 registry,
                 CreateGraphInstanceId(902UL),
@@ -461,10 +463,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 out _,
                 out diagnostic));
             Assert.AreEqual(CoCoDiagnosticCode.DuplicateIdentifier, diagnostic.Code);
-            Assert.IsTrue(OperationSectionRequirement.TryCreate<IAlternateMovementSection>(
+            Assert.IsTrue(OperationRequirement.TryCreate<IAlternateMovementSection>(
                 CreateSectionId(90UL, 4UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement unregistered,
+                Mode.Continuous,
+                out OperationRequirement unregistered,
                 out diagnostic));
             Assert.IsFalse(OperationFrame.TryCreate(
                 registry,
@@ -472,7 +474,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new[] { movementRequirement, unregistered },
                 out _,
                 out diagnostic));
-            Assert.AreEqual(CoCoDiagnosticCode.MissingOperationSection, diagnostic.Code);
+            Assert.AreEqual(CoCoDiagnosticCode.MissingOperationContract, diagnostic.Code);
             Assert.IsTrue(OperationFrame.TryCreate(
                 registry,
                 CreateGraphInstanceId(90UL),
@@ -489,10 +491,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsTrue(finalized.TryGet(
                 movementHandle,
-                out OperationSectionEntry<IMovementSection> movement));
+                out OperationEntry<IMovementSection> movement));
             Assert.IsTrue(finalized.TryGet(
                 attackHandle,
-                out OperationSectionEntry<IAttackSection> attack));
+                out OperationEntry<IAttackSection> attack));
             Assert.IsTrue(movement.Header.Enabled);
             Assert.AreEqual(6, movement.View.Distance);
             Assert.IsTrue(attack.Header.Enabled);
@@ -544,9 +546,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CreateContinuousPairOperationFrame(
                 92UL,
                 out OperationFrame frame,
-                out OperationSectionHandle<IContinuousPairSection> handle,
-                out OperationSectionField<int> horizontalField,
-                out OperationSectionField<int> verticalField);
+                out OperationHandle<IContinuousPairSection> handle,
+                out OperationField<int> horizontalField,
+                out OperationField<int> verticalField);
             Assert.IsTrue(OperationWriteRank.TryCreate(
                 0,
                 1,
@@ -568,7 +570,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsTrue(finalized.TryGet(
                 handle,
-                out OperationSectionEntry<IContinuousPairSection> entry));
+                out OperationEntry<IContinuousPairSection> entry));
             Assert.AreEqual(4, entry.View.Horizontal);
             Assert.AreEqual(20, entry.View.Vertical);
             Assert.IsTrue(finalized.Commit());
@@ -580,8 +582,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CreateMovementOperationFrame(
                 93UL,
                 out OperationFrame frame,
-                out OperationSectionHandle<IMovementSection> handle,
-                out OperationSectionField<int> distanceField);
+                out OperationHandle<IMovementSection> handle,
+                out OperationField<int> distanceField);
             Assert.IsTrue(OperationWriteRank.TryCreate(
                 0,
                 1,
@@ -601,7 +603,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsTrue(finalized.TryGet(
                 handle,
-                out OperationSectionEntry<IMovementSection> entry));
+                out OperationEntry<IMovementSection> entry));
             Assert.AreEqual(8, entry.View.Distance);
             Assert.IsTrue(finalized.Commit());
         }
@@ -612,8 +614,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CreateMovementOperationFrame(
                 94UL,
                 out OperationFrame frame,
-                out OperationSectionHandle<IMovementSection> handle,
-                out OperationSectionField<int> distanceField);
+                out OperationHandle<IMovementSection> handle,
+                out OperationField<int> distanceField);
             Assert.IsTrue(OperationWriteRank.TryCreate(
                 0,
                 99,
@@ -632,7 +634,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsTrue(finalized.TryGet(
                 handle,
-                out OperationSectionEntry<IMovementSection> entry));
+                out OperationEntry<IMovementSection> entry));
             Assert.AreEqual(9, entry.View.Distance);
             Assert.IsTrue(finalized.Commit());
         }
@@ -643,7 +645,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CreateAttackOperationFrame(
                 95UL,
                 out OperationFrame frame,
-                out OperationSectionHandle<IAttackSection> handle);
+                out OperationHandle<IAttackSection> handle);
             Assert.IsTrue(OperationWriteRank.TryCreate(
                 0,
                 0,
@@ -665,7 +667,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
             Assert.IsTrue(finalized.TryGet(
                 handle,
-                out OperationSectionEntry<IAttackSection> entry));
+                out OperationEntry<IAttackSection> entry));
             Assert.AreEqual(finalActivation, entry.Header.ActivationId);
             Assert.AreEqual(1UL, entry.Header.OperationSequence.Value);
             Assert.IsTrue(finalized.Cancel());
@@ -697,7 +699,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 96UL,
                 out OperationFrame frame,
                 out _,
-                out OperationSectionField<int> distanceField);
+                out OperationField<int> distanceField);
             TickFrame firstTick = CreateTickFrame(1UL, 1UL, 1UL);
 
             Assert.IsTrue(frame.TryBegin(firstTick, out OperationFrameWriter writer));
@@ -730,26 +732,26 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void OperationSectionCustomNestedUnmanagedValueRoundTripsWithoutGenericReflection()
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(91UL, 1UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new NestedValueViewFactory(),
-                out OperationSectionRequirement requirement,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(91UL, 2UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(registry.TryResolve(
                 requirement,
-                out OperationSectionHandle<INestedValueSection> handle));
+                out OperationHandle<INestedValueSection> handle));
             Assert.IsTrue(registry.TryResolveField(
                 handle,
                 0,
-                out OperationSectionField<NestedValue> field));
+                out OperationField<NestedValue> field));
             Assert.IsTrue(OperationFrame.TryCreate(
                 registry,
                 CreateGraphInstanceId(91UL),
@@ -762,7 +764,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(frame.TryBegin(CreateTickFrame(1UL, 1UL, 1UL), out OperationFrameWriter writer));
             Assert.IsTrue(writer.Write(field, value));
             Assert.IsTrue(writer.TryFinalize(out FinalizedOperationFrame finalized));
-            Assert.IsTrue(finalized.TryGet(handle, out OperationSectionEntry<INestedValueSection> entry));
+            Assert.IsTrue(finalized.TryGet(handle, out OperationEntry<INestedValueSection> entry));
             Assert.AreEqual(17, entry.View.Value.Count);
             Assert.IsTrue(entry.View.Value.Flags.Enabled);
             Assert.AreEqual(9, entry.View.Value.Flags.Code);
@@ -858,7 +860,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.IsFalse(builder.TryAddBlock(
                 CreateBlockId(9UL, 9UL),
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out diagnosticCode));
             Assert.AreEqual(CoCoDiagnosticCode.RegistryFrozen, diagnosticCode);
         }
@@ -873,7 +875,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId secondDerivedSlotId = CreateSlotId(10UL, 3UL);
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -974,7 +976,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var invalidBuilder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(invalidBuilder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(invalidBuilder.TryAddSlot(
                 blockId,
@@ -1013,7 +1015,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var resetBuilder = new ContextFrameLayoutBuilder();
             StateSlotId resetSlotId = CreateSlotId(21UL, 4UL);
             StateSlotId resetDerivedSlotId = CreateSlotId(21UL, 5UL);
-            Assert.IsTrue(resetBuilder.TryAddBlock(blockId, StateBlockOwner.Actor, out diagnosticCode));
+            Assert.IsTrue(resetBuilder.TryAddBlock(blockId, StateBlockOwner.Host, out diagnosticCode));
             Assert.IsTrue(resetBuilder.TryAddSlot(
                 blockId,
                 resetSlotId,
@@ -1047,7 +1049,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId derivedSlotId = CreateSlotId(22UL, 2UL);
             var rebuilder = new ControllableDoubleRebuilder(storedSlotId);
             var builder = new ContextFrameLayoutBuilder();
-            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Host, out _));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
                 storedSlotId,
@@ -1307,7 +1309,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId derivedSlotId = CreateSlotId(43UL, 2UL);
             var rebuilder = new ReentrantRebuilder(storedSlotId);
             var builder = new ContextFrameLayoutBuilder();
-            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Host, out _));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
                 storedSlotId,
@@ -1395,7 +1397,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId derivedSlotId = CreateSlotId(441UL, 2UL);
             var rebuilder = new DisposeArenaRebuilder(storedSlotId);
             var builder = new ContextFrameLayoutBuilder();
-            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Host, out _));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
                 storedSlotId,
@@ -1461,7 +1463,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -1551,7 +1553,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -2194,7 +2196,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId derivedSlotId = CreateSlotId(74UL, 2UL);
             var rebuilder = new ControllableDoubleRebuilder(storedSlotId);
             var builder = new ContextFrameLayoutBuilder();
-            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Actor, out _));
+            Assert.IsTrue(builder.TryAddBlock(blockId, StateBlockOwner.Host, out _));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
                 storedSlotId,
@@ -2720,7 +2722,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateBlockId blockId = CreateBlockId(layoutId.High, layoutId.Low);
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -2747,7 +2749,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -2787,7 +2789,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new ContextFrameLayoutBuilder();
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -2854,9 +2856,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return new CodecDescriptor(codecId, version);
         }
 
-        private static OperationSectionId CreateSectionId(ulong high, ulong low)
+        private static OperationId CreateSectionId(ulong high, ulong low)
         {
-            Assert.IsTrue(OperationSectionId.TryCreate(high, low, out OperationSectionId id));
+            Assert.IsTrue(OperationId.TryCreate(high, low, out OperationId id));
             return id;
         }
 
@@ -2916,21 +2918,21 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static void CreateContinuousPairOperationFrame(
             ulong seed,
             out OperationFrame frame,
-            out OperationSectionHandle<IContinuousPairSection> handle,
-            out OperationSectionField<int> horizontalField,
-            out OperationSectionField<int> verticalField)
+            out OperationHandle<IContinuousPairSection> handle,
+            out OperationField<int> horizontalField,
+            out OperationField<int> verticalField)
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(seed, 1UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new ContinuousPairViewFactory(),
-                out OperationSectionRequirement requirement,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(seed, 2UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(registry.TryResolve(requirement, out handle));
@@ -2948,20 +2950,20 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static void CreateMovementOperationFrame(
             ulong seed,
             out OperationFrame frame,
-            out OperationSectionHandle<IMovementSection> handle,
-            out OperationSectionField<int> distanceField)
+            out OperationHandle<IMovementSection> handle,
+            out OperationField<int> distanceField)
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(seed, 1UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 new MovementViewFactory(),
-                out OperationSectionRequirement requirement,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(seed, 2UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(registry.TryResolve(requirement, out handle));
@@ -2978,19 +2980,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static void CreateAttackOperationFrame(
             ulong seed,
             out OperationFrame frame,
-            out OperationSectionHandle<IAttackSection> handle)
+            out OperationHandle<IAttackSection> handle)
         {
-            var builder = new OperationSectionRegistryBuilder();
+            var builder = new OperationRegistryBuilder();
             Assert.IsTrue(builder.TryRegister(
                 CreateSectionId(seed, 1UL),
-                OperationSectionMode.Discrete,
+                Mode.Discrete,
                 new AttackViewFactory(),
-                out OperationSectionRequirement requirement,
+                out OperationRequirement requirement,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 CreateLayoutId(seed, 2UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(registry.TryResolve(requirement, out handle));
@@ -3003,19 +3005,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 diagnostic.Message);
         }
 
-        private static void AssertInvalidSection<TSection>()
-            where TSection : class, IOperationSection
+        private static void AssertInvalidSection<TOperation>()
+            where TOperation : class, IOperation
         {
-            Assert.IsFalse(OperationSectionRequirement.TryCreate<TSection>(
+            Assert.IsFalse(OperationRequirement.TryCreate<TOperation>(
                 CreateSectionId(99UL, 1UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 out _,
                 out CoCoDiagnostic diagnostic));
-            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationSection, diagnostic.Code);
+            Assert.AreEqual(CoCoDiagnosticCode.InvalidOperationContract, diagnostic.Code);
         }
 
         private static void AssertShapeField(
-            OperationSectionFieldShape field,
+            OperationFieldShape field,
             int denseIndex,
             string name,
             Type valueType,
@@ -3029,57 +3031,57 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(byteSize, field.ByteSize);
         }
 
-        private interface IMovementSection : IOperationSection
+        private interface IMovementSection : IOperation
         {
             int Distance { get; }
         }
 
-        private interface IContinuousPairSection : IOperationSection
+        private interface IContinuousPairSection : IOperation
         {
             int Horizontal { get; }
             int Vertical { get; }
         }
 
-        private interface IManifestOnlySection : IOperationSection
+        private interface IManifestOnlySection : IOperation
         {
         }
 
-        private sealed class ManifestSectionClass : IOperationSection
+        private sealed class ManifestSectionClass : IOperation
         {
         }
 
-        private interface IAlternateMovementSection : IOperationSection
+        private interface IAlternateMovementSection : IOperation
         {
             int Distance { get; }
         }
 
-        private interface ICompositeShapeSection : IOperationSection
+        private interface ICompositeShapeSection : IOperation
         {
             short Zulu { get; }
             long Middle { get; }
             int Alpha { get; }
         }
 
-        private interface ICompositeShapeTwinSection : IOperationSection
+        private interface ICompositeShapeTwinSection : IOperation
         {
             int Alpha { get; }
             short Zulu { get; }
             long Middle { get; }
         }
 
-        private interface IDifferentCompositeShapeSection : IOperationSection
+        private interface IDifferentCompositeShapeSection : IOperation
         {
             int Alpha { get; }
             int Middle { get; }
             short Zulu { get; }
         }
 
-        private interface IAttackSection : IOperationSection
+        private interface IAttackSection : IOperation
         {
             int Damage { get; }
         }
 
-        private interface INestedValueSection : IOperationSection
+        private interface INestedValueSection : IOperation
         {
             NestedValue Value { get; }
         }
@@ -3089,51 +3091,50 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             int VerticalDistance { get; }
         }
 
-        private interface IWritableSection : IOperationSection
+        private interface IWritableSection : IOperation
         {
             int Value { get; set; }
         }
 
-        private interface IMethodSection : IOperationSection
+        private interface IMethodSection : IOperation
         {
             int Value { get; }
             void Apply();
         }
 
-        private interface IEventSection : IOperationSection
+        private interface IEventSection : IOperation
         {
             int Value { get; }
             event Action Changed;
         }
 
-        private interface IIndexerSection : IOperationSection
+        private interface IIndexerSection : IOperation
         {
             int this[int index] { get; }
         }
 
-        private interface IReferenceSection : IOperationSection
+        private interface IReferenceSection : IOperation
         {
             object Value { get; }
         }
 
-        private interface IStringSection : IOperationSection
+        private interface IStringSection : IOperation
         {
             string Value { get; }
         }
 
-        private interface IRefReturnSection : IOperationSection
+        private interface IRefReturnSection : IOperation
         {
             ref int Value { get; }
         }
 
         private sealed class MovementView : IMovementSection
         {
-            private readonly OperationSectionReader _reader;
-            private readonly OperationSectionField<int> _distanceField;
+            private readonly OperationReader _reader;
+            private readonly OperationField<int> _distanceField;
 
-            public MovementView(
-                OperationSectionReader reader,
-                OperationSectionField<int> distanceField)
+            internal MovementView(OperationReader reader,
+                OperationField<int> distanceField)
             {
                 _reader = reader;
                 _distanceField = distanceField;
@@ -3144,14 +3145,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private sealed class ContinuousPairView : IContinuousPairSection
         {
-            private readonly OperationSectionReader _reader;
-            private readonly OperationSectionField<int> _horizontalField;
-            private readonly OperationSectionField<int> _verticalField;
+            private readonly OperationReader _reader;
+            private readonly OperationField<int> _horizontalField;
+            private readonly OperationField<int> _verticalField;
 
-            public ContinuousPairView(
-                OperationSectionReader reader,
-                OperationSectionField<int> horizontalField,
-                OperationSectionField<int> verticalField)
+            internal ContinuousPairView(OperationReader reader,
+                OperationField<int> horizontalField,
+                OperationField<int> verticalField)
             {
                 _reader = reader;
                 _horizontalField = horizontalField;
@@ -3176,12 +3176,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private sealed class AttackView : IAttackSection
         {
-            private readonly OperationSectionReader _reader;
-            private readonly OperationSectionField<int> _damageField;
+            private readonly OperationReader _reader;
+            private readonly OperationField<int> _damageField;
 
-            public AttackView(
-                OperationSectionReader reader,
-                OperationSectionField<int> damageField)
+            internal AttackView(OperationReader reader,
+                OperationField<int> damageField)
             {
                 _reader = reader;
                 _damageField = damageField;
@@ -3192,12 +3191,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private sealed class NestedValueView : INestedValueSection
         {
-            private readonly OperationSectionReader _reader;
-            private readonly OperationSectionField<NestedValue> _valueField;
+            private readonly OperationReader _reader;
+            private readonly OperationField<NestedValue> _valueField;
 
-            public NestedValueView(
-                OperationSectionReader reader,
-                OperationSectionField<NestedValue> valueField)
+            internal NestedValueView(OperationReader reader,
+                OperationField<NestedValue> valueField)
             {
                 _reader = reader;
                 _valueField = valueField;
@@ -3206,11 +3204,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public NestedValue Value => _reader.Read(_valueField);
         }
 
-        private sealed class MovementViewFactory : IOperationSectionViewFactory<IMovementSection>
+        private sealed class MovementViewFactory : IOperationViewFactory<IMovementSection>
         {
-            public IMovementSection Create(in OperationSectionViewContext<IMovementSection> context)
+            IMovementSection IOperationViewFactory<IMovementSection>.Create(in OperationViewContext<IMovementSection> context)
             {
-                if (!context.TryGetField(0, out OperationSectionField<int> field))
+                if (!context.TryGetField(0, out OperationField<int> field))
                 {
                     throw new InvalidOperationException("Movement field was not pre-resolved.");
                 }
@@ -3220,13 +3218,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private sealed class ContinuousPairViewFactory :
-            IOperationSectionViewFactory<IContinuousPairSection>
+            IOperationViewFactory<IContinuousPairSection>
         {
-            public IContinuousPairSection Create(
-                in OperationSectionViewContext<IContinuousPairSection> context)
+            IContinuousPairSection IOperationViewFactory<IContinuousPairSection>.Create(
+                in OperationViewContext<IContinuousPairSection> context)
             {
-                if (!context.TryGetField(0, out OperationSectionField<int> horizontalField) ||
-                    !context.TryGetField(1, out OperationSectionField<int> verticalField))
+                if (!context.TryGetField(0, out OperationField<int> horizontalField) ||
+                    !context.TryGetField(1, out OperationField<int> verticalField))
                 {
                     throw new InvalidOperationException(
                         "Continuous pair fields were not pre-resolved.");
@@ -3240,30 +3238,30 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private sealed class AlternateMovementViewFactory :
-            IOperationSectionViewFactory<IAlternateMovementSection>
+            IOperationViewFactory<IAlternateMovementSection>
         {
-            public IAlternateMovementSection Create(
-                in OperationSectionViewContext<IAlternateMovementSection> context)
+            IAlternateMovementSection IOperationViewFactory<IAlternateMovementSection>.Create(
+                in OperationViewContext<IAlternateMovementSection> context)
             {
                 return new AlternateMovementView();
             }
         }
 
         private sealed class CompositeShapeViewFactory :
-            IOperationSectionViewFactory<ICompositeShapeSection>
+            IOperationViewFactory<ICompositeShapeSection>
         {
-            public ICompositeShapeSection Create(
-                in OperationSectionViewContext<ICompositeShapeSection> context)
+            ICompositeShapeSection IOperationViewFactory<ICompositeShapeSection>.Create(
+                in OperationViewContext<ICompositeShapeSection> context)
             {
                 return new CompositeShapeView();
             }
         }
 
-        private sealed class AttackViewFactory : IOperationSectionViewFactory<IAttackSection>
+        private sealed class AttackViewFactory : IOperationViewFactory<IAttackSection>
         {
-            public IAttackSection Create(in OperationSectionViewContext<IAttackSection> context)
+            IAttackSection IOperationViewFactory<IAttackSection>.Create(in OperationViewContext<IAttackSection> context)
             {
-                if (!context.TryGetField(0, out OperationSectionField<int> field))
+                if (!context.TryGetField(0, out OperationField<int> field))
                 {
                     throw new InvalidOperationException("Attack field was not pre-resolved.");
                 }
@@ -3273,12 +3271,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private sealed class NestedValueViewFactory :
-            IOperationSectionViewFactory<INestedValueSection>
+            IOperationViewFactory<INestedValueSection>
         {
-            public INestedValueSection Create(
-                in OperationSectionViewContext<INestedValueSection> context)
+            INestedValueSection IOperationViewFactory<INestedValueSection>.Create(
+                in OperationViewContext<INestedValueSection> context)
             {
-                if (!context.TryGetField(0, out OperationSectionField<NestedValue> field))
+                if (!context.TryGetField(0, out OperationField<NestedValue> field))
                 {
                     throw new InvalidOperationException("Nested value field was not pre-resolved.");
                 }

@@ -7,8 +7,10 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// 编译 Unity 节点前检查托管配置并计算内容指纹，再通过目录中的 freezer 产生纯配置快照。
+namespace CoCoFlow.Runtime.StateGraph
 {
+    /// <summary>在读取 Unity 托管配置后计算内容指纹并生成纯配置快照。</summary>
     internal sealed class StateGraphConfigFreezer
     {
         private readonly GraphDescriptorCatalog catalog;
@@ -22,12 +24,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         }
 
-        /// <summary>
-        /// Computes a deterministic cache fingerprint from the explicitly supported authoring-data
-        /// envelope. This never converts authoring data into runtime config and stops at forbidden
-        /// values instead of treating reflection as a freezer fallback.
-        /// </summary>
-        internal static ulong ComputeAuthoringFingerprint(object source)
+                internal static ulong ComputeAuthoringFingerprint(object source)
         {
             var builder = new AuthoringFingerprintBuilder();
             builder.AddValue(source?.GetType(), source);
@@ -69,41 +66,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return true;
         }
 
-        internal bool TryFreezeCondition(
-            ConditionDescriptorId descriptorId,
-            ConditionConfig source,
-            GraphDiagnosticLocation location,
-            out FrozenConfigSnapshot snapshot,
-            out GraphDiagnostic diagnostic)
-        {
-            if (!TryValidateAuthoringConfig(source, out CoCoDiagnostic validationDiagnostic))
-            {
-                snapshot = null;
-                diagnostic = new GraphDiagnostic(validationDiagnostic, location);
-                return false;
-            }
-
-            if (!catalog.TryFreezeConditionConfig(
-                    descriptorId,
-                    source,
-                    out snapshot,
-                    out CoCoDiagnostic freezeDiagnostic))
-            {
-                diagnostic = new GraphDiagnostic(freezeDiagnostic, location);
-                return false;
-            }
-
-            if (snapshot == null || !snapshot.IsValid)
-            {
-                snapshot = null;
-                diagnostic = Error(location, "Condition config freezer returned an invalid frozen snapshot.");
-                return false;
-            }
-
-            diagnostic = default;
-            return true;
-        }
-
         private bool TryValidateAuthoringConfig(object source, out CoCoDiagnostic diagnostic)
         {
             if (source == null)
@@ -116,7 +78,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             referenceSerializationModes.Clear();
             try
             {
-                // Each top-level Config is itself stored through SerializeReference on the Asset.
+
                 return TryValidateValue(source.GetType(), source, true, 0, out diagnostic);
             }
             finally
@@ -181,8 +143,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 return false;
             }
 
-            // SerializeReference on an array/List field applies to its elements, not to the
-            // collection object. The container itself always has inline value semantics.
             bool valuePreservesReferenceIdentity = preservesReferenceIdentity && !isCollection;
             bool tracksReference = !valueType.IsValueType;
             if (tracksReference && activeReferences.Contains(value))
@@ -576,6 +536,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 CoCoDiagnosticCode.InvalidAuthoringDependency,
                 message);
 
+        /// <summary>在计算配置对象图时按对象身份辨别共享引用。</summary>
         private sealed class ReferenceComparer : IEqualityComparer<object>
         {
             internal static readonly ReferenceComparer Instance = new ReferenceComparer();
@@ -584,6 +545,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             public int GetHashCode(object value) => RuntimeHelpers.GetHashCode(value);
         }
 
+        /// <summary>按确定顺序把可编辑配置的字段和值纳入内容指纹。</summary>
         private sealed class AuthoringFingerprintBuilder
         {
             private const ulong Offset = 14695981039346656037UL;
@@ -640,8 +602,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
                 if (IsForbiddenValueType(valueType))
                 {
-                    // The type and this marker are sufficient to distinguish the deterministic
-                    // failure class. Forbidden values are deliberately never inspected.
+
                     Add(0xAFUL);
                     return;
                 }

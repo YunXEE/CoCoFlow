@@ -1,24 +1,26 @@
-﻿// Compile-only contract. Each method models a supported external call site.
-// The consumer is a separate assembly with no InternalsVisibleTo grant.
+using CoCoFlow.Runtime.Input.Contracts;
+
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
+// 此样例模拟引用 Unity 程序集的项目组件，编译 Host 生命周期、Operator 和事件接口的真实调用。
 namespace CoCoFlow.CI
 {
-    internal sealed class ExternalInputSource : MonoBehaviour, IIntentFrameSource<InputIntentData>
+    /// <summary>模拟场景组件向 Host 提供一份玩家输入快照。</summary>
+    internal sealed class ExternalInputSource : MonoBehaviour, IIntentFrameSource<InputIntentContract>
     {
-        bool IIntentFrameSource<InputIntentData>.TrySample(in TickFrame tick, out InputIntentData intent)
+        bool IIntentFrameSource<InputIntentContract>.TrySample(in TickFrame tick, out InputIntentContract intent)
         {
-            intent = new InputIntentData(default, ReadOnlyMemory<RawInputRecord>.Empty);
+            intent = new InputIntentContract(default, ReadOnlyMemory<RawInputRecord>.Empty);
             return true;
         }
     }
 
+    /// <summary>模拟以托管字符串作为 Intent 载荷的自定义输入来源。</summary>
     internal sealed class ExternalManagedIntent : IIntentFrameSource<string>
     {
         bool IIntentFrameSource<string>.TrySample(in TickFrame tick, out string intent)
@@ -28,6 +30,7 @@ namespace CoCoFlow.CI
         }
     }
 
+    /// <summary>验证项目实现可用已声明的输入、结果槽和出件目标执行图的一步。</summary>
     internal sealed class ExternalOperator : IOperator
     {
         [OperatorDefinition]
@@ -39,7 +42,7 @@ namespace CoCoFlow.CI
             StateBlockId block, StateSlotId slot, EventTypeId type, EventDomainId domain)
         {
             var builder = new StandardOperatorBuilder();
-            OperationSectionRequirement operation = builder.Require<IExternalSection>();
+            OperationRequirement operation = builder.Require<IExternalOperation>();
             builder.OwnOutcome(block, slot, ContextProjection.Temporal, ContextRestorePolicy.Stored, 0, 1);
             EventOutboxRequirement output = builder.Emit<int>(type, domain, 98);
             return builder.Freeze<ExternalOperator>(id);
@@ -47,7 +50,9 @@ namespace CoCoFlow.CI
 
         bool IOperator.TryExecute(in OperatorExecutionContext context, out OperatorOutcome outcome)
         {
-            bool found = context.TryGet<IExternalSection>(default, out var entry);
+            bool found = context.TryGet<IExternalOperation>(default, out var entry);
+            if (context.PreviousContext.Layout.TryResolveSlot<int>(default, out var slot))
+                _ = context.PreviousContext.Read(slot);
             int value = 1;
             bool bySlot = context.TryWriteOutcome(default(StateSlot<int>), in value);
             bool byId = context.TryWriteOutcome(default(StateSlotId), in value);
@@ -56,8 +61,10 @@ namespace CoCoFlow.CI
         }
     }
 
+    /// <summary>从包外编译 Host、Provider、Operator 和项目挂载组件的实际调用。</summary>
     internal static class RequiredApi
     {
+        /// <summary>为编译样例保留手动 Host 步进的参数及返回合同。</summary>
         private delegate bool HostStep(double deltaTime, out CoCoDiagnostic diagnostic);
 
         internal static void HostLifecycle(StateGraphHost host)
@@ -109,15 +116,6 @@ namespace CoCoFlow.CI
             {
                 EventOutboxWriteResult written = context.EventOutbox.TryWrite(requirement, target, in payload);
             }
-        }
-
-        internal static void CompileGraph(StateGraphAsset asset, GraphDescriptorCatalog catalog)
-        {
-            StateGraphAssetCompileResult result = new StateGraphAssetCompiler().Compile(asset, catalog);
-            bool succeeded = result.Succeeded;
-            bool hasErrors = result.HasErrors;
-            CompiledStateGraph graph = result.Graph;
-            IReadOnlyList<GraphDiagnostic> diagnostics = result.Diagnostics;
         }
 
         internal static void ReadIntent<TIntent>(IIntentFrame frame, IntentHandle<TIntent> handle)

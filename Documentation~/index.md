@@ -49,7 +49,7 @@ configuration.
   records are unsupported. `PersistenceContext.StableEntityId` and the
   separate container save section remain available.
 - Rebuild callers of `LifecycleContext` against
-  `CoCoFlow.Runtime.StateGraphHost.EntityLifecycleState`. Existing serialized
+  `CoCoFlow.Runtime.StateGraph.EntityLifecycleState`. Existing serialized
   state values retain their numeric mapping from 0 through 6.
 
 - [StateGraph Asset and Compiler](../Docs/StateGraphCompiler.md)
@@ -86,7 +86,6 @@ transition. This Editor session preference preserves graph data and Runtime inpu
 - [Content acquisition and ownership](../Docs/ContentOwnership.md)
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
-- [Animation](../Docs/Module-Animation.md)
 
 ## Typed Persistence Containers
 
@@ -121,14 +120,9 @@ Inspector keeps its minimum of 1. Failed Temporal calls preserve pending mail.
 
 Mark a State with `[State("Attack", ProvidesActionProgress = true)]` and call
 `context.TrySetActionProgress(value)` to supply its normalized progress.
-Each `[Condition]` class must be concrete and non-generic, derive from
-`StateCondition`, implement `IStateConditionEvaluator`, and have a public
-parameterless constructor. An implicit default constructor already satisfies
-that requirement; several classes may share one file. Add the desired condition
-in the Graph. It evaluates a requested transition and does not request one itself.
-
-See [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
-for a compilable Condition example and the existing legacy Event-to-Intent boundary.
+Evaluate project-specific rules in the source State's Update before calling
+`TryRequestTransitionTo<TTargetLogic>()`. The frame evaluates the requested
+edge's window and priority. Empty requests leave the active leaf in place.
 
 ## Operator recovery
 
@@ -155,7 +149,7 @@ Map and Pooling behavior is unchanged.
 History capacity remains zero or at least two; zero still permits save/load.
 A failed recovery keeps its original recovery purpose for world correction.
 Correcting a normal Tick fault requires enabled recovery for every bound Operator.
-Recovery does not expand Animator snapshot fidelity or add world rollback.
+Scene recovery uses the components configured on the Host.
 
 Locomotion sources now live under `Runtime/Modules/Locomotion`. Its pure C#
 contracts remain in the separate `CoCoFlow.Runtime.Locomotion.Contracts` assembly,
@@ -163,10 +157,10 @@ in `Contracts/LocomotionContract.cs`; existing type names remain unchanged.
 
 ## StateLogic properties
 
-Declare reads with `[Intent] public InputIntentData Input { get; set; }` and writes with
-`[Operation] public ILocomotionSection Movement { get; set; }`.
+Declare reads with `[Intent] public InputIntentContract Input { get; set; }` and writes with
+`[Operation] public ILocomotionOperation Movement { get; set; }`.
 Use `Movement.MoveZ = speed;` or `Movement.Jump(impulse);` inside the normal callback.
-The framework refreshes Intent using the existing TryFirst rule and routes Section writes
+The framework refreshes Intent using the existing TryFirst rule and routes Operation writes
 through the existing composition and Operator execution. Bind the corresponding
 Intent source and Operator on the Host. Module sources can provide their own
 standard registration; see [Host startup](../Docs/StateGraphRuntime.md#standard-binding-startup).

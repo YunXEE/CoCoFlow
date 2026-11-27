@@ -43,7 +43,7 @@ namespace CoCoFlow.Tests.Editor.Core
                 Does.Contain("CoCoFlow.Runtime.Pooling.Temporal"));
             Assert.That(
                 module.RequiredAssemblies,
-                Does.Contain("CoCoFlow.Runtime.StateGraphHost"));
+                Does.Contain("CoCoFlow.Runtime.StateGraph"));
             Assert.That(module.RequiredAssemblies, Does.Not.Contain("Unity.Addressables"));
             Assert.That(module.Description, Does.Contain("not world rollback"));
         }

@@ -650,7 +650,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateSlotId temporalDerivedId = SlotId(seed, 4UL);
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,
@@ -715,7 +715,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CodecDescriptor codec = Codec(seed, 1UL);
             Assert.IsTrue(builder.TryAddBlock(
                 blockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnosticCode diagnosticCode));
             Assert.IsTrue(builder.TryAddSlot(
                 blockId,

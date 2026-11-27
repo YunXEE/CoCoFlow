@@ -1,52 +1,22 @@
-using CoCoFlow.Runtime.Animation.Contracts;
-using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Locomotion.Contracts;
+using CoCoFlow.Runtime.StateGraph;
 
+// 手动 Host 在该状态写入移动操作，移动模块测试由角色的实际位移核对提交结果。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 {
-    /// <summary>
-    /// Writes a fixed forward velocity into the locomotion section via the
-    /// typed field resolver. It deliberately consumes no Intent so the test
-    /// also proves that an Operation-only graph needs no Intent source.
-    /// </summary>
+    /// <summary>让真实 Host 通过属性视图写入角色移动，以验证模块的手写绑定。</summary>
     [State("LocoMoveProbe")]
-    [OperationProvide(typeof(ILocomotionSection))]
     public sealed class LocoMoveProbeLogic : StateLogic, IStateUpdate
     {
+        [Operation] public ILocomotionOperation Movement { get; set; }
         public static float? LastDelta;
 
+        /// <summary>把夹具指定的移动或跳跃值写入本步连续输出，供真实移动 Operator 消费。</summary>
         public void Update(StateExecutionContext context)
         {
-            var moveZ = context.Operations.ResolveField<ILocomotionSection, float>(
-                LocomotionSectionFields.MoveZ);
-            var gravity = context.Operations.ResolveField<ILocomotionSection, bool>(
-                LocomotionSectionFields.UseGravity);
-            if (!moveZ.IsValid || !gravity.IsValid)
-            {
-                LastDelta = null;
-                return;
-            }
-
-            _ = context.Operations.Write(moveZ, 2f);   // MoveZ = 2 m/s
-            _ = context.Operations.Write(gravity, true);
+            Movement.MoveZ = 2f;
+            Movement.UseGravity = true;
             LastDelta = 2f;
-        }
-    }
-
-    /// <summary>
-    /// Declares both Sections consumed by AnimAutoOperator. The State does
-    /// not need to write commands for the registration test; its descriptor
-    /// is sufficient to freeze both Sections into the compiled manifest.
-    /// </summary>
-    [State("AnimOperationProbe")]
-    [OperationProvide(typeof(IAnimParameterOperationSection))]
-    [OperationProvide(typeof(IAnimTriggerOperationSection))]
-    public sealed class AnimOperationProbeLogic :
-        StateLogic,
-        IStateUpdate
-    {
-        public void Update(StateExecutionContext context)
-        {
         }
     }
 }

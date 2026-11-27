@@ -3,17 +3,18 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 
+// 供编辑器夹具共同构造具有固定身份的标准目录、冻结配置、图层和转换。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>为 EditMode 的编译及创作测试统一提供有效目录、图源和冻结节点配置。</summary>
     internal static class StateGraphTestFactory
     {
         internal static GraphId GraphId => CreateGraphId(1UL);
         internal static LayerId LayerId => CreateLayerId(1UL);
         internal static StateDescriptorId StateDescriptorId => CreateStateDescriptorId(1UL);
         internal static StateDescriptorId AnyStateDescriptorId => CreateStateDescriptorId(2UL);
-        internal static ConditionDescriptorId ConditionDescriptorId => CreateConditionDescriptorId(1UL);
         internal static IntentId IntentId => CreateIntentId(1UL);
-        internal static OperationSectionId OperationSectionId => CreateOperationSectionId(1UL);
+        internal static OperationId OperationId => CreateOperationSectionId(1UL);
         internal static StateBlockId StateBlockId => CreateStateBlockId(1UL);
         internal static StateSlotId StateSlotId => CreateStateSlotId(1UL);
 
@@ -33,7 +34,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             var builder = new GraphDescriptorCatalogBuilder();
             IntentId[] intents = null;
-            OperationSectionId[] operations = null;
+            OperationId[] operations = null;
             StateBlockId[] blocks = null;
             if (includeManifestRequirements)
             {
@@ -45,10 +46,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         TestIntentReducer,
                         TestIntentReducerFactory>(intentFactorySemanticFingerprint),
                     out CoCoDiagnostic intentDiagnostic), intentDiagnostic);
-                Require(builder.TryRegisterOperationSection(
-                    OperationSectionId,
-                    OperationSectionMode.Continuous,
-                    new OperationSectionViewFactoryToken<
+                Require(builder.TryRegisterOperation(
+                    OperationId,
+                    Mode.Continuous,
+                    new OperationViewFactoryToken<
                         ITestOperationSection,
                         TestOperationSectionViewFactory>(operationFactorySemanticFingerprint),
                     out CoCoDiagnostic operationDiagnostic), operationDiagnostic);
@@ -67,7 +68,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     null,
                     out CoCoDiagnostic slotDiagnostic), slotDiagnostic);
                 intents = new[] { IntentId };
-                operations = new[] { OperationSectionId };
+                operations = new[] { OperationId };
                 blocks = new[] { StateBlockId };
             }
 
@@ -85,16 +86,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 operations,
                 blocks,
                 out CoCoDiagnostic stateDiagnostic), stateDiagnostic);
-            Require(builder.TryRegisterCondition(
-                ConditionDescriptorId,
-                descriptorRevision,
-                new TestConditionConfigFreezer(),
-                new ConditionRuntimeRegistration<
-                    TestStateCondition,
-                    TestConditionConfigSchema>(TestFrozenConfigSchemas.ConditionSchema),
-                intents,
-                blocks,
-                out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic);
             if (includeAnyState)
             {
                 Require(builder.TryRegisterState(
@@ -142,18 +133,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 FirstChildStateId,
                 SecondChildStateId,
                 10,
-                TransitionWindow.Always,
-                new[]
-                {
-                    new ConditionSource(ConditionDescriptorId, ConditionConfig(5))
-                });
+                TransitionWindow.Always);
             var secondTransition = new TransitionSource(
                 SecondTransitionId,
                 SecondChildStateId,
                 FirstChildStateId,
                 5,
-                TransitionWindow.Always,
-                Array.Empty<ConditionSource>());
+                TransitionWindow.Always);
             TransitionSource[] transitions = reverseInputOrder
                 ? new[] { secondTransition, firstTransition }
                 : new[] { firstTransition, secondTransition };
@@ -215,20 +201,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return snapshot;
         }
 
-        internal static FrozenConfigSnapshot ConditionConfig(int threshold)
-        {
-            FrozenConfigWriter<TestConditionConfigSchema> writer =
-                TestFrozenConfigSchemas.ConditionSchema.CreateWriter();
-            Require(writer.TryWrite(
-                TestFrozenConfigSchemas.ConditionThreshold,
-                threshold,
-                out CoCoDiagnostic writeDiagnostic), writeDiagnostic);
-            Require(writer.TrySeal(
-                out FrozenConfigSnapshot snapshot,
-                out CoCoDiagnostic sealDiagnostic), sealDiagnostic);
-            return snapshot;
-        }
-
         internal static GraphId CreateGraphId(ulong low)
         {
             Require(GraphId.TryCreate(1UL, low, out GraphId id));
@@ -259,27 +231,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return id;
         }
 
-        internal static ConditionDescriptorId CreateConditionDescriptorId(ulong low)
-        {
-            Require(ConditionDescriptorId.TryCreate(
-                6UL,
-                low,
-                out ConditionDescriptorId id));
-            return id;
-        }
-
         internal static IntentId CreateIntentId(ulong low)
         {
             Require(IntentId.TryCreate(7UL, low, out IntentId id));
             return id;
         }
 
-        internal static OperationSectionId CreateOperationSectionId(ulong low)
+        internal static OperationId CreateOperationSectionId(ulong low)
         {
-            Require(OperationSectionId.TryCreate(
+            Require(OperationId.TryCreate(
                 8UL,
                 low,
-                out OperationSectionId id));
+                out OperationId id));
             return id;
         }
 

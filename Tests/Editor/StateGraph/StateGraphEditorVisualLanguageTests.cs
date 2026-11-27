@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
@@ -15,32 +14,24 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
+// 通过窗口中的视觉元素、样式与操作反馈复核当前图编辑器提供的创作入口。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
-    /// <summary>
-    /// P03 视觉语言与 D8 边交互测试：
-    /// ccflow 主题接入 / severity→kind 映射 / 空状态 / 双语 /
-    /// Animator 边（点击选中、双向平行、自环、双击下钻）/
-    /// Inspector UITK 等价 / N2 元素名升级断言。
-    /// </summary>
+    /// <summary>通过窗口中的视觉元素、样式与操作反馈复核当前图编辑器提供的创作入口。</summary>
     public sealed class StateGraphEditorVisualLanguageTests
     {
-        private readonly System.Collections.Generic.List<StateGraphAsset> assets =
-            new System.Collections.Generic.List<StateGraphAsset>();
-        private readonly System.Collections.Generic.List<EditorWindow> windows =
-            new System.Collections.Generic.List<EditorWindow>();
-        private readonly System.Collections.Generic.List<StateGraphEditorCanvas> canvases =
-            new System.Collections.Generic.List<StateGraphEditorCanvas>();
-        private readonly System.Collections.Generic.List<StateGraphEditorController> controllers =
-            new System.Collections.Generic.List<StateGraphEditorController>();
 
+        #region Public API
+
+        /// <summary>将编辑器语言设为该组文字与样式期望使用的英文。</summary>
         [SetUp]
         public void SetUp()
         {
-            // 语言自钉：EditorPrefs 为机器级共享（维护者会话可能停在中文）。
+
             CoCoEditorLocalization.SetLanguage(CoCoEditorLanguage.English);
         }
 
+        /// <summary>清理目录和测试窗口并恢复约定语言，使后续视觉用例可以独立运行。</summary>
         [TearDown]
         public void TearDown()
         {
@@ -80,6 +71,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             assets.Clear();
         }
 
+        /// <summary>打开窗口并读取图层头部，核对主题类和当前层的节点、边数量。</summary>
         [Test]
         public void WindowAppliesThemeAndHeaderShowsCurrentLayerCounts()
         {
@@ -95,7 +87,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             session.Save();
             StateGraphEditorWindow window = CreateStateGraphWindow(asset);
             Assert.IsTrue(window.rootVisualElement.ClassListContains("ccflow-root"));
-            // 主题与 P03 专用样式表均已挂载（ApplyTheme + 包路径加载）。
+
             StyleSheet shared = AssetDatabase.LoadAssetAtPath<StyleSheet>(
                 "Packages/com.yunxee.cocoflow/Editor/Core/CoCoEditorCommon.uss");
             StyleSheet own = AssetDatabase.LoadAssetAtPath<StyleSheet>(
@@ -126,6 +118,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual("No Logic available", root.Q<Label>("state-graph-header-catalog-warning").text);
         }
 
+        /// <summary>遍历诊断严重级别，核对每项的徽标样式。</summary>
         [Test]
         public void SeverityToBadgeKindMapsAllSeverities()
         {
@@ -143,6 +136,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateGraphEditorWindow.SeverityToBadgeKind(CoCoDiagnosticSeverity.None));
         }
 
+        /// <summary>打开无内容资产，检查窗口给出空状态和创建预设入口。</summary>
         [Test]
         public void EmptyAssetWindowShowsEmptyStateWithPresetEntry()
         {
@@ -152,6 +146,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.NotNull(window.rootVisualElement.Q<ObjectField>());
         }
 
+        /// <summary>打开无图层的窗口，核对空状态能够引导创建图层。</summary>
         [Test]
         public void NoLayerWindowShowsEmptyStateInsteadOfRawFields()
         {
@@ -161,6 +156,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.NotNull(window.rootVisualElement.Q<VisualElement>("state-graph-feedback"));
         }
 
+        /// <summary>切换显示语言，核对已挂载的静态界面文字随设置更新。</summary>
         [Test]
         public void BilingualStaticTextFollowsLanguagePreference()
         {
@@ -184,8 +180,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>查询详情中的树、转换和诊断反馈元素，确认现有创作入口可定位。</summary>
         [Test]
-        public void DetailsExposeStableElementNamesIncludingConditionConfig()
+        public void DetailsExposeStableTreeTransitionAndFeedbackElements()
         {
             GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
             StateGraphEditorInteractionTests.ClearAuthorAssemblyRootsForInjectedUiCatalog(catalog);
@@ -197,24 +194,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(StateGraphAuthoringOperations.TryAddTransition(
                 asset, layerId, first, second, 0, TransitionWindow.Always, null,
                 out TransitionId transitionId, out string failure), failure);
-            Assert.IsTrue(StateGraphAuthoringOperations.TryAddCondition(
-                asset, layerId, transitionId, StateGraphTestFactory.ConditionDescriptorId,
-                new TestConditionAuthoringConfig { Threshold = 5 }, out _, out failure), failure);
             SelectTransition(asset, layerId, transitionId);
 
             StateGraphEditorWindow window = CreateStateGraphWindow(asset);
             VisualElement root = HostWindow(window);
-            // N2 升级断言：三个此前仅存在于源码的挂点名全部可查询。
             Assert.NotNull(root.Q<VisualElement>("state-graph-tree"));
             Assert.NotNull(root.Q<VisualElement>("state-graph-details"));
-            Assert.NotNull(root.Q<VisualElement>("state-graph-condition-config"));
             var details = root.Q<ScrollView>("state-graph-details");
             VisualElement selected = root.Q<VisualElement>("state-graph-selected-details");
             Assert.AreSame(selected, details[0]);
             Assert.IsFalse(details.Contains(root.Q<VisualElement>("state-graph-feedback")));
             Assert.IsTrue(root.Q<ScrollView>("state-graph-diagnostics-panel").Contains(
                 root.Q<VisualElement>("state-graph-feedback")));
-            Assert.IsTrue(selected.Contains(root.Q<VisualElement>("state-graph-condition-config")));
             Assert.IsNull(root.Q<VisualElement>("state-graph-layer-management"));
             Assert.IsNull(root.Q<VisualElement>("state-graph-add-state"));
             Assert.IsNull(root.Q<VisualElement>("state-graph-add-logic"));
@@ -253,6 +244,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         }
 
+        /// <summary>打开图资产 Inspector，检查 UI Toolkit 展示图摘要、适配声明及创作入口。</summary>
         [Test]
         public void AssetInspectorUiToolkitShowsSummaryAdaptersAndEntries()
         {
@@ -271,10 +263,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.NotNull(FindButtonWithText(root, "Add Layer"));
             Assert.NotNull(FindButtonWithText(root, "Analyze With Registered Catalog"));
 
-            // 不提供第二裸拓扑编辑面：不得出现绑定 layers/states/transitions 的 PropertyField。
             UnityEngine.Object.DestroyImmediate(editor);
         }
 
+        /// <summary>在根画布创建多个复合节点，检查各节点配置对象独立。</summary>
         [Test]
         public void FlatCanvasCreationUsesRootScopeAndIndependentCompositeConfigs()
         {
@@ -340,6 +332,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "editing the Composite config must not mutate its first child");
         }
 
+        /// <summary>在边上及边外各派发一次点击，核对仅命中时改变转换选择。</summary>
         [UnityTest]
         public IEnumerator EdgeClickSelectsTransitionOnHitAndIgnoresMiss()
         {
@@ -358,27 +351,26 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Host(canvas);
             for (int frame = 0; frame < 10 && canvas.EdgeHitCount == 0; frame++)
             {
-                yield return null; // 等待首次重绘生成边几何缓存
+                yield return null;
             }
 
             Assert.GreaterOrEqual(canvas.EdgeHitCount, 1, "edge geometry must exist after repaint");
-            Vector2 hitPoint = new Vector2(264f, 108f); // 两卡中心连线中点
+            Vector2 hitPoint = new Vector2(264f, 108f);
             Assert.IsTrue(canvas.TryHitEdge(hitPoint, 6f, out SerializedId128 hitId));
             Assert.AreEqual(
                 new SerializedId128(transitionId.High, transitionId.Low),
                 hitId);
 
-            // 未命中分支：远离任何边。
             Assert.IsFalse(canvas.TryHitEdge(new Vector2(1000f, 1000f), 6f, out _));
             Assert.IsFalse(controller.Session.SelectedTransitionId.IsValid);
 
-            // 端到端：点击边面板位置 → SelectTransition。
             SendPointerDown(canvas, 0, canvas.worldBound.position + hitPoint, hitPoint);
             Assert.AreEqual(
                 transitionId,
                 controller.Session.SelectedTransitionId);
         }
 
+        /// <summary>呈现方向相反的两条边，分别命中两条平行线并核对所选方向。</summary>
         [UnityTest]
         public IEnumerator BidirectionalEdgesRenderAsParallelHittableLines()
         {
@@ -404,9 +396,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
 
             Assert.AreEqual(2, canvas.EdgeHitCount, "bidirectional pair must render two parallel edges");
-            // 中心连线法线方向 ±ParallelSpacing/2 处各自命中对应方向的边。
+
             Vector2 midpoint = new Vector2(264f, 108f);
-            Vector2 normal = new Vector2(0f, 1f); // 水平连线的法线
+            Vector2 normal = new Vector2(0f, 1f);
             Assert.IsTrue(canvas.TryHitEdge(midpoint + normal * 8f, 3f, out SerializedId128 upper));
             Assert.IsTrue(canvas.TryHitEdge(midpoint - normal * 8f, 3f, out SerializedId128 lower));
             Assert.AreNotEqual(upper, lower, "parallel offsets must map to distinct transitions");
@@ -415,6 +407,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(coversForward && coversBackward, "both directions must be hittable");
         }
 
+        /// <summary>折叠子树后检查各箭头仍可见且两个方向均能被命中。</summary>
         [UnityTest]
         public IEnumerator FoldedEdgesKeepAllTrianglesAndReverseDirectionsHittable()
         {
@@ -487,6 +480,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(4, canvas.EdgeHitCount, "Unfolded edges retain individual geometry.");
         }
 
+        /// <summary>向自环线段派发点击，检查选中的转换回到源节点。</summary>
         [UnityTest]
         public IEnumerator SelfLoopEdgeIsHittable()
         {
@@ -508,12 +502,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
 
             Assert.GreaterOrEqual(canvas.EdgeHitCount, 1);
-            // 回环中心（卡片顶上方）必命中。
+
             Vector2 loopCenter = new Vector2(120f + 94f, 120f - 27f);
             Assert.IsTrue(canvas.TryHitEdge(loopCenter, 12f, out SerializedId128 hitId));
             Assert.AreEqual(new SerializedId128(selfLoop.High, selfLoop.Low), hitId);
         }
 
+        /// <summary>选择叶节点后核对祖先和直接出边目标的高亮。</summary>
         [UnityTest]
         public IEnumerator StateSelectionLightsAncestryAndDirectOutgoingTargets()
         {
@@ -552,7 +547,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Host(canvas);
             yield return null;
 
-            // 血统链：选中子 State → 自己+全部祖先外描边；谱系段 Child←Parent 点亮。
             controller.SelectState(child);
             yield return null;
             VisualElement childCard = CardWithTitle(canvas, "Child");
@@ -571,7 +565,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new SerializedId128(composite.High, composite.Low)),
                 "root composite has no genealogy segment");
 
-            // 紫色只跟随直接出边；自环同时保留自身黄色祖先框。
             Assert.IsTrue(rootLeafCard.ClassListContains("state-card--transition-target"));
             Assert.IsTrue(childCard.ClassListContains("state-card--transition-target"));
             Assert.IsFalse(compositeCard.ClassListContains("state-card--transition-target"));
@@ -598,7 +591,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(CardWithTitle(canvas, "Indirect").ClassListContains("state-card--transition-target"));
             Assert.AreEqual(normal, canvas.GetTransitionColor(layer.Transitions[1]));
 
-            // Transition 选中只亮线本身：两端卡片不得点亮。
             controller.SelectTransition(transitionId);
             yield return null;
             Assert.IsFalse(CardWithTitle(canvas, "RootLeaf").ClassListContains("state-card--ancestry"),
@@ -624,6 +616,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(layer.Transitions.All(edge => canvas.GetTransitionColor(edge) == normal));
         }
 
+        /// <summary>按图层默认路径区分可达叶节点，检查画布样式反映当前拓扑。</summary>
         [Test]
         public void LeafFlowStatesFollowLayerDefaultReachability()
         {
@@ -665,7 +658,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 canvas.LeafFlowStates[new SerializedId128(isolated.High, isolated.Low)],
                 "isolated leaf is topologically unreachable (red)");
 
-            // Default 无出边 → 红。
             Assert.IsTrue(TransitionId.TryCreate(
                 firstTransition.TransitionId.High, firstTransition.TransitionId.Low,
                 out TransitionId entryTransition));
@@ -685,6 +677,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "layer default without outgoing edges is invalid (red)");
         }
 
+        /// <summary>在画布空白处点击，检查先前的节点或转换选择已清除。</summary>
         [UnityTest]
         public IEnumerator ClickingEmptyCanvasClearsSelection()
         {
@@ -703,7 +696,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             yield return null;
             Assert.IsTrue(controller.Session.SelectedStateId.IsValid);
 
-            // 空白处（画布中心，远离卡/线/右下缩放控件）左键 → 清除选中。
             Vector2 empty = canvas.worldBound.center;
             SendPointerDown(canvas, 21, empty, empty - canvas.worldBound.position);
             yield return null;
@@ -711,7 +703,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "empty-canvas click must clear selection");
         }
 
-        // ── 助手 ───────────────────────────────────────────
+        #endregion
+
+        #region Internal Logic
+
+        private readonly System.Collections.Generic.List<StateGraphAsset> assets =
+            new System.Collections.Generic.List<StateGraphAsset>();
+        private readonly System.Collections.Generic.List<EditorWindow> windows =
+            new System.Collections.Generic.List<EditorWindow>();
+        private readonly System.Collections.Generic.List<StateGraphEditorCanvas> canvases =
+            new System.Collections.Generic.List<StateGraphEditorCanvas>();
+        private readonly System.Collections.Generic.List<StateGraphEditorController> controllers =
+            new System.Collections.Generic.List<StateGraphEditorController>();
 
         private StateGraphAsset CreateAsset()
         {
@@ -844,6 +847,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>让画布命中测试重放给定位置的指针点击。</summary>
         private sealed class ClickablePointerEvent : IPointerEvent
         {
             internal ClickablePointerEvent(int pointerId, Vector2 position, Vector2 localPosition, int clickCount)
@@ -883,5 +887,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public bool altKey => false;
             public bool actionKey => false;
         }
+
+        #endregion
     }
 }

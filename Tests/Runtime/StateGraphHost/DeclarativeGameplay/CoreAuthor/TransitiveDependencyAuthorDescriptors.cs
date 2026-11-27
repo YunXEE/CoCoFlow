@@ -39,7 +39,7 @@ namespace CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor
             TransitiveDependencyHelperToken.Create().Value;
     }
 
-    public sealed class TransitiveDependencyMemory : ActivationMemory
+    public sealed class TransitiveDependencyMemory : StateActivationMemory
     {
     }
 

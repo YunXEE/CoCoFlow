@@ -2,13 +2,13 @@
 using System;
 using System.Globalization;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
 
 namespace CoCoFlow.Runtime.Modules.Persistence
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>Metadata copied from one successfully decoded on-disk save record.</summary>
     internal readonly struct PersistedFrameDebugInfo

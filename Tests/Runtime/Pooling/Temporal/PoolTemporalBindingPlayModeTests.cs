@@ -6,7 +6,6 @@ using System.Reflection;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
@@ -887,7 +886,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Assert.That(hostRejected.IsError, Is.True);
                 Assert.That(
                     hostRejected.Code,
-                    Is.EqualTo(CoCoDiagnosticCode.InvalidActorBinding));
+                    Is.EqualTo(CoCoDiagnosticCode.InvalidHostConfiguration));
                 PoolEntrySnapshot afterHostRejection =
                     fixture.Scope.CaptureSnapshot().Entries.Single();
                 AssertPoolOccupancyEqual(after, afterHostRejection);

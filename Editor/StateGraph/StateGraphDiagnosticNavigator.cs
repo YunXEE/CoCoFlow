@@ -1,12 +1,17 @@
 using System;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 
+// 图编辑器把编译诊断中的层、节点和转换身份映射到正在编辑的属性或选择。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>将图诊断定位到可选择的元素与序列化属性。</summary>
     public static class StateGraphDiagnosticNavigator
     {
+
+        #region Public API
+
+        /// <summary>根据诊断位置查找当前资产对应的序列化字段，图或元素不匹配时返回 false。</summary>
         public static bool TryFindProperty(
             SerializedObject serializedAsset,
             GraphDiagnosticLocation location,
@@ -117,26 +122,10 @@ namespace CoCoFlow.Editor.StateGraph
                 return property != null;
             }
 
-            if (location.ElementKind == GraphElementKind.Condition)
-            {
-                SerializedProperty conditions = transition.FindPropertyRelative("conditions");
-                if (conditions == null ||
-                    location.ConditionIndex < 0 ||
-                    location.ConditionIndex >= conditions.arraySize)
-                {
-                    return false;
-                }
-
-                SerializedProperty condition = conditions.GetArrayElementAtIndex(location.ConditionIndex);
-                property = location.Field == GraphField.Config
-                    ? condition.FindPropertyRelative("config")
-                    : condition.FindPropertyRelative("conditionDescriptorId");
-                return property != null;
-            }
-
             return false;
         }
 
+        /// <summary>尝试在编辑器中选中诊断实际对应的资产元素，无法定位时返回 false。</summary>
         public static bool TrySelect(
             StateGraphAsset asset,
             GraphDiagnosticLocation location,
@@ -159,6 +148,10 @@ namespace CoCoFlow.Editor.StateGraph
             propertyPath = property.propertyPath;
             return true;
         }
+
+        #endregion
+
+        #region Internal Logic
 
         private static SerializedProperty FindGraphProperty(
             SerializedObject serializedAsset,
@@ -227,10 +220,9 @@ namespace CoCoFlow.Editor.StateGraph
                     return transition.FindPropertyRelative("priority");
                 case GraphField.Window:
                     return transition.FindPropertyRelative("windowMode");
-                case GraphField.Conditions:
                 case GraphField.Config:
                 case GraphField.Descriptor:
-                    return transition.FindPropertyRelative("conditions");
+                    return transition;
                 default:
                     return transition;
             }
@@ -358,5 +350,7 @@ namespace CoCoFlow.Editor.StateGraph
                    serializedHigh.ulongValue == high &&
                    serializedLow.ulongValue == low;
         }
+
+        #endregion
     }
 }

@@ -1,11 +1,9 @@
+using CoCoFlow.Runtime.Input.Contracts;
 #if UNITY_EDITOR
 using System.Collections.Generic;
-using CoCoFlow.Runtime.Animation.Contracts;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Locomotion.Contracts;
-using CoCoFlow.Runtime.Modules.Animation;
 using CoCoFlow.Runtime.Modules.Locomotion;
 using CoCoFlow.Runtime.Modules.Persistence;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
@@ -13,47 +11,31 @@ using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
-using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
+// 手动 Host 经输入、状态选边和真实移动 Operator 驱动角色，并用拒绝路径验证提交隔离。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
-    /// <summary>
-    /// C7 commit 2 — the journey e2e: five scenarios over one four-state
-    /// graph (Idle/Move/Jump/Attack) driven through raw input intents.
-    /// A wall (engine fact), B reject (slot rollback + residue + replay
-    /// convergence), C temporal restore, D save/load triple restore
-    /// (loco slot + Animator snapshot + graph activation), E attack chain.
-    /// </summary>
+    /// <summary>手动 Host 经输入、状态选边和真实移动 Operator 驱动角色，并用拒绝路径验证提交隔离。</summary>
     public sealed class LocomotionJourneyE2EPlayModeTests
     {
-        private const float Step = 1f / 60f;
-        private const string ControllerPath =
-            "Assets/JourneyE2EController.controller";
 
-        private readonly List<Object> _objects = new List<Object>();
-        private GameObject _actor;
-        private StateGraphHost _host;
-        private LocomotionOperator _locomotion;
-        private AnimAutoOperator _animation;
-        private JourneyIntentSource _intents;
+        #region Public API
 
+        /// <summary>重置已安装的项目绑定，使本例独立装配标准 Provider。</summary>
         [SetUp]
         public void SetUp()
         {
             _objects.Clear();
             JourneyMemory.Reset();
             StateGraphProjectBindings.ResetForTests();
-            if (AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath) != null)
-            {
-                AssetDatabase.DeleteAsset(ControllerPath);
-            }
         }
 
+        /// <summary>释放本例创建的场景对象并清除安装的项目绑定。</summary>
         [TearDown]
         public void TearDown()
         {
@@ -65,19 +47,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            if (AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath) != null)
-            {
-                AssetDatabase.DeleteAsset(ControllerPath);
-            }
-
             StateGraphProjectBindings.ResetForTests();
         }
 
+        /// <summary>用角色控制器实际碰墙，将引擎最终位置与已提交的移动槽进行对照。</summary>
         [UnityTest]
         public System.Collections.IEnumerator ScenarioAWallRecordsEngineFact()
         {
-            BuildActor(withAnimator: false);
-            // A wall right in front of the actor, tall enough to block.
+            BuildActor();
+
             var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             _objects.Add(wall);
             wall.transform.position = new Vector3(0f, 1.5f, 0.6f);
@@ -104,24 +82,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
         }
 
+        /// <summary>令下游拒绝候选，区分已经发生的场景移动与未提交槽值，并观察后续校正。</summary>
         [UnityTest]
         public System.Collections.IEnumerator ScenarioBRejectRollsBackSlotKeepsResidueAndConverges()
         {
-            BuildActor(withAnimator: false);
+            BuildActor();
             var saboteur = _actor.AddComponent<JourneyRejectOperator>();
-            SetHostOperators(_locomotion, _animation, saboteur);
+            SetHostOperators(_locomotion, saboteur);
             saboteur.RejectOnTick = 3;
 
             Require(StartHost());
             _intents.EnqueueMove(0f, 2f);
             float z0 = _actor.transform.position.z;
 
-            // Tick one: Idle requests the Move transition. Tick two: Move
-            // writes the desire and the engine moves. Tick three: the
-            // saboteur rejects — the product semantics are LOUD: a
-            // rejected transaction faults the Host (no silent replay),
-            // the slot rolls back to its last committed value while the
-            // engine residue stays on the transform.
             Require(
                 _host.TryStep(Step, out CoCoDiagnostic firstTick),
                 "first tick: " + _host.LastDiagnostic.Message);
@@ -147,15 +120,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
         }
 
+        /// <summary>先移动并捕获历史，再确认恢复，检查场景中的角色和图活动路径同时回到所选记录。</summary>
         [UnityTest]
         public System.Collections.IEnumerator ScenarioCTemporalRestoreProjectsWorldAndGraph()
         {
-            BuildActor(withAnimator: false);
+            BuildActor();
             SetField(_host, "temporalHistoryCapacity", 8);
             SetRecovery(true, true);
             Require(StartHost());
-            // The first tick after start establishes the graph baseline and
-            // drops transition requests — hold the press for two ticks.
+
             _intents.EnqueuePressed(JourneyContract.Jump);
             Require(_host.TryStep(Step, out _));
             _intents.EnqueuePressed(JourneyContract.Jump);
@@ -186,18 +159,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
         }
 
+        /// <summary>保存实际移动状态并重新读档，核对恢复后的图和场景位置。</summary>
         [UnityTest]
-        public System.Collections.IEnumerator ScenarioDSaveLoadRestoresSlotAnimatorAndGraph()
+        public System.Collections.IEnumerator ScenarioDSaveLoadRestoresLocomotionAndGraph()
         {
-            BuildActor(withAnimator: true);
-            // Runtime identity is explicit; register after assigning it.
+            BuildActor();
+
             var persistence = _actor.AddComponent<PersistenceContext>();
             persistence.EnsureStableEntityId();
             PersistenceContextRegistry.Register(persistence);
             SetRecovery(true, true);
             Require(StartHost());
-            // The first tick after start establishes the graph baseline and
-            // drops transition requests — hold the press for two ticks.
+
             _intents.EnqueuePressed(JourneyContract.Jump);
             Require(_host.TryStep(Step, out _));
             _intents.EnqueuePressed(JourneyContract.Jump);
@@ -208,18 +181,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _intents.Clear();
-            // BUG-032: drive typed engine facts (Int/Bool) onto the live
-            // Animator, then one tick so the snapshot slot records them.
-            Animator animator = _animation.Animator;
-            animator.SetInteger("Gear", -1234567);
-            animator.SetBool("Boost", true);
-            Require(_host.TryStep(Step, out _));
-
-            int hashAtSave = JourneyMemory.LastAnimHash;
-            float timeAtSave = JourneyMemory.LastAnimTime;
             float yAtSave = _actor.transform.position.y;
-            int gearAtSave = animator.GetInteger("Gear");
-            bool boostAtSave = animator.GetBool("Boost");
             Assert.Greater(yAtSave, 0.05f, "airborne at save");
             Assert.AreEqual("Jump", JourneyMemory.Current);
 
@@ -227,10 +189,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(PersistenceFileStore.TryReadDocument(0, out var savedDocument));
             Assert.IsTrue(savedDocument.contextSection.TryGetRecord(
                 persistence.StableEntityId, out _), "The durable payload must contain this actor.");
-            // Typed drift first: the live Animator and the committed slot
-            // both leave the saved Int/Bool values before the load.
-            animator.SetInteger("Gear", 42);
-            animator.SetBool("Boost", false);
             for (int index = 0; index < 6; index++)
             {
                 Require(_host.TryStep(Step, out _));
@@ -245,40 +203,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "graph activation restored from the payload");
             Assert.AreEqual(yAtSave, _actor.transform.position.y, 0.02f,
                 "loco slot restored and projected");
-            Assert.AreEqual(hashAtSave, JourneyMemory.LastAnimHash,
-                "Animator snapshot restored (state hash)");
-            Assert.AreEqual(timeAtSave, JourneyMemory.LastAnimTime, 0.02f,
-                "Animator snapshot restored (normalized time)");
-
-            // BUG-032: the durable payload round-trips the typed lane
-            // payloads — the restored slot still carries the saved raw
-            // Int bits and the Boolean flag exactly as captured at save.
-            Require(
-                _host.CurrentContext.Layout.TryResolveSlot(
-                    AnimContractIds.SnapshotSlotId,
-                    out StateSlot<AnimSnapshotState> restoredSlot),
-                "restored authority must expose the Animator snapshot slot");
-            AnimSnapshotState restoredSnapshot =
-                _host.CurrentContext.Read(restoredSlot);
-            Assert.GreaterOrEqual(restoredSnapshot.LaneCount, 2,
-                "both typed lanes survive the durable cycle");
-            Assert.AreEqual(
-                gearAtSave,
-                System.BitConverter.SingleToInt32Bits(restoredSnapshot.Lane(0)),
-                "Integer lane restored with exact raw bits");
-            Assert.AreEqual(
-                boostAtSave,
-                restoredSnapshot.Lane(1) != 0f,
-                "Boolean lane restored");
-
             Require(_host.TryStep(Step, out CoCoDiagnostic resume), resume.Message);
             yield return null;
         }
 
+        /// <summary>从攻击态请求已创作的回边，核对下一步进入普通待机态。</summary>
         [UnityTest]
-        public System.Collections.IEnumerator ScenarioEAttackFiresTriggerAndPlaysAnimation()
+        public System.Collections.IEnumerator ScenarioEAttackReturnsToIdleThroughItsAuthoredEdge()
         {
-            BuildActor(withAnimator: true);
+            BuildActor();
             Require(StartHost());
             Require(_host.TryStep(Step, out _));
             Assert.AreEqual("Idle", JourneyMemory.Current);
@@ -293,18 +226,6 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             Assert.AreEqual("Attack", JourneyMemory.Current);
-            Assert.IsTrue(JourneyMemory.AttackTriggerWritten, "trigger lane written by the state");
-            // The Animator evaluates on the engine's own phase — the
-            // trigger lands on a later frame after the tick that wrote
-            // it (engine-fact latency, by design).
-            yield return null;
-            yield return null;
-            Animator animator = _animation.Animator;
-            Assert.AreEqual(
-                Animator.StringToHash("Attack"),
-                animator.GetCurrentAnimatorStateInfo(0).shortNameHash,
-                "engine played the attack state through the trigger");
-
             for (int index = 0; index < 20; index++)
             {
                 Require(_host.TryStep(Step, out _));
@@ -314,177 +235,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             yield return null;
         }
 
-        // ----- assembly -------------------------------------------------
-
-        private void BuildActor(bool withAnimator)
-        {
-            StandardBindingProvider provider =
-                StandardBindingProvider.Build(
-                    new[] { typeof(JourneyIdleLogic).Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
-                provider, out CoCoDiagnostic install), install.Message);
-
-            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
-            _objects.Add(asset);
-            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
-
-            var idle = new StateGraphStateRecord(
-                new SerializedId128(1, 1), default, "Idle",
-                DescriptorOf<JourneyIdleLogic>(), new EmptyStateConfig());
-            var move = new StateGraphStateRecord(
-                new SerializedId128(2, 2), default, "Move",
-                DescriptorOf<JourneyMoveLogic>(), new EmptyStateConfig());
-            var jump = new StateGraphStateRecord(
-                new SerializedId128(3, 3), default, "Jump",
-                DescriptorOf<JourneyJumpLogic>(), new EmptyStateConfig());
-            var attack = new StateGraphStateRecord(
-                new SerializedId128(4, 4), default, "Attack",
-                DescriptorOf<JourneyAttackLogic>(), new EmptyStateConfig());
-
-            var layer = new StateGraphLayerRecord(
-                new SerializedId128(9, 9), "Base");
-            layer.InitialStateId = new SerializedId128(1, 1);
-            layer.States.Add(idle);
-            layer.States.Add(move);
-            layer.States.Add(jump);
-            layer.States.Add(attack);
-            // Edge order is the fixture contract: Idle→[Move,Jump,Attack],
-            // Move→[Idle,Jump], Jump→[Idle], Attack→[Idle].
-            {
-                layer.Transitions.Add(Edge(11, idle, move));
-                layer.Transitions.Add(Edge(12, idle, jump));
-                layer.Transitions.Add(Edge(13, idle, attack));
-                layer.Transitions.Add(Edge(14, move, idle));
-                layer.Transitions.Add(Edge(15, move, jump));
-                layer.Transitions.Add(Edge(16, jump, idle));
-                layer.Transitions.Add(Edge(17, attack, idle));
-            }
-            asset.Layers.Add(layer);
-
-            _actor = new GameObject("JourneyActor");
-            _objects.Add(_actor);
-            var controller = _actor.AddComponent<CharacterController>();
-            controller.height = 2f;
-            controller.center = new Vector3(0f, 1f, 0f);
-            _host = _actor.AddComponent<StateGraphHost>();
-            _locomotion = _actor.AddComponent<LocomotionOperator>();
-            _animation = _actor.AddComponent<AnimAutoOperator>();
-            _intents = _actor.AddComponent<JourneyIntentSource>();
-
-            SetField(_host, "stateGraphAsset", asset);
-            SetField(_host, "driver", (StateGraphDriver)2 /* Manual */);
-            SetField(_host, "autoStart", false);
-            SetField(_host, "intentSources",
-                new MonoBehaviour[] { _intents, });
-            // The manifest derives from every state in the graph, so both
-            // operators are always present; without a controller the
-            // Animator is an idle engine fact (zero layers).
-            _actor.AddComponent<Animator>();
-            SetHostOperators(_locomotion, _animation);
-            SetField(_animation, "stateGraphHost", _host);
-
-            if (withAnimator)
-            {
-                AttachRuntimeAnimator();
-            }
-        }
-
-        private void AttachRuntimeAnimator()
-        {
-            AnimatorController controllerAsset =
-                AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
-            AnimatorControllerLayer baseLayer = controllerAsset.layers[0];
-            AnimatorState idle = baseLayer.stateMachine.AddState("Idle");
-            AnimatorState jump = baseLayer.stateMachine.AddState("Jump");
-            AnimatorState attack = baseLayer.stateMachine.AddState("Attack");
-            controllerAsset.AddParameter(
-                "Attack", AnimatorControllerParameterType.Trigger);
-            controllerAsset.AddParameter(
-                "Gear", AnimatorControllerParameterType.Int);
-            controllerAsset.AddParameter(
-                "Boost", AnimatorControllerParameterType.Bool);
-            AnimatorStateTransition fire = idle.AddTransition(attack);
-            fire.duration = 0f;
-            fire.AddCondition(AnimatorConditionMode.If, 0f, "Attack");
-            AnimatorStateTransition settle = attack.AddTransition(idle);
-            settle.hasExitTime = true;
-
-            var animator = _actor.GetComponent<Animator>();
-            animator.runtimeAnimatorController = controllerAsset;
-
-            // struct reflection writes through the boxed copy — keep it.
-            object boxedBinding = new AnimTriggerBinding();
-            typeof(AnimTriggerBinding)
-                .GetField("bindingId",
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.NonPublic)
-                ?.SetValue(boxedBinding, JourneyContract.AttackTriggerBindingId);
-            typeof(AnimTriggerBinding)
-                .GetField("parameterName",
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.NonPublic)
-                ?.SetValue(boxedBinding, "Attack");
-            SetField(_animation, "triggerBindings",
-                new[] { (AnimTriggerBinding)boxedBinding, });
-            SetField(_animation, "parameterBindings", new[]
-            {
-                ParameterBinding(101UL, "Gear", AnimParameterValueKind.Integer),
-                ParameterBinding(102UL, "Boost", AnimParameterValueKind.Boolean),
-            });
-            Require(
-                _animation.TryRebuildBindings(out CoCoDiagnostic rebuild),
-                "animator bindings rebuild: " + rebuild.Message);
-        }
-
-        private static AnimParameterBinding ParameterBinding(
-            ulong bindingId,
-            string parameterName,
-            AnimParameterValueKind kind)
-        {
-            // struct reflection writes through the boxed copy — keep it.
-            object boxed = new AnimParameterBinding();
-            SetBindingField(boxed, "bindingId", bindingId);
-            SetBindingField(boxed, "parameterName", parameterName);
-            SetBindingField(boxed, "parameterKind", kind);
-            return (AnimParameterBinding)boxed;
-        }
-
-        private static void SetBindingField(object boxed, string field, object value)
-        {
-            typeof(AnimParameterBinding)
-                .GetField(field,
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.NonPublic)
-                ?.SetValue(boxed, value);
-        }
-
-        private bool StartHost()
-        {
-            if (_host.TryStart(out CoCoDiagnostic start))
-            {
-                return true;
-            }
-
-            Assert.Fail("start: " + start.Message + " / " + _host.LastDiagnostic.Message);
-            return false;
-        }
-
-        private void SetRecovery(bool persistence, bool temporal)
-        {
-            SetField(_host, "operatorRecovery", new[]
-            {
-                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
-                new StateGraphHost.OperatorRecovery { component = _animation, persistence = persistence, temporal = temporal }
-            });
-        }
-
+        /// <summary>独立启停时间或持久化恢复能力，检查未启用一侧的已提交结果得到保留。</summary>
         [TestCase(false, false)]
         [TestCase(true, false)]
         [TestCase(false, true)]
         [TestCase(true, true)]
         public void RecoverySwitchesAreIndependentAndPreserveDisabledOutcomes(bool persistence, bool temporal)
         {
-            BuildActor(withAnimator: false);
+            BuildActor();
             SetRecovery(persistence, temporal);
             SetField(_host, "temporalHistoryCapacity", 8);
             Require(StartHost());
@@ -515,15 +273,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.Greater(_actor.transform.position.z, persistence ? saved : current);
         }
 
+        /// <summary>装配失效的 Operator 绑定并触发未覆盖的步进故障，检查错误不能被错误清除。</summary>
         [Test]
         public void OldOperatorBindingIsRejectedAndUncoveredTickFaultCannotBeCleared()
         {
-            BuildActor(withAnimator: false);
+            BuildActor();
             SetField(_host, "contextRestoreBinding", _locomotion);
             Assert.IsFalse(_host.TryStart(out _));
             SetField(_host, "contextRestoreBinding", null);
             var saboteur = _actor.AddComponent<JourneyRejectOperator>();
-            SetHostOperators(_locomotion, _animation, saboteur);
+            SetHostOperators(_locomotion, saboteur);
             saboteur.RejectOnTick = 3;
             Require(StartHost());
             _intents.EnqueueMove(0f, 2f);
@@ -534,13 +293,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(_host.RequiresWorldCorrection);
         }
 
+        /// <summary>制造一次 Operator 恢复失败，核对相同能力用于场景校正且回调后读取器失效。</summary>
         [TestCase(false)]
         [TestCase(true)]
         public void FailedOperatorRestoreCorrectsWithTheSameAbilityAndExpiresReader(bool temporal)
         {
-            BuildActor(withAnimator: false);
+            BuildActor();
             var probe = _actor.AddComponent<JourneyRejectOperator>();
-            SetHostOperators(_locomotion, _animation, probe);
+            SetHostOperators(_locomotion, probe);
             SetField(_host, "operatorRecovery", new[]
             {
                 new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
@@ -570,6 +330,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(temporal ? 0 : 2, probe.PersistenceRestores);
         }
 
+        /// <summary>保存运行恢复测试使用的场景和 Operator 接线，供该组实际装载与校正。</summary>
         public static void PrepareOperatorRecoveryScene()
         {
             UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.DefaultGameObjects);
@@ -605,6 +366,98 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Selection.activeGameObject = actor;
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private const float Step = 1f / 60f;
+
+        private readonly List<Object> _objects = new List<Object>();
+        private GameObject _actor;
+        private StateGraphHost _host;
+        private LocomotionOperator _locomotion;
+        private JourneyIntentSource _intents;
+
+        private void BuildActor()
+        {
+            StandardBindingProvider provider =
+                StandardBindingProvider.Build(
+                    new[] { typeof(JourneyIdleLogic).Assembly });
+            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
+                provider, out CoCoDiagnostic install), install.Message);
+
+            var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
+            _objects.Add(asset);
+            asset.EnsureAssetIdentity(System.Guid.NewGuid().ToString("N"));
+
+            var idle = new StateGraphStateRecord(
+                new SerializedId128(1, 1), default, "Idle",
+                DescriptorOf<JourneyIdleLogic>(), new EmptyStateConfig());
+            var move = new StateGraphStateRecord(
+                new SerializedId128(2, 2), default, "Move",
+                DescriptorOf<JourneyMoveLogic>(), new EmptyStateConfig());
+            var jump = new StateGraphStateRecord(
+                new SerializedId128(3, 3), default, "Jump",
+                DescriptorOf<JourneyJumpLogic>(), new EmptyStateConfig());
+            var attack = new StateGraphStateRecord(
+                new SerializedId128(4, 4), default, "Attack",
+                DescriptorOf<JourneyAttackLogic>(), new EmptyStateConfig());
+
+            var layer = new StateGraphLayerRecord(
+                new SerializedId128(9, 9), "Base");
+            layer.InitialStateId = new SerializedId128(1, 1);
+            layer.States.Add(idle);
+            layer.States.Add(move);
+            layer.States.Add(jump);
+            layer.States.Add(attack);
+
+            {
+                layer.Transitions.Add(Edge(11, idle, move));
+                layer.Transitions.Add(Edge(12, idle, jump));
+                layer.Transitions.Add(Edge(13, idle, attack));
+                layer.Transitions.Add(Edge(14, move, idle));
+                layer.Transitions.Add(Edge(15, move, jump));
+                layer.Transitions.Add(Edge(16, jump, idle));
+                layer.Transitions.Add(Edge(17, attack, idle));
+            }
+            asset.Layers.Add(layer);
+
+            _actor = new GameObject("JourneyActor");
+            _objects.Add(_actor);
+            var controller = _actor.AddComponent<CharacterController>();
+            controller.height = 2f;
+            controller.center = new Vector3(0f, 1f, 0f);
+            _host = _actor.AddComponent<StateGraphHost>();
+            _locomotion = _actor.AddComponent<LocomotionOperator>();
+            _intents = _actor.AddComponent<JourneyIntentSource>();
+
+            SetField(_host, "stateGraphAsset", asset);
+            SetField(_host, "driver", (StateGraphDriver)2  );
+            SetField(_host, "autoStart", false);
+            SetField(_host, "intentSources",
+                new MonoBehaviour[] { _intents, });
+            SetHostOperators(_locomotion);
+        }
+
+        private bool StartHost()
+        {
+            if (_host.TryStart(out CoCoDiagnostic start))
+            {
+                return true;
+            }
+
+            Assert.Fail("start: " + start.Message + " / " + _host.LastDiagnostic.Message);
+            return false;
+        }
+
+        private void SetRecovery(bool persistence, bool temporal)
+        {
+            SetField(_host, "operatorRecovery", new[]
+            {
+                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
+            });
+        }
+
         private void SetHostOperators(params MonoBehaviour[] operators)
         {
             SetField(_host, "operators", operators);
@@ -620,8 +473,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static SerializedId128 DescriptorOf<TLogic>()
         {
-            // The descriptor name must equal the [State] attribute name
-            // — the catalog derives the id from it.
+
             string name = typeof(TLogic).Name;
             if (name.EndsWith("Logic", System.StringComparison.Ordinal))
             {
@@ -660,14 +512,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(condition, message);
         }
 
-        /// <summary>
-        /// Feeds raw input records straight into the intent chain — the
-        /// hardware→InputReader segment is covered by the C4c e2e; this
-        /// source starts the chain at Intent translation.
-        /// </summary>
+        /// <summary>为真实手动 Host 逐步提供移动旅程测试指定的输入。</summary>
         private sealed class JourneyIntentSource :
             MonoBehaviour,
-            IIntentFrameSource<InputIntentData>
+            IIntentFrameSource<InputIntentContract>
         {
             private readonly List<RawInputRecord> _pending =
                 new List<RawInputRecord>();
@@ -694,12 +542,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 _pending.Clear();
             }
 
-            public bool TrySample(in TickFrame tickFrame, out InputIntentData intent)
+            public bool TrySample(in TickFrame tickFrame, out InputIntentContract intent)
             {
                 RawInputRecord[] current = _holdMove
                     ? new[] { Record(JourneyContract.Move, _holdX, _holdY, RawInputPhase.Held) }
                     : System.Array.Empty<RawInputRecord>();
-                intent = new InputIntentData(
+                intent = new InputIntentContract(
                     FixedString64.FromString("Gameplay"), _pending.ToArray(), current);
 
                 _pending.Clear();
@@ -723,9 +571,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
-        /// <summary>
-        /// Rejects its whole transaction on one chosen tick (scenario B).
-        /// </summary>
+        /// <summary>可在移动后拒绝候选，供测试核对场景校正与提交状态。</summary>
         private sealed class JourneyRejectOperator :
             MonoBehaviour, IPersistenceRestoreOperator, ITemporalRestoreOperator
         {
@@ -761,9 +607,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                         0x4A55524E45593131UL,
                         0x4A55524E45593031UL,
                         out OperatorId operatorId) ||
-                    !builder.TryRequire<ILocomotionSection>(
-                        LocoContractIds.SectionId,
-                        OperationSectionMode.Continuous,
+                    !builder.TryRequire<ILocomotionOperation>(
+                        LocoContractIds.OperationId,
+                        Mode.Continuous,
                         out _,
                         out _))
                 {
@@ -796,6 +642,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
         }
+
+        #endregion
     }
 }
 #endif

@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -13,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal enum PersistenceContextOperationResult
     {

@@ -1,26 +1,13 @@
 using System;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Locomotion.Contracts;
 using UnityEngine;
 
+// Host 调用移动 Operator，把本步移动合同作用到角色控制器，并把可恢复的角色状态提交到 Context。
 namespace CoCoFlow.Runtime.Modules.Locomotion
 {
-    /// <summary>
-    /// Locomotion operator (D79/D80/D81): carries the proven
-    /// CharacterLocomotion algorithm (sample-proven via many battles)
-    /// into the paradigm — semantics moved, algorithm untouched.
-    /// Pipeline inside TryExecute: read Section (desire) + previous slot
-    /// (facts/phase) → pure step (gravity/jump/launch/rotation integration
-    /// + delta synthesis) → engine-fact segment (CharacterController.Move
-    /// or teleport: the engine alone decides the actual landing) → sample
-    /// the real transform back into the candidate slot → commit barrier
-    /// atomically promotes it. A rejected tick faults the Host (D84:
-    /// loud stop; the player recovers from the last recorded tick —
-    /// save load or restart). The engine fact stays on the transform;
-    /// after recovery the same delta replays and reconverges.
-    /// </summary>
+    /// <summary>把连续移动操作作用到角色控制器，并记录引擎实际采用的位姿和速度。</summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
     [AddComponentMenu("CoCoFlow/Locomotion/Locomotion Operator")]
@@ -29,20 +16,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         IPersistenceRestoreOperator,
         ITemporalRestoreOperator
     {
-        private static readonly OperationSectionRequirement SectionRequirement;
+        private static readonly OperationRequirement OperationRequirement;
         [OperatorDefinition]
         private static StandardOperatorDefinition Definition { get; }
-
-        static LocomotionOperator()
-        {
-            var builder = new StandardOperatorBuilder();
-            SectionRequirement = builder.Require<ILocomotionSection, LocomotionSectionViewFactory>(
-                LocoContractIds.SectionId, LocoContractIds.SectionSemanticFingerprint, new LocomotionSectionViewFactory());
-            builder.OwnOutcome(LocoContractIds.StateBlockId, LocoContractIds.StateSlotId,
-                ContextProjection.Temporal | ContextProjection.Durable,
-                ContextRestorePolicy.Stored, default(LocomotionState), 1);
-            Definition = builder.Freeze<LocomotionOperator>(LocoContractIds.OperatorId);
-        }
 
         [SerializeField] private LocomotionOperatorConfig config;
         [SerializeField] private bool applyLocalYawRotation = true;
@@ -51,12 +27,11 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         private CoCoDiagnostic _lastDiagnostic;
 
         public OperatorDescriptor Descriptor => Definition.Descriptor;
+        public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
-        /// <summary>
-        /// Restore projection (exception moment #2): the world adopts the
-        /// ledger once, integration phase continues as-is. Applies for
-        /// every restore kind — preview, confirm, cancel and correction.
-        /// </summary>
+        #region Public API
+
+        /// <summary>从恢复的移动槽重建角色位置和控制状态，无法取得有效快照时返回 false 和诊断。</summary>
         public bool TryRestore(
             in ContextRestoreBindingContext context,
             out CoCoDiagnostic diagnostic)
@@ -78,20 +53,15 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
-        public CoCoDiagnostic LastDiagnostic => _lastDiagnostic;
 
-        private void Reset()
-        {
-            _controller = GetComponent<CharacterController>();
-        }
-
+        /// <summary>从本步操作与上一提交读取移动状态，驱动角色控制器并报告新的移动结果。装配或写入失败时返回 false。</summary>
         public bool TryExecute(
             in OperatorExecutionContext context,
             out OperatorOutcome outcome)
         {
             if (!context.TryGet(
-                    SectionRequirement,
-                    out OperationSectionEntry<ILocomotionSection> entry))
+                    OperationRequirement,
+                    out OperationEntry<ILocomotionOperation> entry))
             {
                 outcome = Reject("Locomotion Section is unavailable.");
                 return false;
@@ -109,7 +79,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
             LocoConfig resolved = ResolveConfig();
 
-            // Previous committed facts + integration phase.
             LocomotionState state =
                 context.PreviousContext.Layout != null &&
                 context.PreviousContext.Layout.TryResolveSlot(
@@ -118,24 +87,19 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                     ? context.PreviousContext.Read(slot)
                     : default;
 
-            // Initial anchoring (exception moment #1): adopt the world
-            // position once so the ledger starts from where the actor is.
             if (!context.PreviousContext.HasCommittedFrame)
             {
                 state = LocomotionStateMath.Anchor(state, transform);
             }
 
-            ILocomotionSection section = entry.View;
-            LocoSectionInput input = LocoSectionInput.From(section);
+            ILocomotionOperation section = entry.View;
+            LocoOperationInput input = LocoOperationInput.From(section);
 
-            // Ground sample (CL CheckGrounded, verbatim).
             bool grounded = Physics.CheckSphere(
                 transform.position + resolved.GroundCheckOffset,
                 resolved.GroundCheckRadius,
                 resolved.GroundLayer);
 
-            // Pure step (CL HandleGravity/Jump/Launch/SetRotation +
-            // ApplyMovement's delta synthesis, verbatim order).
             LocomotionState next = LocomotionStateMath.Step(
                 state,
                 input,
@@ -147,9 +111,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 out float deltaY,
                 out bool teleport);
 
-            // Engine-fact segment: hand the desire over; the engine alone
-            // decides the landing (collision, steps, slopes), then we
-            // sample what actually happened back into the candidate.
             if (teleport)
             {
                 Vector3 target = new Vector3(
@@ -173,9 +134,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
             next = LocomotionStateMath.Sample(next, transform, grounded);
 
-            // Facts enter the candidate slot; the commit barrier promotes
-            // them (or the reject faults the Host per D84 — the engine fact
-            // stays on the transform and replays after recovery).
             if (!context.TryWriteOutcome(
                     LocoContractIds.StateSlotId,
                     next))
@@ -186,6 +144,26 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
             outcome = OperatorOutcome.Success;
             return true;
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        static LocomotionOperator()
+        {
+            var builder = new StandardOperatorBuilder();
+            OperationRequirement = builder.Require<ILocomotionOperation, LocomotionOperationViewFactory>(
+                LocoContractIds.OperationId, LocoContractIds.OperationSemanticFingerprint, new LocomotionOperationViewFactory());
+            builder.OwnOutcome(LocoContractIds.StateBlockId, LocoContractIds.StateSlotId,
+                ContextProjection.Temporal | ContextProjection.Durable,
+                ContextRestorePolicy.Stored, default(LocomotionState), 1);
+            Definition = builder.Freeze<LocomotionOperator>(LocoContractIds.OperatorId);
+        }
+
+        private void Reset()
+        {
+            _controller = GetComponent<CharacterController>();
         }
 
         private LocoConfig ResolveConfig()
@@ -203,11 +181,11 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 message);
             return OperatorOutcome.Rejected(_lastDiagnostic);
         }
+
+        #endregion
     }
 
-    /// <summary>
-    /// Resolved (non-serialized) configuration fed to the pure step.
-    /// </summary>
+    /// <summary>保存一次移动计算采用的重力、转向与着地参数。</summary>
     public struct LocoConfig
     {
         public float Gravity;
@@ -230,8 +208,8 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         };
     }
 
-    /// <summary>Section view copied into a plain struct for the step.</summary>
-    public struct LocoSectionInput
+    /// <summary>将本步操作视图中的各项移动意图复制成供移动计算使用的值。</summary>
+    public struct LocoOperationInput
     {
         public float MoveX, MoveZ;
         public float ForcedX, ForcedZ;
@@ -246,8 +224,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         public float TeleportX, TeleportY, TeleportZ;
         public float TeleportQX, TeleportQY, TeleportQZ, TeleportQW;
 
-        public static LocoSectionInput From(ILocomotionSection section) =>
-            new LocoSectionInput
+        /// <summary>按显式字段逐项读取本步移动视图，产生交给移动积分的独立输入值。</summary>
+        public static LocoOperationInput From(ILocomotionOperation section) =>
+            new LocoOperationInput
             {
                 MoveX = section.MoveX,
                 MoveZ = section.MoveZ,
@@ -271,23 +250,20 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 TeleportQW = section.TeleportRotationW,
             };
 
+        /// <summary>将本步传送所带的四个旋转分量组合为 Unity 四元数。</summary>
         public Quaternion TeleportRotation() =>
             TeleportQX == 0f && TeleportQY == 0f && TeleportQZ == 0f && TeleportQW == 0f
                 ? Quaternion.identity
                 : new Quaternion(TeleportQX, TeleportQY, TeleportQZ, TeleportQW);
     }
 
-    /// <summary>
-    /// Pure step (D80 verbatim carry of the CL algorithm) plus the
-    /// anchor/sample fact helpers. Order and formulas match
-    /// CharacterLocomotion.Update: CheckGrounded → HandleGravity →
-    /// Jump/Launch → SetRotation → ApplyMovement synthesis.
-    /// </summary>
+    /// <summary>计算角色的下一步速度和朝向，并在存储状态与 Unity Transform 之间转换。</summary>
     public static class LocomotionStateMath
     {
+        /// <summary>用上步状态、本步意图、参数和步长计算新的移动状态，供调用方实际移动角色。</summary>
         public static LocomotionState Step(
             in LocomotionState prev,
-            in LocoSectionInput input,
+            in LocoOperationInput input,
             in LocoConfig config,
             bool grounded,
             float deltaTime,
@@ -298,12 +274,11 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
         {
             var next = prev;
 
-            // ===== HandleGravity (CL verbatim) =====
             if (input.UseGravity && config.IsUsingGravity)
             {
                 if (grounded && next.VerticalVelocity < 0.01f)
                 {
-                    next.VerticalVelocity = -2f; // ground stick
+                    next.VerticalVelocity = -2f;
                 }
                 else
                 {
@@ -316,10 +291,9 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             }
             else
             {
-                next.VerticalVelocity = 0f; // SetGravityEnable(false) side effect
+                next.VerticalVelocity = 0f;
             }
 
-            // ===== Jump / Launch (CL verbatim) =====
             if (input.LaunchForced)
             {
                 next.VerticalVelocity = input.VerticalImpulse;
@@ -329,7 +303,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 next.VerticalVelocity = input.VerticalImpulse;
             }
 
-            // ===== SetRotation / SetRotationInstant (CL math, Mathf direct) =====
             float dirSq = input.LookX * input.LookX + input.LookZ * input.LookZ;
             if (dirSq > 0.01f)
             {
@@ -354,7 +327,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 }
             }
 
-            // ===== Teleport override (delta bypass) =====
             teleport = input.TeleportRequested;
             if (teleport)
             {
@@ -363,7 +335,6 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
                 next.PositionZ = input.TeleportZ;
             }
 
-            // ===== ApplyMovement synthesis (CL verbatim priority) =====
             float forcedSq =
                 input.ForcedX * input.ForcedX + input.ForcedZ * input.ForcedZ;
             float velocityX = forcedSq > 0.001f ? input.ForcedX : input.MoveX;
@@ -375,8 +346,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             return next;
         }
 
-        /// <summary>Initial anchoring (exception moment #1): the ledger
-        /// adopts the world transform once.</summary>
+        /// <summary>以场景中的当前位姿建立移动状态的空间基准，供首次步进或校正使用。</summary>
         public static LocomotionState Anchor(
             in LocomotionState state,
             Transform transform)
@@ -394,8 +364,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             return anchored;
         }
 
-        /// <summary>Fact sampling: the engine's actual output becomes the
-        /// register values (single writer — this module only).</summary>
+        /// <summary>从移动后的 Transform 及着地结果读取实际位置与旋转，返回用于提交的状态。</summary>
         public static LocomotionState Sample(
             in LocomotionState state,
             Transform transform,
@@ -415,8 +384,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
             return sampled;
         }
 
-        /// <summary>Restore projection (exception moment #2): the world
-        /// adopts the ledger once, integration phase continues as-is.</summary>
+        /// <summary>将已保存移动状态中的位置与旋转应用到目标 Transform。</summary>
         public static void ProjectToWorld(
             in LocomotionState state,
             Transform transform)

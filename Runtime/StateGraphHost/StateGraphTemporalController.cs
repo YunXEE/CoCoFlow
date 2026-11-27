@@ -3,7 +3,7 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal sealed class StateGraphTemporalController :
         IContextRestoreReadSource,
@@ -1404,7 +1404,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private static CoCoDiagnostic ConfigurationError(string message) =>
             CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Context,
-                CoCoDiagnosticCode.InvalidActorBinding,
+                CoCoDiagnosticCode.InvalidHostConfiguration,
                 message);
 
         private static CoCoDiagnostic HistoryError(

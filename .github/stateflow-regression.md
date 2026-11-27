@@ -7,7 +7,7 @@ E = Editor EditMode，P = Editor PlayMode，M = Windows Mono Player，I = Window
 | 契约 | 测试方法 | 平台 | 可观察断言 |
 | --- | --- | --- | --- |
 | 外部 Logic 消费冻结 Intent | [`ReaderRawIntentFlowsIntoStateLogicPerTick`](../Tests/Runtime/StateGraphHost/RawInputEndToEndPlayModeTests.cs) | P/M/I | Host 经 Reader 和 Intent 把 Move 交给独立 Fixtures 程序集的 StateLogic。两次成功 Tick 之间的短按产生按序且各一次的 Performed 和 Canceled，已松开无 Held，下一 Tick 无重放。 |
-| Transition 裁决 | [`MultipleRequestsUseConditionsThenPriorityToChooseOneWinner`](../Tests/Editor/StateGraph/StateGraphRuntimeContractTests.cs) | E | 两个请求在条件通过后按优先级选出唯一活动叶。 |
+| Transition 裁决 | [`HighestRequestedPriorityWinsAndUnrequestedEdgesAreSkipped`](../Tests/Editor/StateGraph/StateGraphRuntimeContractTests.cs) | E | 符合窗口的请求按优先级选出唯一活动叶。 |
 | 原子提交图状态 | [`TransitionCommitCarriesEveryGraphStateRecord`](../Tests/Runtime/StateGraphHost/StateGraphHostContextAuthorityPlayModeTests.cs) | P/M/I | Context revision 前进，转移源和目标的 Graph State 在同一帧提交。 |
 | Operation 离散胜者 | [`OperationFrameDiscreteWinnerGetsOneSequenceAtFinalizeAndCommit`](../Tests/Editor/StateGraph/StateFlowContractTests.cs) | E | Finalize 只给离散胜者一个序号，取消后重试仍取得序号 1。 |
 | 首个有效 Tick | [`FirstTickReadsLayoutDefaultsAndCommitsRevisionOne`](../Tests/Runtime/StateGraphHost/StateGraphHostOperatorCommitPlayModeTests.cs) | P/M/I | Host 首次 Step 读取默认值 5，提交值 6，revision 和 tick 都为 1。 |
@@ -27,7 +27,7 @@ E = Editor EditMode，P = Editor PlayMode，M = Windows Mono Player，I = Window
 将 `UNITY_EDITOR` 指向对应版本的 Unity 可执行文件。将 `UNITY_PROJECT` 指向挂载待测包体且启用了 CoCoFlow `testables` 的宿主。串行运行，保留两份 XML。
 
 ```sh
-edit_cases='MultipleRequestsUseConditionsThenPriorityToChooseOneWinner|OperationFrameDiscreteWinnerGetsOneSequenceAtFinalizeAndCommit|FixedLegacyGraphRetainsContentFingerprint'
+edit_cases='HighestRequestedPriorityWinsAndUnrequestedEdgesAreSkipped|OperationFrameDiscreteWinnerGetsOneSequenceAtFinalizeAndCommit|FixedLegacyGraphRetainsContentFingerprint'
 play_cases='ReaderRawIntentFlowsIntoStateLogicPerTick|TransitionCommitCarriesEveryGraphStateRecord|FirstTickReadsLayoutDefaultsAndCommitsRevisionOne|IgnoredUnauthorizedOutcomeWriteFaultsAndPreservesCommittedRevision|IgnoredInvalidOutboxWriteFaultsAndPublishesNothing|PublishSeesCompleteAuthorityAndDefersStopDisposeUntilAllPacketsFinish|SaveGameLoadsDurableContextIntoSiblingAndReseedsHistory|InvalidPayloadAndRejectedBindingNeverPublishAuthority|EmptyLegacyContainerSectionsDoNotChangeGraphPayloadOrTheWholeDocumentVersion|PreviewAndCancelRunNoStateGraphOrAuthorityWork|ConfirmRestoresContextGraphClockAndCreatesNewEpochBranch|ConfirmBindingFailurePreservesAuthorityAndRequiresCorrection'
 
 "$UNITY_EDITOR" -batchmode -nographics -projectPath "$UNITY_PROJECT" -runTests \

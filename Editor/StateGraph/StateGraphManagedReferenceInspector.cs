@@ -2,15 +2,17 @@ using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine.Serialization;
 
+// 资产编辑器检查节点托管配置的实际引用，对丢失类型和不匹配的候选提供定位。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>识别图字段实际序列化的托管类型并为编辑器提供候选项。</summary>
     [InitializeOnLoad]
     internal static class StateGraphManagedReferenceInspector
     {
+        /// <summary>把一个可创建的 Config 类型和选择器需要的显示信息放在一起。</summary>
         private sealed class ConfigCandidate
         {
             internal ConfigCandidate(
@@ -119,57 +121,10 @@ namespace CoCoFlow.Editor.StateGraph
                                 default,
                                 layerIndex,
                                 stateIndex,
-                                -1,
                                 -1)));
                     }
                 }
 
-                SerializedProperty transitions = layer.FindPropertyRelative("transitions");
-                for (int transitionIndex = 0;
-                     transitions != null && transitionIndex < transitions.arraySize;
-                     transitionIndex++)
-                {
-                    SerializedProperty transition = transitions.GetArrayElementAtIndex(transitionIndex);
-                    TryReadId(
-                        transition.FindPropertyRelative("transitionId"),
-                        out ulong transitionHigh,
-                        out ulong transitionLow);
-                    TransitionId.TryCreate(
-                        transitionHigh,
-                        transitionLow,
-                        out TransitionId transitionId);
-                    TryReadId(
-                        transition.FindPropertyRelative("sourceStateId"),
-                        out ulong sourceHigh,
-                        out ulong sourceLow);
-                    StateId.TryCreate(sourceHigh, sourceLow, out StateId sourceStateId);
-                    SerializedProperty conditions = transition.FindPropertyRelative("conditions");
-                    for (int conditionIndex = 0;
-                         conditions != null && conditionIndex < conditions.arraySize;
-                         conditionIndex++)
-                    {
-                        SerializedProperty condition = conditions.GetArrayElementAtIndex(conditionIndex);
-                        SerializedProperty config = condition.FindPropertyRelative("config");
-                        if (config == null)
-                        {
-                            continue;
-                        }
-
-                        candidates.Add(new ConfigCandidate(
-                            config,
-                            new GraphDiagnosticLocation(
-                                GraphElementKind.Condition,
-                                GraphField.Config,
-                                graphId,
-                                layerId,
-                                sourceStateId,
-                                transitionId,
-                                layerIndex,
-                                -1,
-                                transitionIndex,
-                                conditionIndex)));
-                    }
-                }
             }
 
             return candidates;
@@ -202,11 +157,6 @@ namespace CoCoFlow.Editor.StateGraph
                 return exactLocation;
             }
 
-            // Unity preserves the original id only in
-            // SerializationUtility.GetManagedReferencesWithMissingTypes. SerializedProperty
-            // commonly exposes the missing field as RefIdNull (and some versions use
-            // RefIdUnknown). Only use that sentinel when exactly one Config subtree can own it;
-            // otherwise a precise-looking location would be misleading.
             if (hasUniqueUnresolvedConfig)
             {
                 return unresolvedConfigLocation;
@@ -226,7 +176,6 @@ namespace CoCoFlow.Editor.StateGraph
                 default,
                 default,
                 default,
-                -1,
                 -1,
                 -1,
                 -1);

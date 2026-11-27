@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal static class StateGraphHostBindingCandidates
     {
