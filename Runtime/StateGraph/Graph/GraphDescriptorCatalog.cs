@@ -130,26 +130,7 @@ namespace CoCoFlow.Runtime.StateGraph
     /// <summary>在编译前登记状态和依赖合同，校验唯一性后冻结目录。</summary>
     public sealed class GraphDescriptorCatalogBuilder
     {
-        private readonly Dictionary<StateDescriptorId, IStateDescriptorRegistration> _states =
-            new Dictionary<StateDescriptorId, IStateDescriptorRegistration>();
-        private readonly Dictionary<IntentId, IGraphIntentRegistration> _intents =
-            new Dictionary<IntentId, IGraphIntentRegistration>();
-        private readonly Dictionary<EventToIntentDeclarationKey,
-                IGraphEventToIntentDeclarationRegistration> _eventToIntentDeclarations =
-            new Dictionary<EventToIntentDeclarationKey,
-                IGraphEventToIntentDeclarationRegistration>();
-        private readonly Dictionary<EventTypeId, IGraphEventToIntentDeclarationRegistration>
-            _eventTypes =
-                new Dictionary<EventTypeId, IGraphEventToIntentDeclarationRegistration>();
-        private readonly Dictionary<OperationId, IGraphOperationRegistration> _operations =
-            new Dictionary<OperationId, IGraphOperationRegistration>();
-        private readonly Dictionary<StateBlockId, GraphStateBlockRegistration> _blocks =
-            new Dictionary<StateBlockId, GraphStateBlockRegistration>();
-        private readonly Dictionary<StateSlotId, IGraphStateSlotRegistration> _slots =
-            new Dictionary<StateSlotId, IGraphStateSlotRegistration>();
-        private readonly HashSet<string> _authorAssemblyRootNames =
-            new HashSet<string>(StringComparer.Ordinal);
-        private bool _isFrozen;
+        #region Public API
 
         public bool IsFrozen => _isFrozen;
 
@@ -290,172 +271,6 @@ namespace CoCoFlow.Runtime.StateGraph
                     typeof(TFactory),
                     reducerFactoryToken.SemanticFingerprint));
             AddAuthorAssemblyRoots(new[] { typeof(TIntent), typeof(TReducer), typeof(TFactory) });
-            diagnostic = CoCoDiagnostic.None;
-            return true;
-        }
-
-        #if UNITY_INCLUDE_TESTS
-        internal bool TryRegisterEventToIntentDeclaration<TEvent, TIntent>(
-            EventDomainId domainId,
-            EventTypeId eventTypeId,
-            IntentId providedIntentId,
-            out CoCoDiagnostic diagnostic)
-            where TEvent : unmanaged
-        {
-            if (!CanRegister(
-                    domainId.IsValid && eventTypeId.IsValid && providedIntentId.IsValid,
-                    out diagnostic))
-            {
-                if (diagnostic.IsNone)
-                {
-                    diagnostic = Error(
-                        CoCoDiagnosticCode.InvalidIdentifier,
-                        "An Event-to-Intent declaration requires valid Domain, Event, and Intent ids.");
-                }
-
-                return false;
-            }
-
-            if (!_intents.TryGetValue(
-                    providedIntentId,
-                    out IGraphIntentRegistration intentRegistration))
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.MissingDescriptor,
-                    "An Event-to-Intent declaration must reference an already registered Intent.");
-                return false;
-            }
-
-            if (intentRegistration.ValueType != typeof(TIntent))
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.ManifestConflict,
-                    "An Event-to-Intent declaration must match the registered Intent value type exactly.");
-                return false;
-            }
-
-            EventToIntentDeclarationKey.TryCreate(
-                eventTypeId,
-                providedIntentId,
-                out EventToIntentDeclarationKey key);
-            if (_eventToIntentDeclarations.TryGetValue(
-                    key,
-                    out IGraphEventToIntentDeclarationRegistration existingDeclaration))
-            {
-                bool sameMetadata = existingDeclaration.EventDomainId == domainId &&
-                                    existingDeclaration.EventPayloadType == typeof(TEvent) &&
-                                    existingDeclaration.ProvidedIntentType == typeof(TIntent);
-                diagnostic = Error(
-                    sameMetadata
-                        ? CoCoDiagnosticCode.DuplicateIdentifier
-                        : CoCoDiagnosticCode.ManifestConflict,
-                    sameMetadata
-                        ? "Event-to-Intent declaration pairs must be unique within a catalog."
-                        : "An Event-to-Intent declaration pair cannot map to conflicting metadata.");
-                return false;
-            }
-
-            if (_eventTypes.TryGetValue(
-                    eventTypeId,
-                    out IGraphEventToIntentDeclarationRegistration existingEvent) &&
-                (existingEvent.EventDomainId != domainId ||
-                 existingEvent.EventPayloadType != typeof(TEvent)))
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.ManifestConflict,
-                    "An EventTypeId must map to exactly one Domain and Event payload type.");
-                return false;
-            }
-
-            Type[] authorTypes = { typeof(TEvent), typeof(TIntent) };
-            if (!GraphAuthorAssemblyValidator.TryValidate(authorTypes, out diagnostic))
-            {
-                return false;
-            }
-
-            var registration = new GraphEventToIntentDeclarationRegistration(
-                key,
-                domainId,
-                typeof(TEvent),
-                typeof(TIntent));
-            _eventToIntentDeclarations.Add(key, registration);
-            if (!_eventTypes.ContainsKey(eventTypeId))
-            {
-                _eventTypes.Add(eventTypeId, registration);
-            }
-
-            AddAuthorAssemblyRoots(authorTypes);
-            diagnostic = CoCoDiagnostic.None;
-            return true;
-        }
-#endif
-
-        internal bool TryRegisterOperation<TOperation, TFactory>(
-            OperationId operationId,
-            Mode mode,
-            OperationViewFactoryToken<TOperation, TFactory> viewFactoryToken,
-            out CoCoDiagnostic diagnostic)
-            where TOperation : class, IOperation
-            where TFactory : IOperationViewFactory<TOperation>
-        {
-            if (!CanRegister(true, out diagnostic))
-            {
-                return false;
-            }
-
-            if (!viewFactoryToken.IsValid)
-            {
-                diagnostic = Error(
-                    CoCoDiagnosticCode.InvalidOperationContract,
-                    "An Operation Section registration requires a valid view factory token.");
-                return false;
-            }
-
-            if (!OperationRequirement.TryCreate<TOperation>(
-                    operationId,
-                    mode,
-                    out OperationRequirement requirement,
-                    out CoCoDiagnostic requirementDiagnostic))
-            {
-                diagnostic = Error(requirementDiagnostic.Code, requirementDiagnostic.Message);
-                return false;
-            }
-
-            Type operationType = requirement.OperationType;
-
-            if (_operations.ContainsKey(operationId))
-            {
-                IGraphOperationRegistration existing = _operations[operationId];
-                bool sameMetadata = existing.Mode == mode &&
-                                    existing.OperationType == operationType &&
-                                    Equals(existing.Shape, requirement.Shape) &&
-                                    existing.FactoryType == typeof(TFactory) &&
-                                    existing.FactorySemanticFingerprint ==
-                                    viewFactoryToken.SemanticFingerprint;
-                diagnostic = Error(
-                    sameMetadata
-                        ? CoCoDiagnosticCode.DuplicateIdentifier
-                        : CoCoDiagnosticCode.ManifestConflict,
-                    sameMetadata
-                        ? "Operation Section ids must be unique within a catalog."
-                        : "An Operation Section id cannot map to conflicting Manifest metadata.");
-                return false;
-            }
-
-            if (!GraphAuthorAssemblyValidator.TryValidate(
-                    new[] { typeof(TOperation), typeof(TFactory) },
-                    out diagnostic))
-            {
-                return false;
-            }
-
-            _operations.Add(
-                operationId,
-                new GraphOperationRegistration<TOperation>(
-                    requirement,
-                    typeof(TFactory),
-                    viewFactoryToken.SemanticFingerprint));
-            AddAuthorAssemblyRoots(new[] { typeof(TOperation), typeof(TFactory) });
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -637,6 +452,197 @@ namespace CoCoFlow.Runtime.StateGraph
                 Sorted(_slots),
                 SortedAuthorAssemblyRootNames());
             _isFrozen = true;
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private readonly Dictionary<StateDescriptorId, IStateDescriptorRegistration> _states =
+            new Dictionary<StateDescriptorId, IStateDescriptorRegistration>();
+        private readonly Dictionary<IntentId, IGraphIntentRegistration> _intents =
+            new Dictionary<IntentId, IGraphIntentRegistration>();
+        private readonly Dictionary<EventToIntentDeclarationKey,
+                IGraphEventToIntentDeclarationRegistration> _eventToIntentDeclarations =
+            new Dictionary<EventToIntentDeclarationKey,
+                IGraphEventToIntentDeclarationRegistration>();
+        private readonly Dictionary<EventTypeId, IGraphEventToIntentDeclarationRegistration>
+            _eventTypes =
+                new Dictionary<EventTypeId, IGraphEventToIntentDeclarationRegistration>();
+        private readonly Dictionary<OperationId, IGraphOperationRegistration> _operations =
+            new Dictionary<OperationId, IGraphOperationRegistration>();
+        private readonly Dictionary<StateBlockId, GraphStateBlockRegistration> _blocks =
+            new Dictionary<StateBlockId, GraphStateBlockRegistration>();
+        private readonly Dictionary<StateSlotId, IGraphStateSlotRegistration> _slots =
+            new Dictionary<StateSlotId, IGraphStateSlotRegistration>();
+        private readonly HashSet<string> _authorAssemblyRootNames =
+            new HashSet<string>(StringComparer.Ordinal);
+        private bool _isFrozen;
+
+#if UNITY_INCLUDE_TESTS
+        internal bool TryRegisterEventToIntentDeclaration<TEvent, TIntent>(
+            EventDomainId domainId,
+            EventTypeId eventTypeId,
+            IntentId providedIntentId,
+            out CoCoDiagnostic diagnostic)
+            where TEvent : unmanaged
+        {
+            if (!CanRegister(
+                    domainId.IsValid && eventTypeId.IsValid && providedIntentId.IsValid,
+                    out diagnostic))
+            {
+                if (diagnostic.IsNone)
+                {
+                    diagnostic = Error(
+                        CoCoDiagnosticCode.InvalidIdentifier,
+                        "An Event-to-Intent declaration requires valid Domain, Event, and Intent ids.");
+                }
+
+                return false;
+            }
+
+            if (!_intents.TryGetValue(
+                    providedIntentId,
+                    out IGraphIntentRegistration intentRegistration))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.MissingDescriptor,
+                    "An Event-to-Intent declaration must reference an already registered Intent.");
+                return false;
+            }
+
+            if (intentRegistration.ValueType != typeof(TIntent))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "An Event-to-Intent declaration must match the registered Intent value type exactly.");
+                return false;
+            }
+
+            EventToIntentDeclarationKey.TryCreate(
+                eventTypeId,
+                providedIntentId,
+                out EventToIntentDeclarationKey key);
+            if (_eventToIntentDeclarations.TryGetValue(
+                    key,
+                    out IGraphEventToIntentDeclarationRegistration existingDeclaration))
+            {
+                bool sameMetadata = existingDeclaration.EventDomainId == domainId &&
+                                    existingDeclaration.EventPayloadType == typeof(TEvent) &&
+                                    existingDeclaration.ProvidedIntentType == typeof(TIntent);
+                diagnostic = Error(
+                    sameMetadata
+                        ? CoCoDiagnosticCode.DuplicateIdentifier
+                        : CoCoDiagnosticCode.ManifestConflict,
+                    sameMetadata
+                        ? "Event-to-Intent declaration pairs must be unique within a catalog."
+                        : "An Event-to-Intent declaration pair cannot map to conflicting metadata.");
+                return false;
+            }
+
+            if (_eventTypes.TryGetValue(
+                    eventTypeId,
+                    out IGraphEventToIntentDeclarationRegistration existingEvent) &&
+                (existingEvent.EventDomainId != domainId ||
+                 existingEvent.EventPayloadType != typeof(TEvent)))
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.ManifestConflict,
+                    "An EventTypeId must map to exactly one Domain and Event payload type.");
+                return false;
+            }
+
+            Type[] authorTypes = { typeof(TEvent), typeof(TIntent) };
+            if (!GraphAuthorAssemblyValidator.TryValidate(authorTypes, out diagnostic))
+            {
+                return false;
+            }
+
+            var registration = new GraphEventToIntentDeclarationRegistration(
+                key,
+                domainId,
+                typeof(TEvent),
+                typeof(TIntent));
+            _eventToIntentDeclarations.Add(key, registration);
+            if (!_eventTypes.ContainsKey(eventTypeId))
+            {
+                _eventTypes.Add(eventTypeId, registration);
+            }
+
+            AddAuthorAssemblyRoots(authorTypes);
+            diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+#endif
+
+        internal bool TryRegisterOperation<TOperation, TFactory>(
+            OperationId operationId,
+            Mode mode,
+            OperationViewFactoryToken<TOperation, TFactory> viewFactoryToken,
+            out CoCoDiagnostic diagnostic)
+            where TOperation : class, IOperation
+            where TFactory : IOperationViewFactory<TOperation>
+        {
+            if (!CanRegister(true, out diagnostic))
+            {
+                return false;
+            }
+
+            if (!viewFactoryToken.IsValid)
+            {
+                diagnostic = Error(
+                    CoCoDiagnosticCode.InvalidOperationContract,
+                    "An Operation Section registration requires a valid view factory token.");
+                return false;
+            }
+
+            if (!OperationRequirement.TryCreate<TOperation>(
+                    operationId,
+                    mode,
+                    out OperationRequirement requirement,
+                    out CoCoDiagnostic requirementDiagnostic))
+            {
+                diagnostic = Error(requirementDiagnostic.Code, requirementDiagnostic.Message);
+                return false;
+            }
+
+            Type operationType = requirement.OperationType;
+
+            if (_operations.ContainsKey(operationId))
+            {
+                IGraphOperationRegistration existing = _operations[operationId];
+                bool sameMetadata = existing.Mode == mode &&
+                                    existing.OperationType == operationType &&
+                                    Equals(existing.Shape, requirement.Shape) &&
+                                    existing.FactoryType == typeof(TFactory) &&
+                                    existing.FactorySemanticFingerprint ==
+                                    viewFactoryToken.SemanticFingerprint;
+                diagnostic = Error(
+                    sameMetadata
+                        ? CoCoDiagnosticCode.DuplicateIdentifier
+                        : CoCoDiagnosticCode.ManifestConflict,
+                    sameMetadata
+                        ? "Operation Section ids must be unique within a catalog."
+                        : "An Operation Section id cannot map to conflicting Manifest metadata.");
+                return false;
+            }
+
+            if (!GraphAuthorAssemblyValidator.TryValidate(
+                    new[] { typeof(TOperation), typeof(TFactory) },
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            _operations.Add(
+                operationId,
+                new GraphOperationRegistration<TOperation>(
+                    requirement,
+                    typeof(TFactory),
+                    viewFactoryToken.SemanticFingerprint));
+            AddAuthorAssemblyRoots(new[] { typeof(TOperation), typeof(TFactory) });
             diagnostic = CoCoDiagnostic.None;
             return true;
         }
@@ -830,6 +836,9 @@ namespace CoCoFlow.Runtime.StateGraph
 
         private static CoCoDiagnostic Error(CoCoDiagnosticCode code, string message) =>
             CoCoDiagnostic.Error(CoCoDiagnosticDomain.Registry, code, message);
+
+        #endregion
+
     }
 
     /// <summary>为图编译与 Host 装配提供稳定的类型目录和语义指纹。</summary>

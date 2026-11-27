@@ -266,8 +266,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "A Prepared token must not bypass Derived finalization.");
             MethodInfo tryFinalize = preparedType.GetMethod(
                 "TryFinalize",
-                BindingFlags.Public | BindingFlags.Instance);
-            Assert.IsNotNull(tryFinalize, "Prepared commits must cross an explicit Finalize boundary.");
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNull(preparedType.GetMethod("TryFinalize"));
+            Assert.IsTrue(tryFinalize?.IsAssembly, "The framework finalizes its prepared commit.");
             Assert.AreEqual(typeof(bool), tryFinalize.ReturnType);
             ParameterInfo[] finalizeParameters = tryFinalize.GetParameters();
             Assert.AreEqual(2, finalizeParameters.Length);
@@ -280,8 +281,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 finalizedType.GetCustomAttributesData().Any(attribute =>
                     attribute.AttributeType.FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
                 "Finalized commits must remain readonly value tokens.");
-            MethodInfo commit = finalizedType.GetMethod("Commit", BindingFlags.Public | BindingFlags.Instance);
-            Assert.IsNotNull(commit);
+            Assert.IsNull(finalizedType.GetMethod("Commit"));
+            MethodInfo commit = finalizedType.GetMethod("Commit", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsTrue(commit?.IsAssembly);
             Assert.AreEqual(typeof(ContextCommitResult), commit.ReturnType);
             Assert.AreEqual(0, commit.GetParameters().Length);
         }
@@ -306,7 +308,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsNull(arenaType.GetProperty("HasAvailableCapacity"));
             Assert.IsNull(arenaType.GetProperty("IsDisposed"));
             Assert.IsNotNull(arenaType.GetProperty("Previous"));
-            Assert.IsNotNull(arenaType.GetMethod("TryValidateRestore"));
+            Assert.IsNull(arenaType.GetMethod("TryValidateRestore"));
+            MethodInfo validateRestore = arenaType.GetMethod("TryValidateRestore",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsTrue(validateRestore?.IsAssembly);
             Assert.IsNotNull(arenaType.GetMethod("Dispose"));
         }
 
