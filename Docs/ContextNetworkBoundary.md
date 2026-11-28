@@ -412,7 +412,8 @@ Driver、AutoStart、TimeScale、Temporal history 与诊断容量都是同一 Ho
 Context 类型、Codec、Default 与 AOT-safe construction 的类型权威。Editor 可以提出建议，
 但必须由用户确认后才保存；Running 配置只读。Host 不通过场景扫描发现这些引用。
 Runtime、Clock、Inbox、Router、Logic、Memory 与 Temporal Ring 都是内部普通
-对象。Playable Animation、可控播放进度与 Root Motion 属于 Animation 或项目表现层。
+对象。0.4.11 已移除旧 Animation 模块。Playable 动画、播放进度和 Root Motion 由项目表现层
+负责。旧场景和 Prefab 的处理见 [StateGraph Host 迁移步骤](StateGraphRuntime.md#migrating-a-0410-scene)。
 
 ## 9. 架构依赖门禁
 
@@ -442,7 +443,7 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 - StateGraph Editor 是当前可用工具，但不属于 Runtime API 成熟保证。
 - Persistence 通过 Durable Context projection 接入 Host；它独立负责 schema v2、
   StableEntityId、Container 和文件生命周期。
-- Animation、Input、Locomotion、Content、Map、Pooling 等模块只能通过已声明的 Intent、
+- Input、Locomotion、Content、Map、Pooling 等模块只能通过已声明的 Intent、
   Operation、Context、Event 或 restore-binding 边界接入，不能绕过 Commit authority。
 - Core 成熟不表示跨 Actor 原子事务、全世界回滚、Jobs/Burst 调度、零分配覆盖所有
   Unity 回调、完整 Editor 工具或商店级认证。

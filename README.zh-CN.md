@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **版本**：0.4.10 · **Unity**：6000+
+> **版本**：0.4.11 · **Unity**：6000+
 >
 > [English](README.md)
 
@@ -108,7 +108,7 @@ Schema；两者不是同一种 Wire Format。
 在 Unity Package Manager 中使用 Git URL：
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.10
+https://github.com/YunXEE/CoCoFlow.git#v0.4.11
 ```
 
 或在 `Packages/manifest.json` 中加入：
@@ -116,7 +116,7 @@ https://github.com/YunXEE/CoCoFlow.git#v0.4.10
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.11"
   }
 }
 ```
