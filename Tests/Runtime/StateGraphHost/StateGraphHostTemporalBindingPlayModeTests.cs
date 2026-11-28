@@ -20,7 +20,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }
@@ -37,7 +37,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }
@@ -57,7 +57,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.EqualTo(RuntimeLifecycleState.Running));
             Assert.That(missing.Host.CurrentContext.IsAlive, Is.False);
 
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostTestScenario destroyed = Track(
                 TemporalHostTestHarness.Create(historyCapacity: 3));
             var restoreOnly = destroyed.GameObject.AddComponent<TemporalActorRestoreBinding>();
@@ -152,7 +152,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.EqualTo(new Vector3(20f, 2f, 3f)));
             Assert.That(scenario.Host.Fault.IsFaulted, Is.True);
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Disabled));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Disabled));
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
             Assert.That(scenario.Binding.ApplyCount, Is.Zero);
 
@@ -169,7 +169,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.EqualTo(new Vector3(10f, 0f, 0f)));
             Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Disabled));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Disabled));
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
 
             StepWithActorValue(scenario, 30);
@@ -244,7 +244,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Previewing));
+                Is.EqualTo(HostHistoryMode.Previewing));
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
 
             Require(
@@ -254,7 +254,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(restoreOnly.CancelCount, Is.Zero);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
 
             Assert.That(scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(scenario,
                 1UL, 83, scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch)),
@@ -283,7 +283,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Binding.CancelCount, Is.Zero);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
         }
 
         [Test]
@@ -313,7 +313,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Binding.CancelCount, Is.EqualTo(1));
             Assert.That(
                 scenario.Binding.LastApplyKind,
-                Is.EqualTo(ContextRestoreApplyKind.Cancel));
+                Is.EqualTo(HostRestoreKind.Cancel));
         }
 
         [Test]
@@ -351,7 +351,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
         }
 
         [Test]
@@ -380,7 +380,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.True);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Previewing));
+                Is.EqualTo(HostHistoryMode.Previewing));
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.EqualTo(1));
 
             restoreOnly.transform.SetParent(scenario.GameObject.transform);
@@ -393,7 +393,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
         }
 
         [TestCase(TemporalRestoreFixtureFailure.Reject)]
@@ -435,7 +435,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.RequiresWorldCorrection, Is.False);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
         }
 
         [TestCase(TemporalRestoreFixtureFailure.Reject)]
@@ -489,7 +489,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.Fault.IsFaulted, Is.False);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
         }
 
@@ -527,7 +527,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.EqualTo(RuntimeLifecycleState.Stopped));
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
         }
 
@@ -546,7 +546,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoDiagnostic nestedDiagnostic = default;
             scenario.Binding.ApplyCallback = kind =>
             {
-                if (kind == ContextRestoreApplyKind.Preview)
+                if (kind == HostRestoreKind.Preview)
                 {
                     nestedSucceeded = scenario.Host.TryCancelTemporalPreview(
                         out nestedDiagnostic);
@@ -588,19 +588,19 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(
                 scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
                 preview);
-            ContextRestoreReader escaped = scenario.Binding.EscapedReader;
+            HostRestoreReader escaped = scenario.Binding.EscapedReader;
 
             Require(scenario.Host.TryStop(out CoCoDiagnostic stop), stop);
             Assert.That(escaped.IsValid, Is.False);
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
 
             Require(scenario.Host.TryStart(out CoCoDiagnostic restart), restart);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
             StepWithActorValue(scenario, 30);
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(1));
@@ -626,7 +626,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(
                 scenario.Host.TryPreviewTemporal(1, out CoCoDiagnostic preview),
                 preview);
-            ContextRestoreReader escaped = scenario.Binding.EscapedReader;
+            HostRestoreReader escaped = scenario.Binding.EscapedReader;
 
             Assert.That(escaped.IsValid, Is.False);
             Assert.That(
@@ -636,22 +636,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Is.False);
             Assert.That(escapedValue, Is.Zero);
 
-            FieldInfo readerSource = typeof(ContextRestoreReader).GetField(
-                "_source",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(readerSource, Is.Not.Null);
-            object lease = readerSource.GetValue(escaped);
+            FieldInfo leaseField = typeof(HostRestoreReader).GetField(
+                "_lease", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new MissingFieldException(typeof(HostRestoreReader).FullName, "_lease");
+            var lease = (HostRestoreReadLease)leaseField.GetValue(escaped);
             Assert.That(lease, Is.Not.Null);
-            Assert.That(lease, Is.Not.TypeOf<StateGraphTemporalController>());
-
-            FieldInfo leaseSource = lease.GetType().GetField(
-                "_source",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.That(leaseSource, Is.Not.Null);
-            Assert.That(leaseSource.GetValue(lease), Is.Null);
-
+            Assert.That(escaped.IsValid, Is.False);
             WeakReference controller = CaptureControllerAndStop(scenario);
-            Assert.That(leaseSource.GetValue(lease), Is.Null);
             CollectGarbage();
             Assert.That(
                 controller.IsAlive,
@@ -743,7 +734,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
 
             Assert.That(scenario.Host.TryEnqueueLocal(TemporalHostTestHarness.Packet(scenario,
                 1UL, 83, scenario.Host.CurrentContext.Header.TickFrame.TimelineEpoch)),
@@ -757,9 +748,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             Assert.That(
                 host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
             FieldInfo temporalField = typeof(StateGraphHost).GetField(
-                "_temporal",
+                "_restore",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(temporalField, Is.Not.Null);
             object controller = temporalField.GetValue(host);
@@ -769,7 +760,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "_bindingComponent",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             FieldInfo bindingField = controller.GetType().GetField(
-                "_binding",
+                "_applyBinding",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(componentField, Is.Not.Null);
             Assert.That(bindingField, Is.Not.Null);
@@ -783,9 +774,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             Assert.That(
                 host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
             FieldInfo temporalField = typeof(StateGraphHost).GetField(
-                "_temporal",
+                "_restore",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(temporalField, Is.Not.Null);
             object controller = temporalField.GetValue(host);
@@ -795,12 +786,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "_bindingComponent",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             FieldInfo bindingField = controller.GetType().GetField(
-                "_binding",
+                "_applyBinding",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(componentField, Is.Not.Null);
             Assert.That(bindingField, Is.Not.Null);
             Assert.That(componentField.GetValue(controller), Is.SameAs(expected));
-            Assert.That(bindingField.GetValue(controller), Is.SameAs(expected));
+            Assert.That(((Delegate)bindingField.GetValue(controller)).Target, Is.SameAs(expected));
         }
 
         private static void StepWithActorValue(

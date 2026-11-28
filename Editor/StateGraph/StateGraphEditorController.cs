@@ -28,7 +28,7 @@ namespace CoCoFlow.Editor.StateGraph
         private static StateGraphSubtreeClipboard clipboard;
 
         private GraphDescriptorCatalog catalog;
-        private StateGraphAssetCompileResult analysisResult;
+        private GraphAssetCompileResult analysisResult;
         private bool _analysisPending;
         private bool _disposed;
         private StateGraphAsset _stateDraftAsset;
@@ -47,7 +47,7 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 try
                 {
-                    analysisResult = new StateGraphAssetCompiler().Compile(Asset, catalog);
+                    analysisResult = new GraphAssetCompiler().Compile(Asset, catalog);
                 }
                 catch (Exception exception)
                 {
@@ -64,7 +64,7 @@ namespace CoCoFlow.Editor.StateGraph
         internal StateGraphAsset Asset { get; }
         internal StateGraphEditorSessionState Session { get; }
         internal GraphDescriptorCatalog Catalog => catalog;
-        internal StateGraphAssetCompileResult AnalysisResult => analysisResult;
+        internal GraphAssetCompileResult AnalysisResult => analysisResult;
         internal string CatalogStatus { get; private set; } = string.Empty;
         internal string CommandFailure { get; private set; } = string.Empty;
         internal Func<bool> ConfirmStateDraftChanges { get; set; }
@@ -810,7 +810,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             try
             {
-                analysisResult = new StateGraphAssetCompiler().Compile(Asset, catalog);
+                analysisResult = new GraphAssetCompiler().Compile(Asset, catalog);
                 CommandFailure = string.Empty;
             }
             catch (Exception exception)
@@ -950,7 +950,7 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 try
                 {
-                    analysisResult = new StateGraphAssetCompiler().Compile(Asset, catalog);
+                    analysisResult = new GraphAssetCompiler().Compile(Asset, catalog);
                 }
                 catch (Exception exception)
                 {
@@ -1184,7 +1184,7 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
                 internal static RequirementSection BuildCompiledSection(
-            StateGraphAssetCompileResult result,
+            GraphAssetCompileResult result,
             GraphDescriptorCatalog catalog = null)
         {
             var entries = new List<RequirementEntry>();

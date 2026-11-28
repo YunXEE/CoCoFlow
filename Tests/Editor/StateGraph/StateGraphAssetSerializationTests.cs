@@ -35,58 +35,68 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.Refresh();
         }
 
-        /// <summary>导入已有 AnyState 托管引用资产，检查程序集迁移后可恢复其配置。</summary>
+        /// <summary>旧前缀记录保持可诊断，编译拒绝缺少原类型的图。</summary>
         [Test]
-        public void HistoricalAnyStateRetainsItsManagedReferenceAfterTheAssemblyMove()
+        public void RetiredPrefixedRecordIsReportedAsMissing()
         {
-            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/BeforeAnyState.asset.bytes";
-            var serialized = AssetDatabase.LoadAssetAtPath<TextAsset>(fixture);
-            System.IO.File.WriteAllBytes(AssetPath, serialized.bytes);
-            System.IO.File.WriteAllText(AssetPath + ".meta", "fileFormatVersion: 2\nguid: ec830e79067924b9794c3557fcb096fe\n");
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/BeforePrefixRemoval.asset.bytes";
+            File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
             var graph = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
-            Assert.That(SerializationUtility.HasManagedReferencesWithMissingTypes(graph), Is.False);
-            var any = graph.Layers[0].AnyState;
-            Assert.That(any, Is.Not.Null);
-            Assert.That(any.StateId, Is.EqualTo(new SerializedId128(73UL, 74UL)));
-            Assert.That(any.DisplayName, Is.EqualTo("Before AnyState"));
-            Assert.That(any.Config, Is.TypeOf<EmptyStateConfig>());
+            var missing = SerializationUtility.GetManagedReferencesWithMissingTypes(graph);
+            Assert.That(missing.Select(item => item.className), Does.Contain("CoCoStateGraphStateRecord"));
+            Assert.That(missing.Select(item => item.className), Does.Contain("CoCoFieldConfig"));
+            Assert.IsFalse(new GraphAssetCompiler().Compile(graph, StateGraphTestFactory.CreateCatalog(false)).Succeeded);
         }
 
-        /// <summary>导入历史节点的共享配置，保存并重载后比较各节点引用指向的实际对象。</summary>
-        [TestCase("BeforeNamespaceMigration.asset.bytes")]
-        [TestCase("BeforeNamespaceMigrationPR96.asset.bytes")]
-        [TestCase("BeforePrefixRemoval.asset.bytes")]
-        public void HistoricalSharedStateConfigSurvivesNamespaceMigrationAndResave(string fileName)
+        /// <summary>核对 0.4.10 保存的标准字段配置、AnyState 和空配置经过复制及重新保存的对象身份。</summary>
+        [Test]
+        public void Released0410FieldConfigKeepsItsSharedReferenceAcrossCopyAndResave()
         {
-            const string folder = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/";
-            var original = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + fileName);
-            System.IO.File.WriteAllBytes(AssetPath, original.bytes);
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410FieldConfig.asset.bytes";
+            const string originalGuid = "bb252358fa1b641289742688e2010a99";
+            bool originalIsPresent = !string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(originalGuid));
+            File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
+            if (!originalIsPresent)
+                File.WriteAllText(AssetPath + ".meta", $"fileFormatVersion: 2\nguid: {originalGuid}\n");
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
             var graph = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
-            CheckConfig(graph);
-
+            Assert.IsTrue(GraphId.TryCreate(3816462399227382036UL, 12994049928394231811UL, out var releasedId));
+            if (originalIsPresent)
+            {
+                var original = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetDatabase.GUIDToAssetPath(originalGuid));
+                Assert.IsNotNull(original);
+                Assert.AreEqual(releasedId, original.GraphId);
+                CheckValues(original);
+                Assert.AreNotEqual(releasedId, graph.GraphId, "导入副本应获得自己的图身份。");
+            }
+            else
+                Assert.AreEqual(releasedId, graph.GraphId);
+            var identity = graph.GraphId;
+            CheckValues(graph);
+            string duplicate = TestRoot + "/duplicate.asset";
+            Assert.IsTrue(AssetDatabase.CopyAsset(AssetPath, duplicate));
+            AssetDatabase.ImportAsset(duplicate, ImportAssetOptions.ForceSynchronousImport);
+            var copy = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(duplicate);
+            Assert.AreNotEqual(identity, copy.GraphId);
+            CheckValues(copy);
             EditorUtility.SetDirty(graph);
             AssetDatabase.SaveAssetIfDirty(graph);
-            var saved = System.IO.File.ReadAllText(AssetPath);
-            Assert.That(saved, Does.Not.Contain("class: Legacy"));
-            Assert.That(saved, Does.Contain("class: StateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraph"));
-            Assert.That(saved, Does.Contain("class: FieldConfig, ns: CoCoFlow.Runtime.StateGraph"));
             Resources.UnloadAsset(graph);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
-            CheckConfig(AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath));
+            graph = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
+            Assert.AreEqual(identity, graph.GraphId);
+            CheckValues(graph);
 
-            static void CheckConfig(StateGraphAsset asset)
+            static void CheckValues(StateGraphAsset asset)
             {
-                foreach (var missing in SerializationUtility.GetManagedReferencesWithMissingTypes(asset))
-                    Assert.That(missing.className, Is.EqualTo("CoCoEmptyConditionConfig").Or.EqualTo("EmptyConditionConfig"));
-                var layer = asset.Layers[0];
-                Assert.That(layer.AnyState, Is.TypeOf<StateGraphStateRecord>());
+                Assert.IsFalse(SerializationUtility.HasManagedReferencesWithMissingTypes(asset));
+                var layer = asset.Layers.Single();
+                Assert.That(layer.AnyState.DisplayName, Is.EqualTo("Any"));
                 Assert.That(layer.AnyState.Config, Is.TypeOf<EmptyStateConfig>());
                 Assert.That(layer.States[0].Config, Is.TypeOf<FieldConfig>());
-                Assert.That(layer.States[1].Config, Is.SameAs(layer.States[0].Config));
-                Assert.That(((FieldConfig)layer.States[0].Config).Values,
-                    Is.EqualTo(new[] { "Distance=2.5", "Enabled=True" }));
+                Assert.AreSame(layer.States[0].Config, layer.States[1].Config);
+                CollectionAssert.AreEqual(new[] { "Speed=3" }, ((FieldConfig)layer.States[0].Config).Values);
             }
         }
 
@@ -120,7 +130,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.AreEqual(layer.States[1].StateId, edge.TargetStateId);
                 Assert.AreEqual(7, edge.Priority);
                 var catalog = StateGraphTestFactory.CreateCatalog(false, includeAnyState: true);
-                var result = new StateGraphAssetCompiler(new StateGraphCompilationCache()).Compile(graph, catalog);
+                var result = new GraphAssetCompiler(new GraphAssetCompilationCache()).Compile(graph, catalog);
                 Assert.IsTrue(result.Succeeded, string.Join(", ", result.Diagnostics.Select(d => d.Diagnostic.Message)));
                 Assert.AreEqual(17614652859590910492UL, result.ContentFingerprint);
                 Assert.AreEqual(11069643992310798211UL, result.Graph.CatalogFingerprint);
@@ -138,7 +148,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual("CoCoFlow.Runtime.Core.StatelessMemory", GraphTypeIdentity.FullName(typeof(StatelessMemory)));
             Assert.AreEqual("CoCoFlow.Runtime.Core.Contracts", GraphTypeIdentity.AssemblyName(typeof(InputIntentContract)));
             Assert.AreEqual("CoCoFlow.Runtime.Core.InputIntentData", GraphTypeIdentity.FullName(typeof(InputIntentContract)));
-            Assert.AreEqual(3660957098222782772UL, StandardTypeIdentity.Hash(typeof(InputIntentContract)));
+            Assert.AreEqual(3660957098222782772UL, HostBindingIds.Hash(typeof(InputIntentContract)));
             Assert.AreEqual("System.Collections.Generic.Dictionary`2[[CoCoFlow.Runtime.Core.CoCoStateId, CoCoFlow.Runtime.Core.Contracts, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null],[CoCoFlow.Runtime.Core.StatelessMemory[], CoCoFlow.Runtime.Core.StateGraph, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null]]", GraphTypeIdentity.FullName(typeof(Dictionary<StateId, StatelessMemory[]>)));
         }
 
@@ -181,7 +191,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(anyId, ToStateId(asset.Layers[0].AnyState.StateId));
             Assert.AreEqual(7, ((TestStateAuthoringConfig)asset.Layers[0].AnyState.Config).Value);
             Assert.AreEqual(asset.Layers[0].AnyState.StateId, asset.Layers[0].Transitions[0].SourceStateId);
-            Assert.IsTrue(new StateGraphAssetCompiler(new StateGraphCompilationCache()).Compile(
+            Assert.IsTrue(new GraphAssetCompiler(new GraphAssetCompilationCache()).Compile(
                 asset, StateGraphTestFactory.CreateCatalog(false, includeAnyState: true)).Succeeded);
         }
 
@@ -447,8 +457,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 sharedConfig,
                 "Second");
             GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-            StateGraphAssetCompileResult beforeReload =
-                new StateGraphAssetCompiler(new StateGraphCompilationCache())
+            GraphAssetCompileResult beforeReload =
+                new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(asset, catalog);
             Assert.IsTrue(beforeReload.Succeeded);
 
@@ -457,8 +467,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Resources.UnloadAsset(asset);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceUpdate);
             StateGraphAsset reloaded = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
-            StateGraphAssetCompileResult afterReload =
-                new StateGraphAssetCompiler(new StateGraphCompilationCache())
+            GraphAssetCompileResult afterReload =
+                new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(reloaded, catalog);
 
             Assert.IsTrue(

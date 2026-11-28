@@ -19,7 +19,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     /// <summary>
     /// C4.5 standard path end-to-end: a State-attributed logic (declared
     /// below in this test assembly) is registered through
-    /// StandardBindingProvider.Build, installed, and a one-state graph
+    /// HostBindingProvider.Build, installed, and a one-state graph
     /// runs a tick where the state logic receives InputIntentContract records.
     /// </summary>
     public sealed partial class StandardBindingPlayModeTests : InputTestFixture
@@ -30,7 +30,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             StandardProbeLogic.Received = null;
         }
 
@@ -45,7 +45,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             StandardProbeLogic.Received = null;
         }
 
@@ -59,11 +59,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             System.Type logicType = properties ? typeof(PropertyProbeLogic) : typeof(StandardProbeLogic);
             string logicName = properties ? "PropertyProbe" : "StandardProbe";
-            StandardBindingProvider provider =
-                StandardBindingProvider.Build(
+            HostBindingProvider provider =
+                HostBindingProvider.Build(
                     new[] { logicType.Assembly });
             Assert.IsNotNull(provider.Catalog);
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic installDiagnostic),
                 installDiagnostic.Message);
@@ -154,10 +154,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [UnityTest]
         public IEnumerator MovementOperationBindsWithoutAnIntentSource()
         {
-            StandardBindingProvider provider =
-                StandardBindingProvider.Build(
+            HostBindingProvider provider =
+                HostBindingProvider.Build(
                     new[] { typeof(LocoMoveProbeLogic).Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install.Message);
 
@@ -204,9 +204,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public IEnumerator ConfigAndMemoryFieldsUseTheRealHost()
         {
             var type = System.Type.GetType("MoveLogic, CoCoFlow002") ?? typeof(ConfigMemoryProbeLogic);
-            var provider = StandardBindingProvider.Build(new[] { type.Assembly });
-            StateGraphProjectBindings.ResetForTests();
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out _));
+            var provider = HostBindingProvider.Build(new[] { type.Assembly });
+            HostProjectBindings.ResetForTests();
+            Assert.IsTrue(HostProjectBindings.TryInstall(provider, out _));
             var name = ((StateAttribute)System.Attribute.GetCustomAttribute(type, typeof(StateAttribute))).Name;
             StandardDescriptors.TryCreate(type, name, out var descriptor);
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
@@ -262,7 +262,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [TestCase(typeof(MemoryOnlyProbe))]
         public void FieldMemoryRoundTripDoesNotAllocate(System.Type type)
         {
-            StandardBindingProvider.Build(new[] { type.Assembly });
+            HostBindingProvider.Build(new[] { type.Assembly });
             var logic = (StateLogic)System.Activator.CreateInstance(type);
             var memory = (IFieldMemory)System.Activator.CreateInstance(
                 typeof(FieldMemory<,>).MakeGenericType(type, StateFields.StoredType(type)));
@@ -276,7 +276,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             long before = System.GC.GetAllocatedBytesForCurrentThread();
             for (int i = 0; i < 10000; i++) { memory.Load(logic); memory.Store(logic); }
             Assert.AreEqual(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
-            Assert.IsNotNull(typeof(StandardBindingProvider).GetMethod("Build",
+            Assert.IsNotNull(typeof(HostBindingProvider).GetMethod("Build",
                 new[] { typeof(IReadOnlyList<System.Reflection.Assembly>) }));
         }
 
@@ -285,7 +285,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [TestCase("Distance", "2")]
         public void InvalidConfigFailsDuringFreezing(string path, string value)
         {
-            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
+            var provider = HostBindingProvider.Build(new[] { typeof(ConfigMemoryProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigMemoryProbeLogic), "ConfigMemoryProbeLogic", out var id);
             Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id,
                 new FieldConfig { Values = new[] { path + "=" + value } }, out _, out var diagnostic));

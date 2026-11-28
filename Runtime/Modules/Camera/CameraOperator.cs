@@ -9,12 +9,12 @@ namespace CoCoFlow.Runtime.Modules.Camera
     /// <summary>消费本步已启用的离散机位请求，并将摄像机现场捕获到可恢复的 Context。</summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("CoCoFlow/Camera/Camera Operator")]
-    public sealed class CameraOperator : MonoBehaviour, IPersistenceRestoreOperator
+    public sealed class CameraOperator : MonoBehaviour, IHostPersistenceRestoreOperator
     {
         [SerializeField] private CameraDirector director;
         private static readonly OperationRequirement Requirement;
         [OperatorDefinition]
-        private static StandardOperatorDefinition Definition { get; }
+        private static HostOperatorDefinition Definition { get; }
         public OperatorDescriptor Descriptor => Definition.Descriptor;
 
         #region Public API
@@ -51,7 +51,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
         }
 
         /// <summary>从恢复读取器取得摄像机快照并应用到场景机位，读取或应用失败时返回诊断。</summary>
-        public bool TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+        public bool TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
         {
             if (director == null || !context.IsValid ||
                 !context.Reader.TryRead(CamContractIds.SnapshotSlotId, out CamSnapshotState snapshot))
@@ -69,7 +69,7 @@ namespace CoCoFlow.Runtime.Modules.Camera
 
         static CameraOperator()
         {
-            var builder = new StandardOperatorBuilder();
+            var builder = new HostOperatorBuilder();
             Requirement = builder.Require<CameraOperation>(CamContractIds.OperationId, CamContractIds.Fingerprint);
             builder.OwnOutcome(CamContractIds.SnapshotBlockId, CamContractIds.SnapshotSlotId,
                 ContextProjection.Durable, ContextRestorePolicy.Stored,

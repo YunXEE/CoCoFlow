@@ -16,7 +16,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal PoolTemporalApplyContext(
             TemporalEntityId entityId,
             PoolTemporalApplyKind applyKind,
-            in TemporalFrameInfo source,
+            in HostHistoryFrame source,
             in TickFrame targetTickFrame,
             bool isPresent)
         {
@@ -29,7 +29,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         public TemporalEntityId EntityId { get; }
         public PoolTemporalApplyKind ApplyKind { get; }
-        public TemporalFrameInfo Source { get; }
+        public HostHistoryFrame Source { get; }
         public TickFrame TargetTickFrame { get; }
         public bool IsPresent { get; }
 

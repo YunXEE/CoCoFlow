@@ -31,7 +31,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         [TearDown]
@@ -47,7 +47,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             RawInputProbeCapture.RejectAfterReading = false;
             RawInputProbeCapture.Records = null;
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         [UnityTest]
@@ -57,7 +57,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StateDescriptorId descriptorId = MakeDescriptorId(1);
 
             var provider = new ProbeProvider(intentId, descriptorId);
-            Require(StateGraphProjectBindings.TryInstall(
+            Require(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic installDiagnostic));
 
@@ -204,7 +204,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.IsTrue(condition, message);
         }
 
-        private sealed class ProbeProvider : IStateGraphProjectBindingProvider
+        private sealed class ProbeProvider : IHostBindingProvider
         {
             private const ulong GraphStateDefaultFingerprint = 51471UL;
             private static readonly StateBlockId GraphStateBlockId =
@@ -308,7 +308,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public GraphDescriptorCatalog Catalog => _catalog;
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder bindingBuilder,
+                HostBindingBuilder bindingBuilder,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!bindingBuilder.TryRegisterIntent<

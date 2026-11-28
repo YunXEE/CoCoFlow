@@ -19,7 +19,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }
@@ -36,7 +36,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }
@@ -58,7 +58,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.TemporalHistoryCapacity, Is.Zero);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
             Assert.That(scenario.Host.TemporalState.Capacity, Is.Zero);
             Assert.That(scenario.Host.TemporalState.Count, Is.Zero);
             Assert.That(
@@ -93,7 +93,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 "A dirty-world failure must not be presented as a healthy Suspended Host.");
             Assert.That(scenario.GameObject.transform.localPosition.x, Is.EqualTo(23f));
 
-            StateGraphRuntime runtime = TemporalHostTestHarness.GetRuntime(
+            StateGraphInstance runtime = TemporalHostTestHarness.GetRuntime(
                 scenario.Host);
             ContextFrame committedContext = scenario.Host.CurrentContext;
             TimelineTick committedTick = runtime.Clock.Tick;
@@ -109,7 +109,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Require(
                 scenario.Host.TryCaptureDebugSnapshot(
-                    out StateGraphHostDebugSnapshot snapshot,
+                    out HostDebugSnapshot snapshot,
                     out CoCoDiagnostic snapshotDiagnostic),
                 snapshotDiagnostic);
 
@@ -149,7 +149,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(scenario.Host.TryStart(out CoCoDiagnostic start), start);
             Require(
                 scenario.Host.TryCaptureDebugSnapshot(
-                    out StateGraphHostDebugSnapshot snapshot,
+                    out HostDebugSnapshot snapshot,
                     out CoCoDiagnostic captured),
                 captured);
             Assert.That(
@@ -242,11 +242,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 begin);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Previewing));
+                Is.EqualTo(HostHistoryMode.Previewing));
 
             Assert.That(
                 scenario.Host.TryCaptureDebugSnapshot(
-                    out StateGraphHostDebugSnapshot snapshot,
+                    out HostDebugSnapshot snapshot,
                     out CoCoDiagnostic rejected),
                 Is.False);
             Assert.That(snapshot, Is.Null);
@@ -302,7 +302,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Binding.LastAppliedValue, Is.EqualTo(40));
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(3));
         }
 
@@ -316,7 +316,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StepWithActorValue(scenario, 20);
             StepWithActorValue(scenario, 30);
 
-            StateGraphRuntime runtime = TemporalHostTestHarness.GetRuntime(scenario.Host);
+            StateGraphInstance runtime = TemporalHostTestHarness.GetRuntime(scenario.Host);
             ContextFrame authority = scenario.Host.CurrentContext;
             TickFrame authorityTick = authority.Header.TickFrame;
             int updateCount = TemporalHostLogic.UpdateCount;
@@ -365,7 +365,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StepWithActorValue(scenario, 20);
             StepWithActorValue(scenario, 30);
 
-            StateGraphRuntime runtime = TemporalHostTestHarness.GetRuntime(scenario.Host);
+            StateGraphInstance runtime = TemporalHostTestHarness.GetRuntime(scenario.Host);
             ContextFrame oldAuthority = scenario.Host.CurrentContext;
             ulong oldRevision = oldAuthority.Revision.Value;
             TickFrame oldTick = oldAuthority.Header.TickFrame;
@@ -385,7 +385,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 scenario.Host.InputAuthorityRevision,
                 Is.Not.EqualTo(inputRevision));
             inputRevision = scenario.Host.InputAuthorityRevision;
-            TemporalFrameInfo source = scenario.Host.TemporalState.Preview;
+            HostHistoryFrame source = scenario.Host.TemporalState.Preview;
 
             Require(
                 scenario.Host.TryConfirmTemporalRestore(out CoCoDiagnostic confirm),
@@ -431,7 +431,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
             Assert.That(
                 scenario.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Ready));
+                Is.EqualTo(HostHistoryMode.Ready));
 
             scenario.Binding.Value = 11;
             Require(scenario.Host.TryStep(0.1d, out CoCoDiagnostic resumed), resumed);
@@ -623,8 +623,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             ContextFrame secondAuthority = second.Host.CurrentContext;
             TickFrame secondTick = secondAuthority.Header.TickFrame;
-            TemporalState secondTemporal = second.Host.TemporalState;
-            StateGraphRuntime secondRuntime =
+            HostHistoryState secondTemporal = second.Host.TemporalState;
+            StateGraphInstance secondRuntime =
                 TemporalHostTestHarness.GetRuntime(second.Host);
             Require(first.Host.TryBeginTemporalPreview(out CoCoDiagnostic begin), begin);
             Require(first.Host.TryPreviewTemporal(2, out CoCoDiagnostic preview), preview);
@@ -652,7 +652,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             ContextFrame firstAuthority = first.Host.CurrentContext;
             TickFrame firstTick = firstAuthority.Header.TickFrame;
-            StateGraphRuntime firstRuntime =
+            StateGraphInstance firstRuntime =
                 TemporalHostTestHarness.GetRuntime(first.Host);
             StepWithActorValue(second, 400);
             Assert.That(
@@ -681,7 +681,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic firstBegin),
                 firstBegin);
-            TemporalState stateAfterFirst = scenario.Host.TemporalState;
+            HostHistoryState stateAfterFirst = scenario.Host.TemporalState;
 
             Assert.That(
                 scenario.Host.TryBeginTemporalPreview(out CoCoDiagnostic secondBegin),
@@ -689,7 +689,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Assert.That(secondBegin.IsError, Is.True);
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Previewing));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Previewing));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(stateAfterFirst.Count));
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
             Assert.That(scenario.Binding.ApplyCount, Is.Zero);
@@ -729,7 +729,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 firstConfirm);
 
             ContextFrame restoredAuthority = scenario.Host.CurrentContext;
-            TemporalState stateAfterFirst = scenario.Host.TemporalState;
+            HostHistoryState stateAfterFirst = scenario.Host.TemporalState;
 
             TimelineEpoch epoch = restoredAuthority.Header.TickFrame.TimelineEpoch;
             Assert.That(
@@ -743,7 +743,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Assert.That(secondConfirm.IsError, Is.True);
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(restoredAuthority));
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Ready));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(stateAfterFirst.Count));
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
             Assert.That(scenario.Binding.ConfirmCount, Is.EqualTo(1));
@@ -775,7 +775,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 scenario.Host.TryCancelTemporalPreview(out CoCoDiagnostic firstCancel),
                 firstCancel);
 
-            TemporalState stateAfterFirst = scenario.Host.TemporalState;
+            HostHistoryState stateAfterFirst = scenario.Host.TemporalState;
 
             TimelineEpoch epoch = authority.Header.TickFrame.TimelineEpoch;
             Assert.That(
@@ -789,7 +789,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             Assert.That(secondCancel.IsError, Is.True);
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Ready));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(stateAfterFirst.Count));
             Assert.That(scenario.Host.TemporalState.PreviewDepth, Is.Zero);
             Assert.That(scenario.Binding.CancelCount, Is.EqualTo(1));
@@ -889,7 +889,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(failed, Is.False);
             Assert.That(allocated, Is.Zero);
             Assert.That(scenario.Host.CurrentContext, Is.EqualTo(authority));
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Ready));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(3));
             Assert.That(
                 scenario.Binding.CancelCount,
@@ -927,7 +927,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
             Assert.That(failed, Is.False);
             Assert.That(allocated, Is.Zero);
-            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(TemporalMode.Ready));
+            Assert.That(scenario.Host.TemporalState.Mode, Is.EqualTo(HostHistoryMode.Ready));
             Assert.That(scenario.Host.TemporalState.Count, Is.EqualTo(5));
             Assert.That(
                 scenario.Binding.ConfirmCount,
@@ -983,7 +983,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             object temporal = ReadField(host, "_temporal");
-            object history = ReadField(temporal, "_history");
+            object history = ReadProperty(temporal, "History");
             object historyLayout = ReadField(history, "_layout");
             Array entries = (Array)ReadField(history, "_entries");
             var entryObjects = new object[entries.Length];
@@ -1118,7 +1118,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private static void AssertClock(
-            StateGraphRuntime runtime,
+            StateGraphInstance runtime,
             in TickFrame expected)
         {
             Assert.That(runtime.Clock.TimelineId, Is.EqualTo(expected.TimelineId));

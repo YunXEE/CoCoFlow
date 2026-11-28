@@ -26,7 +26,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         /// <summary>重置已安装的项目绑定，使本例独立装配标准 Provider。</summary>
         [SetUp]
-        public void Setup() => StateGraphProjectBindings.ResetForTests();
+        public void Setup() => HostProjectBindings.ResetForTests();
 
         /// <summary>释放本例创建的场景对象并清除安装的项目绑定。</summary>
         [TearDown]
@@ -34,7 +34,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             foreach (Object instance in _objects) Object.Destroy(instance);
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         /// <summary>投递定向输入并实际步进 Host，对照自定义输出、上一提交的账本及拒绝候选后的值。</summary>
@@ -51,7 +51,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Set(host, "operators", new MonoBehaviour[] { damage });
             Set(host, "eventOutboxCapacity", 98);
             Set(host, "temporalHistoryCapacity", 4);
-            Set(host, "operatorRecovery", new[] { new StateGraphHost.OperatorRecovery { component = damage, temporal = true } });
+            Set(host, "operatorRecovery", new[] { new HostOperatorRecovery { component = damage, temporal = true } });
             yield return null;
             Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
 
@@ -165,7 +165,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void MissingModeNamesTheSection()
         {
             var error = Assert.Throws<InvalidOperationException>(() =>
-                new StandardOperatorBuilder().Require<IMissingModeSection>());
+                new HostOperatorBuilder().Require<IMissingModeSection>());
             StringAssert.Contains(nameof(IMissingModeSection), error.Message);
         }
 
@@ -198,9 +198,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private static void Install()
         {
-            var provider = StandardBindingProvider.Build(new[] { typeof(EnemyLogic).Assembly, typeof(DamageOperator).Assembly,
+            var provider = HostBindingProvider.Build(new[] { typeof(EnemyLogic).Assembly, typeof(DamageOperator).Assembly,
                 typeof(CameraOperator).Assembly, typeof(LocomotionOperator).Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
+            Assert.IsTrue(HostProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
         }
 
         private StateGraphHost CreateHost<T>(string stateName) where T : StateLogic

@@ -14,7 +14,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
     internal readonly struct PersistedFrameDebugInfo
     {
         internal PersistedFrameDebugInfo(
-            TemporalFrameInfo sourceFrame,
+            HostHistoryFrame sourceFrame,
             int slotIndex,
             DateTimeOffset updatedUtc)
         {
@@ -23,7 +23,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             UpdatedUtc = updatedUtc;
         }
 
-        internal TemporalFrameInfo SourceFrame { get; }
+        internal HostHistoryFrame SourceFrame { get; }
         internal int SlotIndex { get; }
         internal DateTimeOffset UpdatedUtc { get; }
         internal bool IsValid =>
@@ -58,7 +58,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             bool found = false;
             DateTimeOffset latestUtc = default;
             int latestSlot = -1;
-            TemporalFrameInfo latestFrame = default;
+            HostHistoryFrame latestFrame = default;
             string firstFailure = string.Empty;
             int slotCount = Math.Max(0, PersistenceSaveLoadSystem.MaxSaveSlots);
             for (int slotIndex = 0; slotIndex < slotCount; slotIndex++)
@@ -107,7 +107,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
                     if (!host.TryDecodePersistenceDebugFrame(
                             payload,
-                            out TemporalFrameInfo frame,
+                            out HostHistoryFrame frame,
                             out CoCoDiagnostic diagnostic))
                     {
                         if (string.IsNullOrEmpty(firstFailure))

@@ -306,9 +306,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                     if (change.previousValue != change.newValue)
                         RemoveRecoverySettings(change.previousValue);
                 });
-                if (component is IPersistenceRestoreOperator)
+                if (component is IHostPersistenceRestoreOperator)
                     AddRecoveryToggle(row, component, "persistence", "Persistence restore", "存档恢复");
-                if (component is ITemporalRestoreOperator)
+                if (component is IHostTemporalRestoreOperator)
                     AddRecoveryToggle(row, component, "temporal", "Temporal restore", "时间历史恢复");
             }
             BindingHint? hint = kind == BindingListKind.IntentSources
@@ -528,7 +528,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 CoCoEditorLocalization.Text("Actor Context", "Actor 上下文")));
 
             SerializedProperty property =
-                serializedObject.FindProperty("actorContextBinding");
+                serializedObject.FindProperty("hostContextBinding");
             MonoBehaviour assigned = property.objectReferenceValue as MonoBehaviour;
             var host = (StateGraphHost)target;
             if (assigned != null)
@@ -1095,7 +1095,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 hints, host, "operators",
                 StateGraphHostBindingRules.BuildOperatorHint);
 
-            MonoBehaviour actor = serializedObject.FindProperty("actorContextBinding")
+            MonoBehaviour actor = serializedObject.FindProperty("hostContextBinding")
                 .objectReferenceValue as MonoBehaviour;
             BindingHint? actorHint =
                 StateGraphHostBindingRules.BuildActorContextHint(host, actor);

@@ -73,7 +73,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                         .Capabilities.Contains(RegionCapabilityId.Full),
                     Is.True);
 
-                TemporalFrameInfo imported = CreateFrame(70UL);
+                HostHistoryFrame imported = CreateFrame(70UL);
                 Assert.That(
                     fixture.Temporal.TryPrepareAuthorityReset(
                         imported,
@@ -214,7 +214,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 CreateFixture(FullCapabilities());
             try
             {
-                TemporalFrameInfo captured = CreateFrame(1UL);
+                HostHistoryFrame captured = CreateFrame(1UL);
                 CaptureForward(fixture.Temporal, captured);
 
                 fixture.GameplayLease.Dispose();
@@ -239,7 +239,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     begin.Message);
                 Assert.That(
                     fixture.Temporal.TryPrepareProjection(
-                        ContextRestoreApplyKind.Preview,
+                        HostRestoreKind.Preview,
                         0,
                         captured,
                         captured.TickFrame,
@@ -248,7 +248,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     projection.Message);
                 Assert.That(
                     fixture.Temporal.TryApplyPreparedAvailabilityBarrier(
-                        ContextRestoreApplyKind.Preview,
+                        HostRestoreKind.Preview,
                         out CoCoDiagnostic barrier),
                     Is.True,
                     barrier.Message);
@@ -262,7 +262,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
                 fixture.Temporal.FinishProjectionNoFail(true);
                 fixture.Temporal.CompletePreviewNoFail(
-                    ContextRestoreApplyKind.Cancel);
+                    HostRestoreKind.Cancel);
             }
             finally
             {
@@ -276,7 +276,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 CreateFixture(FullCapabilities());
             try
             {
-                TemporalFrameInfo captured = CreateFrame(10UL);
+                HostHistoryFrame captured = CreateFrame(10UL);
                 CaptureForward(fixture.Temporal, captured);
 
                 RegionRuntimeSnapshot before =
@@ -292,7 +292,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     begin.Message);
                 Assert.That(
                     fixture.Temporal.TryPrepareProjection(
-                        ContextRestoreApplyKind.Preview,
+                        HostRestoreKind.Preview,
                         0,
                         captured,
                         captured.TickFrame,
@@ -301,13 +301,13 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     projection.Message);
                 Assert.That(
                     fixture.Temporal.TryApplyPreparedAvailabilityBarrier(
-                        ContextRestoreApplyKind.Preview,
+                        HostRestoreKind.Preview,
                         out CoCoDiagnostic barrier),
                     Is.True,
                     barrier.Message);
                 fixture.Temporal.FinishProjectionNoFail(true);
                 fixture.Temporal.CompletePreviewNoFail(
-                    ContextRestoreApplyKind.Cancel);
+                    HostRestoreKind.Cancel);
 
                 RegionRuntimeSnapshot after =
                     fixture.Region.CaptureSnapshot();
@@ -332,7 +332,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 CreateFixture(RepresentedCapabilities());
             try
             {
-                TemporalFrameInfo representedFrame = CreateFrame(20UL);
+                HostHistoryFrame representedFrame = CreateFrame(20UL);
                 CaptureForward(fixture.Temporal, representedFrame);
 
                 Assert.That(
@@ -343,7 +343,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                         out CoCoDiagnostic fullUpdate),
                     Is.True,
                     fullUpdate.Message);
-                TemporalFrameInfo fullFrame = CreateFrame(21UL);
+                HostHistoryFrame fullFrame = CreateFrame(21UL);
                 CaptureForward(fixture.Temporal, fullFrame);
 
                 Assert.That(
@@ -378,7 +378,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     branch.Message);
                 fixture.Temporal.PublishBranchCaptureNoFail();
                 fixture.Temporal.CompletePreviewNoFail(
-                    ContextRestoreApplyKind.Confirm);
+                    HostRestoreKind.Confirm);
 
                 RegionDemandRuntimeSnapshot beforeDrain =
                     FindTemporalDemand(fixture.Region.CaptureSnapshot());
@@ -498,7 +498,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     "Preview mutations and rejected Retry must have no transition side effects.");
 
                 fixture.Temporal.CompletePreviewNoFail(
-                    ContextRestoreApplyKind.Cancel);
+                    HostRestoreKind.Cancel);
                 Assert.That(
                     fixture.Sink.RequestCount,
                     Is.EqualTo(transitionsBefore),
@@ -526,10 +526,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 CreateFixture(RepresentedCapabilities());
             try
             {
-                TemporalFrameInfo frame = CreateFrame(40UL);
+                HostHistoryFrame frame = CreateFrame(40UL);
                 Assert.That(
                     fixture.Temporal.TryPrepareProjection(
-                        ContextRestoreApplyKind.Correction,
+                        HostRestoreKind.Correction,
                         0,
                         frame,
                         frame.TickFrame,
@@ -684,7 +684,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
         private static void CaptureForward(
             RegionTemporalRuntime temporal,
-            in TemporalFrameInfo frame)
+            in HostHistoryFrame frame)
         {
             Assert.That(
                 temporal.TryPrepareForwardCapture(
@@ -696,7 +696,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             temporal.DrainPublishedCleanupNoFail();
         }
 
-        private static TemporalFrameInfo CreateFrame(ulong sequence)
+        private static HostHistoryFrame CreateFrame(ulong sequence)
         {
             Assert.That(
                 GraphInstanceId.TryCreate(
@@ -734,10 +734,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 tickDiagnostic.Message);
 
             ConstructorInfo[] constructors =
-                typeof(TemporalFrameInfo).GetConstructors(
+                typeof(HostHistoryFrame).GetConstructors(
                     BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(constructors.Length, Is.EqualTo(1));
-            return (TemporalFrameInfo)constructors[0].Invoke(
+            return (HostHistoryFrame)constructors[0].Invoke(
                 new object[]
                 {
                     graphId,
@@ -838,7 +838,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
         private static void AssertImportedEmptyHead(
             RegionTemporalRuntime runtime,
-            in TemporalFrameInfo expected)
+            in HostHistoryFrame expected)
         {
             FieldInfo framesField =
                 typeof(RegionTemporalRuntime).GetField(
@@ -864,7 +864,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             Assert.That(infoProperty, Is.Not.Null);
             Assert.That(regionsProperty, Is.Not.Null);
             var actual =
-                (TemporalFrameInfo)infoProperty.GetValue(head);
+                (HostHistoryFrame)infoProperty.GetValue(head);
             var regions =
                 regionsProperty.GetValue(head) as ICollection;
             Assert.That(

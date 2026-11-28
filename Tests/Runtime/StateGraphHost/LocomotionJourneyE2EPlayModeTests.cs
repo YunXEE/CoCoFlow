@@ -32,7 +32,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             _objects.Clear();
             JourneyMemory.Reset();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         /// <summary>释放本例创建的场景对象并清除安装的项目绑定。</summary>
@@ -47,7 +47,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         /// <summary>用角色控制器实际碰墙，将引擎最终位置与已提交的移动槽进行对照。</summary>
@@ -303,8 +303,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetHostOperators(_locomotion, probe);
             SetField(_host, "operatorRecovery", new[]
             {
-                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
-                new StateGraphHost.OperatorRecovery { component = probe, persistence = true, temporal = true }
+                new HostOperatorRecovery { component = _locomotion, persistence = !temporal, temporal = temporal },
+                new HostOperatorRecovery { component = probe, persistence = true, temporal = true }
             });
             SetField(_host, "temporalHistoryCapacity", temporal ? 8 : 0);
             Require(StartHost());
@@ -380,10 +380,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private void BuildActor()
         {
-            StandardBindingProvider provider =
-                StandardBindingProvider.Build(
+            HostBindingProvider provider =
+                HostBindingProvider.Build(
                     new[] { typeof(JourneyIdleLogic).Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(HostProjectBindings.TryInstall(
                 provider, out CoCoDiagnostic install), install.Message);
 
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
@@ -454,7 +454,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             SetField(_host, "operatorRecovery", new[]
             {
-                new StateGraphHost.OperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
+                new HostOperatorRecovery { component = _locomotion, persistence = persistence, temporal = temporal },
             });
         }
 
@@ -573,7 +573,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         /// <summary>可在移动后拒绝候选，供测试核对场景校正与提交状态。</summary>
         private sealed class JourneyRejectOperator :
-            MonoBehaviour, IPersistenceRestoreOperator, ITemporalRestoreOperator
+            MonoBehaviour, IHostPersistenceRestoreOperator, IHostTemporalRestoreOperator
         {
             private static readonly OperatorDescriptor RejectDescriptor =
                 BuildDescriptor();
@@ -581,15 +581,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public int RejectOnTick = -1;
             internal bool FailRecovery;
             internal int TemporalRestores, PersistenceRestores;
-            public ContextRestoreReader RecoveryReader;
-            bool ITemporalRestoreOperator.TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            public HostRestoreReader RecoveryReader;
+            bool IHostTemporalRestoreOperator.TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
             {
                 TemporalRestores++;
                 RecoveryReader = context.Reader;
                 diagnostic = CoCoDiagnostic.None;
                 return !FailRecovery;
             }
-            bool IPersistenceRestoreOperator.TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+            bool IHostPersistenceRestoreOperator.TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
             {
                 PersistenceRestores++;
                 RecoveryReader = context.Reader;

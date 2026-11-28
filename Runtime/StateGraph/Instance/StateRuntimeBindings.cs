@@ -12,17 +12,27 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly TransitionHandle[] _transitions;
         private readonly IReadOnlyList<TransitionHandle> _readOnlyTransitions;
 
+        /// <summary>这次创建状态逻辑的图实例标识。</summary>
         public GraphInstanceId GraphInstanceId { get; }
+        /// <summary>对应的图层身份。</summary>
         public LayerId LayerId { get; }
+        /// <summary>图内该层的零基序号。</summary>
         public int LayerIndex { get; }
+        /// <summary>对应的状态身份。</summary>
         public StateId StateId { get; }
+        /// <summary>节点在当前活动路径中的深度。</summary>
         public int PathDepth { get; }
+        /// <summary>创建本次状态逻辑使用的冻结配置。</summary>
         public FrozenConfigSnapshot Config { get; }
+        /// <summary>从本状态可以请求的出边。</summary>
         public IReadOnlyList<TransitionHandle> OutgoingTransitions => _readOnlyTransitions;
 
         #region Public API
 
         /// <summary>在该工厂所对应节点的编译出边中查找转换，未找到时返回 false。</summary>
+        /// <param name="transitionId">要查找或匹配的出边标识。</param>
+        /// <param name="handle">成功时为可用于后续查询的句柄。</param>
+        /// <returns>工厂上下文中存在该出边并取得句柄时为真。</returns>
         public bool TryGetTransition(TransitionId transitionId, out TransitionHandle handle)
         {
             for (int index = 0; index < _transitions.Length; index++)
@@ -67,22 +77,34 @@ namespace CoCoFlow.Runtime.StateGraph
     /// <summary>定义实例创建 Logic、分配激活记忆以及复制、复位记忆的操作。</summary>
     public interface IStateRuntimeFactory
     {
+        /// <summary>工厂创建的状态逻辑类型。</summary>
         Type LogicType { get; }
+        /// <summary>状态激活时由该工厂分配的记忆类型。</summary>
         Type ActivationMemoryType { get; }
 
         /// <summary>根据节点的冻结配置创建供该实例独占的 Logic，实例启动时会校验类型和对象归属。</summary>
+        /// <param name="context">本次调用使用的状态或帧上下文。</param>
+        /// <returns>与该节点配置对应的状态逻辑实例。</returns>
         StateLogic CreateLogic(StateFactoryContext context);
         /// <summary>为一次激活分配所需的记忆对象，不能返回供其他实例共享的可变记忆。</summary>
+        /// <returns>新的独立激活记忆。</returns>
         StateActivationMemory CreateMemory();
         /// <summary>将源激活的玩法字段复制到目标记忆，供准备候选和确认提交使用。</summary>
+        /// <param name="source">提供原始值的帧或记忆。</param>
+        /// <param name="destination">用于接收复制结果的目标。</param>
         void CopyMemory(StateActivationMemory source, StateActivationMemory destination);
         /// <summary>将该记忆复位为新激活的初始状态，避免复用到上次进入的玩法值。</summary>
+        /// <param name="memory">待重置或计算指纹的激活记忆。</param>
         void ResetMemory(StateActivationMemory memory);
         /// <summary>取得当前激活记忆的语义指纹，供快照对照或恢复检查。</summary>
+        /// <param name="memory">待重置或计算指纹的激活记忆。</param>
+        /// <returns>此份记忆当前内容的语义指纹。</returns>
         ulong GetMemoryFingerprint(StateActivationMemory memory);
     }
 
     /// <summary>用项目提供的创建与复制函数实现特定 Logic 和记忆类型的实例绑定。</summary>
+    /// <typeparam name="TLogic">由工厂创建的状态逻辑类型。</typeparam>
+    /// <typeparam name="TMemory">每次激活使用的状态记忆类型。</typeparam>
     public sealed class StateRuntimeFactory<TLogic, TMemory> : IStateRuntimeFactory
         where TLogic : StateLogic, IStateUpdate
         where TMemory : StateActivationMemory
@@ -93,12 +115,19 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly Action<TMemory> _memoryResetter;
         private readonly Func<TMemory, ulong> _memoryFingerprinter;
 
+        /// <summary>工厂创建的状态逻辑类型。</summary>
         public Type LogicType => typeof(TLogic);
+        /// <summary>状态激活时由该工厂分配的记忆类型。</summary>
         public Type ActivationMemoryType => typeof(TMemory);
 
         #region Public API
 
         /// <summary>保存创建 Logic、分配、复制、复位和计算记忆指纹的委托，缺少任一委托时抛出异常。</summary>
+        /// <param name="logicFactory">为特定状态及其配置创建逻辑的委托。</param>
+        /// <param name="memoryFactory">创建独立激活记忆的委托。</param>
+        /// <param name="memoryCopier">将记忆内容复制到另一份实例的委托。</param>
+        /// <param name="memoryResetter">恢复记忆默认值的委托。</param>
+        /// <param name="memoryFingerprinter">计算记忆语义指纹的委托。</param>
         public StateRuntimeFactory(
             Func<StateFactoryContext, TLogic> logicFactory,
             Func<TMemory> memoryFactory,
@@ -115,16 +144,21 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>根据节点的冻结配置创建供该实例独占的 Logic，实例启动时会校验类型和对象归属。</summary>
+        /// <param name="context">本次调用使用的状态或帧上下文。</param>
+        /// <returns>与该节点配置对应的状态逻辑实例。</returns>
         public StateLogic CreateLogic(StateFactoryContext context) =>
             _logicFactory(context) ??
             throw new InvalidOperationException("A State runtime factory returned null logic.");
 
         /// <summary>为一次激活分配所需的记忆对象，不能返回供其他实例共享的可变记忆。</summary>
+        /// <returns>新的独立激活记忆。</returns>
         public StateActivationMemory CreateMemory() =>
             _memoryFactory() ??
             throw new InvalidOperationException("A State runtime factory returned null memory.");
 
         /// <summary>将源激活的玩法字段复制到目标记忆，供准备候选和确认提交使用。</summary>
+        /// <param name="source">提供原始值的帧或记忆。</param>
+        /// <param name="destination">用于接收复制结果的目标。</param>
         public void CopyMemory(StateActivationMemory source, StateActivationMemory destination)
         {
             if (!(source is TMemory typedSource) || !(destination is TMemory typedDestination))
@@ -136,6 +170,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>将该记忆复位为新激活的初始状态，避免复用到上次进入的玩法值。</summary>
+        /// <param name="memory">待重置或计算指纹的激活记忆。</param>
         public void ResetMemory(StateActivationMemory memory)
         {
             if (!(memory is TMemory typedMemory))
@@ -147,6 +182,8 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>取得当前激活记忆的语义指纹，供快照对照或恢复检查。</summary>
+        /// <param name="memory">待重置或计算指纹的激活记忆。</param>
+        /// <returns>此份记忆当前内容的语义指纹。</returns>
         public ulong GetMemoryFingerprint(StateActivationMemory memory)
         {
             if (!(memory is TMemory typedMemory))
@@ -168,13 +205,17 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly Dictionary<StateDescriptorId, IStateRuntimeFactory> _stateFactories;
         private bool _isFrozen;
 
+        /// <summary>这些状态工厂绑定到的已编译图。</summary>
         public CompiledStateGraph Graph => _graph;
+        /// <summary>已经完成冻结时为真。</summary>
         public bool IsFrozen => _isFrozen;
+        /// <summary>编译图要求绑定的状态工厂数量。</summary>
         public int RequiredStateFactoryCount => _requiredStates.Count;
 
         #region Public API
 
         /// <summary>为给定的已编译图建立尚可登记项目工厂的绑定集合。</summary>
+        /// <param name="graph">本次绑定的已编译图。</param>
         public StateGraphLogicBindingsBuilder(CompiledStateGraph graph)
         {
             _graph = graph ?? throw new ArgumentNullException(nameof(graph));
@@ -183,6 +224,10 @@ namespace CoCoFlow.Runtime.StateGraph
             CollectRequirements(graph, _requiredStates);
         }
         /// <summary>为已编译图中的描述符绑定 Logic 和记忆工厂，类型不匹配或重复绑定时返回 false 和诊断。</summary>
+        /// <param name="descriptorId">需要绑定工厂的状态描述标识。</param>
+        /// <param name="factory">创建并维护该状态逻辑和激活记忆的工厂。</param>
+        /// <param name="diagnostic">失败原因，成功时为无诊断。</param>
+        /// <returns>工厂与描述匹配并在冻结前完成绑定时为真。</returns>
         public bool TryBindState(
             StateDescriptorId descriptorId,
             IStateRuntimeFactory factory,
@@ -225,6 +270,9 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>验证节点的运行绑定是否齐全，成功生成只读绑定，缺项时返回 false 和诊断。</summary>
+        /// <param name="bindings">成功时为绑定到该编译图的冻结工厂集合。</param>
+        /// <param name="diagnostic">失败原因，成功时为无诊断。</param>
+        /// <returns>所需工厂均已绑定并成功冻结时为真。</returns>
         public bool TryFreeze(
             out StateGraphLogicBindings bindings,
             out CoCoDiagnostic diagnostic)
@@ -303,7 +351,9 @@ namespace CoCoFlow.Runtime.StateGraph
     {
         private readonly Dictionary<StateDescriptorId, IStateRuntimeFactory> _stateFactories;
 
+        /// <summary>这些状态工厂绑定到的已编译图。</summary>
         public CompiledStateGraph Graph { get; }
+        /// <summary>冻结的状态工厂数量。</summary>
         public int StateFactoryCount => _stateFactories.Count;
 
         #region Internal Logic

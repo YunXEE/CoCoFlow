@@ -150,9 +150,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             GraphInstanceId other = Ids.GraphInstance(1002UL);
             StateGraphLogicBindings bindings = definition.CreateBindings(new SafetyControl());
             OperationFrame wrongFrame = definition.CreateOperationFrame(other);
-            ActorClock expectedClock = definition.CreateClock(expected);
+            InstanceClock expectedClock = definition.CreateClock(expected);
 
-            Assert.IsFalse(StateGraphRuntime.TryCreate(
+            Assert.IsFalse(StateGraphInstance.TryCreate(
                 definition.Graph,
                 expected,
                 bindings,
@@ -163,8 +163,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(frameDiagnostic.IsError);
 
             OperationFrame expectedFrame = definition.CreateOperationFrame(expected);
-            ActorClock wrongClock = definition.CreateClock(other);
-            Assert.IsFalse(StateGraphRuntime.TryCreate(
+            InstanceClock wrongClock = definition.CreateClock(other);
+            Assert.IsFalse(StateGraphInstance.TryCreate(
                 definition.Graph,
                 expected,
                 bindings,
@@ -182,20 +182,20 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             SafetyDefinition definition = SafetyDefinition.Create(false);
             GraphInstanceId instanceId = Ids.GraphInstance(1101UL);
             StateGraphLogicBindings bindings = definition.CreateBindings(new SafetyControl());
-            ActorClock sharedClock = definition.CreateClock(instanceId);
+            InstanceClock sharedClock = definition.CreateClock(instanceId);
             OperationFrame sharedFrame = definition.CreateOperationFrame(instanceId);
-            Assert.IsTrue(StateGraphRuntime.TryCreate(
+            Assert.IsTrue(StateGraphInstance.TryCreate(
                 definition.Graph,
                 instanceId,
                 bindings,
                 sharedFrame,
                 sharedClock,
-                out StateGraphRuntime first,
+                out StateGraphInstance first,
                 out CoCoDiagnostic firstDiagnostic), firstDiagnostic.Message);
 
             Assert.IsFalse(sharedClock.TryPreviewNext(0.1d, 1d, out _, out _));
             Assert.IsFalse(sharedFrame.TryBegin(Ids.Tick(1UL), out _));
-            Assert.IsFalse(StateGraphRuntime.TryCreate(
+            Assert.IsFalse(StateGraphInstance.TryCreate(
                 definition.Graph,
                 instanceId,
                 bindings,
@@ -203,7 +203,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 sharedClock,
                 out _,
                 out _));
-            Assert.IsFalse(StateGraphRuntime.TryCreate(
+            Assert.IsFalse(StateGraphInstance.TryCreate(
                 definition.Graph,
                 instanceId,
                 bindings,
@@ -297,7 +297,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             SafetySetup setup = SafetySetup.Create(false, new SafetyControl());
             Assert.IsTrue(setup.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
             StagedGraphStep staged = setup.Stage();
-            FieldInfo ownerField = typeof(StateGraphRuntime).GetField(
+            FieldInfo ownerField = typeof(StateGraphInstance).GetField(
                 "_transitionHandleOwner",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(ownerField);
@@ -501,7 +501,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(definition.TryCreateRuntime(
                 Ids.GraphInstance((ulong)kind * 10UL + 1UL),
                 bindings,
-                out StateGraphRuntime first,
+                out StateGraphInstance first,
                 out CoCoDiagnostic firstDiagnostic), firstDiagnostic.Message);
             Assert.IsFalse(definition.TryCreateRuntime(
                 Ids.GraphInstance((ulong)kind * 10UL + 2UL),
@@ -513,11 +513,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private static RuntimeSafetyFixtureMemory ReadCommittedSafetyMemory(
-            StateGraphRuntime runtime,
+            StateGraphInstance runtime,
             int layerIndex,
             StateId stateId)
         {
-            FieldInfo layersField = typeof(StateGraphRuntime).GetField(
+            FieldInfo layersField = typeof(StateGraphInstance).GetField(
                 "_layers",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(layersField);
@@ -560,7 +560,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private sealed class SafetyControl : IRuntimeSafetyFixtureObserver
         {
             public ReentryAction Action;
-            public StateGraphRuntime Runtime;
+            public StateGraphInstance Runtime;
             public RuntimeSafetyFixtureMemory RetainedMemory;
             public bool ReentrantResult;
             public int UpdateCalls;
@@ -648,14 +648,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private sealed class OperationSafetySetup
         {
             private OperationSafetySetup(
-                StateGraphRuntime runtime,
+                StateGraphInstance runtime,
                 OperationHandle<IRuntimeSafetyOperationSection> operationHandle)
             {
                 Runtime = runtime;
                 OperationHandle = operationHandle;
             }
 
-            public StateGraphRuntime Runtime { get; }
+            public StateGraphInstance Runtime { get; }
             public OperationHandle<IRuntimeSafetyOperationSection> OperationHandle { get; }
 
             public static OperationSafetySetup Create(
@@ -700,12 +700,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     new[] { operationRequirement },
                     out OperationFrame operationFrame,
                     out CoCoDiagnostic frameDiagnostic), frameDiagnostic.Message);
-                Assert.IsTrue(ActorClock.TryCreate(
+                Assert.IsTrue(InstanceClock.TryCreate(
                     Ids.Timeline,
                     Ids.ClockDomain,
                     new TimelineEpoch(1UL),
                     graphInstanceId,
-                    out ActorClock clock,
+                    out InstanceClock clock,
                     out CoCoDiagnostic clockDiagnostic), clockDiagnostic.Message);
 
                 var bindingsBuilder = new StateGraphLogicBindingsBuilder(graph);
@@ -724,13 +724,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.IsTrue(bindingsBuilder.TryFreeze(
                     out StateGraphLogicBindings bindings,
                     out CoCoDiagnostic bindingsDiagnostic), bindingsDiagnostic.Message);
-                Assert.IsTrue(StateGraphRuntime.TryCreate(
+                Assert.IsTrue(StateGraphInstance.TryCreate(
                     graph,
                     graphInstanceId,
                     bindings,
                     operationFrame,
                     clock,
-                    out StateGraphRuntime runtime,
+                    out StateGraphInstance runtime,
                     out CoCoDiagnostic runtimeDiagnostic), runtimeDiagnostic.Message);
                 return new OperationSafetySetup(runtime, operationHandle);
             }
@@ -871,12 +871,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         /// <summary>将测试图、工厂和运行实例组合成可操作的安全用例。</summary>
         private sealed class SafetySetup
         {
-            private SafetySetup(StateGraphRuntime runtime)
+            private SafetySetup(StateGraphInstance runtime)
             {
                 Runtime = runtime;
             }
 
-            public StateGraphRuntime Runtime { get; }
+            public StateGraphInstance Runtime { get; }
 
             public static SafetySetup Create(bool withTransitions, SafetyControl control)
             {
@@ -885,7 +885,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.IsTrue(definition.TryCreateRuntime(
                     Ids.GraphInstance(9001UL + (withTransitions ? 1UL : 0UL)),
                     bindings,
-                    out StateGraphRuntime runtime,
+                    out StateGraphInstance runtime,
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
                 control.Runtime = runtime;
                 return new SafetySetup(runtime);
@@ -954,9 +954,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public bool TryCreateRuntime(
                 GraphInstanceId graphInstanceId,
                 StateGraphLogicBindings bindings,
-                out StateGraphRuntime runtime,
+                out StateGraphInstance runtime,
                 out CoCoDiagnostic diagnostic) =>
-                StateGraphRuntime.TryCreate(
+                StateGraphInstance.TryCreate(
                     Graph,
                     graphInstanceId,
                     bindings,
@@ -981,14 +981,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return frame;
             }
 
-            public ActorClock CreateClock(GraphInstanceId graphInstanceId)
+            public InstanceClock CreateClock(GraphInstanceId graphInstanceId)
             {
-                Assert.IsTrue(ActorClock.TryCreate(
+                Assert.IsTrue(InstanceClock.TryCreate(
                     Ids.Timeline,
                     Ids.ClockDomain,
                     new TimelineEpoch(1UL),
                     graphInstanceId,
-                    out ActorClock clock,
+                    out InstanceClock clock,
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
                 return clock;
             }

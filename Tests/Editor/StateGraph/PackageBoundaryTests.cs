@@ -100,19 +100,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     owners.Add(Path.GetFullPath(path), assembly.name);
                 }
             }
-            foreach (string folder in new[] { "StateGraph", "StateGraphHost" })
+            string graphRoot = Path.Combine(runtime, "StateGraph");
+            Assert.That(Directory.Exists(Path.Combine(runtime, "StateGraphHost")), Is.False);
+            foreach (string path in Directory.EnumerateFiles(graphRoot, "*.cs", SearchOption.AllDirectories))
             {
-                string root = Path.Combine(runtime, folder);
-                foreach (string path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
-                {
-                    string relative = path.Substring(root.Length + 1).Replace('\\', '/');
-                    string group = relative.Split('/')[0];
-                    bool contracts = folder == "StateGraph" &&
-                        (group == "Contracts" || group == "Graph" || group == "State" || group == "Instance" || group == "Temporal");
-                    Assert.That(owners.TryGetValue(path, out string compiled), Is.True, path);
-                    Assert.AreEqual(contracts ? pure : host, compiled, $"{target} {path}");
-                }
+                string relative = path.Substring(graphRoot.Length + 1).Replace('\\', '/');
+                string group = relative.Split('/')[0];
+                bool contracts = group == "Contracts" || group == "Graph" || group == "State" ||
+                                 group == "Instance" || group == "Temporal";
+                Assert.That(owners.TryGetValue(path, out string compiled), Is.True, path);
+                Assert.AreEqual(contracts ? pure : host, compiled, $"{target} {path}");
             }
+            Assert.AreEqual(host, owners[Path.Combine(graphRoot, "StateGraphHost.cs")]);
+            Assert.AreEqual(pure, owners[Path.Combine(graphRoot, "Instance", "StateGraphInstance.cs")]);
         }
 
         /// <summary>枚举友元声明并对照包内允许使用内部入口的消费者清单。</summary>
@@ -193,7 +193,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void CallbacksUseScopedReadersAndTransitionRequests()
         {
-            CheckFields(typeof(StateExecutionContext), typeof(IStateTransitionRequests), typeof(StateGraphRuntime));
+            CheckFields(typeof(StateExecutionContext), typeof(IStateTransitionRequests), typeof(StateGraphInstance));
             CheckFields(typeof(StateEventBatch<int>), typeof(IStateEventBatchReader<int>), typeof(StateEventLane<int>));
             CheckFields(typeof(ContextFrameReadView), typeof(ICommittedContextReadSource), typeof(ContextFrame));
             CheckFields(typeof(StagedOperationFrame), typeof(IStagedOperationReader), typeof(FinalizedOperationFrame));

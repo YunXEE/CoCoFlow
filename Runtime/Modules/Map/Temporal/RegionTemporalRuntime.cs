@@ -26,7 +26,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         private int count;
         private bool isPreviewing;
         private bool projectionPrepared;
-        private ContextRestoreApplyKind preparedApplyKind;
+        private HostRestoreKind preparedApplyKind;
         private RegionTemporalFrame preparedProjectionFrame;
         private RegionRuntime.RegionTemporalBarrier previewBarrier;
         private RegionRuntime.RegionTemporalBarrier correctionBarrier;
@@ -102,7 +102,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         internal bool TryPrepareForwardCapture(
-            in TemporalFrameInfo candidate,
+            in HostHistoryFrame candidate,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryRequireIdle(out diagnostic) ||
@@ -181,7 +181,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         internal bool TryPrepareAuthorityReset(
-            in TemporalFrameInfo targetAuthority,
+            in HostHistoryFrame targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryRequireIdle(out diagnostic) ||
@@ -293,21 +293,21 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         internal bool TryPrepareProjection(
-            ContextRestoreApplyKind applyKind,
+            HostRestoreKind applyKind,
             int historyDepth,
-            in TemporalFrameInfo source,
+            in HostHistoryFrame source,
             in TickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
             bool standaloneCorrection =
-                applyKind == ContextRestoreApplyKind.Correction &&
+                applyKind == HostRestoreKind.Correction &&
                 !isPreviewing;
             if (isDisposed ||
                 projectionPrepared ||
                 !source.IsValid ||
                 !targetTickFrame.IsValid ||
-                (applyKind != ContextRestoreApplyKind.Correction &&
+                (applyKind != HostRestoreKind.Correction &&
                  !isPreviewing) ||
                 (isPreviewing && previewBarrier == null) ||
                 (standaloneCorrection &&
@@ -332,7 +332,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
 
             RegionTemporalFrame frame = null;
-            if (applyKind == ContextRestoreApplyKind.Correction)
+            if (applyKind == HostRestoreKind.Correction)
             {
                 if (!TryCaptureCommittedFrame(
                         source,
@@ -370,7 +370,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         internal bool TryApplyPreparedAvailabilityBarrier(
-            ContextRestoreApplyKind applyKind,
+            HostRestoreKind applyKind,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
@@ -419,7 +419,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         internal bool TryPrepareBranchCapture(
             int historyDepth,
-            in TemporalFrameInfo branchHead,
+            in HostHistoryFrame branchHead,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryRequireIdle(out diagnostic) ||
@@ -476,7 +476,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         internal void CompletePreviewNoFail(
-            ContextRestoreApplyKind applyKind)
+            HostRestoreKind applyKind)
         {
             if (isDisposed) return;
 
@@ -545,7 +545,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         private bool TryCaptureCommittedFrame(
-            in TemporalFrameInfo frameInfo,
+            in HostHistoryFrame frameInfo,
             out RegionTemporalFrame frame,
             out CoCoDiagnostic diagnostic)
         {
@@ -1261,7 +1261,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         private sealed class RegionTemporalFrame
         {
             internal RegionTemporalFrame(
-                TemporalFrameInfo info,
+                HostHistoryFrame info,
                 IList<RegionTemporalRegionState> regions)
             {
                 Info = info;
@@ -1272,11 +1272,11 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                             regions).ToArray());
             }
 
-            internal TemporalFrameInfo Info { get; }
+            internal HostHistoryFrame Info { get; }
             internal IReadOnlyList<RegionTemporalRegionState> Regions { get; }
 
             internal RegionTemporalFrame WithFrameInfo(
-                TemporalFrameInfo info) =>
+                HostHistoryFrame info) =>
                 new RegionTemporalFrame(
                     info,
                     new List<RegionTemporalRegionState>(Regions));

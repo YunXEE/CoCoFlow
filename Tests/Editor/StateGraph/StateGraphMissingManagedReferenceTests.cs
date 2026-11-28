@@ -58,8 +58,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset reloaded = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
 
             Assert.IsTrue(SerializationUtility.HasManagedReferencesWithMissingTypes(reloaded));
-            StateGraphAssetCompileResult result =
-                new StateGraphAssetCompiler(new StateGraphCompilationCache())
+            GraphAssetCompileResult result =
+                new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(reloaded, StateGraphTestFactory.CreateCatalog(false));
 
             Assert.IsFalse(result.Succeeded);
@@ -128,8 +128,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             ManagedReferenceMissingType[] missing =
                 SerializationUtility.GetManagedReferencesWithMissingTypes(reloaded);
             Assert.AreEqual(2, missing.Length);
-            StateGraphAssetCompileResult result =
-                new StateGraphAssetCompiler(new StateGraphCompilationCache())
+            GraphAssetCompileResult result =
+                new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(reloaded, StateGraphTestFactory.CreateCatalog(false));
 
             GraphDiagnostic[] missingTypeErrors = result.Diagnostics.Where(diagnostic =>

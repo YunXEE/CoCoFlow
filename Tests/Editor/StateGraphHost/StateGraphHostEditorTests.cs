@@ -59,9 +59,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
     }
 
     internal sealed class EditorHostRecoveryOperatorComponent : EditorHostOperatorComponent,
-        IPersistenceRestoreOperator, ITemporalRestoreOperator
+        IHostPersistenceRestoreOperator, IHostTemporalRestoreOperator
     {
-        public bool TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+        public bool TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -86,10 +86,10 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
     /// <summary>普通 Restore 节点：只实现基础契约，不可作为链中游。</summary>
     internal sealed class EditorRestoreNodeComponent :
         MonoBehaviour,
-        IContextRestoreBinding
+        IHostRestoreBinding
     {
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
@@ -100,15 +100,15 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
     /// <summary>装饰器节点：实现契约 + downstream seam（可作链中游）。</summary>
     internal sealed class EditorRestoreDecoratorComponent :
         MonoBehaviour,
-        IContextRestoreBinding,
-        ITemporalDecoratorBinding
+        IHostRestoreBinding,
+        IHostRestoreDecorator
     {
         [SerializeField] private MonoBehaviour downstreamRestoreBinding;
 
         public MonoBehaviour DownstreamRestoreBinding => downstreamRestoreBinding;
 
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
@@ -231,10 +231,10 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         [Test]
         public void TemporalSnapshotPreservesLogicalDepthOrderAndUsage()
         {
-            TemporalFrameInfo newest = CreateTemporalFrame(1UL, 12UL, 3UL);
-            TemporalFrameInfo middle = CreateTemporalFrame(1UL, 11UL, 2UL);
-            TemporalFrameInfo oldest = CreateTemporalFrame(1UL, 10UL, 1UL);
-            StateGraphHostTemporalDebugSnapshot snapshot =
+            HostHistoryFrame newest = CreateTemporalFrame(1UL, 12UL, 3UL);
+            HostHistoryFrame middle = CreateTemporalFrame(1UL, 11UL, 2UL);
+            HostHistoryFrame oldest = CreateTemporalFrame(1UL, 10UL, 1UL);
+            HostHistoryDebugSnapshot snapshot =
                 CreateTemporalSnapshot(5, newest, middle, oldest);
 
             Assert.That(snapshot.Capacity, Is.EqualTo(5));
@@ -248,7 +248,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         public void RejectedRefreshRetainsLastTemporalSnapshotAsStale()
         {
             StateGraphHost host = CreateHost("Debugger");
-            StateGraphHostTemporalDebugSnapshot committed =
+            HostHistoryDebugSnapshot committed =
                 CreateTemporalSnapshot(
                     4,
                     CreateTemporalFrame(1UL, 4UL, 4UL));
@@ -290,8 +290,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         [Test]
         public void PersistedFrameMatchesOnlyItsExactRingFrame()
         {
-            TemporalFrameInfo newest = CreateTemporalFrame(1UL, 8UL, 8UL);
-            TemporalFrameInfo persisted = CreateTemporalFrame(1UL, 7UL, 7UL);
+            HostHistoryFrame newest = CreateTemporalFrame(1UL, 8UL, 8UL);
+            HostHistoryFrame persisted = CreateTemporalFrame(1UL, 7UL, 7UL);
             var state = new StateGraphHostDebuggerState();
             state.SeedSnapshotForTests(CreateTemporalSnapshot(
                 4,
@@ -980,18 +980,18 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             return gameObject;
         }
 
-        private static StateGraphHostTemporalDebugSnapshot
+        private static HostHistoryDebugSnapshot
             CreateTemporalSnapshot(
                 int capacity,
-                params TemporalFrameInfo[] frames)
+                params HostHistoryFrame[] frames)
         {
-            return new StateGraphHostTemporalDebugSnapshot(
+            return new HostHistoryDebugSnapshot(
                 null,
                 capacity,
                 frames);
         }
 
-        private static TemporalFrameInfo CreateTemporalFrame(
+        private static HostHistoryFrame CreateTemporalFrame(
             ulong graphInstance,
             ulong tick,
             ulong revision)
@@ -1030,11 +1030,10 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                     out CoCoDiagnostic diagnostic),
                 Is.True,
                 diagnostic.Message);
-            return new TemporalFrameInfo(
-                graphInstanceId,
-                tickFrame,
-                new ContextRevision(revision),
-                ContextFrameOrigin.Commit());
+            // 编辑器种子使用合成帧。实际项目通过 Host 读取这份元数据。
+            return (HostHistoryFrame)Activator.CreateInstance(typeof(HostHistoryFrame),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                null, new object[] { graphInstanceId, tickFrame, new ContextRevision(revision), ContextFrameOrigin.Commit() }, null);
         }
     }
 }

@@ -34,14 +34,14 @@ namespace CoCoFlow.CI
     internal sealed class ExternalOperator : IOperator
     {
         [OperatorDefinition]
-        private static StandardOperatorDefinition Define => Definition(default, default, default, default, default);
+        private static HostOperatorDefinition Define => Definition(default, default, default, default, default);
 
         OperatorDescriptor IOperator.Descriptor => Define.Descriptor;
 
-        private static StandardOperatorDefinition Definition(OperatorId id,
+        private static HostOperatorDefinition Definition(OperatorId id,
             StateBlockId block, StateSlotId slot, EventTypeId type, EventDomainId domain)
         {
-            var builder = new StandardOperatorBuilder();
+            var builder = new HostOperatorBuilder();
             OperationRequirement operation = builder.Require<IExternalOperation>();
             builder.OwnOutcome(block, slot, ContextProjection.Temporal, ContextRestorePolicy.Stored, 0, 1);
             EventOutboxRequirement output = builder.Emit<int>(type, domain, 98);
@@ -58,6 +58,50 @@ namespace CoCoFlow.CI
             bool byId = context.TryWriteOutcome(default(StateSlotId), in value);
             outcome = default;
             return found && bySlot && byId;
+        }
+    }
+
+    /// <summary>项目声明双来源整数输入，分别为每个 Host 创建归并器。</summary>
+    internal sealed class ExternalTwoSources : HostIntentRegistration<int, ExternalReducer, ExternalReducerFactory>
+    {
+        public ExternalTwoSources() : base(CreateId(), 2, 902) { }
+
+        private static IntentId CreateId()
+        {
+            IntentId.TryCreate(901, 902, out var id);
+            return id;
+        }
+    }
+
+    internal struct ExternalReducer : IIntentReducer<int>
+    {
+        public int Reduce(in int current, in int candidate) => current + candidate;
+    }
+
+    internal sealed class ExternalReducerFactory : IIntentReducerFactory<int, ExternalReducer>
+    {
+        public ExternalReducer Create(GraphInstanceId graphInstanceId) => default;
+    }
+
+    /// <summary>项目可在不同恢复入口同步读取同一个类型化槽。</summary>
+    internal sealed class ExternalRestore : MonoBehaviour, IHostRestoreBinding, IHostPersistenceRestoreOperator, IHostTemporalRestoreOperator
+    {
+        public OperatorDescriptor Descriptor { get; private set; }
+        public bool TryExecute(in OperatorExecutionContext context, out OperatorOutcome outcome)
+        {
+            outcome = default;
+            return true;
+        }
+
+        public bool TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic) =>
+            TryApply(context, out diagnostic);
+
+        public bool TryApply(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
+        {
+            HostRestoreKind operation = context.ApplyKind;
+            HostRestoreReader reader = context.Reader;
+            diagnostic = CoCoDiagnostic.None;
+            return reader.TryRead(default(StateSlotId), out int value);
         }
     }
 
@@ -102,7 +146,9 @@ namespace CoCoFlow.CI
             bool confirmed = host.TryConfirmTemporalRestore(out _);
             bool cancelled = host.TryCancelTemporalPreview(out _);
             bool corrected = host.TryCorrectWorld(out _);
-            TemporalState state = host.TemporalState;
+            HostHistoryState state = host.TemporalState;
+            HostHistoryMode mode = state.Mode;
+            HostHistoryFrame preview = state.Preview;
             int capacity = host.TemporalHistoryCapacity;
             bool requiresCorrection = host.RequiresWorldCorrection;
             bool valid = host.TryValidateRestore(host.CurrentContext, default, out ContextCommitStatus _);
@@ -127,10 +173,10 @@ namespace CoCoFlow.CI
 
         internal static void Provider(IReadOnlyList<Assembly> assemblies)
         {
-            StandardBindingProvider standard = StandardBindingProvider.Build(assemblies);
-            StandardBindingProvider discovered = StandardBindingProvider.BuildForAssemblyOf<ExternalState>();
+            HostBindingProvider standard = HostBindingProvider.Build(assemblies);
+            HostBindingProvider discovered = HostBindingProvider.BuildForAssemblyOf<ExternalState>();
             GraphDescriptorCatalog catalog = standard.Catalog;
-            bool installed = StateGraphProjectBindings.TryInstall(standard, out _);
+            bool installed = HostProjectBindings.TryInstall(standard, out _);
         }
     }
 }

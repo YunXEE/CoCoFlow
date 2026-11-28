@@ -60,7 +60,7 @@ namespace CoCoFlow.Editor.StateGraphHost
     internal readonly struct DebuggerPersistedFrame
     {
         internal DebuggerPersistedFrame(
-            TemporalFrameInfo frame,
+            HostHistoryFrame frame,
             int slotIndex,
             DateTimeOffset updatedUtc)
         {
@@ -69,7 +69,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             UpdatedUtc = updatedUtc;
         }
 
-        internal TemporalFrameInfo Frame { get; }
+        internal HostHistoryFrame Frame { get; }
         internal int SlotIndex { get; }
         internal DateTimeOffset UpdatedUtc { get; }
         internal bool IsValid => Frame.IsValid && SlotIndex >= 0;
@@ -87,7 +87,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private readonly Dictionary<StateId, string> _stateNames =
             new Dictionary<StateId, string>();
 
-        private StateGraphHostTemporalDebugSnapshot _snapshot;
+        private HostHistoryDebugSnapshot _snapshot;
         private CoCoDiagnostic _lastRefreshDiagnostic;
         private DebuggerPersistedFrame _persistedFrame;
         private string _persistenceFailure = string.Empty;
@@ -97,7 +97,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private int _selectedDepth;
         private StateGraphAsset _namesAsset;
 
-        internal StateGraphHostTemporalDebugSnapshot Snapshot => _snapshot;
+        internal HostHistoryDebugSnapshot Snapshot => _snapshot;
         internal DebuggerSnapshotFreshness Freshness => _freshness;
         internal CoCoDiagnostic LastRefreshDiagnostic => _lastRefreshDiagnostic;
         internal bool HasPersistedFrame => _persistedFrame.IsValid;
@@ -136,7 +136,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
 
             if (host.TryCaptureTemporalDebugSnapshot(
-                    out StateGraphHostTemporalDebugSnapshot snapshot,
+                    out HostHistoryDebugSnapshot snapshot,
                     out CoCoDiagnostic diagnostic))
             {
                 _snapshot = snapshot;
@@ -191,7 +191,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             _selectedDepth = Mathf.Clamp(depth, 0, _snapshot.Count - 1);
         }
 
-        internal bool TryGetSelectedFrame(out TemporalFrameInfo frame)
+        internal bool TryGetSelectedFrame(out HostHistoryFrame frame)
         {
             if (_snapshot == null ||
                 _snapshot.Count == 0 ||
@@ -246,7 +246,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         internal List<DebuggerKeyValueRow> BuildSelectedFrameRows()
         {
             var rows = new List<DebuggerKeyValueRow>();
-            if (!TryGetSelectedFrame(out TemporalFrameInfo frame))
+            if (!TryGetSelectedFrame(out HostHistoryFrame frame))
             {
                 return rows;
             }
@@ -309,7 +309,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                  layerIndex < _snapshot.LayerCount;
                  layerIndex++)
             {
-                StateGraphHostDebugLayer layer =
+                HostDebugLayer layer =
                     _snapshot.GetLayer(layerIndex);
                 string layerName = ResolveLayerName(layer.LayerId);
                 string winningTransition = layer.WinningTransitionId.IsValid
@@ -319,7 +319,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                      stateIndex < layer.ActiveStateCount;
                      stateIndex++)
                 {
-                    StateGraphHostDebugActiveState state =
+                    HostDebugActiveState state =
                         layer.GetActiveState(stateIndex);
                     rows.Add(new DebuggerActiveStateRow(
                         layerName,
@@ -335,8 +335,8 @@ namespace CoCoFlow.Editor.StateGraphHost
         }
 
         internal static bool IsSameFrame(
-            in TemporalFrameInfo left,
-            in TemporalFrameInfo right) =>
+            in HostHistoryFrame left,
+            in HostHistoryFrame right) =>
             left.IsValid &&
             right.IsValid &&
             left.GraphInstanceId == right.GraphInstanceId &&
@@ -344,14 +344,14 @@ namespace CoCoFlow.Editor.StateGraphHost
             left.Revision == right.Revision;
 
         internal void SeedSnapshotForTests(
-            StateGraphHostTemporalDebugSnapshot snapshot)
+            HostHistoryDebugSnapshot snapshot)
         {
             _snapshot = snapshot;
             _selectedDepth = 0;
         }
 
         internal void SeedPersistedFrameForTests(
-            TemporalFrameInfo frame,
+            HostHistoryFrame frame,
             int slotIndex,
             DateTimeOffset updatedUtc)
         {

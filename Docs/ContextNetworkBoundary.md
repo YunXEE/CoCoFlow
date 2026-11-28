@@ -130,7 +130,7 @@ Schema 与诊断见
   并记录 Source GraphInstanceId、TimelineEpoch、Tick 与 Revision。
 
 ContextFrame 是唯一可以携带、Retain 与 Restore 的 Actor 提交记录。Graph
-Path/Memory/Activation、ActorClock 与 Claim 的 live cache 只能是它的镜像，或由它唯一
+Path/Memory/Activation、InstanceClock 与 Claim 的 live cache 只能是它的镜像，或由它唯一
 重建，不能形成第二份权威。ContextFrame 只承诺单 Actor 逻辑恢复；它不恢复世界、其他
 Actor，或撤销已经交付给其他 Actor 的 Event 后果。
 
@@ -183,7 +183,7 @@ ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边�
 - 失败路径同时取消 staged Tick，不发布 Event、不消耗最终 EventSequence 或
   OperationSequence，也不产生跨 Actor 副作用；
 - no-fail barrier 内禁止 Callback、分配、容量申请与可失败 Mutation；它一次性交换
-  Context 权威，提交 OperationSequence、Graph Path/Memory/Activation、ActorClock、Claim、
+  Context 权威，提交 OperationSequence、Graph Path/Memory/Activation、InstanceClock、Claim、
   连续 EventSequence range 与 Intent Tick；
 - 真实 Operator Callback 之后失败时，旧 Context 保持权威，Host Fault 并标记
   `RequiresWorldCorrection`；不伪造 Unity 世界回滚。
@@ -360,7 +360,7 @@ Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/His
 普通 ContextFrame `Retain`/`Release` 契约继续有效，只是 Temporal Ring 不使用它。
 
 Preview 只移动非权威游标并调用 Host 的唯一同步
-`IContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
+`IHostRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
 Transition、Operator、Actor capture、Event 或 Trace。Cancel 仅在本次
 会话至少成功完成一次 Preview 投射后通过同一 Binding 重新投射 current authority；
 Begin 后直接 Cancel 不调用 Binding。两条路径都不交换逻辑权威或切换 Epoch。

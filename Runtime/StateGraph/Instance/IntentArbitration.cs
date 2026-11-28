@@ -540,7 +540,7 @@ namespace CoCoFlow.Runtime.StateGraph
     }
 
     /// <summary>保存单实例的来源、归并器及候选输入帧，提交时确认采样游标。</summary>
-    internal sealed class IntentFrameRuntime : IDisposable
+    internal sealed class IntentFrameRuntime : IDisposable, IInboxIntentOwner
     {
         private readonly IntentFrameLayout _layout;
         private readonly IntentFrame _frame;
@@ -575,7 +575,7 @@ namespace CoCoFlow.Runtime.StateGraph
         public bool AreBindingsFrozen => _bindingsFrozen;
         public bool IsCollecting => _arbiter.IsCollecting;
         public bool IsDisposed => _isDisposed;
-        internal bool IsExecutingUserCallback => _isExecutingUserCallback;
+        public bool IsExecutingUserCallback => _isExecutingUserCallback;
         internal bool IsReductionAbortRequested =>
             _disposeRequested || (_inbox != null && _inbox.HasDeferredLifecycle(this));
 
@@ -797,7 +797,7 @@ namespace CoCoFlow.Runtime.StateGraph
             DisposeCore();
         }
 
-        internal bool TryClaimInbox(InstanceInbox inbox)
+        public bool TryClaimInbox(InstanceInbox inbox)
         {
             if (_isDisposed || _isExecutingUserCallback || _arbiter.IsCollecting ||
                 inbox == null || inbox.Owner != GraphInstanceId)
@@ -814,7 +814,7 @@ namespace CoCoFlow.Runtime.StateGraph
             return ReferenceEquals(_inbox, inbox);
         }
 
-        internal void ReleaseInbox(InstanceInbox inbox)
+        public void ReleaseInbox(InstanceInbox inbox)
         {
             if (ReferenceEquals(_inbox, inbox))
             {
@@ -822,7 +822,7 @@ namespace CoCoFlow.Runtime.StateGraph
             }
         }
 
-        internal bool TryResetForTimelineChange()
+        public bool TryResetForTimelineChange()
         {
             if (_isDisposed || _isExecutingUserCallback)
             {

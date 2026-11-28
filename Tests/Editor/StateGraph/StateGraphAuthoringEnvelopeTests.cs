@@ -31,7 +31,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Items = new List<int> { 4, 5, 6 }
             };
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(1, StateGraphFixtureCounters.StateFreezeCalls);
@@ -43,7 +43,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             var config = new TestStateAuthoringConfig { Value = 1 };
 
-            StateGraphAssetCompileResult result = CompileSharedAcrossTwoStates(config);
+            GraphAssetCompileResult result = CompileSharedAcrossTwoStates(config);
 
             Assert.IsTrue(result.Succeeded);
             Assert.AreEqual(2, StateGraphFixtureCounters.StateFreezeCalls);
@@ -60,7 +60,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Second = shared
             };
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -75,7 +75,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Value = new InlineDerived { Value = 7, ExtraValue = 9 }
             };
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -89,7 +89,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             node.Next = node;
             var config = new CyclicConfig { Value = node };
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -106,7 +106,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             StateConfig config = CreateNonSerializedConfig(kind);
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -136,14 +136,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             StateConfig config = CreateForbiddenSerializedConfig(kind);
 
-            StateGraphAssetCompileResult result = Compile(config);
+            GraphAssetCompileResult result = Compile(config);
 
             Assert.IsFalse(result.Succeeded);
             Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
             Assert.IsTrue(HasAuthoringEnvelopeError(result));
         }
 
-        private StateGraphAssetCompileResult Compile(StateConfig config)
+        private GraphAssetCompileResult Compile(StateConfig config)
         {
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             try
@@ -157,7 +157,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     StateGraphTestFactory.StateDescriptorId,
                     config,
                     "State");
-                return new StateGraphAssetCompiler(new StateGraphCompilationCache())
+                return new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(asset, catalog);
             }
             finally
@@ -166,7 +166,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        private StateGraphAssetCompileResult CompileSharedAcrossTwoStates(StateConfig config)
+        private GraphAssetCompileResult CompileSharedAcrossTwoStates(StateConfig config)
         {
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             try
@@ -187,7 +187,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     StateGraphTestFactory.StateDescriptorId,
                     config,
                     "Second");
-                return new StateGraphAssetCompiler(new StateGraphCompilationCache())
+                return new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(asset, catalog);
             }
             finally
@@ -196,7 +196,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
-        private static bool HasAuthoringEnvelopeError(StateGraphAssetCompileResult result) =>
+        private static bool HasAuthoringEnvelopeError(GraphAssetCompileResult result) =>
             result.Diagnostics.Any(diagnostic =>
                 diagnostic.Diagnostic.Code == CoCoDiagnosticCode.InvalidAuthoringDependency &&
                 diagnostic.Location.ElementKind == GraphElementKind.State &&

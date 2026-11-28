@@ -12,9 +12,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
     [MovedFrom(true, sourceClassName: "CoCoMapTemporalBinding")]
     public sealed class MapTemporalBinding :
         MonoBehaviour,
-        IContextRestoreBinding,
-        IStateGraphTemporalParticipant,
-        ITemporalDecoratorBinding
+        IHostRestoreBinding,
+        IHostHistoryParticipant,
+        IHostRestoreDecorator
     {
         [SerializeField] private StateGraphHost stateGraphHost;
         [SerializeField] private MapHost mapHost;
@@ -26,8 +26,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         private RegionRuntime attachedRegionRuntime;
         private bool downstreamWasConfigured;
         private MonoBehaviour attachedDownstreamComponent;
-        private IContextRestoreBinding attachedDownstreamBinding;
-        private IStateGraphTemporalParticipant
+        private IHostRestoreBinding attachedDownstreamBinding;
+        private IHostHistoryParticipant
             attachedDownstreamParticipant;
         private bool downstreamParticipantAttached;
         private bool lifecycleCallbackActive;
@@ -38,7 +38,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         public StateGraphHost StateGraphHost => stateGraphHost;
         public MapHost MapHost => mapHost;
-        MonoBehaviour ITemporalDecoratorBinding
+        MonoBehaviour IHostRestoreDecorator
             .DownstreamRestoreBinding => downstreamRestoreBinding;
 
         public CoCoDiagnostic LastDiagnostic
@@ -55,7 +55,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterRestoreCallback(out diagnostic))
@@ -68,7 +68,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 if (!context.IsValid ||
                     (authorityResetPrepared
                         ? context.ApplyKind !=
-                          ContextRestoreApplyKind.Confirm
+                          HostRestoreKind.Confirm
                         : resetOnlyAttachment ||
                           !runtime.TryApplyPreparedAvailabilityBarrier(
                               context.ApplyKind,
@@ -143,11 +143,12 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             DetachTemporalHostNoFail();
         }
 
-        bool IStateGraphTemporalParticipant.TryAttachTemporalHost(
-            StateGraphHost host,
+        bool IHostHistoryParticipant.TryAttachTemporalHost(
+            Component owner,
             int historyCapacity,
             out CoCoDiagnostic diagnostic)
         {
+            var host = owner as StateGraphHost;
             diagnostic = CoCoDiagnostic.None;
             if (runtime != null ||
                 attachedStateGraphHost != null ||
@@ -166,9 +167,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 mapHost.Runtime == null ||
                 mapHost.Runtime.IsShuttingDown ||
                 mapHost.Runtime.IsDisposed ||
-                !StateGraphHostBoundary.Contains(host, this) ||
-                !TemporalDecoratorChain.TryValidate(
-                    host,
+                !HostComponentBoundary.For(host).Contains(this) ||
+                !HostRestoreChain.TryValidate(HostComponentBoundary.For(host),
                     this,
                     out diagnostic) ||
                 !TryFreezeDownstream(host, out diagnostic))
@@ -261,9 +261,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.IsTemporalParticipantLive(
-            StateGraphHost host)
+        bool IHostHistoryParticipant.IsTemporalParticipantLive(
+            Component owner)
         {
+            var host = owner as StateGraphHost;
             try
             {
                 CoCoDiagnostic diagnostic = CoCoDiagnostic.None;
@@ -297,8 +298,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.TryPrepareForwardCapture(
-            in TemporalFrameInfo candidate,
+        bool IHostHistoryParticipant.TryPrepareForwardCapture(
+            in HostHistoryFrame candidate,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterLifecycleCallback(
@@ -345,7 +346,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .PublishForwardCaptureNoFail()
         {
             if (!TryEnterNoFailLifecycleCallback(
@@ -391,7 +392,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .CancelPreparedCaptureNoFail()
         {
             if (!TryEnterNoFailLifecycleCallback(
@@ -421,8 +422,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.TryPrepareAuthorityReset(
-            in TemporalFrameInfo targetAuthority,
+        bool IHostHistoryParticipant.TryPrepareAuthorityReset(
+            in HostHistoryFrame targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterAuthorityResetCallback(
@@ -489,7 +490,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .CommitPreparedAuthorityResetNoFail()
         {
             if (!authorityResetPrepared ||
@@ -523,7 +524,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .CancelPreparedAuthorityResetNoFail()
         {
             if (!authorityResetPrepared ||
@@ -552,7 +553,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.TryBeginPreview(
+        bool IHostHistoryParticipant.TryBeginPreview(
             int historyCount,
             out CoCoDiagnostic diagnostic)
         {
@@ -577,7 +578,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                         out diagnostic))
                 {
                     CompleteDownstreamPreviewNoFail(
-                        ContextRestoreApplyKind.Cancel);
+                        HostRestoreKind.Cancel);
                     runtime.CancelPreviewStartNoFail();
                     return RecordFailure(diagnostic);
                 }
@@ -589,7 +590,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             catch (Exception exception)
             {
                 CompleteDownstreamPreviewNoFail(
-                    ContextRestoreApplyKind.Cancel);
+                    HostRestoreKind.Cancel);
                 runtime?.CancelPreviewStartNoFail();
                 diagnostic = RegionErrors.TemporalConflict(
                     "Map Temporal Preview start threw: " +
@@ -602,10 +603,10 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.TryPrepareProjection(
-            ContextRestoreApplyKind applyKind,
+        bool IHostHistoryParticipant.TryPrepareProjection(
+            HostRestoreKind applyKind,
             int historyDepth,
-            in TemporalFrameInfo source,
+            in HostHistoryFrame source,
             in TickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
@@ -659,7 +660,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant.FinishProjectionNoFail(
+        void IHostHistoryParticipant.FinishProjectionNoFail(
             bool succeeded)
         {
             if (!TryEnterNoFailLifecycleCallback(
@@ -689,7 +690,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.CanConfirmPreview(
+        bool IHostHistoryParticipant.CanConfirmPreview(
             int historyDepth)
         {
             if (!TryEnterLifecycleCallback(
@@ -730,9 +731,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        bool IStateGraphTemporalParticipant.TryPrepareBranchCapture(
+        bool IHostHistoryParticipant.TryPrepareBranchCapture(
             int historyDepth,
-            in TemporalFrameInfo branchHead,
+            in HostHistoryFrame branchHead,
             out CoCoDiagnostic diagnostic)
         {
             if (!TryEnterLifecycleCallback(
@@ -781,7 +782,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .PublishBranchCaptureNoFail()
         {
             if (!TryEnterNoFailLifecycleCallback(
@@ -827,8 +828,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant.CompletePreviewNoFail(
-            ContextRestoreApplyKind applyKind)
+        void IHostHistoryParticipant.CompletePreviewNoFail(
+            HostRestoreKind applyKind)
         {
             if (!TryEnterNoFailLifecycleCallback(
                     "Preview completion",
@@ -857,7 +858,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .DrainPublishedCleanupNoFail()
         {
             if (!TryEnterPublishedCleanupCallback(
@@ -887,7 +888,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             }
         }
 
-        void IStateGraphTemporalParticipant
+        void IHostHistoryParticipant
             .DetachTemporalHostNoFail()
         {
             DetachTemporalHostNoFail();
@@ -1077,9 +1078,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                    ReferenceEquals(
                        attachedMapHost.Runtime,
                        attachedRegionRuntime) &&
-                   StateGraphHostBoundary.Contains(
-                       attachedStateGraphHost,
-                       this);
+                   HostComponentBoundary.For(attachedStateGraphHost).Contains(this);
         }
 
         private bool TryFreezeDownstream(
@@ -1096,10 +1095,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             if (ReferenceEquals(downstreamRestoreBinding, this) ||
                 downstreamRestoreBinding == null ||
                 !(downstreamRestoreBinding is
-                    IContextRestoreBinding downstream) ||
-                !StateGraphHostBoundary.Contains(
-                    host,
-                    downstreamRestoreBinding))
+                    IHostRestoreBinding downstream) ||
+                !HostComponentBoundary.For(host).Contains(downstreamRestoreBinding))
             {
                 diagnostic = RegionErrors.TemporalConflict(
                     "Downstream Restore Binding must be a different live component inside the same StateGraph Host boundary.");
@@ -1111,7 +1108,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
             attachedDownstreamBinding = downstream;
             attachedDownstreamParticipant =
                 downstreamRestoreBinding as
-                    IStateGraphTemporalParticipant;
+                    IHostHistoryParticipant;
             downstreamParticipantAttached = false;
             diagnostic = CoCoDiagnostic.None;
             return true;
@@ -1155,22 +1152,20 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
                 ReferenceEquals(attachedDownstreamComponent, this) ||
                 ReferenceEquals(attachedDownstreamBinding, null) ||
                 !(attachedDownstreamComponent is
-                    IContextRestoreBinding currentBinding) ||
+                    IHostRestoreBinding currentBinding) ||
                 !ReferenceEquals(
                     currentBinding,
                     attachedDownstreamBinding) ||
-                !StateGraphHostBoundary.Contains(
-                    host,
-                    attachedDownstreamComponent))
+                !HostComponentBoundary.For(host).Contains(attachedDownstreamComponent))
             {
                 diagnostic = RegionErrors.TemporalProjection(
                     "The original downstream Restore Binding is no longer live inside the StateGraph Host boundary.");
                 return false;
             }
 
-            IStateGraphTemporalParticipant currentParticipant =
+            IHostHistoryParticipant currentParticipant =
                 attachedDownstreamComponent as
-                    IStateGraphTemporalParticipant;
+                    IHostHistoryParticipant;
             if (!ReferenceEquals(
                     currentParticipant,
                     attachedDownstreamParticipant) ||
@@ -1216,7 +1211,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         private bool TryPrepareDownstreamForwardCapture(
-            in TemporalFrameInfo candidate,
+            in HostHistoryFrame candidate,
             out CoCoDiagnostic diagnostic)
         {
             if (!downstreamParticipantAttached)
@@ -1250,7 +1245,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         private bool TryPrepareDownstreamAuthorityReset(
-            in TemporalFrameInfo targetAuthority,
+            in HostHistoryFrame targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             if (!downstreamParticipantAttached)
@@ -1351,9 +1346,9 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         private bool TryPrepareDownstreamProjection(
-            ContextRestoreApplyKind applyKind,
+            HostRestoreKind applyKind,
             int historyDepth,
-            in TemporalFrameInfo source,
+            in HostHistoryFrame source,
             in TickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
@@ -1391,7 +1386,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
 
         private bool TryPrepareDownstreamBranchCapture(
             int historyDepth,
-            in TemporalFrameInfo branchHead,
+            in HostHistoryFrame branchHead,
             out CoCoDiagnostic diagnostic)
         {
             if (!downstreamParticipantAttached)
@@ -1461,7 +1456,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal
         }
 
         private void CompleteDownstreamPreviewNoFail(
-            ContextRestoreApplyKind applyKind)
+            HostRestoreKind applyKind)
         {
             if (!downstreamParticipantAttached) return;
 

@@ -29,7 +29,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             HostTestLogic.Reset();
             OperatorCommitClaimLogic.Reset();
             OperatorCommitClaimMemoryBinding.Reset();
@@ -48,7 +48,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             HostTestLogic.Reset();
             OperatorCommitClaimLogic.Reset();
             OperatorCommitClaimMemoryBinding.Reset();
@@ -261,7 +261,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
             var provider = new ClaimBindingProvider(ids, mismatchPrimaryClaimDefault: true);
-            Require(StateGraphProjectBindings.TryInstall(
+            Require(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install);
             StateGraphHost host = CreateClaimHost(ids, out GameObject gameObject, 0);
@@ -284,7 +284,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
             var provider = new CodecBindingProvider(ids, CodecBindingMode.ExactCustom);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             StateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
             runtimeOperator.Configure(
@@ -309,7 +309,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
             var provider = new CodecBindingProvider(ids, CodecBindingMode.ExactCustom);
-            Require(StateGraphProjectBindings.TryInstall(
+            Require(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install);
             StateGraphHost host = CreateHost(
@@ -325,17 +325,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetOperators(host, runtimeOperator);
             Require(host.TryStart(out CoCoDiagnostic start), start);
 
-            StateGraphRuntime runtime = GetRuntime(host);
-            StateGraphTransaction transaction = GetTransaction(host);
-            StateGraphTemporalController temporal = GetTemporal(host);
+            StateGraphInstance runtime = GetRuntime(host);
+            HostStepTransaction transaction = GetTransaction(host);
+            HostHistoryController temporal = GetTemporal(host);
             IStateFlowTrace trace = host.Trace;
-            Assert.That(temporal.State.Mode, Is.EqualTo(TemporalMode.Ready));
-            Assert.That(temporal.State.Count, Is.Zero);
+            Assert.That(temporal.Mode, Is.EqualTo(HostHistoryMode.Ready));
+            Assert.That((temporal.History?.Count ?? 0), Is.Zero);
             int historyCountDuringDestroy = -1;
             provider.BoundCodec.EncodeCallback = () =>
             {
                 UnityEngine.Object.DestroyImmediate(gameObject);
-                historyCountDuringDestroy = temporal.State.Count;
+                historyCountDuringDestroy = (temporal.History?.Count ?? 0);
             };
             var listener = new PublishLifecycleListener(host, requestLifecycle: false);
             CoCoEventBus.Subscribe<EventPacket<OperatorCommitEventA>>(listener);
@@ -365,12 +365,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(listener.Order, Is.Empty);
             Assert.That(listener.Sequences, Is.Empty);
             Assert.That(ReadLastEventSequence(transaction), Is.Zero);
-            Assert.That(transaction.CandidateEventCount, Is.Zero);
+            Assert.That(transaction.Outbox.Count, Is.Zero);
             Assert.That(transaction.CurrentContext.IsAlive, Is.False);
             Assert.That(runtime.Clock.Tick.Value, Is.Zero);
             Assert.That(runtime.Lifecycle, Is.EqualTo(RuntimeLifecycleState.Disposed));
-            Assert.That(temporal.State.Mode, Is.EqualTo(TemporalMode.Disabled));
-            Assert.That(temporal.State.Count, Is.Zero);
+            Assert.That(temporal.Mode, Is.EqualTo(HostHistoryMode.Disabled));
+            Assert.That((temporal.History?.Count ?? 0), Is.Zero);
             Assert.That(trace.Count, Is.Zero);
             Assert.That(host == null, Is.True);
             Assert.That(gameObject == null, Is.True);
@@ -383,7 +383,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
             var provider = new CodecBindingProvider(ids, mode);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             StateGraphHost host = CreateHost(ids, out GameObject gameObject);
             var runtimeOperator = gameObject.AddComponent<ContextWritingOperator>();
             runtimeOperator.Configure(
@@ -469,7 +469,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(extraFailure.Code, Is.EqualTo(CoCoDiagnosticCode.MissingOperatorBinding));
             AssertNoProjectFactoryCallbacks();
 
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             InstallClaimProvider(ids);
             StateGraphHost missingHost = CreateClaimHost(ids, out GameObject missingObject, 0);
             var low = missingObject.AddComponent<LowClaimOperator>();
@@ -756,7 +756,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     ReadClaim(changedContext, ids.SecondaryClaimStateSlotId).OwnerOperatorId,
                     Is.EqualTo(ids.SecondOperatorId));
 
-                StateGraphRuntime runtime = GetRuntime(host);
+                StateGraphInstance runtime = GetRuntime(host);
                 TickFrame resumed = CreateResumedTick(changedContext.Header.TickFrame);
                 ulong traceCount = host.Trace.TotalWritten;
                 int lowExecutions = low.ExecuteCount;
@@ -768,7 +768,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore cancelled,
+                    out PreparedHostRestore cancelled,
                     out ContextCommitStatus cancelStatus,
                     out CoCoDiagnostic cancelPrepare), cancelPrepare);
                 Assert.That(cancelStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -793,7 +793,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore committed,
+                    out PreparedHostRestore committed,
                     out ContextCommitStatus commitStatus,
                     out CoCoDiagnostic commitPrepare), commitPrepare);
                 Assert.That(commitStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -1186,7 +1186,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryPrepareRestore(
                 source,
                 resumed,
-                out PreparedActorRestore prepared,
+                out PreparedHostRestore prepared,
                 out ContextCommitStatus restoreStatus,
                 out CoCoDiagnostic prepare), prepare);
             Assert.That(restoreStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -1236,7 +1236,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryPrepareRestore(
                 source,
                 resumed,
-                out PreparedActorRestore prepared,
+                out PreparedHostRestore prepared,
                 out ContextCommitStatus restoreStatus,
                 out CoCoDiagnostic prepare), prepare);
             Assert.That(restoreStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -1437,7 +1437,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryPrepareRestore(
                 source,
                 resumed,
-                out PreparedActorRestore prepared,
+                out PreparedHostRestore prepared,
                 out ContextCommitStatus restoreStatus,
                 out CoCoDiagnostic prepare), prepare);
             Assert.That(restoreStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -1678,7 +1678,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void AnyClaimSurvivesLeafChangeAndRestoresWithOwnActivation()
         {
             OperatorCommitTestIds ids = OperatorCommitTestIds.Create();
-            Require(StateGraphProjectBindings.TryInstall(
+            Require(HostProjectBindings.TryInstall(
                 new ClaimBindingProvider(ids, anyState: true), out CoCoDiagnostic install), install);
             StateGraphAsset asset = CreateClaimGraphAsset(ids);
             asset.Layers[0].AnyState = new StateGraphStateRecord(
@@ -1716,7 +1716,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Assert.That(low.ExecuteCount, Is.EqualTo(3));
                 Assert.That(high.ExecuteCount, Is.Zero);
                 Require(host.TryPrepareRestore(source, CreateResumedTick(host.CurrentContext.Header.TickFrame),
-                    out PreparedActorRestore prepared, out _, out CoCoDiagnostic restore), restore);
+                    out PreparedHostRestore prepared, out _, out CoCoDiagnostic restore), restore);
                 prepared.CommitNoFail();
                 Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.StateId));
                 Assert.That(ReadClaimGraphState(host.CurrentContext, anySlot), Is.EqualTo(sourceAny));
@@ -1828,11 +1828,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private void InstallProvider(OperatorCommitTestIds ids)
         {
             var provider = new OperatorCommitBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
         }
 
         private static bool TryBindPrimaryOperation(
-            StateGraphHostBindingBuilder builder,
+            HostBindingBuilder builder,
             OperatorCommitTestIds ids,
             HostTestDiscreteSectionViewFactory factory,
             out CoCoDiagnostic diagnostic) =>
@@ -1899,7 +1899,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 primaryClaimRestorePolicy,
                 secondaryClaimRestorePolicy,
                 claimProjection);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
         }
 
         private StateGraphHost CreateHost(
@@ -2032,49 +2032,49 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private static SerializedId128 Serialize(TransitionId id) =>
             new SerializedId128(id.High, id.Low);
 
-        private static StateGraphRuntime GetRuntime(StateGraphHost host)
+        private static StateGraphInstance GetRuntime(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
-                "_runtime",
+                "_instance",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphRuntime)field.GetValue(host);
+            return (StateGraphInstance)field.GetValue(host);
         }
 
-        private static StateGraphTransaction GetTransaction(StateGraphHost host)
+        private static HostStepTransaction GetTransaction(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
                 "_transaction",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphTransaction)field.GetValue(host);
+            return (HostStepTransaction)field.GetValue(host);
         }
 
-        private static StateGraphTemporalController GetTemporal(StateGraphHost host)
+        private static HostHistoryController GetTemporal(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
                 "_temporal",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphTemporalController)field.GetValue(host);
+            return (HostHistoryController)field.GetValue(host);
         }
 
-        private static ulong ReadLastEventSequence(StateGraphTransaction transaction)
+        private static ulong ReadLastEventSequence(HostStepTransaction transaction)
         {
-            FieldInfo field = typeof(StateGraphTransaction).GetField(
+            FieldInfo field = typeof(HostStepTransaction).GetField(
                 "_lastEventSequence",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
             return (ulong)field.GetValue(transaction);
         }
 
-        private static StateGraphHostRuntimeBindings GetBindings(StateGraphHost host)
+        private static HostRuntimeBindings GetBindings(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
                 "_bindings",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphHostRuntimeBindings)field.GetValue(host);
+            return (HostRuntimeBindings)field.GetValue(host);
         }
 
         private static OperatorClaimState ReadClaim(
@@ -2151,30 +2151,36 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(OperatorCommitProjectFactoryProbe.MemoryFingerprintCount, Is.Zero);
         }
 
+        private sealed class PreflightPublication : IHostEventPublication
+        {
+            public void BeginCommittedEventPublication() => Assert.Fail("Preflight published an event.");
+            public void EndCommittedEventPublication() => Assert.Fail("Preflight published an event.");
+        }
+
         private static void AssertTransactionPreflightFailure(
             StateGraphHost host,
-            IStateGraphProjectBindingProvider provider,
+            IHostBindingProvider provider,
             CoCoDiagnosticDomain expectedDomain,
             CoCoDiagnosticCode expectedCode)
         {
-            StateGraphAssetCompileResult compileResult =
-                new StateGraphAssetCompiler().Compile(host.StateGraphAsset, provider.Catalog);
+            GraphAssetCompileResult compileResult =
+                new GraphAssetCompiler().Compile(host.StateGraphAsset, provider.Catalog);
             Require(compileResult.Succeeded);
             Require(GraphInstanceId.TryCreate(9001UL, out GraphInstanceId graphInstanceId));
-            var builder = new StateGraphHostBindingBuilder(
+            var builder = new HostBindingBuilder(
                 compileResult.Graph,
                 graphInstanceId,
-                host);
+                HostComponentBoundary.For(host), host.IntentSources);
             Require(provider.TryConfigure(builder, out CoCoDiagnostic configure), configure);
             Require(builder.TryFreeze(
-                out StateGraphHostRuntimeBindings bindings,
+                out HostRuntimeBindings bindings,
                 out CoCoDiagnostic freeze), freeze);
 
-            StateGraphTransaction transaction = null;
+            HostStepTransaction transaction = null;
             try
             {
-                Assert.That(StateGraphTransaction.TryPreflight(
-                    host,
+                Assert.That(HostStepTransaction.TryPreflight(
+                    HostComponentBoundary.For(host), new PreflightPublication(), host.HostContextBinding, host.Operators,
                     compileResult.Graph,
                     graphInstanceId,
                     bindings.ContextLayout,
@@ -2200,7 +2206,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private static class OperatorCommitHostBindingFixture
         {
             public static bool TryBindSingleState(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 OperatorCommitTestIds ids,
                 out CoCoDiagnostic diagnostic)
             {
@@ -2221,13 +2227,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             public static bool TryBindClaimGraph(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 OperatorCommitTestIds ids,
                 out CoCoDiagnostic diagnostic) =>
                 TryBindClaimGraph(builder, ids, false, out diagnostic);
 
             public static bool TryBindClaimGraph(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 OperatorCommitTestIds ids,
                 bool mismatchPrimaryIdentity,
                 out CoCoDiagnostic diagnostic)
@@ -2282,7 +2288,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
-        private sealed class OperatorCommitBindingProvider : IStateGraphProjectBindingProvider
+        private sealed class OperatorCommitBindingProvider : IHostBindingProvider
         {
             private readonly OperatorCommitTestIds _ids;
             private readonly HostTestDiscreteSectionViewFactory _primary =
@@ -2297,7 +2303,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public GraphDescriptorCatalog Catalog { get; }
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 const int defaultValue = 5;
@@ -2396,7 +2402,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             ExtraOnRaw = 3
         }
 
-        private sealed class CodecBindingProvider : IStateGraphProjectBindingProvider
+        private sealed class CodecBindingProvider : IHostBindingProvider
         {
             private readonly OperatorCommitTestIds _ids;
             private readonly CodecBindingMode _mode;
@@ -2430,7 +2436,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public Int32ContextCodec BoundCodec { get; }
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 const int defaultValue = 5;
@@ -2580,12 +2586,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         internal sealed class TemporalCodecRestoreBinding :
             MonoBehaviour,
-            IContextRestoreBinding
+            IHostRestoreBinding
         {
             public TemporalRestoreFixtureFailure Failure { get; set; }
 
             public bool TryApply(
-                in ContextRestoreBindingContext context,
+                in HostRestoreContext context,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!context.IsValid)
@@ -2597,7 +2603,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     return false;
                 }
 
-                if (context.ApplyKind == ContextRestoreApplyKind.Confirm)
+                if (context.ApplyKind == HostRestoreKind.Confirm)
                 {
                     switch (Failure)
                     {
@@ -2636,7 +2642,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return record;
         }
 
-        private sealed class ClaimBindingProvider : IStateGraphProjectBindingProvider
+        private sealed class ClaimBindingProvider : IHostBindingProvider
         {
             private const ulong PrimaryFactoryFingerprint = 5091UL;
             private const ulong SecondaryFactoryFingerprint = 5092UL;
@@ -2674,7 +2680,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public GraphDescriptorCatalog Catalog { get; }
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 if (!builder.TryRegisterOperation(

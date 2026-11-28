@@ -8,12 +8,19 @@ namespace CoCoFlow.Runtime.StateGraph
     /// <summary>区分实例收件箱的配置、运行、暂停、回退与终止阶段。</summary>
     public enum InstanceInboxState
     {
+        /// <summary>尚无指定值。</summary>
         None = 0,
+        /// <summary>已创建，等待启动。</summary>
         Created = 1,
+        /// <summary>已启动并可接收本步工作。</summary>
         Running = 2,
+        /// <summary>已暂停，等待恢复。</summary>
         Suspended = 3,
+        /// <summary>正在回退或恢复时间线。</summary>
         RewindingOrRestoring = 4,
+        /// <summary>已停止运行。</summary>
         Stopped = 5,
+        /// <summary>资源已释放。</summary>
         Disposed = 6
     }
 
@@ -23,13 +30,20 @@ namespace CoCoFlow.Runtime.StateGraph
 
         #region Public API
 
+        /// <summary>此通道登记的事件类型标识。</summary>
         public EventTypeId EventTypeId { get; }
+        /// <summary>通道接收的非托管载荷类型。</summary>
         public Type PayloadType { get; }
+        /// <summary>此存储可接纳的最大条目数。</summary>
         public int Capacity { get; }
+        /// <summary>允许属于同一实例的来源回投此事件时为真。</summary>
         public bool AllowSourceEcho { get; }
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => EventTypeId.IsValid && PayloadType != null && Capacity > 0;
 
         /// <summary>按<c>EventTypeId</c>、<c>PayloadType</c>、<c>Capacity</c>、<c>AllowSourceEcho</c>比较两个值，全部相等时返回 true。</summary>
+        /// <param name="other">待比较的同类值。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public bool Equals(InstanceInboxManifestEntry other)
         {
             return EventTypeId == other.EventTypeId &&
@@ -39,10 +53,13 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>仅当对象属于同类型并且<c>EventTypeId</c>、<c>PayloadType</c>、<c>Capacity</c>、<c>AllowSourceEcho</c>相等时返回 true。</summary>
+        /// <param name="obj">待比较的对象。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public override bool Equals(object obj) =>
             obj is InstanceInboxManifestEntry other && Equals(other);
 
         /// <summary>为哈希集合计算与<c>EventTypeId</c>、<c>PayloadType</c>、<c>Capacity</c>、<c>AllowSourceEcho</c>的相等判定一致的散列值。</summary>
+        /// <returns>与相等判定一致的哈希值。</returns>
         public override int GetHashCode()
         {
             unchecked
@@ -56,11 +73,15 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>比较两端的<c>EventTypeId</c>、<c>PayloadType</c>、<c>Capacity</c>、<c>AllowSourceEcho</c>，相等时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator ==(
             InstanceInboxManifestEntry left,
             InstanceInboxManifestEntry right) => left.Equals(right);
 
         /// <summary>比较两端的<c>EventTypeId</c>、<c>PayloadType</c>、<c>Capacity</c>、<c>AllowSourceEcho</c>，存在差异时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator !=(
             InstanceInboxManifestEntry left,
             InstanceInboxManifestEntry right) => !left.Equals(right);
@@ -85,16 +106,22 @@ namespace CoCoFlow.Runtime.StateGraph
     }
 
     /// <summary>将类型化载荷绑定到所属收件箱的具体通道。</summary>
+    /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
     public readonly struct InstanceInboxLaneHandle<TEvent> :
         IEquatable<InstanceInboxLaneHandle<TEvent>>
         where TEvent : unmanaged
     {
         private readonly InstanceInbox _inbox;
 
+        /// <summary>此收件箱或其通道句柄所属的图实例。</summary>
         public GraphInstanceId Owner { get; }
+        /// <summary>这些事件使用的域标识。</summary>
         public EventDomainId EventDomainId { get; }
+        /// <summary>此通道登记的事件类型标识。</summary>
         public EventTypeId EventTypeId { get; }
+        /// <summary>通道在冻结清单中的零基位置。</summary>
         public int DenseIndex { get; }
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _inbox != null &&
                                Owner.IsValid &&
                                EventDomainId.IsValid &&
@@ -104,6 +131,8 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Public API
 
         /// <summary>按<c>inbox</c>、<c>Owner</c>、<c>EventDomainId</c>、<c>EventTypeId</c>、<c>DenseIndex</c>比较两个值，全部相等时返回 true。</summary>
+        /// <param name="other">待比较的同类值。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public bool Equals(InstanceInboxLaneHandle<TEvent> other)
         {
             return ReferenceEquals(_inbox, other._inbox) &&
@@ -114,10 +143,13 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>仅当对象属于同类型并且<c>inbox</c>、<c>Owner</c>、<c>EventDomainId</c>、<c>EventTypeId</c>、<c>DenseIndex</c>相等时返回 true。</summary>
+        /// <param name="obj">待比较的对象。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public override bool Equals(object obj) =>
             obj is InstanceInboxLaneHandle<TEvent> other && Equals(other);
 
         /// <summary>为哈希集合计算与<c>inbox</c>、<c>Owner</c>、<c>EventDomainId</c>、<c>EventTypeId</c>、<c>DenseIndex</c>的相等判定一致的散列值。</summary>
+        /// <returns>与相等判定一致的哈希值。</returns>
         public override int GetHashCode()
         {
             unchecked
@@ -132,11 +164,15 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>比较两端的<c>inbox</c>、<c>Owner</c>、<c>EventDomainId</c>、<c>EventTypeId</c>、<c>DenseIndex</c>，相等时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator ==(
             InstanceInboxLaneHandle<TEvent> left,
             InstanceInboxLaneHandle<TEvent> right) => left.Equals(right);
 
         /// <summary>比较两端的<c>inbox</c>、<c>Owner</c>、<c>EventDomainId</c>、<c>EventTypeId</c>、<c>DenseIndex</c>，存在差异时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator !=(
             InstanceInboxLaneHandle<TEvent> left,
             InstanceInboxLaneHandle<TEvent> right) => !left.Equals(right);
@@ -166,6 +202,7 @@ namespace CoCoFlow.Runtime.StateGraph
     }
 
     /// <summary>为已封存的那一步提供按序读取的收件快照。</summary>
+    /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
     public readonly struct InstanceInboxSealedBatch<TEvent>
         where TEvent : unmanaged
     {
@@ -173,8 +210,10 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly InstanceInboxLaneHandle<TEvent> _handle;
         private readonly ulong _generation;
 
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _inbox != null &&
                                _inbox.IsSealedBatchCurrent(_handle, _generation);
+        /// <summary>当前可读取的条目数量。</summary>
         public int Count => _inbox?.GetSealedCount(_handle, _generation) ?? 0;
         internal GraphInstanceId Owner => _handle.Owner;
         internal EventDomainId EventDomainId => _handle.EventDomainId;
@@ -183,6 +222,9 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Public API
 
         /// <summary>从创建批次的收件箱读取指定索引的包，代次已改变或索引越界时返回 false。</summary>
+        /// <param name="index">在当前批次中从零开始的索引。</param>
+        /// <param name="packet">成功时为读取的事件包，失败时为默认值。</param>
+        /// <returns>批次代次和索引有效且成功读到事件时为真。</returns>
         public bool TryRead(int index, out EventPacket<TEvent> packet)
         {
             if (_inbox == null)
@@ -217,11 +259,17 @@ namespace CoCoFlow.Runtime.StateGraph
 
         #region Public API
 
+        /// <summary>已接收的事件包总数。</summary>
         public ulong Accepted { get; }
+        /// <summary>已识别为重复的事件包总数。</summary>
         public ulong Duplicate { get; }
+        /// <summary>已拒绝的事件包总数。</summary>
         public ulong Rejected { get; }
+        /// <summary>在回退或恢复时丢弃的事件包总数。</summary>
         public ulong RewindRestoreDropped { get; }
+        /// <summary>因容量耗尽而丢弃的不可靠事件数。</summary>
         public ulong UnreliableOverflowDropped { get; }
+        /// <summary>因可靠事件溢出产生的故障次数。</summary>
         public ulong ReliableOverflowFaults { get; }
 
         #endregion
@@ -247,6 +295,20 @@ namespace CoCoFlow.Runtime.StateGraph
         #endregion
     }
 
+    /// <summary>邮箱在认领、封存和时间线重置时读取输入所有者的状态，并通知它取消采集或释放邮箱。</summary>
+    internal interface IInboxIntentOwner
+    {
+        GraphInstanceId GraphInstanceId { get; }
+        bool AreBindingsFrozen { get; }
+        bool IsCollecting { get; }
+        bool IsDisposed { get; }
+        bool IsExecutingUserCallback { get; }
+        bool TryClaimInbox(InstanceInbox inbox);
+        void ReleaseInbox(InstanceInbox inbox);
+        bool TryResetForTimelineChange();
+        bool CancelCollection();
+    }
+
     /// <summary>按实例和时间线接纳事件，封存后为当前步提供类型化批次。</summary>
     public sealed class InstanceInbox : IDisposable
     {
@@ -262,7 +324,7 @@ namespace CoCoFlow.Runtime.StateGraph
         private bool _requiresNewTimelineEpoch;
         private TimelineEpoch _requiredOwnerTimelineEpoch;
         private bool _hasRequiredOwnerTimelineEpoch;
-        private IntentFrameRuntime _intentRuntime;
+        private IInboxIntentOwner _intentRuntime;
         private InstanceInboxState _deferredLifecycleState;
         private ulong _accepted;
         private ulong _duplicate;
@@ -271,11 +333,17 @@ namespace CoCoFlow.Runtime.StateGraph
         private ulong _unreliableOverflowDropped;
         private ulong _reliableOverflowFaults;
 
+        /// <summary>此收件箱或其通道句柄所属的图实例。</summary>
         public GraphInstanceId Owner { get; }
+        /// <summary>这些事件使用的域标识。</summary>
         public EventDomainId EventDomainId { get; }
+        /// <summary>已注册的接收通道数。</summary>
         public int ManifestCount => _laneCount;
+        /// <summary>本实例收件箱的当前接收阶段。</summary>
         public InstanceInboxState State => _state;
+        /// <summary>至少发生过一次可靠事件溢出时为真。</summary>
         public bool HasReliableOverflowFault => _reliableOverflowFaults != 0UL;
+        /// <summary>查询时的收件、去重、拒绝与溢出计数。</summary>
         public InstanceInboxCounters Counters => new InstanceInboxCounters(
             _accepted,
             _duplicate,
@@ -299,6 +367,11 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Public API
 
         /// <summary>为指定实例和容量分配收件通道及去重存储，容量或实例身份无效时拒绝构造。</summary>
+        /// <param name="owner">拥有此收件箱的图实例。</param>
+        /// <param name="eventDomainId">收件箱接收的事件域。</param>
+        /// <param name="maxEventTypes">允许登记的事件类型数。</param>
+        /// <param name="maxSources">可跟踪的来源数量上限。</param>
+        /// <param name="dedupWindowCapacity">保留用于识别重复事件的记录数。</param>
         public InstanceInbox(
             GraphInstanceId owner,
             EventDomainId eventDomainId,
@@ -340,6 +413,13 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>在启动前登记载荷类型、标识和容量，成功返回此收件箱专用的句柄，冲突或容量不足则返回 false。</summary>
+        /// <param name="eventTypeId">通道的事件类型标识。</param>
+        /// <param name="capacity">要分配的固定容量。</param>
+        /// <param name="allowSourceEcho">是否接受来源实例回投的同类事件。</param>
+        /// <param name="handle">成功时为可用于后续查询的句柄。</param>
+        /// <param name="diagnostic">失败原因，成功时为无诊断。</param>
+        /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
+        /// <returns>创建状态下成功注册了匹配的唯一通道时为真。</returns>
         public bool TryRegisterLane<TEvent>(
             EventTypeId eventTypeId,
             int capacity,
@@ -408,6 +488,9 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>按索引读取这一个收件箱的已注册通道信息，索引越界时返回 false。</summary>
+        /// <param name="denseIndex">清单内从零开始的槽位。</param>
+        /// <param name="entry">成功时为该索引对应的通道声明。</param>
+        /// <returns>索引落在已登记范围并取得声明时为真。</returns>
         public bool TryGetManifestEntry(int denseIndex, out InstanceInboxManifestEntry entry)
         {
             if (denseIndex < 0 || denseIndex >= _laneCount)
@@ -421,6 +504,8 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>在配置阶段结束后启用收件，当前阶段无法启动时返回 false。</summary>
+        /// <param name="diagnostic">失败原因，成功时为无诊断。</param>
+        /// <returns>收件箱已就绪且所有者绑定已冻结时为真。</returns>
         public bool Start(out CoCoDiagnostic diagnostic)
         {
             if (_state != InstanceInboxState.Created ||
@@ -458,6 +543,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>从运行状态暂停收件。不能暂停时返回 false。</summary>
+        /// <returns>从接收状态成功进入暂停时为真。</returns>
         public bool Suspend()
         {
             if (_state != InstanceInboxState.Running ||
@@ -473,6 +559,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>从暂停状态恢复收件。当前阶段不允许恢复时返回 false。</summary>
+        /// <returns>成功恢复收件时为真。</returns>
         public bool Resume()
         {
             if (_state != InstanceInboxState.Suspended ||
@@ -488,6 +575,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>切换到回退或恢复阶段，使普通投递遵守恢复期间的收件限制。</summary>
+        /// <returns>成功清理本代输入并进入回退或恢复状态时为真。</returns>
         public bool BeginRewindOrRestore()
         {
             if (_state != InstanceInboxState.Running ||
@@ -504,6 +592,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>在时间线已切换后清理旧批次与去重记录，重新允许新时间线的投递。</summary>
+        /// <returns>完成时间线重置并可重新收件时为真。</returns>
         public bool ResumeAfterTimelineReset()
         {
             if (!CanResumeAfterTimelineReset ||
@@ -517,6 +606,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>取消进行中的回退或恢复并回到原接收阶段，当前没有恢复操作时返回 false。</summary>
+        /// <returns>取消本次恢复并回到接收状态时为真。</returns>
         public bool CancelRewindOrRestore()
         {
             if (!CanCancelRewindOrRestore ||
@@ -579,6 +669,10 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>将带信封的事件交给匹配的通道，返回结果区分接收、丢弃、阶段或目标不符。</summary>
+        /// <param name="handle">用于定位本次操作对应通道或出边的句柄。</param>
+        /// <param name="packet">当前事件包，包含投递元数据和类型化载荷。</param>
+        /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
+        /// <returns>此事件包的接收、去重、拒绝或溢出结果。</returns>
         public InboxEnqueueResult TryEnqueue<TEvent>(
             InstanceInboxLaneHandle<TEvent> handle,
             in EventPacket<TEvent> packet)
@@ -726,6 +820,8 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>将待收通道封存为给定步的批次，步身份或当前阶段无效时返回 false。</summary>
+        /// <param name="tickFrame">本次封存事件对应的实例时钟。</param>
+        /// <returns>成功为该步封存待处理输入时为真。</returns>
         public bool SealForTick(in TickFrame tickFrame)
         {
             if (_state != InstanceInboxState.Running ||
@@ -765,6 +861,9 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>返回有效句柄的本步封存数，句柄不属于本实例或无法读取时返回零。</summary>
+        /// <param name="handle">用于定位本次操作对应通道或出边的句柄。</param>
+        /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
+        /// <returns>指定通道本步封存的事件数量，句柄无效时为零。</returns>
         public int GetSealedCount<TEvent>(InstanceInboxLaneHandle<TEvent> handle)
             where TEvent : unmanaged
         {
@@ -777,6 +876,11 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>按句柄和索引读取本步封存的包，批次失效或越界时返回 false。</summary>
+        /// <param name="handle">用于定位本次操作对应通道或出边的句柄。</param>
+        /// <param name="index">在当前批次中从零开始的索引。</param>
+        /// <param name="packet">成功时为读取的事件包，失败时为默认值。</param>
+        /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
+        /// <returns>成功从该通道当前封存批次中读取事件时为真。</returns>
         public bool TryReadSealed<TEvent>(
             InstanceInboxLaneHandle<TEvent> handle,
             int index,
@@ -800,6 +904,10 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>返回绑定到本实例本次封存的批次，通道或封存状态无效时返回 false。</summary>
+        /// <param name="handle">用于定位本次操作对应通道或出边的句柄。</param>
+        /// <param name="batch">成功时为该通道本次封存的批次，下一次封存后失效。</param>
+        /// <typeparam name="TEvent">此事件的非托管载荷类型。</typeparam>
+        /// <returns>成功取得该通道当前代次的批次时为真。</returns>
         public bool TryGetSealedBatch<TEvent>(
             InstanceInboxLaneHandle<TEvent> handle,
             out InstanceInboxSealedBatch<TEvent> batch)
@@ -828,7 +936,7 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Internal Logic
 
         internal bool TryBindIntentRuntime(
-            IntentFrameRuntime runtime,
+            IInboxIntentOwner runtime,
             out CoCoDiagnostic diagnostic)
         {
             if (_state != InstanceInboxState.Created ||
@@ -914,7 +1022,7 @@ namespace CoCoFlow.Runtime.StateGraph
                    _lanes[handle.DenseIndex].SealedGeneration == generation;
         }
 
-        internal void OnIntentRuntimeDisposed(IntentFrameRuntime runtime)
+        internal void OnIntentRuntimeDisposed(IInboxIntentOwner runtime)
         {
             if (!ReferenceEquals(_intentRuntime, runtime))
             {
@@ -944,14 +1052,14 @@ namespace CoCoFlow.Runtime.StateGraph
             }
         }
 
-        internal bool HasDeferredLifecycle(IntentFrameRuntime runtime)
+        internal bool HasDeferredLifecycle(IInboxIntentOwner runtime)
         {
             return runtime != null &&
                    ReferenceEquals(_intentRuntime, runtime) &&
                    _deferredLifecycleState != InstanceInboxState.None;
         }
 
-        internal void CompleteDeferredLifecycle(IntentFrameRuntime runtime)
+        internal void CompleteDeferredLifecycle(IInboxIntentOwner runtime)
         {
             if (!HasDeferredLifecycle(runtime) || runtime.IsExecutingUserCallback)
             {
@@ -1184,7 +1292,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
         private void ReleaseIntentRuntimeBinding()
         {
-            IntentFrameRuntime runtime = _intentRuntime;
+            IInboxIntentOwner runtime = _intentRuntime;
             _intentRuntime = null;
             runtime?.ReleaseInbox(this);
         }

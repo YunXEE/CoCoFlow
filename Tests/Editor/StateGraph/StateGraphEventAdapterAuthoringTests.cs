@@ -51,8 +51,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(Serialize(eventTypeId), reloaded.EventAdapterDeclarations[0].EventTypeId);
             Assert.AreEqual(Serialize(intentId), reloaded.EventAdapterDeclarations[0].ProvidedIntentId);
 
-            StateGraphAssetCompileResult result =
-                new StateGraphAssetCompiler(new StateGraphCompilationCache())
+            GraphAssetCompileResult result =
+                new GraphAssetCompiler(new GraphAssetCompilationCache())
                     .Compile(reloaded, CreateCatalog());
 
             Assert.IsTrue(result.Succeeded, JoinDiagnostics(result));
@@ -78,16 +78,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 second.EventAdapterDeclarations.Reverse();
 
                 GraphDescriptorCatalog catalog = CreateCatalog();
-                StateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
-                StateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
+                GraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
+                GraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
 
                 Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
                 Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
 
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
-                StateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
-                StateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
+                GraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
+                GraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
 
                 Assert.IsTrue(firstResult.Succeeded, JoinDiagnostics(firstResult));
                 Assert.IsTrue(secondResult.Succeeded, JoinDiagnostics(secondResult));
@@ -132,16 +132,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 second.EventAdapterDeclarations[2] = unique;
 
                 GraphDescriptorCatalog catalog = CreateCatalog();
-                StateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
-                StateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
+                GraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
+                GraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
 
                 Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
                 Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
 
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
-                StateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
-                StateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
+                GraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
+                GraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
 
                 Assert.AreNotEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
                 Assert.AreEqual(2, FindDiagnosticIndex(
@@ -177,16 +177,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 second.EventAdapterDeclarations.Reverse();
 
                 GraphDescriptorCatalog catalog = CreateCatalog();
-                StateGraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
-                StateGraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
+                GraphAssetSnapshot firstSnapshot = Snapshot(first, catalog);
+                GraphAssetSnapshot secondSnapshot = Snapshot(second, catalog);
 
                 Assert.AreNotEqual(firstSnapshot.ContentFingerprint, secondSnapshot.ContentFingerprint);
                 Assert.AreNotEqual(firstSnapshot.CacheFingerprint, secondSnapshot.CacheFingerprint);
 
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
-                StateGraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
-                StateGraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
+                GraphAssetCompileResult firstResult = compiler.Compile(first, catalog);
+                GraphAssetCompileResult secondResult = compiler.Compile(second, catalog);
 
                 Assert.AreNotEqual(firstResult.ContentFingerprint, secondResult.ContentFingerprint);
                 Assert.AreEqual(1, FindDiagnosticIndex(
@@ -395,16 +395,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Serialize(eventTypeId),
                 Serialize(intentId));
 
-        private static StateGraphAssetSnapshot Snapshot(
+        private static GraphAssetSnapshot Snapshot(
             StateGraphAsset asset,
             GraphDescriptorCatalog catalog) =>
-            StateGraphAssetSnapshotBuilder.Build(
+            GraphAssetSnapshotBuilder.Build(
                 asset,
                 catalog,
-                StateGraphManagedReferenceInspection.Empty);
+                GraphAssetReferenceInspection.Empty);
 
         private static int FindDiagnosticIndex(
-            StateGraphAssetCompileResult result,
+            GraphAssetCompileResult result,
             CoCoDiagnosticCode code)
         {
             GraphDiagnostic diagnostic = result.Diagnostics.Single(candidate =>
@@ -414,7 +414,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return diagnostic.Location.EventAdapterDeclarationIndex;
         }
 
-        private static string JoinDiagnostics(StateGraphAssetCompileResult result) =>
+        private static string JoinDiagnostics(GraphAssetCompileResult result) =>
             string.Join("\n", result.Diagnostics.Select(diagnostic =>
                 $"{diagnostic.Diagnostic.Code}: {diagnostic.Diagnostic.Message} " +
                 $"({diagnostic.Location.ElementKind}/" +

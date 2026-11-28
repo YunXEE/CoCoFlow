@@ -15,7 +15,7 @@ namespace CoCoFlow.Editor.StateGraph
     [InitializeOnLoad]
     internal static class StandardCatalogBootstrap
     {
-        private static StandardBindingProvider _provider;
+        private static HostBindingProvider _provider;
 
         static StandardCatalogBootstrap()
         {
@@ -44,7 +44,7 @@ namespace CoCoFlow.Editor.StateGraph
                     assemblies.Add(assembly);
                 }
 
-                _provider = StandardBindingProvider.Build(assemblies);
+                _provider = HostBindingProvider.Build(assemblies);
             }
             catch (InvalidOperationException)
             {
