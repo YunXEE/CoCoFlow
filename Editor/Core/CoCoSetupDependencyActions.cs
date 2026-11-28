@@ -26,6 +26,8 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
+        #region Manifest Operations
+
         public static ManifestDocument LoadManifest()
         {
             if (!File.Exists(CoCoFlowUtility.ManifestPath))
@@ -163,11 +165,7 @@ namespace CoCoFlow.Editor.Core
                 if (!(registries.Items[registryIndex] is JsonObject registry))
                     continue;
 
-                var isOpenUpm = registry.TryGetString("name", out var name) &&
-                                name == CoCoFlowUtility.OpenUpmRegistryName;
-                isOpenUpm = isOpenUpm || (registry.TryGetString("url", out var url) &&
-                                          url == CoCoFlowUtility.OpenUpmRegistryUrl);
-                if (!isOpenUpm || !registry.TryGetArray("scopes", out var scopes))
+                if (!TryGetOpenUpmScopes(registry, out var scopes))
                     continue;
 
                 for (var scopeIndex = scopes.Items.Count - 1; scopeIndex >= 0; scopeIndex--)
@@ -194,6 +192,36 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
+        internal static bool TryGetOpenUpmScopes(JsonObject registry, out JsonArray scopes)
+        {
+            bool isOpenUpm =
+                (registry.TryGetString("name", out var name) && name == CoCoFlowUtility.OpenUpmRegistryName) ||
+                (registry.TryGetString("url", out var url) && url == CoCoFlowUtility.OpenUpmRegistryUrl);
+            scopes = null;
+            return isOpenUpm && registry.TryGetArray("scopes", out scopes);
+        }
+
+        public static string ReadManifestUniTaskDependency()
+        {
+            try
+            {
+                var root = LoadManifest().Root;
+                if (root.TryGetObject("dependencies", out var dependencies) &&
+                    dependencies.TryGetString(CoCoFlowUtility.UniTaskPackageName, out var dependency))
+                    return dependency;
+            }
+            catch
+            {
+                // manifest 缺失/损坏时按无 UPM 注册处理，交由程序集探测。
+            }
+
+            return null;
+        }
+
+        #endregion
+
+        #region Build Target Defines
+
         /// <summary>
         /// D-02 define 状态机执行（目标集 = active target，D-18）：
         /// UPM 形态 ⇒ 清理遗留手工 UniTask define + versionDefines 唯一权威；
@@ -205,8 +233,8 @@ namespace CoCoFlow.Editor.Core
         {
             string unitaskDependency = ReadManifestUniTaskDependency();
             bool assemblyAvailable = uniTaskInstallSucceeded ||
-                                     IsAssemblyInstalled("UniTask") ||
-                                     IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
+                                     CoCoSetupStatusScanner.IsAssemblyInstalled("UniTask") ||
+                                     CoCoSetupStatusScanner.IsTypeAvailable("Cysharp.Threading.Tasks.UniTask, UniTask");
             var form = CoCoFlowUtility.ClassifyUniTaskForm(
                 !string.IsNullOrEmpty(unitaskDependency),
                 assemblyAvailable);
@@ -254,9 +282,9 @@ namespace CoCoFlow.Editor.Core
 
             string[] defines = CoCoFlowUtility.SelectAvailableSupportDefines(
                 uniTaskUsable,
-                IsDotweenInstalled(),
-                IsAssemblyInstalled("DOTween.Modules"),
-                IsAssemblyInstalled("UniTask.DOTween"));
+                CoCoSetupStatusScanner.IsDotweenInstalled(),
+                CoCoSetupStatusScanner.IsAssemblyInstalled("DOTween.Modules"),
+                CoCoSetupStatusScanner.IsAssemblyInstalled("UniTask.DOTween"));
 
             if (form == CoCoUniTaskInstallForm.UpmRegistered)
             {
@@ -273,23 +301,6 @@ namespace CoCoFlow.Editor.Core
             }
 
             AddDefinesToActiveTarget(defines, log);
-        }
-
-        public static string ReadManifestUniTaskDependency()
-        {
-            try
-            {
-                var root = LoadManifest().Root;
-                if (root.TryGetObject("dependencies", out var dependencies) &&
-                    dependencies.TryGetString(CoCoFlowUtility.UniTaskPackageName, out var dependency))
-                    return dependency;
-            }
-            catch
-            {
-                // manifest 缺失/损坏时按无 UPM 注册处理，交由程序集探测。
-            }
-
-            return null;
         }
 
         private static void AddDefinesToActiveTarget(string[] definesToAdd, MessageCollector log)
@@ -381,6 +392,10 @@ namespace CoCoFlow.Editor.Core
                 .ToList();
         }
 
+        #endregion
+
+        #region Version Comparison
+
         internal static bool IsSemanticVersionLower(string current, string minimum)
         {
             if (!TryParseSemanticVersion(current, out var currentParts) ||
@@ -416,26 +431,6 @@ namespace CoCoFlow.Editor.Core
             return split.Length > 0;
         }
 
-        private static bool IsDotweenInstalled()
-        {
-            return IsAssemblyInstalled("DOTween") ||
-                   IsTypeAvailable("DG.Tweening.Tween, DOTween");
-        }
-
-        private static bool IsAssemblyInstalled(string assemblyName)
-        {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (assembly.GetName().Name == assemblyName)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsTypeAvailable(string assemblyQualifiedTypeName)
-        {
-            return Type.GetType(assemblyQualifiedTypeName, false) != null;
-        }
+        #endregion
     }
 }

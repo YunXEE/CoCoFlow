@@ -31,12 +31,12 @@ namespace CoCoFlow.Editor.Core
         public CoCoSetupModuleCatalog.BilingualText NewtonsoftMessage { get; private set; }
         public CoCoSetupModuleCatalog.BilingualText DotweenMessage { get; private set; }
 
-                public DependencyRowState UniTaskState { get; private set; }
+        public DependencyRowState UniTaskState { get; private set; }
         public DependencyRowState AddressablesState { get; private set; }
         public DependencyRowState NewtonsoftState { get; private set; }
         public DependencyRowState DotweenState { get; private set; }
 
-                public Dictionary<string, List<string>> MissingDefineTargets { get; set; } =
+        public Dictionary<string, List<string>> MissingDefineTargets { get; set; } =
             new Dictionary<string, List<string>>();
 
         public Dictionary<string, bool> AssemblyStates { get; } = new Dictionary<string, bool>();
@@ -56,6 +56,8 @@ namespace CoCoFlow.Editor.Core
         {
             return AssemblyStates.TryGetValue(assembly, out var available) && available;
         }
+
+        #region Dependency Messages
 
         public void UpdateMessages()
         {
@@ -283,6 +285,8 @@ namespace CoCoFlow.Editor.Core
                 DotweenState = DependencyRowState.Warning;
             }
         }
+
+        #endregion
     }
 
     /// <summary>表示 Setup 面板一行依赖检查的状态。</summary>
@@ -297,6 +301,8 @@ namespace CoCoFlow.Editor.Core
     /// <summary>对照实际模块与其依赖生成 Setup 的显示数据。</summary>
     internal static class CoCoSetupStatusScanner
     {
+        #region Status Scan
+
         public static CoCoSetupDependencyStatus BuildStatus()
         {
             var status = new CoCoSetupDependencyStatus();
@@ -374,6 +380,10 @@ namespace CoCoFlow.Editor.Core
             return status;
         }
 
+        #endregion
+
+        #region Build Target Defines
+
         private static List<string> ReadActiveTargetDefineSymbols(
             CoCoSetupDependencyStatus status,
             out bool readable)
@@ -394,7 +404,7 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-                internal static NamedBuildTarget GetActiveNamedBuildTarget()
+        internal static NamedBuildTarget GetActiveNamedBuildTarget()
         {
             var activeTarget = EditorUserBuildSettings.activeBuildTarget;
             var group = BuildPipeline.GetBuildTargetGroup(activeTarget);
@@ -404,7 +414,7 @@ namespace CoCoFlow.Editor.Core
                 EditorUserBuildSettings.standaloneBuildSubtarget);
         }
 
-                internal static NamedBuildTarget ResolveActiveNamedTarget(
+        internal static NamedBuildTarget ResolveActiveNamedTarget(
             BuildTarget activeTarget,
             BuildTargetGroup group,
             StandaloneBuildSubtarget subtarget)
@@ -438,6 +448,10 @@ namespace CoCoFlow.Editor.Core
 
             return result;
         }
+
+        #endregion
+
+        #region Manifest and Assembly Probes
 
         private static void FillAssemblyStates(CoCoSetupDependencyStatus status)
         {
@@ -486,11 +500,7 @@ namespace CoCoFlow.Editor.Core
                 if (!(item is JsonObject registry))
                     continue;
 
-                var isOpenUpm = registry.TryGetString("name", out var name) &&
-                                name == CoCoFlowUtility.OpenUpmRegistryName;
-                isOpenUpm = isOpenUpm || (registry.TryGetString("url", out var url) &&
-                                          url == CoCoFlowUtility.OpenUpmRegistryUrl);
-                if (!isOpenUpm || !registry.TryGetArray("scopes", out var scopes))
+                if (!CoCoSetupDependencyActions.TryGetOpenUpmScopes(registry, out var scopes))
                     continue;
 
                 if (scopes.Items.OfType<JsonString>().Any(scope => scope.Value == CoCoFlowUtility.UniTaskScope))
@@ -500,13 +510,13 @@ namespace CoCoFlow.Editor.Core
             return false;
         }
 
-        private static bool IsDotweenInstalled()
+        internal static bool IsDotweenInstalled()
         {
             return IsAssemblyInstalled("DOTween") ||
                    IsTypeAvailable("DG.Tweening.Tween, DOTween");
         }
 
-        private static bool IsAssemblyInstalled(string assemblyName)
+        internal static bool IsAssemblyInstalled(string assemblyName)
         {
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
@@ -517,9 +527,11 @@ namespace CoCoFlow.Editor.Core
             return false;
         }
 
-        private static bool IsTypeAvailable(string assemblyQualifiedTypeName)
+        internal static bool IsTypeAvailable(string assemblyQualifiedTypeName)
         {
             return Type.GetType(assemblyQualifiedTypeName, false) != null;
         }
+
+        #endregion
     }
 }

@@ -19,14 +19,10 @@ namespace CoCoFlow.Editor.Core
     /// </summary>
     public static class CoCoEditorLocalization
     {
+        #region Public API
+
         /// <summary>EditorPrefs 键。默认 English。</summary>
         public const string LanguagePreferenceKey = "Yunxee.CoCoFlow.Editor.Language";
-
-        private static readonly string[] LanguageNames =
-        {
-            CoCoEditorLanguage.English.ToString(),
-            CoCoEditorLanguage.SimplifiedChinese.ToString()
-        };
 
         /// <summary>当前语言。直接读 EditorPrefs，无缓存，避免域重载后失效。</summary>
         public static CoCoEditorLanguage CurrentLanguage
@@ -42,10 +38,6 @@ namespace CoCoFlow.Editor.Core
                     : CoCoEditorLanguage.English;
             }
         }
-
-        /// <summary>是否中文（私有便捷属性，不在冻结签名表——BUG-044 修正）。</summary>
-        private static bool IsChinese =>
-            CurrentLanguage == CoCoEditorLanguage.SimplifiedChinese;
 
         /// <summary>
         /// 语言变更通知。订阅者须在 OnEnable 订阅、OnDisable 退订（生命周期契约见方案 §3.2）。
@@ -67,5 +59,21 @@ namespace CoCoFlow.Editor.Core
             EditorPrefs.SetString(LanguagePreferenceKey, LanguageNames[(int)language]);
             LanguageChanged?.Invoke();
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static readonly string[] LanguageNames =
+        {
+            CoCoEditorLanguage.English.ToString(),
+            CoCoEditorLanguage.SimplifiedChinese.ToString()
+        };
+
+        /// <summary>是否中文（私有便捷属性，不在冻结签名表——BUG-044 修正）。</summary>
+        private static bool IsChinese =>
+            CurrentLanguage == CoCoEditorLanguage.SimplifiedChinese;
+
+        #endregion
     }
 }

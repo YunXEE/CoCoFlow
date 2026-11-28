@@ -8,126 +8,9 @@ using UnityEngine.UIElements;
 // Logger Console 订阅 CoCoLogEvent，将收到的日志按级别和模块筛选后显示。
 namespace CoCoFlow.Editor.Core
 {
-    /// <summary>按收到的日志保存窗口列表、模块可见性和级别筛选状态。</summary>
-    public sealed class CoCoLoggerWindowData
-    {
-                public const int MaxLogs = 1000;
-
-        private static readonly string[] KnownModules =
-        {
-            "Core", "Camera", "Input", "Map", "Network",
-            "Persistence", "UI", "Widgets", "Panels", "Global"
-        };
-
-        private readonly List<CoCoLogEvent> _logs = new List<CoCoLogEvent>(MaxLogs);
-        private readonly Dictionary<string, bool> _moduleFilters =
-            new Dictionary<string, bool>();
-
-        private List<CoCoLogEvent> _visibleProjection;
-
-                public int TotalCount => _logs.Count;
-
-                public IReadOnlyList<CoCoLogEvent> VisibleEvents
-        {
-            get
-            {
-                if (_visibleProjection == null)
-                {
-                    _visibleProjection = new List<CoCoLogEvent>(_logs.Count);
-                    foreach (var logEvent in _logs)
-                    {
-                        if (IsModuleVisible(logEvent.ModuleName))
-                        {
-                            _visibleProjection.Add(logEvent);
-                        }
-                    }
-                }
-
-                return _visibleProjection;
-            }
-        }
-
-                public IEnumerable<string> ModuleNames => _moduleFilters.Keys;
-
-                public int ModuleCount => _moduleFilters.Count;
-
-        #region Public API
-
-        /// <summary>预先登记包内可筛选的模块，使窗口在尚未收到日志时也能显示其过滤项。</summary>
-        public void PreloadKnownModules()
-        {
-            foreach (var module in KnownModules)
-            {
-                if (!_moduleFilters.ContainsKey(module))
-                {
-                    _moduleFilters[module] = true;
-                }
-            }
-        }
-
-        /// <summary>将收到的日志追加到窗口记录，并登记该日志所用的模块。</summary>
-        public void Add(in CoCoLogEvent logEvent)
-        {
-            if (string.IsNullOrEmpty(logEvent.ModuleName))
-            {
-                if (!_moduleFilters.ContainsKey("Global"))
-                {
-                    _moduleFilters["Global"] = true;
-                }
-            }
-            else if (!_moduleFilters.ContainsKey(logEvent.ModuleName))
-            {
-                _moduleFilters[logEvent.ModuleName] = true;
-            }
-
-            _logs.Add(logEvent);
-            if (_logs.Count > MaxLogs)
-            {
-                _logs.RemoveAt(0);
-            }
-
-            InvalidateProjection();
-        }
-
-        /// <summary>清空窗口当前保存的日志记录。</summary>
-        public void Clear()
-        {
-            _logs.Clear();
-            InvalidateProjection();
-        }
-
-        /// <summary>查询模块在当前窗口筛选中是否可见，用于决定是否绘制该条日志。</summary>
-        public bool IsModuleVisible(string moduleName)
-        {
-            return !_moduleFilters.TryGetValue(moduleName, out bool visible) || visible;
-        }
-
-        /// <summary>将指定模块纳入或排除窗口筛选，供后续刷新使用。</summary>
-        public void SetModuleVisible(string moduleName, bool visible)
-        {
-            if (_moduleFilters.ContainsKey(moduleName))
-            {
-                _moduleFilters[moduleName] = visible;
-                InvalidateProjection();
-            }
-        }
-
-        #endregion
-
-        #region Internal Logic
-
-        private void InvalidateProjection()
-        {
-            _visibleProjection = null;
-        }
-
-        #endregion
-    }
-
     /// <summary>订阅日志事件并绘制 Unity 编辑器中的 Logger Console。</summary>
     public class CoCoLoggerWindow : EditorWindow, ICoCoEventListener<CoCoLogEvent>
     {
-
         #region Public API
 
         /// <summary>从 Unity 菜单打开日志窗口或将已有窗口置前。</summary>
@@ -161,23 +44,6 @@ namespace CoCoFlow.Editor.Core
 
         #region Internal Logic
 
-        private static readonly Dictionary<string, string> ModuleColors =
-            new Dictionary<string, string>
-        {
-            { "Core" , "#FFA500" },
-            { "Camera", "#00FF00" },
-            { "Input", "#00D0FF" },
-            { "Map" , "#808000" },
-            { "Network", "#FF0040" },
-            { "Persistence" , "#FFC0CB" },
-            { "UI", "#0066FF" },
-            { "Widgets", "#0066FF" },
-            { "Panels", "#0066FF" },
-            { "Global", "#CCCCCC" }
-        };
-
-        private const string UnknownModuleColor = "#FFFFFF";
-
         private readonly CoCoLoggerWindowData _data = new CoCoLoggerWindowData();
 
         private bool _autoScroll = true;
@@ -195,15 +61,7 @@ namespace CoCoFlow.Editor.Core
         private bool _pendingRefresh;
         private IVisualElementScheduledItem _scheduledRefresh;
 
-                private static string LevelLabel(CoCoLogLevel level)
-        {
-            switch (level)
-            {
-                case CoCoLogLevel.Warning: return CoCoEditorLocalization.Text("Warning", "警告");
-                case CoCoLogLevel.Error: return CoCoEditorLocalization.Text("Error", "错误");
-                default: return CoCoEditorLocalization.Text("Log", "日志");
-            }
-        }
+        #region Window Lifecycle
 
         private void OnEnable()
         {
@@ -240,6 +98,10 @@ namespace CoCoFlow.Editor.Core
                 RefreshNow();
             }
         }
+
+        #endregion
+
+        #region UI Construction
 
         private void BuildToolbar()
         {
@@ -303,7 +165,7 @@ namespace CoCoFlow.Editor.Core
                     RefreshNow();
                 });
 
-                if (ColorUtility.TryParseHtmlString(GetModuleColor(moduleName), out Color color))
+                if (ColorUtility.TryParseHtmlString(CoCoLoggerWindowData.GetModuleColor(moduleName), out Color color))
                 {
                     toggle.style.color = color;
                 }
@@ -332,7 +194,7 @@ namespace CoCoFlow.Editor.Core
             UpdateEmptyVisibility();
         }
 
-                private void RebuildEmptyState()
+        private void RebuildEmptyState()
         {
             if (_emptyState != null && _emptyState.parent != null)
             {
@@ -395,7 +257,6 @@ namespace CoCoFlow.Editor.Core
             var badgeText = badge.Q<Label>("ccflow-badge-text");
             if (badgeText != null)
             {
-
                 badgeText.text = LevelLabel(logEvent.Level);
             }
 
@@ -403,7 +264,7 @@ namespace CoCoFlow.Editor.Core
 
             var moduleLabel = row.Q<Label>("module-label");
             moduleLabel.text = $"[{logEvent.ModuleName}]";
-            if (ColorUtility.TryParseHtmlString(GetModuleColor(logEvent.ModuleName), out Color color))
+            if (ColorUtility.TryParseHtmlString(CoCoLoggerWindowData.GetModuleColor(logEvent.ModuleName), out Color color))
             {
                 moduleLabel.style.color = color;
             }
@@ -411,6 +272,10 @@ namespace CoCoFlow.Editor.Core
             row.Q<Label>("class-label").text = $"{logEvent.ClassName}:";
             row.Q<Label>("message-label").text = logEvent.Message;
         }
+
+        #endregion
+
+        #region Refresh Scheduling and Display
 
         private void MarkDirty()
         {
@@ -426,7 +291,6 @@ namespace CoCoFlow.Editor.Core
                 _scheduledRefresh = null;
                 if (capturedGeneration != _generation)
                 {
-
                     if (_pendingRefresh && _logList != null)
                     {
                         MarkDirty();
@@ -487,6 +351,10 @@ namespace CoCoFlow.Editor.Core
             _logList.style.display = empty ? DisplayStyle.None : DisplayStyle.Flex;
         }
 
+        #endregion
+
+        #region Localization
+
         private void OnLanguageChanged()
         {
             RebuildLocalizedTexts();
@@ -520,12 +388,17 @@ namespace CoCoFlow.Editor.Core
             UpdateCountLabel();
         }
 
-        private static string GetModuleColor(string moduleName)
+        private static string LevelLabel(CoCoLogLevel level)
         {
-            return ModuleColors.TryGetValue(moduleName, out string color)
-                ? color
-                : UnknownModuleColor;
+            switch (level)
+            {
+                case CoCoLogLevel.Warning: return CoCoEditorLocalization.Text("Warning", "警告");
+                case CoCoLogLevel.Error: return CoCoEditorLocalization.Text("Error", "错误");
+                default: return CoCoEditorLocalization.Text("Log", "日志");
+            }
         }
+
+        #endregion
 
         #endregion
     }
