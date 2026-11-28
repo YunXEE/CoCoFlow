@@ -73,7 +73,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             try
             {
                 Type participantType = Type.GetType(
-                    "CoCoFlow.Tests.Runtime.StateGraphHost.StateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
+                    "CoCoFlow.Tests.StateGraph.StateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
                     true);
                 var downstream =
                     (MonoBehaviour)fixture.Scenario.Root.AddComponent(
@@ -740,7 +740,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             bool withDurableProjection = false)
         {
             Type harnessType = Type.GetType(
-                "CoCoFlow.Tests.Runtime.StateGraphHost.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
+                "CoCoFlow.Tests.StateGraph.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
                 true);
             MethodInfo create = harnessType.GetMethod(
                 "Create",
@@ -767,7 +767,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         private static void ResetStateGraphProjectBindings()
         {
             Type bridgeType = Type.GetType(
-                "CoCoFlow.Tests.Runtime.StateGraphHost.StateGraphHostPoolingTestBridge, CoCoFlow.Tests.Runtime.StateGraphHost",
+                "CoCoFlow.Tests.StateGraph.StateGraphHostPoolingTestBridge, CoCoFlow.Tests.Runtime.StateGraphHost",
                 false);
             MethodInfo reset = bridgeType?.GetMethod(
                 "ResetProjectBindings",

@@ -44,7 +44,7 @@ StateLogic 和 Operator 从框架传入的 `PreviousContext` 读取布局默认�
 
 [Core 消费者](CoreApi.cs)、[纯玩法消费者](GameplayApi.cs) 和 [Unity 消费者](RequiredApi.cs) 分别按允许的引用编译，均无 friend 权限。`python3 .github/ci/check_stateflow_api.py` 由 `CI Static / gate` 执行并定位失效的调用。检查覆盖必需调用的签名、约束和读写能力。负例逐项核对旧标记、输入旧入口、编译器、时钟、写入视图、读帧工厂及直接提交。随包生成器为模式缺失、非法和属性传模式报告 COCOOP001。其 Unity 引用 shim 只用于编译检查。
 
-Unity 的 `DeclarativeGameplayPlayModeTests` 驱动标准 Host，其独立的玩法测试程序集位于 `Tests/Runtime/StateGraphHost/DeclarativeGameplay`。`StandardBindingPlayModeTests` 继续覆盖完整玩家路径和包内 Operator。完整 EditMode 与 PlayMode 由版本分支的 Unity CI 执行。
+Unity 的 `DeclarativeGameplayPlayModeTests` 驱动标准 Host，其独立的玩法测试程序集位于 `Tests/StateGraph/Runtime/DeclarativeGameplay`。`StandardBindingPlayModeTests` 继续覆盖完整玩家路径和包内 Operator。完整 EditMode 与 PlayMode 由版本分支的 Unity CI 执行。
 
 Operation 视图的源码生成器位于 `Tools~/StateFlowGenerator`。修改后以 .NET SDK 执行 `dotnet build Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj -c Release`，将 DLL 放回 `Runtime/StateGraph/Contracts`。`RoslynAnalyzer` 标签让 Unity 将它作为构建工具加载。
 

@@ -6,7 +6,7 @@ using System.Reflection;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Tests.Runtime.StateGraphHost;
+using CoCoFlow.Tests.StateGraph;
 using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;

@@ -14,6 +14,7 @@
         "CoCoFlow.Tests.StateGraphPlayerMetadataSections",
         "CoCoFlow.Tests.StateGraphPlayerMetadataValues",
         "CoCoFlow.Tests.StateGraphTransitiveDependencyAuthor",
+        "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
         "CoCoFlow.Runtime.Input.Contracts"
     ],
     "includePlatforms": [
