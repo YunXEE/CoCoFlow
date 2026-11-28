@@ -16,31 +16,7 @@ namespace CoCoFlow.Editor.StateGraph
     [MovedFrom(true, sourceClassName: "CoCoStateGraphEditorWindow")]
     internal sealed partial class StateGraphEditorWindow : EditorWindow
     {
-        private const string StyleSheetPath =
-            "Packages/com.yunxee.cocoflow/Editor/StateGraph/StateGraphEditor.uss";
-
-        [SerializeField] private StateGraphAsset asset;
-        [SerializeField] private StateGraphAsset stateDraftSource;
-        [SerializeField] private string stateDraftJson;
-
-        private StateGraphEditorController controller;
-        private StateGraphEditorCanvas canvas;
-        private VisualElement headerHost;
-        private VisualElement toolbarHost;
-        private ScrollView tree;
-        private ScrollView details;
-        private VisualElement feedbackHost;
-        private SerializedObject serializedAsset;
-        private StateDescriptorId addStateDescriptorId;
-
-        private string pendingCreateSelectName;
-        private bool awaitingCompilation;
-        private Vector2 contextPosition = new Vector2(80f, 80f);
-
-        private readonly LocalizedTextRegistry texts = new LocalizedTextRegistry();
-
-        private static string L(string english, string chinese) =>
-            CoCoEditorLocalization.Text(english, chinese);
+        #region Public API
 
         [MenuItem("Window/CoCoFlow/State Graph Editor")]
         internal static void OpenWindow()
@@ -68,6 +44,157 @@ namespace CoCoFlow.Editor.StateGraph
         {
             Rebuild();
         }
+
+        public override void SaveChanges()
+        {
+            rootVisualElement.focusController?.focusedElement?.Blur();
+            if (controller == null || controller.SaveStateDraft()) base.SaveChanges();
+        }
+
+        public override void DiscardChanges()
+        {
+            controller?.DiscardStateDraft();
+            base.DiscardChanges();
+        }
+
+        internal bool TryAddStateAtCanvasPosition(Vector2 position)
+        {
+            if (controller == null || !StateGraphAuthoringOperations.CanEdit(out _))
+            {
+                return false;
+            }
+
+            StateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
+            return controller.AddState(
+                default,
+                descriptor,
+                "State",
+                position);
+        }
+
+        internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
+        {
+            if (controller == null || !StateGraphAuthoringOperations.CanEdit(out string failure))
+            {
+                return false;
+            }
+
+            if (!controller.ResolveStateDraft()) return false;
+
+            StateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
+            if (descriptor == null)
+            {
+                ShowNotification(new GUIContent(
+                    L("A State descriptor is required (see Add State card).",
+                        "需要可用的 State 描述符（见「添加 State」卡）。")));
+                return false;
+            }
+
+            if (!StateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out StateConfig containerConfig,
+                    out failure) ||
+                !StateGraphEditorController.TryCreateStateConfig(
+                    descriptor,
+                    out StateConfig childConfig,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            LayerId layerId = controller.Session.SelectedLayerId;
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            if (!StateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    default,
+                    descriptor.DescriptorId,
+                    containerConfig,
+                    "Composite",
+                    position,
+                    out StateId containerId,
+                    out failure) ||
+                !StateGraphAuthoringOperations.TryAddState(
+                    asset,
+                    layerId,
+                    containerId,
+                    descriptor.DescriptorId,
+                    childConfig,
+                    "State",
+                    new Vector2(80f, 80f),
+                    out _,
+                    out failure))
+            {
+                ShowNotification(new GUIContent(failure));
+                return false;
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            controller.SelectState(containerId);
+            return true;
+        }
+
+        internal static bool TryExecuteCanvasAuthoringAction(Action action, out string failure)
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action));
+            }
+
+            if (!StateGraphAuthoringOperations.CanEdit(out failure))
+            {
+                return false;
+            }
+
+            action();
+            failure = string.Empty;
+            return true;
+        }
+
+        internal static string DeleteLayerMessage(StateGraphLayerRecord layer) =>
+            L($"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
+              $"{layer.Transitions.Count} Transition(s)?" + (layer.AnyState == null ? string.Empty :
+                  " The AnyState Logic binding and its Config will also be deleted."),
+              $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
+              $"{layer.Transitions.Count} 个 Transition？" + (layer.AnyState == null ? string.Empty :
+                  " 同时删除 AnyState 的 Logic 绑定及其 Config。"));
+
+        internal static StateId ToStateId(SerializedId128 id)
+        {
+            StateId.TryCreate(id.High, id.Low, out StateId value);
+            return value;
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private const string StyleSheetPath =
+            "Packages/com.yunxee.cocoflow/Editor/StateGraph/StateGraphEditor.uss";
+
+        [SerializeField] private StateGraphAsset asset;
+        [SerializeField] private StateGraphAsset stateDraftSource;
+        [SerializeField] private string stateDraftJson;
+
+        private StateGraphEditorController controller;
+        private StateGraphEditorCanvas canvas;
+        private VisualElement headerHost;
+        private VisualElement toolbarHost;
+        private ScrollView tree;
+        private ScrollView details;
+        private SerializedObject serializedAsset;
+        private StateDescriptorId addStateDescriptorId;
+
+        private string pendingCreateSelectName;
+        private bool awaitingCompilation;
+        private Vector2 contextPosition = new Vector2(80f, 80f);
+
+        private readonly LocalizedTextRegistry texts = new LocalizedTextRegistry();
+
+        private static string L(string english, string chinese) =>
+            CoCoEditorLocalization.Text(english, chinese);
 
         private void OnEnable()
         {
@@ -439,7 +566,7 @@ namespace CoCoFlow.Editor.StateGraph
             slot.Add(layerPopup);
         }
 
-                private void TryPreselectPendingDescriptor()
+        private void TryPreselectPendingDescriptor()
         {
             if (string.IsNullOrEmpty(pendingCreateSelectName))
             {
@@ -458,7 +585,6 @@ namespace CoCoFlow.Editor.StateGraph
                 if (descriptor.LogicType.Name == logicName)
                 {
                     addStateDescriptorId = descriptor.DescriptorId;
-                    RefreshFeedback();
                     Rebuild();
                     return;
                 }
@@ -641,18 +767,6 @@ namespace CoCoFlow.Editor.StateGraph
             return false;
         }
 
-        public override void SaveChanges()
-        {
-            rootVisualElement.focusController?.focusedElement?.Blur();
-            if (controller == null || controller.SaveStateDraft()) base.SaveChanges();
-        }
-
-        public override void DiscardChanges()
-        {
-            controller?.DiscardStateDraft();
-            base.DiscardChanges();
-        }
-
         private void OnPlayModeStateChanged(PlayModeStateChange change)
         {
             RefreshHeader();
@@ -689,7 +803,7 @@ namespace CoCoFlow.Editor.StateGraph
             menu.ShowAsContext();
         }
 
-                private void OnCardContextRequested(SerializedId128 stateId)
+        private void OnCardContextRequested(SerializedId128 stateId)
         {
             if (!StateId.TryCreate(stateId.High, stateId.Low, out StateId id))
             {
@@ -737,108 +851,12 @@ namespace CoCoFlow.Editor.StateGraph
             menu.ShowAsContext();
         }
 
-                internal bool TryAddCompositeAtCanvasPosition(Vector2 position)
-        {
-            if (controller == null || !StateGraphAuthoringOperations.CanEdit(out string failure))
-            {
-                return false;
-            }
-
-            if (!controller.ResolveStateDraft()) return false;
-
-            StateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
-            if (descriptor == null)
-            {
-                ShowNotification(new GUIContent(
-                    L("A State descriptor is required (see Add State card).",
-                        "需要可用的 State 描述符（见「添加 State」卡）。")));
-                return false;
-            }
-
-            if (!StateGraphEditorController.TryCreateStateConfig(
-                    descriptor,
-                    out StateConfig containerConfig,
-                    out failure) ||
-                !StateGraphEditorController.TryCreateStateConfig(
-                    descriptor,
-                    out StateConfig childConfig,
-                    out failure))
-            {
-                ShowNotification(new GUIContent(failure));
-                return false;
-            }
-
-            LayerId layerId = controller.Session.SelectedLayerId;
-            Undo.IncrementCurrentGroup();
-            int undoGroup = Undo.GetCurrentGroup();
-            if (!StateGraphAuthoringOperations.TryAddState(
-                    asset,
-                    layerId,
-                    default,
-                    descriptor.DescriptorId,
-                    containerConfig,
-                    "Composite",
-                    position,
-                    out StateId containerId,
-                    out failure) ||
-                !StateGraphAuthoringOperations.TryAddState(
-                    asset,
-                    layerId,
-                    containerId,
-                    descriptor.DescriptorId,
-                    childConfig,
-                    "State",
-                    new Vector2(80f, 80f),
-                    out _,
-                    out failure))
-            {
-                ShowNotification(new GUIContent(failure));
-                return false;
-            }
-
-            Undo.CollapseUndoOperations(undoGroup);
-            controller.SelectState(containerId);
-            return true;
-        }
-
-        internal bool TryAddStateAtCanvasPosition(Vector2 position)
-        {
-            if (controller == null || !StateGraphAuthoringOperations.CanEdit(out _))
-            {
-                return false;
-            }
-
-            StateDescriptor descriptor = ResolveStateDescriptor(addStateDescriptorId);
-            return controller.AddState(
-                default,
-                descriptor,
-                "State",
-                position);
-        }
-
         private void TryExecuteCanvasAuthoringAction(Action action)
         {
             if (!TryExecuteCanvasAuthoringAction(action, out string failure))
             {
                 ShowNotification(new GUIContent(failure));
             }
-        }
-
-        internal static bool TryExecuteCanvasAuthoringAction(Action action, out string failure)
-        {
-            if (action == null)
-            {
-                throw new ArgumentNullException(nameof(action));
-            }
-
-            if (!StateGraphAuthoringOperations.CanEdit(out failure))
-            {
-                return false;
-            }
-
-            action();
-            failure = string.Empty;
-            return true;
         }
 
         private void DeleteLayer()
@@ -856,14 +874,6 @@ namespace CoCoFlow.Editor.StateGraph
 
             controller.DeleteLayer();
         }
-
-        internal static string DeleteLayerMessage(StateGraphLayerRecord layer) =>
-            L($"Delete '{layer.DisplayName}' with {layer.States.Count} State(s) and " +
-              $"{layer.Transitions.Count} Transition(s)?" + (layer.AnyState == null ? string.Empty :
-                  " The AnyState Logic binding and its Config will also be deleted."),
-              $"删除「{layer.DisplayName}」及其 {layer.States.Count} 个 State 与 " +
-              $"{layer.Transitions.Count} 个 Transition？" + (layer.AnyState == null ? string.Empty :
-                  " 同时删除 AnyState 的 Logic 绑定及其 Config。"));
 
         private void DeleteState(StateIdChoice replacement)
         {
@@ -1090,12 +1100,6 @@ namespace CoCoFlow.Editor.StateGraph
             serializedAsset = null;
         }
 
-        internal static StateId ToStateId(SerializedId128 id)
-        {
-            StateId.TryCreate(id.High, id.Low, out StateId value);
-            return value;
-        }
-
         private static StateDescriptorId ToStateDescriptorId(SerializedId128 id)
         {
             StateDescriptorId.TryCreate(id.High, id.Low, out StateDescriptorId value);
@@ -1170,11 +1174,15 @@ namespace CoCoFlow.Editor.StateGraph
                 entries.Clear();
             }
         }
+
+        #endregion
     }
 
     /// <summary>接收 Unity 打开图资产的请求，并定位到对应的图编辑器窗口。</summary>
     internal static class StateGraphEditorAssetOpenHandler
     {
+        #region Internal Logic
+
         [OnOpenAsset]
         private static bool OnOpenAsset(EntityId instanceId, int line)
         {
@@ -1187,5 +1195,7 @@ namespace CoCoFlow.Editor.StateGraph
             StateGraphEditorWindow.Open(asset);
             return true;
         }
+
+        #endregion
     }
 }

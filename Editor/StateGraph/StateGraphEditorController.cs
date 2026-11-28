@@ -23,18 +23,9 @@ namespace CoCoFlow.Editor.StateGraph
     }
 
     /// <summary>把编辑命令、选择和图编译结果同步到编辑器面板。</summary>
-    internal sealed partial class StateGraphEditorController : IDisposable
+    internal sealed class StateGraphEditorController : IDisposable
     {
-        private static StateGraphSubtreeClipboard clipboard;
-
-        private GraphDescriptorCatalog catalog;
-        private GraphAssetCompileResult analysisResult;
-        private bool _analysisPending;
-        private bool _disposed;
-        private StateGraphAsset _stateDraftAsset;
-        private LayerId _stateDraftLayerId;
-        private StateId _stateDraftStateId;
-        private string _stateDraftConfigSnapshot;
+        #region Public API
 
         internal StateGraphEditorController(StateGraphAsset asset)
         {
@@ -136,12 +127,6 @@ namespace CoCoFlow.Editor.StateGraph
             return true;
         }
 
-        private void MarkStateDraftChanged()
-        {
-            HasStateDraftChanges = true;
-            Changed?.Invoke(StateGraphEditorInvalidation.StateDraft);
-        }
-
         internal bool SaveStateDraft()
         {
             if (!HasStateDraftChanges) return true;
@@ -185,16 +170,6 @@ namespace CoCoFlow.Editor.StateGraph
             if (string.IsNullOrEmpty(json) || BeginStateDraft() == null) return;
             EditorJsonUtility.FromJsonOverwrite(json, _stateDraftAsset);
             HasStateDraftChanges = true;
-        }
-
-        private void ClearStateDraft()
-        {
-            HasStateDraftChanges = false;
-            if (_stateDraftAsset == null) return;
-            Undo.ClearUndo(_stateDraftAsset);
-            UnityEngine.Object.DestroyImmediate(_stateDraftAsset);
-            _stateDraftAsset = null;
-            _stateDraftConfigSnapshot = null;
         }
 
         internal bool ResolveStateDraft() => !HasStateDraftChanges ||
@@ -354,18 +329,6 @@ namespace CoCoFlow.Editor.StateGraph
             Session.SetCanvasCollapsed(stateId, !Session.IsCanvasCollapsed(stateId));
 
             SaveAndNotify(StateGraphEditorInvalidation.Canvas);
-        }
-
-        private void RevealCanvasAncestors(StateId stateId)
-        {
-            StateGraphStateRecord state = FindState(SelectedLayer, stateId);
-            var visited = new HashSet<StateId>();
-            while (state != null && StateId.TryCreate(state.ParentStateId.High,
-                       state.ParentStateId.Low, out StateId parentId) && visited.Add(parentId))
-            {
-                Session.SetCanvasCollapsed(parentId, false);
-                state = FindState(SelectedLayer, parentId);
-            }
         }
 
         internal void SelectTransition(TransitionId transitionId)
@@ -771,7 +734,6 @@ namespace CoCoFlow.Editor.StateGraph
 
             Session.SelectedStateId = location.StateId;
             Session.SelectedTransitionId = location.TransitionId;
-            Session.SelectedDiagnosticLocation = location;
             Session.DrillRootStateId = default;
 
             RevealCanvasAncestors(location.StateId);
@@ -788,6 +750,108 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         internal void Analyze() => Analyze(StateGraphEditorInvalidation.Feedback);
+
+        internal void NotifyConfigChanged()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_stateDraftAsset != null && !Session.SelectedTransitionId.IsValid)
+            {
+
+                string snapshot = JsonUtility.ToJson(BeginStateDraft()?.Config);
+                if (snapshot != _stateDraftConfigSnapshot)
+                {
+                    _stateDraftConfigSnapshot = snapshot;
+                    MarkStateDraftChanged();
+                }
+                return;
+            }
+
+            analysisResult = null;
+            CommandFailure = string.Empty;
+            EditorUtility.SetDirty(Asset);
+            if (Session.AnalysisRequested && catalog != null && !_analysisPending)
+            {
+                _analysisPending = true;
+                EditorApplication.delayCall += RunPendingAnalysis;
+            }
+
+            Changed?.Invoke(StateGraphEditorInvalidation.Feedback);
+        }
+
+        internal string StateDescriptorLabel(StateGraphStateRecord state)
+        {
+            if (state == null ||
+                !StateDescriptorId.TryCreate(
+                    state.StateDescriptorId.High,
+                    state.StateDescriptorId.Low,
+                    out StateDescriptorId descriptorId))
+            {
+                return "Unassigned";
+            }
+
+            return catalog != null && catalog.TryGetStateDescriptor(descriptorId, out StateDescriptor descriptor)
+                ? $"{descriptor.LogicType.Name}  {descriptorId}"
+                : $"Unresolved  {descriptorId}";
+        }
+
+        internal static bool TryCreateStateConfig(
+            StateDescriptor descriptor,
+            out StateConfig config,
+            out string failure)
+        {
+            return TryCreateConfig(descriptor?.AuthoringConfigType, out config, out failure);
+        }
+
+        internal IReadOnlyList<RequirementSection> BuildRequirementSections() =>
+            StateGraphRequirementPresenter.BuildSections(
+                FindState(SelectedLayer, Session.SelectedStateId), catalog, analysisResult);
+
+        #endregion
+
+        #region Internal Logic
+
+        private static StateGraphSubtreeClipboard clipboard;
+
+        private GraphDescriptorCatalog catalog;
+        private GraphAssetCompileResult analysisResult;
+        private bool _analysisPending;
+        private bool _disposed;
+        private StateGraphAsset _stateDraftAsset;
+        private LayerId _stateDraftLayerId;
+        private StateId _stateDraftStateId;
+        private string _stateDraftConfigSnapshot;
+
+        private void MarkStateDraftChanged()
+        {
+            HasStateDraftChanges = true;
+            Changed?.Invoke(StateGraphEditorInvalidation.StateDraft);
+        }
+
+        private void ClearStateDraft()
+        {
+            HasStateDraftChanges = false;
+            if (_stateDraftAsset == null) return;
+            Undo.ClearUndo(_stateDraftAsset);
+            UnityEngine.Object.DestroyImmediate(_stateDraftAsset);
+            _stateDraftAsset = null;
+            _stateDraftConfigSnapshot = null;
+        }
+
+        private void RevealCanvasAncestors(StateId stateId)
+        {
+            StateGraphStateRecord state = FindState(SelectedLayer, stateId);
+            var visited = new HashSet<StateId>();
+            while (state != null && StateId.TryCreate(state.ParentStateId.High,
+                       state.ParentStateId.Low, out StateId parentId) && visited.Add(parentId))
+            {
+                Session.SetCanvasCollapsed(parentId, false);
+                state = FindState(SelectedLayer, parentId);
+            }
+        }
 
         private void Analyze(StateGraphEditorInvalidation invalidation)
         {
@@ -821,37 +885,6 @@ namespace CoCoFlow.Editor.StateGraph
             SaveAndNotify(invalidation);
         }
 
-        internal void NotifyConfigChanged()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (_stateDraftAsset != null && !Session.SelectedTransitionId.IsValid)
-            {
-
-                string snapshot = JsonUtility.ToJson(BeginStateDraft()?.Config);
-                if (snapshot != _stateDraftConfigSnapshot)
-                {
-                    _stateDraftConfigSnapshot = snapshot;
-                    MarkStateDraftChanged();
-                }
-                return;
-            }
-
-            analysisResult = null;
-            CommandFailure = string.Empty;
-            EditorUtility.SetDirty(Asset);
-            if (Session.AnalysisRequested && catalog != null && !_analysisPending)
-            {
-                _analysisPending = true;
-                EditorApplication.delayCall += RunPendingAnalysis;
-            }
-
-            Changed?.Invoke(StateGraphEditorInvalidation.Feedback);
-        }
-
         private void RunPendingAnalysis()
         {
             _analysisPending = false;
@@ -865,30 +898,6 @@ namespace CoCoFlow.Editor.StateGraph
         {
             EditorApplication.delayCall -= RunPendingAnalysis;
             _analysisPending = false;
-        }
-
-        internal string StateDescriptorLabel(StateGraphStateRecord state)
-        {
-            if (state == null ||
-                !StateDescriptorId.TryCreate(
-                    state.StateDescriptorId.High,
-                    state.StateDescriptorId.Low,
-                    out StateDescriptorId descriptorId))
-            {
-                return "Unassigned";
-            }
-
-            return catalog != null && catalog.TryGetStateDescriptor(descriptorId, out StateDescriptor descriptor)
-                ? $"{descriptor.LogicType.Name}  {descriptorId}"
-                : $"Unresolved  {descriptorId}";
-        }
-
-        internal static bool TryCreateStateConfig(
-            StateDescriptor descriptor,
-            out StateConfig config,
-            out string failure)
-        {
-            return TryCreateConfig(descriptor?.AuthoringConfigType, out config, out failure);
         }
 
         private void ReloadCatalog()
@@ -1038,49 +1047,6 @@ namespace CoCoFlow.Editor.StateGraph
             return null;
         }
 
-        private static StateGraphStateRecord FindState(
-            StateGraphLayerRecord layer,
-            SerializedId128 stateId)
-        {
-            if (layer == null || !stateId.IsValid)
-            {
-                return null;
-            }
-
-            foreach (StateGraphStateRecord state in layer.AllStates)
-            {
-                if (state != null && state.StateId == stateId)
-                {
-                    return state;
-                }
-            }
-
-            return null;
-        }
-
-        private static StateGraphTransitionRecord FindTransition(
-            StateGraphLayerRecord layer,
-            TransitionId transitionId)
-        {
-            if (layer == null || !transitionId.IsValid)
-            {
-                return null;
-            }
-
-            foreach (StateGraphTransitionRecord transition in layer.Transitions)
-            {
-                if (transition != null && Matches(transition.TransitionId, transitionId))
-                {
-                    return transition;
-                }
-            }
-
-            return null;
-        }
-
-        private static SerializedId128 Serialize(StateId id) =>
-            new SerializedId128(id.High, id.Low);
-
         private static StateId ToStateId(SerializedId128 id)
         {
             StateId.TryCreate(id.High, id.Low, out StateId result);
@@ -1096,206 +1062,6 @@ namespace CoCoFlow.Editor.StateGraph
         private static bool Matches(SerializedId128 id, TransitionId value) =>
             value.IsValid && id.High == value.High && id.Low == value.Low;
 
-    }
-
-    /// <summary>区分要件列表中的输入、输出与图状态数据。</summary>
-    internal enum RequirementEntryKind
-    {
-        Intent,
-        Operation,
-        ContextBlock
-    }
-
-    /// <summary>为详情面板保存一项编译要件的标识、来源及显示内容。</summary>
-    internal readonly struct RequirementEntry
-    {
-        internal RequirementEntry(
-            RequirementEntryKind kind,
-            string typeName,
-            string fullId)
-        {
-            Kind = kind;
-            TypeName = typeName;
-            FullId = fullId;
-        }
-
-        internal RequirementEntryKind Kind { get; }
-        internal string TypeName { get; }
-        internal string FullId { get; }
-    }
-
-    /// <summary>区分要件所属的图、图层或所选节点。</summary>
-    internal enum RequirementScopeKind
-    {
-        SelectedState,
-        Compiled
-    }
-
-    /// <summary>将同一范围的要件组成详情面板的一个分组。</summary>
-    internal sealed class RequirementSection
-    {
-        internal RequirementSection(
-            RequirementScopeKind scopeKind,
-            string scopeLabel,
-            string scopeFullId,
-            IReadOnlyList<RequirementEntry> entries)
-        {
-            ScopeKind = scopeKind;
-            ScopeLabel = scopeLabel;
-            ScopeFullId = scopeFullId;
-            Entries = entries;
-        }
-
-        internal RequirementScopeKind ScopeKind { get; }
-        internal string ScopeLabel { get; }
-        internal string ScopeFullId { get; }
-        internal IReadOnlyList<RequirementEntry> Entries { get; }
-    }
-
-    /// <summary>把编辑命令、选择和图编译结果同步到编辑器面板。</summary>
-    internal sealed partial class StateGraphEditorController
-    {
-                internal IReadOnlyList<RequirementSection> BuildRequirementSections()
-        {
-            var sections = new List<RequirementSection>();
-
-            StateGraphStateRecord state = FindState(SelectedLayer, Session.SelectedStateId);
-            if (state != null &&
-                StateDescriptorId.TryCreate(
-                    state.StateDescriptorId.High,
-                    state.StateDescriptorId.Low,
-                    out StateDescriptorId stateDescriptorId) &&
-                catalog != null &&
-                catalog.TryGetStateDescriptor(stateDescriptorId, out StateDescriptor stateDescriptor))
-            {
-                sections.Add(new RequirementSection(
-                    RequirementScopeKind.SelectedState,
-                    stateDescriptor.LogicType.Name,
-                    stateDescriptor.DescriptorId.ToString(),
-                    DescriptorEntries(stateDescriptor)));
-            }
-
-            if (analysisResult?.Succeeded == true)
-            {
-                sections.Add(BuildCompiledSection(analysisResult, catalog));
-            }
-
-            return sections;
-        }
-
-                internal static RequirementSection BuildCompiledSection(
-            GraphAssetCompileResult result,
-            GraphDescriptorCatalog catalog = null)
-        {
-            var entries = new List<RequirementEntry>();
-            foreach (IntentRequirement requirement in result.Graph.IntentRequirements.Requirements)
-            {
-                entries.Add(new RequirementEntry(
-                    RequirementEntryKind.Intent,
-                    requirement.ValueType.Name,
-                    requirement.IntentId.ToString()));
-            }
-
-            foreach (GraphOperationProvision provision in result.Graph.OperationProvides.Provides)
-            {
-                entries.Add(new RequirementEntry(
-                    RequirementEntryKind.Operation,
-                    provision.OperationType.Name,
-                    provision.OperationId.ToString()));
-            }
-
-            foreach (ContextStateBlockRequirement block in result.Graph.ContextStateRequirements.Blocks)
-            {
-                entries.Add(new RequirementEntry(
-                    RequirementEntryKind.ContextBlock,
-                    ResolveContextBlockName(catalog, block.BlockId),
-                    block.BlockId.ToString()));
-            }
-
-            return new RequirementSection(
-                RequirementScopeKind.Compiled,
-                null,
-                null,
-                entries);
-        }
-
-                private static string ResolveContextBlockName(
-            GraphDescriptorCatalog catalog,
-            StateBlockId blockId)
-        {
-            if (catalog == null)
-            {
-                return null;
-            }
-
-            IGraphStateSlotRegistration[] slots = catalog.GetSlots(blockId);
-            if (slots == null || slots.Length == 0)
-            {
-                return null;
-            }
-
-            var names = new List<string>(slots.Length);
-            foreach (IGraphStateSlotRegistration slot in slots)
-            {
-                if (slot?.ValueType != null)
-                {
-                    names.Add(slot.ValueType.Name);
-                }
-            }
-
-            return names.Count > 0 ? string.Join(", ", names) : null;
-        }
-
-        private IReadOnlyList<RequirementEntry> DescriptorEntries(
-            StateDescriptor descriptor)
-        {
-            var entries = new List<RequirementEntry>();
-            AddIdEntries(entries, RequirementEntryKind.Intent, descriptor.IntentRequirements);
-            AddIdEntries(entries, RequirementEntryKind.Operation, descriptor.OperationProvides);
-            AddIdEntries(entries, RequirementEntryKind.ContextBlock, descriptor.ContextStateRequirements);
-            return entries;
-        }
-
-        private void AddIdEntries<TId>(
-            List<RequirementEntry> entries,
-            RequirementEntryKind kind,
-            IReadOnlyList<TId> ids)
-        {
-            for (int index = 0; ids != null && index < ids.Count; index++)
-            {
-                entries.Add(new RequirementEntry(
-                    kind,
-                    ResolveIdDisplayName(kind, ids[index]),
-                    ids[index].ToString()));
-            }
-        }
-
-                private string ResolveIdDisplayName<TId>(RequirementEntryKind kind, TId id)
-        {
-            if (catalog == null)
-            {
-                return null;
-            }
-
-            switch (kind)
-            {
-                case RequirementEntryKind.Intent:
-                    return id is IntentId intentId &&
-                           catalog.TryGetIntent(intentId, out IGraphIntentRegistration intent)
-                        ? intent.ValueType?.Name
-                        : null;
-                case RequirementEntryKind.Operation:
-                    return id is OperationId operationId &&
-                           catalog.TryGetOperation(operationId, out IGraphOperationRegistration operation)
-                        ? operation.OperationType?.Name
-                        : null;
-                case RequirementEntryKind.ContextBlock:
-                    return id is StateBlockId blockId
-                        ? ResolveContextBlockName(catalog, blockId)
-                        : null;
-                default:
-                    return null;
-            }
-        }
+        #endregion
     }
 }
