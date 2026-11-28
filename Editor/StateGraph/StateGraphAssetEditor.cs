@@ -15,7 +15,7 @@ namespace CoCoFlow.Editor.StateGraph
     /// </summary>
     public static class StateGraphEditorCatalogProvider
     {
-        private static Func<GraphDescriptorCatalog> provider;
+        #region Public API
 
         public static Func<GraphDescriptorCatalog> Provider
         {
@@ -33,6 +33,14 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         internal static event Action CatalogChanged;
+
+        #endregion
+
+        #region Internal Logic
+
+        private static Func<GraphDescriptorCatalog> provider;
+
+        #endregion
     }
 
     /// <summary>
@@ -45,6 +53,20 @@ namespace CoCoFlow.Editor.StateGraph
     [CustomEditor(typeof(StateGraphAsset))]
     internal sealed class StateGraphAssetEditor : UnityEditor.Editor
     {
+        #region Public API
+
+        public override VisualElement CreateInspectorGUI()
+        {
+            root = new VisualElement();
+            CoCoEditorElements.ApplyTheme(root);
+            Rebuild();
+            return root;
+        }
+
+        #endregion
+
+        #region Internal Logic
+
         private GraphAssetCompileResult analysisResult;
         private GraphDescriptorCatalog analysisCatalog;
         private string analysisFailure = string.Empty;
@@ -68,14 +90,6 @@ namespace CoCoFlow.Editor.StateGraph
         private void OnPlayModeStateChanged(PlayModeStateChange change)
         {
             Rebuild();
-        }
-
-        public override VisualElement CreateInspectorGUI()
-        {
-            root = new VisualElement();
-            CoCoEditorElements.ApplyTheme(root);
-            Rebuild();
-            return root;
         }
 
         private void Rebuild()
@@ -197,7 +211,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             StateGraphRequirementPresenter.FillCard(
                 manifestCard,
-                new[] { StateGraphEditorController.BuildCompiledSection(analysisResult, analysisCatalog) },
+                new[] { StateGraphRequirementPresenter.BuildCompiledSection(analysisResult, analysisCatalog) },
                 compiledAvailable: true);
             root.Add(manifestCard);
         }
@@ -341,5 +355,7 @@ namespace CoCoFlow.Editor.StateGraph
 
             Rebuild();
         }
+
+        #endregion
     }
 }

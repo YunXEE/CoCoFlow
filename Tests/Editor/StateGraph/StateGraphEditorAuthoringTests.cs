@@ -338,6 +338,55 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         [Test]
+        public void LegacyDiagnosticSessionRestoresSelectionAndViewportAndStillLocatesStates()
+        {
+            StateGraphAsset asset = CreateAsset();
+            LayerId layerId = StateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
+            StateId parent = AddState(asset, layerId, default, "Parent");
+            StateId child = AddState(asset, layerId, parent, "Child");
+            string sessionKey = "CoCoFlow.StateGraph.Editor." + asset.GraphId;
+            SessionState.SetString(sessionKey, "{" +
+                $"\"selectedLayerId\":\"{layerId}\",\"selectedStateId\":\"{parent}\"," +
+                $"\"canvasCollapsedStateIds\":[\"{parent}\"]," +
+                $"\"canvasViews\":[{{\"key\":\"{layerId}:\",\"panX\":12,\"panY\":34,\"zoom\":1.25}}]," +
+                $"\"selectedDiagnostic\":{{\"elementKind\":3,\"layerId\":\"{layerId}\",\"stateId\":\"{parent}\"}}" +
+                "}");
+
+            try
+            {
+                using var controller = new StateGraphEditorController(asset);
+                StateGraphEditorSessionState session = controller.Session;
+                Assert.AreEqual(layerId, session.SelectedLayerId);
+                Assert.AreEqual(parent, session.SelectedStateId);
+                Assert.IsTrue(session.IsCanvasCollapsed(parent));
+                StateGraphCanvasView view = session.GetCanvasView(layerId, default);
+                Assert.AreEqual(new Vector2(12f, 34f), view.Pan);
+                Assert.AreEqual(1.25f, view.Zoom);
+
+                controller.BeginStateDraft();
+                controller.SetStateDraftName("Unsaved");
+                controller.ConfirmStateDraftChanges = () => false;
+                var location = new GraphDiagnosticLocation(
+                    GraphElementKind.State, GraphField.Config, asset.GraphId, layerId, child,
+                    default, layerIndex: 0, stateIndex: 1, transitionIndex: -1);
+                controller.Locate(location);
+                Assert.AreEqual(parent, session.SelectedStateId);
+                Assert.IsTrue(controller.HasStateDraftChanges);
+
+                controller.ConfirmStateDraftChanges = () => true;
+                controller.Locate(location);
+                Assert.AreEqual(child, session.SelectedStateId);
+                Assert.IsFalse(session.IsCanvasCollapsed(parent));
+                Assert.IsFalse(controller.HasStateDraftChanges);
+                Assert.AreEqual(child, StateGraphEditorSessionState.Load(asset).SelectedStateId);
+            }
+            finally
+            {
+                SessionState.EraseString(sessionKey);
+            }
+        }
+
+        [Test]
         public void FlatCanvasDiscardsLegacyDrillRootAndNavigationKeepsLayerRootScope()
         {
             StateGraphAsset asset = CreateAsset();
