@@ -8,10 +8,8 @@ using CoCoFlow.Runtime.Modules.Persistence;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     internal enum DebuggerSnapshotFreshness
     {
         None = 0,

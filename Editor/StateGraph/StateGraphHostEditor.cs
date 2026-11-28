@@ -8,10 +8,8 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     /// <summary>
     /// StateGraphHost Inspector（UI Toolkit 重做，D1/D2）。
     /// 六区信息架构：Overview / Bindings / Restore / Capacities / Runtime / Diagnostics。
@@ -25,7 +23,7 @@ namespace CoCoFlow.Editor.StateGraphHost
     internal sealed class StateGraphHostEditor : UnityEditor.Editor
     {
         private const string ModuleUssPath =
-            "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/StateGraphHostEditor.uss";
+            "Packages/com.yunxee.cocoflow/Editor/StateGraph/StateGraphHostEditor.uss";
 
         private static bool _moduleUssMissingReported;
 

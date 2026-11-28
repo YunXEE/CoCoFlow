@@ -5,10 +5,8 @@ using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     /// <summary>装配期提示级别（N6：authoring hints，非启动权威）。</summary>
     internal enum BindingHintKind
     {

@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     internal static class StateGraphHostBindingCandidates
     {
         #region Public API

@@ -2,7 +2,7 @@
     "name": "CoCoFlow.Tests.Editor.StateGraphHost",
     "rootNamespace": "CoCoFlow.Tests.Editor.StateGraphHost",
     "references": [
-        "CoCoFlow.Editor.StateGraphHost",
+        "CoCoFlow.Editor.StateGraph",
         "CoCoFlow.Editor.Core",
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.StateGraph.Contracts",

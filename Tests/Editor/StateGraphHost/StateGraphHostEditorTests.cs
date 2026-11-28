@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using CoCoFlow.Editor.StateGraphHost;
+using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;

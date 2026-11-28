@@ -4,10 +4,8 @@ using CoCoFlow.Runtime.StateGraph;
 using UnityEditor;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     internal static class StateGraphHostRestoreChain
     {
         #region Public API

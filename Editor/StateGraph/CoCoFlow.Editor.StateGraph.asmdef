@@ -6,6 +6,7 @@
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.Modules.Persistence",
         "CoCoFlow.Editor.PlayerMetadata"
     ],
     "includePlatforms": [

@@ -10,10 +10,8 @@ using UnityEngine.SceneManagement;
 using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     /// <summary>
     /// Serializable identity for a scene Host. The live component instance is
     /// intentionally not retained across Play Mode scene reloads.
@@ -239,7 +237,7 @@ namespace CoCoFlow.Editor.StateGraphHost
     internal sealed class StateGraphDebuggerWindow : EditorWindow
     {
         private const string ModuleUssPath =
-            "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/StateGraphHostEditor.uss";
+            "Packages/com.yunxee.cocoflow/Editor/StateGraph/StateGraphHostEditor.uss";
         private const long PollIntervalMilliseconds = 250;
         private const double PersistencePollSeconds = 1.5d;
 
