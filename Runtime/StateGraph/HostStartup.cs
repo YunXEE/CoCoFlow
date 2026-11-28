@@ -93,7 +93,7 @@ namespace CoCoFlow.Runtime.StateGraph
                     return false;
 
                 candidate.Restore = new HostRestoreBindings(boundary, operators, recovery ?? Array.Empty<HostOperatorRecovery>(),
-                    bindings.ContextLayout, restoreBinding, () => guard.IsCommitCancellationRequested);
+                    bindings.ContextLayout, () => guard.IsCommitCancellationRequested);
                 if (Cancelled(guard, out diagnostic) ||
                     !TryCreateTimelineId(graph.GraphId, id, out TimelineId timeline, out diagnostic) ||
                     !ClockDomainId.TryCreate(domain, out ClockDomainId clockDomain) ||
@@ -102,6 +102,7 @@ namespace CoCoFlow.Runtime.StateGraph
                     Cancelled(guard, out diagnostic) || !candidate.Instance.TryStart(out diagnostic) ||
                     Cancelled(guard, out diagnostic) ||
                     !candidate.Transaction.TryValidateInitialGraphContextDefaults(candidate.Instance, guard, out diagnostic) ||
+                    !candidate.Restore.TryBindScene(restoreBinding, historyCapacity, out diagnostic) ||
                     !TryCreateHistory(bindings.ContextLayout, bindings.ContextCodecs, candidate.Restore, historyCapacity, out candidate.History, out diagnostic) ||
                     Cancelled(guard, out diagnostic))
                     return false;

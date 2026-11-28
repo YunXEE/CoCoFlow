@@ -54,12 +54,24 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         public void Released0410FieldConfigKeepsItsSharedReferenceAcrossCopyAndResave()
         {
             const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410FieldConfig.asset.bytes";
+            const string originalGuid = "bb252358fa1b641289742688e2010a99";
+            bool originalIsPresent = !string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(originalGuid));
             File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
-            File.WriteAllText(AssetPath + ".meta", "fileFormatVersion: 2\nguid: bb252358fa1b641289742688e2010a99\n");
+            if (!originalIsPresent)
+                File.WriteAllText(AssetPath + ".meta", $"fileFormatVersion: 2\nguid: {originalGuid}\n");
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
             var graph = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
-            Assert.AreEqual(3816462399227382036UL, graph.GraphId.High);
-            Assert.AreEqual(12994049928394231811UL, graph.GraphId.Low);
+            Assert.IsTrue(GraphId.TryCreate(3816462399227382036UL, 12994049928394231811UL, out var releasedId));
+            if (originalIsPresent)
+            {
+                var original = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetDatabase.GUIDToAssetPath(originalGuid));
+                Assert.IsNotNull(original);
+                Assert.AreEqual(releasedId, original.GraphId);
+                CheckValues(original);
+                Assert.AreNotEqual(releasedId, graph.GraphId, "导入副本应获得自己的图身份。");
+            }
+            else
+                Assert.AreEqual(releasedId, graph.GraphId);
             var identity = graph.GraphId;
             CheckValues(graph);
             string duplicate = TestRoot + "/duplicate.asset";

@@ -76,10 +76,10 @@ namespace CoCoFlow.Runtime.StateGraph
                                      Revision.IsValid
                                    : !Identity.IsValid && !Revision.IsValid);
 
-        /// <summary>从仍然有效的 Context 视图提取跟踪用帧身份，缺少已提交帧时返回 false。</summary>
+        /// <summary>提取当前 Context 视图的跟踪身份。首步默认视图具有布局，生成的引用尚无已提交帧。</summary>
         /// <param name="context">要提取帧身份的当前 Context 读视图。</param>
         /// <param name="reference">成功时为提取的帧引用。</param>
-        /// <returns>输入有效并成功生成结果时为真。</returns>
+        /// <returns>成功提取布局及可用帧身份时为真。视图失效或元数据冲突时为假。</returns>
         public static bool TryCreate(
             ContextFrameReadView context,
             out StateFlowTraceFrameReference reference)

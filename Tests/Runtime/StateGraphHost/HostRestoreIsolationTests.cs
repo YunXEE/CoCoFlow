@@ -26,7 +26,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 binding.PreviousCallback = outcome;
                 var flags = new HostOperatorRecovery { component = outcome, temporal = true };
                 using var scene = new HostRestoreBindings(boundary, new MonoBehaviour[] { outcome },
-                    new[] { flags }, arena.Layout, binding, () => false);
+                    new[] { flags }, arena.Layout, () => false);
+                Assert.That(scene.TryBindScene(binding, 2, out _), Is.True);
                 scene.Projection = ContextProjection.Temporal;
 
                 var codecs = new ContextCodecRegistry();
@@ -88,7 +89,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 using var history = new HostHistoryController(null);
                 Assert.That(history.TryBeginPreview(), Is.False);
                 using var scene = new HostRestoreBindings(HostComponentBoundary.For(host),
-                    Array.Empty<MonoBehaviour>(), Array.Empty<HostOperatorRecovery>(), arena.Layout, binding, () => false);
+                    Array.Empty<MonoBehaviour>(), Array.Empty<HostOperatorRecovery>(), arena.Layout, () => false);
+                Assert.That(scene.TryBindScene(binding, 0, out _), Is.True);
                 scene.Projection = ContextProjection.Durable;
                 Commit(arena, block, slot, Tick(1), 37, history);
                 HostHistoryFrame authority = HostHistoryFrame.From(arena.Current);
@@ -128,7 +130,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 HostHistoryFrame frame = HostHistoryFrame.From(arena.Current);
                 var recovery = new HostOperatorRecovery { component = outcome, temporal = true };
                 using var scene = new HostRestoreBindings(HostComponentBoundary.For(host),
-                    new MonoBehaviour[] { outcome }, new[] { recovery }, arena.Layout, binding, () => false);
+                    new MonoBehaviour[] { outcome }, new[] { recovery }, arena.Layout, () => false);
+                Assert.That(scene.TryBindScene(binding, 2, out _), Is.True);
                 scene.Projection = ContextProjection.Temporal;
 
                 Assert.That(scene.TryApply(HostRestoreKind.Cancel, frame, frame.TickFrame, arena.Previous,

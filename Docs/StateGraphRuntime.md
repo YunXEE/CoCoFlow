@@ -23,7 +23,7 @@ Actor GameObject
 ├─ Event Adapters           typed Inbox filters inside the nearest Host boundary
 ├─ Operator scripts          optional; referenced by the Host in explicit order
 ├─ Host Context binding     required only when Host-owned Slots exist
-└─ Context Restore binding   required when Temporal history is enabled
+└─ Context Restore binding   optional scene projection for restore and correction
 ```
 
 `StateGraphHost` is the only public `MonoBehaviour` introduced by this
@@ -442,10 +442,10 @@ sixth lifecycle state:
 - `Previewing`: normal Tick and gameplay ingress are blocked while the
   non-authoritative cursor selects history.
 
-Capacity zero does not require a Restore binding and invalid assignments are
-ignored. One valid in-boundary binding may still be retained while Temporal Mode
-is `Disabled`, solely for `TryCorrectWorld` after a dirty non-Temporal Tick
-failure.
+With capacity zero, a valid in-boundary Restore binding can still project a
+durable save into the scene or apply `TryCorrectWorld` after a failed Tick.
+The binding is optional at any capacity. Enabled history validates an assigned
+binding before the Host enters Running.
 
 Capacity is fixed before Running and counts entries, including the current
 authority. Zero disables history; enabled history requires at least two entries,
@@ -458,7 +458,7 @@ exposed.
 The Host API is synchronous:
 
 ```text
-HostHistoryState
+HostHistoryState TemporalState
 TryBeginTemporalPreview
 TryPreviewTemporal(historyDepth)
 TryConfirmTemporalRestore

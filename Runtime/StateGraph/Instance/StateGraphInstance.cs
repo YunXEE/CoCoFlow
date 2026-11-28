@@ -64,7 +64,10 @@ namespace CoCoFlow.Runtime.StateGraph
 
         #region Public API
 
-        /// <summary>读取活动路径上给定深度的状态。</summary>
+        /// <summary>读取当前提交路径上给定深度的状态。</summary>
+        /// <param name="index">从根向叶计算的零基深度。</param>
+        /// <value>该深度对应的状态标识。</value>
+        /// <exception cref="ArgumentOutOfRangeException">索引小于零或达到当前路径的节点数。</exception>
         public StateId this[int index] => _runtime.GetCommittedPathStateId(_layerIndex, index);
 
         /// <summary>按根到叶的路径顺序提供节点迭代器。</summary>

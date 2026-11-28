@@ -363,6 +363,48 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(ContextAuthorityLogic.UpdateCount, Is.Zero);
         }
 
+        [TestCase(false, 3)]
+        [TestCase(true, 3)]
+        [TestCase(false, 0)]
+        [TestCase(true, 0)]
+        public void RestoreBindingLostDuringInitialCaptureUsesItsFinalBoundary(bool destroy, int capacity)
+        {
+            ContextAuthorityTestIds ids = ContextAuthorityTestIds.Create();
+            InstallProvider(ids, ContextAuthorityBindingMode.Standard);
+            StateGraphHost host = CreateHost(ids, out GameObject owner);
+            var child = new GameObject("Initial restore binding");
+            _objects.Add(child);
+            child.transform.SetParent(owner.transform);
+            var binding = child.AddComponent<TemporalActorRestoreBinding>();
+            SetField(host, "contextRestoreBinding", binding);
+            SetField(host, "temporalHistoryCapacity", capacity);
+            ContextAuthorityMemoryStateBinding.ArmNextCaptureCallback(() =>
+            {
+                if (destroy) UnityEngine.Object.DestroyImmediate(binding);
+                else child.transform.SetParent(null);
+            });
+
+            bool started = host.TryStart(out CoCoDiagnostic diagnostic);
+            if (capacity > 0)
+            {
+                Assert.That(started, Is.False);
+                Assert.That(diagnostic.Code, Is.EqualTo(CoCoDiagnosticCode.InvalidHostConfiguration));
+                Assert.That(host.Lifecycle, Is.EqualTo(RuntimeLifecycleState.Created));
+                Assert.That(host.GraphInstanceId.IsValid, Is.False);
+                Assert.That(host.CurrentContext.IsAlive, Is.False);
+                SetField<MonoBehaviour>(host, "contextRestoreBinding", null);
+                Require(host.TryStart(out diagnostic), diagnostic);
+            }
+            else
+            {
+                Require(started, diagnostic);
+            }
+
+            Require(host.TryStep(0.1d, out diagnostic), diagnostic);
+            Require(host.TryCapturePersistencePayload(out byte[] payload, out diagnostic), diagnostic);
+            Require(host.TryApplyPersistencePayload(payload, out diagnostic), diagnostic);
+        }
+
         [Test]
         public void ActorBindingMustExactlyCoverSlotsAndStayWithinHostBoundary()
         {

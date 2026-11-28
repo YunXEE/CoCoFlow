@@ -106,7 +106,7 @@ mutable history. Each Host owns its Ring, cursor, binding, and orchestration.
 The public Host surface is synchronous:
 
 ```text
-HostHistoryState HostHistoryState
+HostHistoryState TemporalState
 bool TryBeginTemporalPreview(out CoCoDiagnostic diagnostic)
 bool TryPreviewTemporal(int historyDepth, out CoCoDiagnostic diagnostic)
 bool TryConfirmTemporalRestore(out CoCoDiagnostic diagnostic)
@@ -119,12 +119,10 @@ current/preview metadata, rewind/restore dropped-input count, and whether the
 selection can Confirm. It does not expose mutable Frames, payload buffers,
 prepared candidates, arena handles, or long-lived history tokens.
 
-The Confirm eligibility flag is a side-effect-free structural snapshot derived
-from cached Temporal records. Reading `HostHistoryState` never probes Unity object
-liveness, marks a retained physical identity unavailable, or latches world
-correction. Actual projection and Confirm preparation revalidate the physical
-identity and may still reject a selection that became unavailable after the
-snapshot was read.
+For an older selection, `host.TemporalState.CanConfirm` checks the Host fault
+state, the live scene bindings and the attached participant's eligibility.
+Reading the property leaves the selection and authority unchanged. Projection
+and Confirm check the physical identity again when they run.
 
 Depth is absolute from the branch head: `0` means current authority, `1` means
 the preceding recorded commit, and so on. Confirm requires a historical depth;
@@ -151,7 +149,7 @@ Suspended state.
 
 ## One synchronous Restore binding
 
-An enabled Temporal Host references exactly one component implementing:
+A Host can assign one scene component to apply restored values:
 
 ```csharp
 public interface IHostRestoreBinding
@@ -167,10 +165,10 @@ The same aggregate binding handles `Preview`, `Confirm`, `Cancel`, and
 synchronously. A component may implement both the Actor-capture and restore
 contracts, but the Host fields remain explicit.
 
-Capacity zero disables the Temporal Ring and does not require a binding. An
-invalid, destroyed, or out-of-boundary component is ignored in that mode; one
-valid in-boundary binding may still be retained solely so `TryCorrectWorld` can
-repair Unity after a non-Temporal Tick failure that may have dirtied the world.
+Capacity zero disables the Temporal Ring. A valid in-boundary scene binding can
+still apply a durable save or correct Unity after a failed Tick. When the Host
+has no scene binding, history and durable import can use the configured Operator
+recovery callbacks and restore the graph's own state.
 
 The callback receives a read-only, token-scoped `HostRestoreReader`.
 It can read the fully materialized policy-effective candidate, including Layout

@@ -74,8 +74,8 @@ namespace CoCoFlow.Runtime.StateGraph
     internal sealed class HostRestoreBindings : IDisposable
     {
         private readonly HostComponentBoundary _boundary;
-        private readonly MonoBehaviour _bindingComponent;
-        private readonly ApplyProjection _applyBinding;
+        private MonoBehaviour _bindingComponent;
+        private ApplyProjection _applyBinding;
         private readonly Func<bool> _isCancelled;
         private readonly HostRestoreReadLease _readLease = new HostRestoreReadLease();
         private readonly FrozenOperator[] _operators;
@@ -84,18 +84,11 @@ namespace CoCoFlow.Runtime.StateGraph
         private bool _participantAttached;
 
         internal HostRestoreBindings(HostComponentBoundary boundary, IReadOnlyList<MonoBehaviour> operators,
-            HostOperatorRecovery[] savedRecovery, ContextFrameLayout layout, MonoBehaviour binding,
+            HostOperatorRecovery[] savedRecovery, ContextFrameLayout layout,
             Func<bool> isCancelled)
         {
             _boundary = boundary;
             _isCancelled = isCancelled;
-            if (binding is IHostRestoreBinding restoreBinding && boundary.Contains(binding))
-            {
-                _bindingComponent = binding;
-                _applyBinding = restoreBinding.TryApply;
-                Participant = binding as IHostHistoryParticipant;
-            }
-
             var persistenceSlots = new List<StateSlotDescriptor>();
             var temporalSlots = new List<StateSlotDescriptor>();
             _operators = new FrozenOperator[operators.Count];
@@ -125,7 +118,7 @@ namespace CoCoFlow.Runtime.StateGraph
         internal IReadOnlyList<StateSlotDescriptor> RetainedSlots =>
             Projection == ContextProjection.Durable ? _retainPersistence : _retainTemporal;
 
-        internal IHostHistoryParticipant Participant { get; }
+        internal IHostHistoryParticipant Participant { get; private set; }
         internal bool IsLive => OperatorsLive() && (_applyBinding == null ||
             (_boundary.Contains(_bindingComponent) && (!_participantAttached || IsParticipantLive())));
 
@@ -145,6 +138,19 @@ namespace CoCoFlow.Runtime.StateGraph
             }
 
             diagnostic = CoCoDiagnostic.None;
+            return true;
+        }
+
+        // 项目的初始 Context 回调可移动或销毁组件，按发布实例时的归属接入场景。
+        internal bool TryBindScene(MonoBehaviour binding, int capacity, out CoCoDiagnostic diagnostic)
+        {
+            if (!TryValidateBinding(_boundary, binding, capacity, out diagnostic)) return false;
+            if (binding is IHostRestoreBinding restore && _boundary.Contains(binding))
+            {
+                _bindingComponent = binding;
+                _applyBinding = restore.TryApply;
+                Participant = binding as IHostHistoryParticipant;
+            }
             return true;
         }
 
