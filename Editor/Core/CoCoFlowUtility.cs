@@ -21,55 +21,7 @@ namespace CoCoFlow.Editor.Core
     /// </summary>
     public sealed class CoCoFlowUtility : EditorWindow
     {
-        // ==========================================
-        // 共享领域常量（原私有常量迁为 internal，供拆分文件共用；方案 v4 §2.1）
-        // ==========================================
-        internal const string ManifestPath = "Packages/manifest.json";
-        internal const string UniTaskPackageName = "com.cysharp.unitask";
-        internal const string RecommendedUniTaskGitUrl =
-            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11";
-        internal const string AddressablesPackageName = "com.unity.addressables";
-        internal const string RecommendedAddressablesVersion =
-            AddressablesVersionPolicy.MinimumVersion;
-        internal const string RecommendedAddressablesPackage =
-            AddressablesPackageName + "@" + RecommendedAddressablesVersion;
-        internal const string NewtonsoftPackageName = "com.unity.nuget.newtonsoft-json";
-        internal const string NewtonsoftMinimumVersion = "3.2.2";
-        internal const string CinemachineAssemblyName = "Unity.Cinemachine";
-        internal const string OpenUpmRegistryName = "package.openupm.com";
-        internal const string OpenUpmRegistryUrl = "https://package.openupm.com";
-        internal const string UniTaskScope = "com.cysharp.unitask";
-        internal const string UniTaskDefine = "COCOFLOW_UNITASK_SUPPORT";
-        internal const string DotweenDefine = "COCOFLOW_DOTWEEN_SUPPORT";
-        internal const string UniTaskDotweenDefine = "UNITASK_DOTWEEN_SUPPORT";
-        internal const string UniTaskSupportedRange = CoCoUniTaskVersionPolicy.SupportedRange;
-
-        /// <summary>控制台日志前缀（口径不变，invariant #12）。</summary>
-        private const string ConsoleLogPrefix = "[CoCoFlow Setup] ";
-
-        /// <summary>日志条目（双语对原始数据；显示时按语言投影，invariant #12/N2）。</summary>
-        private readonly List<CoCoSetupModuleCatalog.BilingualText> _log =
-            new List<CoCoSetupModuleCatalog.BilingualText>();
-
-        private CoCoSetupDependencyStatus _status;
-        private AddRequest _uniTaskRequest;
-        private AddRequest _addressablesRequest;
-        private bool _isBusy;
-
-        // 渲染引用（CreateGUI 持有；重建安全，零持久订阅）
-        private VisualElement _contentHost;
-        private VisualElement _dependenciesRows;
-        private Label _definesSummary;
-        private VisualElement _definesRows;
-        private VisualElement _modulesRows;
-        private Label _modulesSummary;
-        private Button _applyButton;
-        private Button _refreshButton;
-        private Button _addressablesButton;
-        private Label _addressablesNote;
-        private Label _busyRow;
-        private VisualElement _logRows;
-        private VisualElement _logEmpty;
+        #region Public API
 
         [MenuItem("CoCoFlow/Utility Panel")]
         public static void Open()
@@ -78,19 +30,6 @@ namespace CoCoFlow.Editor.Core
             window.minSize = new Vector2(620f, 560f);
             window.RefreshStatus();
             window.Show();
-        }
-
-        private void OnEnable()
-        {
-            RefreshStatus();
-            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged; // 唯一订阅点
-        }
-
-        private void OnDisable()
-        {
-            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged; // 对称退订
-            EditorApplication.update -= TickPackageRequest;
-            EditorApplication.update -= TickAddressablesPackageRequest;
         }
 
         public void CreateGUI()
@@ -117,9 +56,81 @@ namespace CoCoFlow.Editor.Core
             RefreshSectionContents();
         }
 
-        // ==========================================
+        #endregion
+
+        #region Internal Logic
+
+        #region Shared Setup Constants
+
+        // 共享领域常量（原私有常量迁为 internal，供拆分文件共用；方案 v4 §2.1）
+        internal const string ManifestPath = "Packages/manifest.json";
+        internal const string UniTaskPackageName = "com.cysharp.unitask";
+        internal const string RecommendedUniTaskGitUrl =
+            "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11";
+        internal const string AddressablesPackageName = "com.unity.addressables";
+        internal const string RecommendedAddressablesVersion =
+            AddressablesVersionPolicy.MinimumVersion;
+        internal const string RecommendedAddressablesPackage =
+            AddressablesPackageName + "@" + RecommendedAddressablesVersion;
+        internal const string NewtonsoftPackageName = "com.unity.nuget.newtonsoft-json";
+        internal const string NewtonsoftMinimumVersion = "3.2.2";
+        internal const string CinemachineAssemblyName = "Unity.Cinemachine";
+        internal const string OpenUpmRegistryName = "package.openupm.com";
+        internal const string OpenUpmRegistryUrl = "https://package.openupm.com";
+        internal const string UniTaskScope = "com.cysharp.unitask";
+        internal const string UniTaskDefine = "COCOFLOW_UNITASK_SUPPORT";
+        internal const string DotweenDefine = "COCOFLOW_DOTWEEN_SUPPORT";
+        internal const string UniTaskDotweenDefine = "UNITASK_DOTWEEN_SUPPORT";
+        internal const string UniTaskSupportedRange = CoCoUniTaskVersionPolicy.SupportedRange;
+
+        #endregion
+
+        #region Window State and Lifecycle
+
+        /// <summary>控制台日志前缀（口径不变，invariant #12）。</summary>
+        private const string ConsoleLogPrefix = "[CoCoFlow Setup] ";
+
+        /// <summary>日志条目（双语对原始数据；显示时按语言投影，invariant #12/N2）。</summary>
+        private readonly List<CoCoSetupModuleCatalog.BilingualText> _log =
+            new List<CoCoSetupModuleCatalog.BilingualText>();
+
+        private CoCoSetupDependencyStatus _status;
+        private AddRequest _uniTaskRequest;
+        private AddRequest _addressablesRequest;
+        private bool _isBusy;
+
+        // 渲染引用（CreateGUI 持有；重建安全，零持久订阅）
+        private VisualElement _contentHost;
+        private VisualElement _dependenciesRows;
+        private Label _definesSummary;
+        private VisualElement _definesRows;
+        private VisualElement _modulesRows;
+        private Label _modulesSummary;
+        private Button _applyButton;
+        private Button _refreshButton;
+        private Button _addressablesButton;
+        private Label _busyRow;
+        private VisualElement _logRows;
+        private VisualElement _logEmpty;
+
+        private void OnEnable()
+        {
+            RefreshStatus();
+            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged; // 唯一订阅点
+        }
+
+        private void OnDisable()
+        {
+            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged; // 对称退订
+            EditorApplication.update -= TickPackageRequest;
+            EditorApplication.update -= TickAddressablesPackageRequest;
+        }
+
+        #endregion
+
+        #region UI Construction
+
         // Section 构建器（D-17 扩展位；每区自包含，未来新功能=新增构建器）
-        // ==========================================
 
         private void BuildHeaderSection()
         {
@@ -262,16 +273,16 @@ namespace CoCoFlow.Editor.Core
             };
             _addressablesButton.style.minWidth = 220f;
 
-            _addressablesNote = new Label(CoCoEditorLocalization.Text(
+            var addressablesNote = new Label(CoCoEditorLocalization.Text(
                 "Adds the optional project dependency only; no global support define is written.",
                 "仅添加可选项目依赖；不写入任何全局 support define。"));
-            _addressablesNote.AddToClassList("ccflow-muted");
-            _addressablesNote.style.whiteSpace = WhiteSpace.Normal;
-            _addressablesNote.style.flexGrow = 1f;
-            _addressablesNote.style.marginLeft = 8f;
+            addressablesNote.AddToClassList("ccflow-muted");
+            addressablesNote.style.whiteSpace = WhiteSpace.Normal;
+            addressablesNote.style.flexGrow = 1f;
+            addressablesNote.style.marginLeft = 8f;
 
             optionalRow.Add(_addressablesButton);
-            optionalRow.Add(_addressablesNote);
+            optionalRow.Add(addressablesNote);
             card.Add(optionalRow);
 
             _busyRow = new Label(CoCoEditorLocalization.Text(
@@ -305,9 +316,11 @@ namespace CoCoFlow.Editor.Core
             _contentHost.Add(card);
         }
 
-        // ==========================================
+        #endregion
+
+        #region Status Projection and Refresh
+
         // 投影与刷新
-        // ==========================================
 
         private void RefreshStatus()
         {
@@ -386,7 +399,7 @@ namespace CoCoFlow.Editor.Core
         private static VisualElement CreateCenteredBadge(CoCoEditorBadgeKind kind, string text = null)
         {
             var badge = CoCoEditorElements.CreateBadge(
-                text ?? KindLabel(kind),
+                text ?? CoCoEditorElements.KindLabel(kind),
                 kind);
             badge.style.alignSelf = Align.Center;
             badge.style.height = 20f;
@@ -399,23 +412,6 @@ namespace CoCoFlow.Editor.Core
                 badgeText.style.overflow = UnityEngine.UIElements.Overflow.Hidden;
             }
             return badge;
-        }
-
-        private static string KindLabel(CoCoEditorBadgeKind kind)
-        {
-            switch (kind)
-            {
-                case CoCoEditorBadgeKind.Success:
-                    return CoCoEditorLocalization.Text("OK", "成功");
-                case CoCoEditorBadgeKind.Warning:
-                    return CoCoEditorLocalization.Text("Warn", "警告");
-                case CoCoEditorBadgeKind.Error:
-                    return CoCoEditorLocalization.Text("Error", "错误");
-                case CoCoEditorBadgeKind.Info:
-                    return CoCoEditorLocalization.Text("Info", "信息");
-                default:
-                    return CoCoEditorLocalization.Text("Note", "注记");
-            }
         }
 
         private static string ProjectText(CoCoSetupModuleCatalog.BilingualText text)
@@ -726,9 +722,11 @@ namespace CoCoFlow.Editor.Core
             CreateGUI();
         }
 
-        // ==========================================
+        #endregion
+
+        #region Apply Recommended Dependencies
+
         // 动作：Apply（D4 确认门禁 → 确认后执行原序列，invariant #7/#18）
-        // ==========================================
 
         private void RequestApplyRecommendedDependencies()
         {
@@ -736,7 +734,6 @@ namespace CoCoFlow.Editor.Core
                 return;
 
             CoCoSetupApplyConfirmDialog.Open(
-                this,
                 CoCoEditorLocalization.Text(
                     "Apply Recommended Dependencies",
                     "应用推荐依赖"),
@@ -840,9 +837,11 @@ namespace CoCoFlow.Editor.Core
             RefreshStatus();
         }
 
-        // ==========================================
+        #endregion
+
+        #region Install Optional Addressables
+
         // 动作：Install Optional Addressables（直接执行；单一加性写入 + 卡内披露，invariant #9）
-        // ==========================================
 
         private void InstallOptionalAddressables()
         {
@@ -901,9 +900,11 @@ namespace CoCoFlow.Editor.Core
             RefreshStatus();
         }
 
-        // ==========================================
+        #endregion
+
+        #region Setup Logging
+
         // 日志（双语对原始数据 + 控制台英文侧，invariant #12）
-        // ==========================================
 
         private void AddLog(string english, string simplifiedChinese)
         {
@@ -923,9 +924,11 @@ namespace CoCoFlow.Editor.Core
             RefreshLogRows();
         }
 
-        // ==========================================
+        #endregion
+
+        #region Dependency Classification
+
         // 测试绑定的 internal statics（声明保留在窗口类，invariant #14）
-        // ==========================================
 
         internal static CoCoUniTaskInstallForm ClassifyUniTaskForm(
             bool manifestHasUniTaskDependency,
@@ -966,6 +969,10 @@ namespace CoCoFlow.Editor.Core
 
             return defines.ToArray();
         }
+
+        #endregion
+
+        #endregion
     }
 
     /// <summary>
@@ -974,12 +981,13 @@ namespace CoCoFlow.Editor.Core
     /// </summary>
     internal sealed class CoCoSetupApplyConfirmDialog : EditorWindow
     {
+        #region Dialog State and Opening
+
         private string _titleText;
         private IReadOnlyList<string> _impactLines;
         private Action _onConfirmed;
 
         internal static void Open(
-            EditorWindow owner,
             string titleText,
             IReadOnlyList<string> impactLines,
             Action onConfirmed)
@@ -1003,6 +1011,10 @@ namespace CoCoFlow.Editor.Core
             dialog.maxSize = new Vector2(width + 120f, height + 160f);
             dialog.ShowModal();
         }
+
+        #endregion
+
+        #region Dialog Controls
 
         public void CreateGUI()
         {
@@ -1060,5 +1072,7 @@ namespace CoCoFlow.Editor.Core
             buttonRow.Add(confirmButton);
             rootVisualElement.Add(buttonRow);
         }
+
+        #endregion
     }
 }
