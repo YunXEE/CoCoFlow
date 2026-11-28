@@ -6,6 +6,8 @@ using System.Text;
 namespace CoCoFlow.Editor.Core
 {
     /// <summary>Setup manifest 文档句柄：解析后的根对象 + 变更标记（自窗口私有嵌套迁出，原样）。</summary>
+    #region Manifest Document
+
     internal sealed class ManifestDocument
     {
         public ManifestDocument(JsonObject root)
@@ -16,6 +18,10 @@ namespace CoCoFlow.Editor.Core
         public JsonObject Root { get; }
         public bool Changed { get; set; }
     }
+
+    #endregion
+
+    #region JSON Values and Serialization
 
     internal abstract class JsonValue
     {
@@ -186,6 +192,10 @@ namespace CoCoFlow.Editor.Core
             return Value;
         }
     }
+
+    #endregion
+
+    #region JSON Parsing
 
     internal sealed class JsonParser
     {
@@ -405,4 +415,6 @@ namespace CoCoFlow.Editor.Core
             return new InvalidDataException(message + " At character " + _index + ".");
         }
     }
+
+    #endregion
 }

@@ -25,14 +25,16 @@ namespace CoCoFlow.Editor.Core
         public string[] RequiredSupportDefines { get; }
         public string[] RequiredAssemblies { get; }
 
-                public string Description { get; }
+        public string Description { get; }
 
-                public string DescriptionZh { get; }
+        public string DescriptionZh { get; }
     }
 
     /// <summary>为 Setup 窗口提供随包模块的固定目录。</summary>
     internal static class CoCoSetupModuleCatalog
     {
+        #region Module Definitions
+
         internal static readonly ModuleDefinition[] Modules =
         {
             new ModuleDefinition(
@@ -172,6 +174,9 @@ namespace CoCoFlow.Editor.Core
         };
 
         /// <summary>保存一组中英界面文字，供 Setup 按语言显示。</summary>
+
+        #endregion
+
         internal readonly struct BilingualText
         {
             public BilingualText(string english, string simplifiedChinese)
@@ -185,6 +190,8 @@ namespace CoCoFlow.Editor.Core
         }
 
         /// <summary>记录当前模块在 Setup 中的检查结果。</summary>
+        #region Module Status Evaluation
+
         internal sealed class ModuleStatus
         {
             public ModuleDefinition Definition { get; set; }
@@ -223,7 +230,7 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-                internal static List<ModuleStatus> EvaluateModules(CoCoSetupDependencyStatus status)
+        internal static List<ModuleStatus> EvaluateModules(CoCoSetupDependencyStatus status)
         {
             var result = new List<ModuleStatus>(Modules.Length);
             foreach (var module in Modules)
@@ -244,5 +251,7 @@ namespace CoCoFlow.Editor.Core
 
             return result;
         }
+
+        #endregion
     }
 }

@@ -47,6 +47,8 @@ namespace CoCoFlow.Editor.Core
 
         // 接受 "2.5.11" 或 git URL 尾缀 "...#2.5.11"；其余（file: 路径等）返回 null → Unknown，
         // 交由 Unity versionDefines 机制自行评估 resolved 版本。
+        #region UniTask Version Parsing
+
         internal static string ExtractVersion(string dependency)
         {
             if (string.IsNullOrEmpty(dependency))
@@ -84,6 +86,8 @@ namespace CoCoFlow.Editor.Core
 
             return 0;
         }
+
+        #endregion
     }
 
     internal static class AddressablesVersionPolicy
@@ -114,6 +118,8 @@ namespace CoCoFlow.Editor.Core
                 ? AddressablesVersionCompatibility.AtOrAboveMaximum
                 : AddressablesVersionCompatibility.Supported;
         }
+
+        #region Semantic Version Parsing and Ordering
 
         private readonly struct SemanticVersion : IComparable<SemanticVersion>
         {
@@ -316,5 +322,7 @@ namespace CoCoFlow.Editor.Core
                 return string.CompareOrdinal(left, right);
             }
         }
+
+        #endregion
     }
 }
