@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   static:
-    name: CI / static
+    name: static
     if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -96,7 +96,7 @@ jobs:
           python3 .github/ci/cocoflow_ci.py release --previous "$previous"
 
   unity:
-    name: CI / win-editor
+    name: win-editor
     needs: static
     if: >-
       needs.static.outputs.editor == 'true' &&
@@ -188,7 +188,7 @@ jobs:
           retention-days: 30
 
   win_mono:
-    name: CI / win-mono
+    name: win-mono
     needs: static
     if: >-
       needs.static.outputs.release == 'true' &&
@@ -298,7 +298,7 @@ jobs:
           retention-days: 30
 
   win_il2cpp:
-    name: CI / win-il2cpp
+    name: win-il2cpp
     needs: [static, win_mono]
     if: >-
       !cancelled() && needs.static.result == 'success' &&
@@ -319,7 +319,7 @@ jobs:
     steps: *player_steps
 
   player_probe:
-    name: CI / player-diagnostics
+    name: player-diagnostics
     needs: static
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.player_probe
@@ -338,7 +338,7 @@ jobs:
     steps: *player_steps
 
   api:
-    name: CI / api
+    name: api
     needs: &api_needs [static, unity, win_mono, win_il2cpp]
     if: &api_condition >-
       always() && needs.static.result == 'success' && needs.static.outputs.api == 'true' &&
@@ -379,7 +379,7 @@ jobs:
           fi
 
   api_doc:
-    name: CI / api-doc
+    name: api-doc
     needs: *api_needs
     if: *api_condition
     env:
@@ -389,7 +389,7 @@ jobs:
     steps: *api_steps
 
   gate:
-    name: CI / gate
+    name: gate
     needs: [static, unity, win_mono, win_il2cpp, api, api_doc]
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.player_probe)
     runs-on: ubuntu-24.04
@@ -455,7 +455,7 @@ jobs:
         run: python3 .github/ci/release_receipt.py verify
 
   tag:
-    name: CI / tag
+    name: tag
     needs: gate
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04

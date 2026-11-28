@@ -13,7 +13,7 @@ from collect_api_surface import git
 
 
 WORKFLOW = "ci-static.yml"
-RELEASE_JOBS = {"CI / static", "CI / api", "CI / api-doc", "CI / win-mono", "CI / win-il2cpp", "CI / gate"}
+RELEASE_JOBS = {"static", "api", "api-doc", "win-mono", "win-il2cpp", "gate"}
 
 
 def candidate():
@@ -91,12 +91,12 @@ def verified_release(repo, merged):
 
 
 def tag(repo, tested):
-    checks = api(f"repos/{repo}/commits/{tested['sha']}/check-runs?check_name=CI%20%2F%20gate")["check_runs"]
+    checks = api(f"repos/{repo}/commits/{tested['sha']}/check-runs?check_name=gate")["check_runs"]
     if not any(check["app"]["id"] == 15368 and check["status"] == "completed"
                and check["conclusion"] == "success" and check["details_url"].split("?")[0].startswith(
                    f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}/")
                for check in checks):
-        raise ValueError("No successful CI / gate for this master SHA and workflow run")
+        raise ValueError("No successful gate for this master SHA and workflow run")
     version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
     name = "v" + version
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))

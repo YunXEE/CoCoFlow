@@ -1,6 +1,6 @@
 # CoCoFlow CI and release gates
 
-The master and `dev/*` rulesets require `CI / gate`. Its required jobs are selected
+The master and `dev/*` rulesets require `gate`. Its required jobs are selected
 by the PR target as described below. Local script checks or successful license
 activation do not prove that package tests passed. A policy change must be
 deployed and validated before its new job routing is claimed as active.
@@ -9,13 +9,13 @@ deployed and validated before its new job routing is claimed as active.
 
 | Check | Responsibility |
 | --- | --- |
-| `CI / static` | Package name and version, diff hygiene and tests for changed CI rules. Release PRs also validate version progression and release metadata. |
-| `CI / api` | Approved API and XML contract comparison for Core and StateGraph, plus external consumer compilation. |
-| `CI / api-doc` | XML summaries for externally accessible handwritten Core and StateGraph methods and overloads. |
-| `CI / win-editor` | Complete package EditMode and PlayMode with fresh results, assembly discovery and seat cleanup. |
-| `CI / win-mono`, `CI / win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
-| `CI / gate` | Requires every applicable job to succeed. On master push it verifies the release receipt and merged Git tree. |
-| `CI / tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
+| `static` | Package name and version, diff hygiene and tests for changed CI rules. Release PRs also validate version progression and release metadata. |
+| `api` | Approved API and XML contract comparison for Core and StateGraph, plus external consumer compilation. |
+| `api-doc` | XML summaries for externally accessible handwritten Core and StateGraph methods and overloads. |
+| `win-editor` | Complete package EditMode and PlayMode with fresh results, assembly discovery and seat cleanup. |
+| `win-mono`, `win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
+| `gate` | Requires every applicable job to succeed. On master push it verifies the release receipt and merged Git tree. |
+| `tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
 | `CI / release-identity` | Validates an externally pushed Tag against the package version and the tagged commit's gate. |
 
 | Target / event | Required checks |
@@ -175,8 +175,7 @@ After the new required gate is enabled:
 - Merge, GitHub Release and branch deletion require maintainer authorization.
 
 Preserve current master/dev PR, thread-resolution, merge-method, bypass and
-force-push/delete settings, including the existing `CI / gate` required check
-and its GitHub Actions integration.
+force-push/delete settings. Require `gate` from the GitHub Actions integration.
 
 ## Local infrastructure checks
 
@@ -214,11 +213,11 @@ link a candidate without changing their manifests.
 ## Manual Windows Player experiments
 
 The optional workflow_dispatch input `player_probe=true` runs the separate
-`CI / player-diagnostics` job using the pinned installer,
+`player-diagnostics` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
 Dev PRs retain the Editor path; master candidates also require both full Player
 profiles as described above. On this explicit
-experiment, the complete Editor job and `CI / gate` are skipped: the probe is
+experiment, the complete Editor job and `gate` are skipped: the probe is
 not complete-package release evidence and does not change branch protection.
 
 Select `player_backend=mono` (default, stripping Disabled) or
