@@ -29,15 +29,15 @@ namespace CoCoFlow.Editor.StateGraph
 
         static StateGraphManagedReferenceInspector()
         {
-            StateGraphMainThreadGuard.CaptureCurrentThread();
-            StateGraphManagedReferenceInspectionBridge.Install(Inspect);
+            GraphAssetCompiler.CaptureCurrentThread();
+            GraphAssetReferenceInspectionBridge.Install(Inspect);
         }
 
-        private static StateGraphManagedReferenceInspection Inspect(StateGraphAsset asset)
+        private static GraphAssetReferenceInspection Inspect(StateGraphAsset asset)
         {
             if (!SerializationUtility.HasManagedReferencesWithMissingTypes(asset))
             {
-                return StateGraphManagedReferenceInspection.Empty;
+                return GraphAssetReferenceInspection.Empty;
             }
 
             ManagedReferenceMissingType[] missingTypes =
@@ -71,7 +71,7 @@ namespace CoCoFlow.Editor.StateGraph
                     location));
             }
 
-            return new StateGraphManagedReferenceInspection(
+            return new GraphAssetReferenceInspection(
                 ComputeFingerprint(missingTypes),
                 diagnostics);
         }

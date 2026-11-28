@@ -265,7 +265,7 @@ namespace CoCoFlow.Editor.StateGraph
             counts.AddToClassList("sg-header-counts");
             status.Add(counts);
 
-            StateGraphAssetCompileResult analysis = controller.AnalysisResult;
+            GraphAssetCompileResult analysis = controller.AnalysisResult;
             CoCoEditorBadgeKind analysisKind = CoCoEditorBadgeKind.Neutral;
             string analysisText = L("Not analyzed", "未分析");
             if (analysis != null)

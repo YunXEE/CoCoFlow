@@ -27,18 +27,18 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                var cache = new StateGraphCompilationCache();
-                var compiler = new StateGraphAssetCompiler(cache);
+                var cache = new GraphAssetCompilationCache();
+                var compiler = new GraphAssetCompiler(cache);
 
-                StateGraphAssetCompileResult first = compiler.Compile(asset, catalog);
-                StateGraphAssetCompileResult second = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult first = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult second = compiler.Compile(asset, catalog);
 
                 Assert.IsTrue(first.Succeeded);
                 Assert.AreSame(first, second);
                 Assert.AreSame(first.Graph, second.Graph);
 
                 cache.Clear();
-                StateGraphAssetCompileResult afterClear = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult afterClear = compiler.Compile(asset, catalog);
                 Assert.IsTrue(afterClear.Succeeded);
                 Assert.AreNotSame(first, afterClear);
                 Assert.AreNotSame(first.Graph, afterClear.Graph);
@@ -57,16 +57,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset asset = CreateAsset(validConfig: true);
             try
             {
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
                 GraphDescriptorCatalog catalog =
                     StateGraphTestFactory.CreateCatalog(false);
-                StateGraphAssetCompileResult first = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult first = compiler.Compile(asset, catalog);
 
                 Assert.IsTrue(first.Succeeded);
                 for (int requestIndex = 1; requestIndex < requestCount; requestIndex++)
                 {
-                    StateGraphAssetCompileResult repeated = compiler.Compile(asset, catalog);
+                    GraphAssetCompileResult repeated = compiler.Compile(asset, catalog);
                     Assert.AreSame(first, repeated);
                     Assert.AreSame(first.Graph, repeated.Graph);
                 }
@@ -84,11 +84,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
-                StateGraphAssetCompileResult first = compiler.Compile(asset, catalog);
-                StateGraphAssetCompileResult second = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult first = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult second = compiler.Compile(asset, catalog);
 
                 Assert.IsFalse(first.Succeeded);
                 Assert.IsTrue(first.HasErrors);
@@ -109,12 +109,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
-                StateGraphAssetCompileResult before = compiler.Compile(asset, catalog);
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
+                GraphAssetCompileResult before = compiler.Compile(asset, catalog);
 
                 ((TestStateAuthoringConfig)asset.Layers[0].States[0].Config).Value = 42;
-                StateGraphAssetCompileResult after = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult after = compiler.Compile(asset, catalog);
 
                 Assert.IsTrue(before.Succeeded);
                 Assert.IsTrue(after.Succeeded);
@@ -136,12 +136,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             {
                 GraphDescriptorCatalog catalog = CreateStateCatalog(
                     new ThrowingStateConfigFreezer());
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
-                StateGraphAssetCompileResult before = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult before = compiler.Compile(asset, catalog);
                 ((TestStateAuthoringConfig)asset.Layers[0].States[0].Config).Value = 42;
-                StateGraphAssetCompileResult after = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult after = compiler.Compile(asset, catalog);
 
                 Assert.IsFalse(before.Succeeded);
                 Assert.IsFalse(after.Succeeded);
@@ -164,12 +164,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             {
                 var freezer = new MutableFailureStateConfigFreezer();
                 GraphDescriptorCatalog catalog = CreateStateCatalog(freezer);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
-                StateGraphAssetCompileResult before = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult before = compiler.Compile(asset, catalog);
                 freezer.FailureMessage = "Changed synthetic failure.";
-                StateGraphAssetCompileResult after = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult after = compiler.Compile(asset, catalog);
 
                 Assert.IsFalse(before.Succeeded);
                 Assert.IsFalse(after.Succeeded);
@@ -201,13 +201,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     stateId,
                     priority: 0);
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
                 SetTransitionWindow(asset, TransitionWindowMode.LocalSeconds, -1d, 1d);
-                StateGraphAssetCompileResult before = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult before = compiler.Compile(asset, catalog);
                 SetTransitionWindow(asset, TransitionWindowMode.LocalSeconds, 1d, 1d);
-                StateGraphAssetCompileResult after = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult after = compiler.Compile(asset, catalog);
 
                 Assert.IsFalse(before.Succeeded);
                 Assert.IsFalse(after.Succeeded);
@@ -235,12 +235,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 serialized.FindProperty("assetGuidStamp").stringValue = string.Empty;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
-                StateGraphAssetCompileResult before = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult before = compiler.Compile(asset, catalog);
                 Assert.IsTrue(asset.EnsureAssetIdentity("repaired-guid"));
-                StateGraphAssetCompileResult after = compiler.Compile(asset, catalog);
+                GraphAssetCompileResult after = compiler.Compile(asset, catalog);
 
                 Assert.IsFalse(before.Succeeded);
                 Assert.IsFalse(after.Succeeded);
@@ -267,11 +267,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     StateGraphTestFactory.CreateCatalog(false, 1U);
                 GraphDescriptorCatalog secondCatalog =
                     StateGraphTestFactory.CreateCatalog(false, 2U);
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
 
-                StateGraphAssetCompileResult first = compiler.Compile(asset, firstCatalog);
-                StateGraphAssetCompileResult second = compiler.Compile(asset, secondCatalog);
+                GraphAssetCompileResult first = compiler.Compile(asset, firstCatalog);
+                GraphAssetCompileResult second = compiler.Compile(asset, secondCatalog);
 
                 Assert.IsTrue(first.Succeeded);
                 Assert.IsTrue(second.Succeeded);
@@ -292,15 +292,15 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                StateGraphAssetCompileResult expected = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache()).Compile(asset, catalog);
-                var cache = new StateGraphCompilationCache();
-                var key = new StateGraphCompilationCacheKey(
+                GraphAssetCompileResult expected = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache()).Compile(asset, catalog);
+                var cache = new GraphAssetCompilationCache();
+                var key = new GraphAssetCompilationCacheKey(
                     asset.GraphId,
                     expected.ContentFingerprint,
                     catalog.Fingerprint,
                     StateGraphCompiler.CurrentSchemaVersion);
-                var results = new StateGraphAssetCompileResult[32];
+                var results = new GraphAssetCompileResult[32];
                 int factoryCalls = 0;
 
                 Parallel.For(0, results.Length, index =>
@@ -328,9 +328,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset asset = CreateAsset(validConfig: true);
             try
             {
-                StateGraphMainThreadGuard.CaptureCurrentThread();
-                var compiler = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache());
+                GraphAssetCompiler.CaptureCurrentThread();
+                var compiler = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache());
                 GraphDescriptorCatalog catalog =
                     StateGraphTestFactory.CreateCatalog(false);
 
@@ -353,10 +353,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                StateGraphAssetCompileResult expected = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache()).Compile(asset, catalog);
-                var cache = new StateGraphCompilationCache();
-                var key = new StateGraphCompilationCacheKey(
+                GraphAssetCompileResult expected = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache()).Compile(asset, catalog);
+                var cache = new GraphAssetCompilationCache();
+                var key = new GraphAssetCompilationCacheKey(
                     asset.GraphId,
                     expected.ContentFingerprint + 1UL,
                     catalog.Fingerprint,
@@ -381,20 +381,20 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             try
             {
                 GraphDescriptorCatalog catalog = StateGraphTestFactory.CreateCatalog(false);
-                StateGraphAssetCompileResult expected = new StateGraphAssetCompiler(
-                    new StateGraphCompilationCache()).Compile(asset, catalog);
-                var cache = new StateGraphCompilationCache();
-                var key = new StateGraphCompilationCacheKey(
+                GraphAssetCompileResult expected = new GraphAssetCompiler(
+                    new GraphAssetCompilationCache()).Compile(asset, catalog);
+                var cache = new GraphAssetCompilationCache();
+                var key = new GraphAssetCompilationCacheKey(
                     asset.GraphId,
                     expected.ContentFingerprint + 2UL,
                     catalog.Fingerprint,
                     StateGraphCompiler.CurrentSchemaVersion);
-                var staleFaultedEntry = new Lazy<StateGraphAssetCompileResult>(
+                var staleFaultedEntry = new Lazy<GraphAssetCompileResult>(
                     () => throw new InvalidOperationException("Stale failure."));
 
                 Assert.Throws<InvalidOperationException>(() =>
                 {
-                    StateGraphAssetCompileResult _ = staleFaultedEntry.Value;
+                    GraphAssetCompileResult _ = staleFaultedEntry.Value;
                 });
 
                 Assert.AreSame(expected, cache.GetOrAdd(key, () => expected));
@@ -404,7 +404,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 cache.TryRemoveIfSame(key, staleFaultedEntry);
 
                 int replacementFactoryCalls = 0;
-                StateGraphAssetCompileResult retained = cache.GetOrAdd(key, () =>
+                GraphAssetCompileResult retained = cache.GetOrAdd(key, () =>
                 {
                     Interlocked.Increment(ref replacementFactoryCalls);
                     return expected;

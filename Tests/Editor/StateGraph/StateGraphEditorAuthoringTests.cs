@@ -41,7 +41,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset asset = CreateAsset();
             LayerId layerId = StateGraphAuthoringOperations.AddLayer(asset, "Gameplay");
             StateId stateId = AddState(asset, layerId, default, "Idle");
-            StateGraphAssetSnapshot baseline = Snapshot(asset, catalog);
+            GraphAssetSnapshot baseline = Snapshot(asset, catalog);
             Assert.IsTrue(asset.EditorLayout.TryGetPosition(Serialize(stateId), out Vector2 original));
 
             Undo.ClearAll();
@@ -52,7 +52,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new Vector2(321f, 123f),
                 out string failure), failure);
             Undo.FlushUndoRecordObjects();
-            StateGraphAssetSnapshot moved = Snapshot(asset, catalog);
+            GraphAssetSnapshot moved = Snapshot(asset, catalog);
 
             Assert.AreEqual(baseline.ContentFingerprint, moved.ContentFingerprint);
             Assert.AreEqual(baseline.CacheFingerprint, moved.CacheFingerprint);
@@ -453,14 +453,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 out string failure), failure);
         }
 
-        private static StateGraphAssetSnapshot Snapshot(
+        private static GraphAssetSnapshot Snapshot(
             StateGraphAsset asset,
             GraphDescriptorCatalog catalog)
         {
-            return StateGraphAssetSnapshotBuilder.Build(
+            return GraphAssetSnapshotBuilder.Build(
                 asset,
                 catalog,
-                StateGraphManagedReferenceInspection.Empty);
+                GraphAssetReferenceInspection.Empty);
         }
 
         private static SerializedId128 Serialize(StateId id) =>

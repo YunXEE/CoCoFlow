@@ -6,7 +6,7 @@ using UnityEngine;
 namespace CoCoFlow.Tests.GameplayBinding
 {
     /// <summary>在实际 Host 的准备阶段读取项目 Operation，将账本写入候选并可由测试控制拒绝。</summary>
-    public sealed class DamageOperator : MonoBehaviour, ITemporalRestoreOperator
+    public sealed class DamageOperator : MonoBehaviour, IHostTemporalRestoreOperator
     {
         private static readonly OperationRequirement Damage;
         private static readonly OperationRequirement Pulse;
@@ -14,7 +14,7 @@ namespace CoCoFlow.Tests.GameplayBinding
         public static StateSlotId Ledger { get; }
 
         [OperatorDefinition]
-        private static StandardOperatorDefinition Definition { get; }
+        private static HostOperatorDefinition Definition { get; }
 
         public OperatorDescriptor Descriptor => Definition.Descriptor;
         public bool Reject { get; set; }
@@ -51,7 +51,7 @@ namespace CoCoFlow.Tests.GameplayBinding
             return !Reject;
         }
         /// <summary>从恢复读取器取出账本值并保存到测试观察点，找不到匹配槽时返回 false。</summary>
-        public bool TryRestore(in ContextRestoreBindingContext context, out CoCoDiagnostic diagnostic)
+        public bool TryRestore(in HostRestoreContext context, out CoCoDiagnostic diagnostic)
         {
             diagnostic = CoCoDiagnostic.None;
             bool read = context.Reader.TryRead(Ledger, out int ledger);
@@ -73,7 +73,7 @@ namespace CoCoFlow.Tests.GameplayBinding
             OperatorId.TryCreate(scope, 5, out var id);
             Ledger = slot;
 
-            var builder = new StandardOperatorBuilder();
+            var builder = new HostOperatorBuilder();
             Damage = builder.Require<IDamageWindowSection>();
             Pulse = builder.Require<DamageSections.IDamagePulseSection>();
             builder.OwnOutcome(block, slot, ContextProjection.Temporal, ContextRestorePolicy.Stored, 0, 1);

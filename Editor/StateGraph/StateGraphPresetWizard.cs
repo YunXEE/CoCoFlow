@@ -407,8 +407,8 @@ namespace CoCoFlow.Editor.StateGraph
                     return false;
                 }
 
-                StateGraphAssetCompileResult result =
-                    new StateGraphAssetCompiler().Compile(transient, catalog);
+                GraphAssetCompileResult result =
+                    new GraphAssetCompiler().Compile(transient, catalog);
                 if (result.Succeeded)
                 {
                     failure = string.Empty;

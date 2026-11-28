@@ -12,8 +12,11 @@ namespace CoCoFlow.Runtime.StateGraph
     {
         private readonly bool _isValid;
 
+        /// <summary>图内该层的零基序号。</summary>
         public int LayerIndex { get; }
+        /// <summary>节点在当前活动路径中的深度。</summary>
         public int PathDepth { get; }
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _isValid && LayerIndex >= 0 && PathDepth >= 0;
 
         internal static OperationWriteRank Base => new OperationWriteRank(0, 0);
@@ -21,6 +24,10 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Public API
 
         /// <summary>把非负的层索引与路径深度组成写入排序键，任一输入无效时返回 false。</summary>
+        /// <param name="layerIndex">图层的零基索引。</param>
+        /// <param name="pathDepth">状态在路径中的深度。</param>
+        /// <param name="rank">成功时为可比较的层序与路径深度组合。</param>
+        /// <returns>输入有效并成功生成结果时为真。</returns>
         public static bool TryCreate(
             int layerIndex,
             int pathDepth,
@@ -37,16 +44,21 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>按<c>isValid</c>、<c>LayerIndex</c>、<c>PathDepth</c>比较两个值，全部相等时返回 true。</summary>
+        /// <param name="other">待比较的同类值。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public bool Equals(OperationWriteRank other) =>
             _isValid == other._isValid &&
             LayerIndex == other.LayerIndex &&
             PathDepth == other.PathDepth;
 
         /// <summary>仅当对象属于同类型并且<c>isValid</c>、<c>LayerIndex</c>、<c>PathDepth</c>相等时返回 true。</summary>
+        /// <param name="obj">待比较的对象。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public override bool Equals(object obj) =>
             obj is OperationWriteRank other && Equals(other);
 
         /// <summary>为哈希集合计算与<c>isValid</c>、<c>LayerIndex</c>、<c>PathDepth</c>的相等判定一致的散列值。</summary>
+        /// <returns>与相等判定一致的哈希值。</returns>
         public override int GetHashCode()
         {
             unchecked
@@ -59,11 +71,15 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>比较两端的<c>isValid</c>、<c>LayerIndex</c>、<c>PathDepth</c>，相等时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator ==(
             OperationWriteRank left,
             OperationWriteRank right) => left.Equals(right);
 
         /// <summary>比较两端的<c>isValid</c>、<c>LayerIndex</c>、<c>PathDepth</c>，存在差异时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator !=(
             OperationWriteRank left,
             OperationWriteRank right) => !left.Equals(right);

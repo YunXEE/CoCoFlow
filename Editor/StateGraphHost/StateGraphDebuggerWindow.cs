@@ -752,7 +752,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private void RenderRing()
         {
-            StateGraphHostTemporalDebugSnapshot snapshot = _state.Snapshot;
+            HostHistoryDebugSnapshot snapshot = _state.Snapshot;
             _ringStatus.text = snapshot.Capacity == 0
                 ? CoCoEditorLocalization.Text(
                     "Temporal history is disabled for this Host.",
@@ -824,7 +824,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     CoCoEditorBadgeKind.Warning));
             }
 
-            StateGraphHostTemporalDebugSnapshot snapshot = _state.Snapshot;
+            HostHistoryDebugSnapshot snapshot = _state.Snapshot;
             if (snapshot != null && snapshot.Fault.IsFaulted)
             {
                 _diagnostics.Add(CoCoEditorElements.CreateDiagnosticRow(
@@ -1170,7 +1170,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private readonly Label _count;
         private readonly Label _caption;
         private readonly List<Button> _slotButtons = new List<Button>();
-        private StateGraphHostTemporalDebugSnapshot _snapshot;
+        private HostHistoryDebugSnapshot _snapshot;
         private int _selectedDepth;
         private int _persistedDepth = -1;
 
@@ -1201,7 +1201,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         internal event Action<int> DepthSelected;
 
         internal void SetData(
-            StateGraphHostTemporalDebugSnapshot snapshot,
+            HostHistoryDebugSnapshot snapshot,
             int selectedDepth,
             int persistedDepth)
         {
@@ -1293,7 +1293,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         private string BuildTooltip(int depth, bool current, bool persisted)
         {
-            TemporalFrameInfo frame = _snapshot.GetFrame(depth);
+            HostHistoryFrame frame = _snapshot.GetFrame(depth);
             string role = current
                 ? CoCoEditorLocalization.Text("Current", "当前")
                 : CoCoEditorLocalization.Text("History", "历史");

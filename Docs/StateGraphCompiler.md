@@ -95,7 +95,7 @@ Durable projections. States with no config or memory fields use
 belongs in the layer's optional AnyState slot.
 
 An output interface inherits `IOperation` and carries `[Operation(Mode.Continuous)]` or `[Operation(Mode.Discrete)]`. An operator declares a static
-`[OperatorDefinition]` and calls `StandardOperatorBuilder.Require<TOperation>()`.
+`[OperatorDefinition]` and calls `HostOperatorBuilder.Require<TOperation>()`.
 The source generator supplies the top-level or accessible nested interface's view.
 The Editor and the standard Host read these declarations from the same catalog.
 [StateGraph Runtime and Host](StateGraphRuntime.md)
@@ -328,7 +328,7 @@ metadata so High Managed Stripping does not erase the static Shape contract.
 StateGraphHost owns the scene sources, typed Inbox adapters,
 and runtime binding coverage. Transaction preflight includes Context producer,
 Operator, Claim, Actor-binding, and Outbox coverage. This preflight
-runs before Clock creation and before `StateGraphRuntime.TryCreate`, so an
+runs before Clock creation and before `StateGraphInstance.TryCreate`, so an
 invalid setup keeps the Host in `Created` without invoking Runtime factories,
 reset/fingerprint work, Graph capture, or Router registration. Runtime binding
 remains outside graph compilation: a missing project Factory does not turn the

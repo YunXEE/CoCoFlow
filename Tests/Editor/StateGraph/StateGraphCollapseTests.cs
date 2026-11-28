@@ -50,8 +50,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         {
             string original = EditorJsonUtility.ToJson(_asset);
             var catalog = StateGraphTestFactory.CreateCatalog(false);
-            var before = StateGraphAssetSnapshotBuilder.Build(_asset, catalog,
-                StateGraphManagedReferenceInspection.Empty);
+            var before = GraphAssetSnapshotBuilder.Build(_asset, catalog,
+                GraphAssetReferenceInspection.Empty);
             EditorUtility.ClearDirty(_asset);
             int undo = Undo.GetCurrentGroup();
             _controller.ToggleCanvasCollapsed(_nested);
@@ -67,8 +67,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(original, EditorJsonUtility.ToJson(_asset));
             Assert.IsFalse(EditorUtility.IsDirty(_asset));
             Assert.AreEqual(undo, Undo.GetCurrentGroup());
-            var after = StateGraphAssetSnapshotBuilder.Build(_asset, catalog,
-                StateGraphManagedReferenceInspection.Empty);
+            var after = GraphAssetSnapshotBuilder.Build(_asset, catalog,
+                GraphAssetReferenceInspection.Empty);
             Assert.AreEqual(before.ContentFingerprint, after.ContentFingerprint);
             Assert.AreEqual(before.CacheFingerprint, after.CacheFingerprint);
         }

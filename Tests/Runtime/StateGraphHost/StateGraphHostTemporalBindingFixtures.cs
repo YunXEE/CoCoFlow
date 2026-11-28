@@ -20,7 +20,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     internal sealed class TemporalActorRestoreBinding :
         MonoBehaviour,
         IHostContextBinding,
-        IContextRestoreBinding
+        IHostRestoreBinding
     {
         private StateSlotId _slotId;
         private HostContextBindingDescriptor _descriptor;
@@ -34,14 +34,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public int CancelCount { get; private set; }
         public int CorrectionCount { get; private set; }
         public int LastAppliedValue { get; private set; }
-        public ContextRestoreApplyKind LastApplyKind { get; private set; }
-        public TemporalFrameInfo LastSource { get; private set; }
+        public HostRestoreKind LastApplyKind { get; private set; }
+        public HostHistoryFrame LastSource { get; private set; }
         public TickFrame LastTargetTickFrame { get; private set; }
-        public ContextRestoreReader EscapedReader { get; private set; }
+        public HostRestoreReader EscapedReader { get; private set; }
         public TemporalRestoreFixtureFailure Failure { get; set; }
         public bool FailCaptureAfterWorldMutation { get; set; }
         public bool MutateBeforeFailure { get; set; }
-        public Action<ContextRestoreApplyKind> ApplyCallback { get; set; }
+        public Action<HostRestoreKind> ApplyCallback { get; set; }
 
         public void Configure(StateSlotId slotId)
         {
@@ -90,7 +90,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             ApplyCount++;
@@ -100,16 +100,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             EscapedReader = context.Reader;
             switch (context.ApplyKind)
             {
-                case ContextRestoreApplyKind.Preview:
+                case HostRestoreKind.Preview:
                     PreviewCount++;
                     break;
-                case ContextRestoreApplyKind.Confirm:
+                case HostRestoreKind.Confirm:
                     ConfirmCount++;
                     break;
-                case ContextRestoreApplyKind.Cancel:
+                case HostRestoreKind.Cancel:
                     CancelCount++;
                     break;
-                case ContextRestoreApplyKind.Correction:
+                case HostRestoreKind.Correction:
                     CorrectionCount++;
                     break;
             }
@@ -156,7 +156,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     }
 
     internal sealed class TemporalHostBindingProvider :
-        IStateGraphProjectBindingProvider
+        IHostBindingProvider
     {
         private readonly TemporalHostTestIds _ids;
         private readonly IContextValueCodec<int> _actorCodec;
@@ -179,7 +179,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public GraphDescriptorCatalog Catalog { get; }
 
         public bool TryConfigure(
-            StateGraphHostBindingBuilder builder,
+            HostBindingBuilder builder,
             out CoCoDiagnostic diagnostic)
         {
             var memoryBinding = new TemporalHostMemoryStateBinding();
@@ -320,7 +320,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 ids,
                 withDurableProjection,
                 actorCodec);
-            if (!StateGraphProjectBindings.TryInstall(
+            if (!HostProjectBindings.TryInstall(
                     provider,
                     out CoCoDiagnostic install))
             {
@@ -351,7 +351,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "eventOutboxCapacity", 4);
             SetField(host, "traceCapacity", 64);
             SetField(host, "temporalHistoryCapacity", historyCapacity);
-            SetField(host, "actorContextBinding", binding);
+            SetField(host, "hostContextBinding", binding);
             if (withEvent)
             {
                 var adapter = gameObject.AddComponent<TemporalHostEventAdapterComponent>();
@@ -395,7 +395,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "eventOutboxCapacity", 4);
             SetField(host, "traceCapacity", 64);
             SetField(host, "temporalHistoryCapacity", historyCapacity);
-            SetField(host, "actorContextBinding", binding);
+            SetField(host, "hostContextBinding", binding);
             if (source.WithEvent)
             {
                 var adapter = gameObject.AddComponent<TemporalHostEventAdapterComponent>();
@@ -415,12 +415,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             };
         }
 
-        internal static StateGraphRuntime GetRuntime(StateGraphHost host)
+        internal static StateGraphInstance GetRuntime(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
-                "_runtime",
+                "_instance",
                 BindingFlags.Instance | BindingFlags.NonPublic);
-            return (StateGraphRuntime)field?.GetValue(host);
+            return (StateGraphInstance)field?.GetValue(host);
         }
 
         internal static void SetRestoreBinding(
@@ -428,13 +428,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             MonoBehaviour binding) =>
             SetField(host, "contextRestoreBinding", binding);
 
-        internal static StateGraphHostRuntimeBindings GetBindings(
+        internal static HostRuntimeBindings GetBindings(
             StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
                 "_bindings",
                 BindingFlags.Instance | BindingFlags.NonPublic);
-            return (StateGraphHostRuntimeBindings)field?.GetValue(host);
+            return (HostRuntimeBindings)field?.GetValue(host);
         }
 
         internal static int ReadActorValue(

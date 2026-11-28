@@ -38,7 +38,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset asset = CreateValidAsset();
             try
             {
-                StateGraphAssetCompileResult result = Compile(asset);
+                GraphAssetCompileResult result = Compile(asset);
 
                 Assert.IsTrue(result.Succeeded);
                 Assert.AreEqual(1, StateGraphFixtureCounters.StateFreezeCalls);
@@ -59,7 +59,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             {
                 SetUInt128OrScalar(asset, "schemaVersion", schemaVersion);
 
-                StateGraphAssetCompileResult result = Compile(asset);
+                GraphAssetCompileResult result = Compile(asset);
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -88,7 +88,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 graphId.FindPropertyRelative("low").ulongValue = 0UL;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
-                StateGraphAssetCompileResult result = Compile(asset);
+                GraphAssetCompileResult result = Compile(asset);
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -113,7 +113,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 serialized.FindProperty("assetGuidStamp").stringValue = string.Empty;
                 serialized.ApplyModifiedPropertiesWithoutUndo();
 
-                StateGraphAssetCompileResult result = Compile(asset);
+                GraphAssetCompileResult result = Compile(asset);
 
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(0, StateGraphFixtureCounters.StateFreezeCalls);
@@ -136,7 +136,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             {
                 StateGraphAuthoringOperations.AddState(asset, ToLayerId(asset.Layers[0].LayerId),
                     default, StateGraphTestFactory.StateDescriptorId, null, "Missing Config");
-                StateGraphAssetCompileResult result = Compile(asset);
+                GraphAssetCompileResult result = Compile(asset);
                 Assert.IsFalse(result.Succeeded);
                 Assert.AreEqual(1, StateGraphFixtureCounters.StateFreezeCalls);
                 Assert.IsTrue(result.Diagnostics.Any(diagnostic => diagnostic.IsError &&
@@ -155,8 +155,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private GraphDescriptorCatalog catalog;
 
-        private StateGraphAssetCompileResult Compile(StateGraphAsset asset) =>
-            new StateGraphAssetCompiler(new StateGraphCompilationCache()).Compile(asset, catalog);
+        private GraphAssetCompileResult Compile(StateGraphAsset asset) =>
+            new GraphAssetCompiler(new GraphAssetCompilationCache()).Compile(asset, catalog);
 
         private static StateGraphAsset CreateValidAsset()
         {

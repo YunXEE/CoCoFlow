@@ -22,7 +22,7 @@ Actor GameObject
 ├─ Intent Source scripts     explicit ordered Host references as required
 ├─ Event Adapters           typed Inbox filters inside the nearest Host boundary
 ├─ Operator scripts          optional; referenced by the Host in explicit order
-├─ Actor Context binding     required only when Actor-owned Slots exist
+├─ Host Context binding     required only when Host-owned Slots exist
 └─ Context Restore binding   required when Temporal history is enabled
 ```
 
@@ -31,9 +31,32 @@ runtime and disallows duplicate instances on the same GameObject. Runtime,
 Clock, Inbox, Router, StateLogic, StateActivationMemory, and Factory
 objects are ordinary C# objects, not components or extra Inspector assets.
 
+### Migrating a 0.4.10 scene
+
+The Unity component is `CoCoFlow.Runtime.StateGraph.StateGraphHost`. Its script
+and the `StateGraphAsset` script retain their original Unity GUIDs. The
+serialized `actorContextBinding` reference loads into `hostContextBinding`.
+Check the original graph, operator order and both recovery switches when
+opening a migrated prefab. The Host owns a separate instance for each scene
+component, even when two components share the same graph asset.
+
+Move each retired transition Condition into the source StateLogic before
+issuing the transition request. An edge with the old `MailboxReadyCondition`
+stays at its source when the logic makes no request. An explicit request can
+now take the edge even when the old condition would have rejected it. Exercise
+both values of the guard before saving the migrated graph. A retired Animation
+Operator appears as a missing component in existing prefabs. Replace its
+Inspector reference and verify the associated persistence and temporal switches.
+
+Project code derived from `EntityContext`, or declaring an `EntityIdentity`
+field, requires a source migration. Inspect serialized references to these
+types before resaving project assets. `PersistenceContext` owns its stable
+entity ID and prefab key. `LifecycleContext` retains its seven lifecycle values
+and transition rules.
+
 ### Standard binding startup
 
-`FlowRuntimeBootstrap` attempts standard provider installation before and
+`HostBindingBootstrap` attempts standard provider installation before and
 after scene load. It leaves an already installed project provider untouched;
 otherwise it scans loaded non-package assemblies for concrete
 `StateAttribute` logic classes. Finding no attributed State is a valid
@@ -48,7 +71,7 @@ For a single source, mark the State property `[Intent]` and supply an
 `IIntentFrameSource<T>` component in the Host's Intent Sources list.
 The standard catalog derives the ID from the payload. Modules with multiple
 sources can declare an explicit reducer and capacity using `IntentRegistrationAttribute`.
-An operator uses `[OperatorDefinition]` and `StandardOperatorBuilder`
+An operator uses `[OperatorDefinition]` and `HostOperatorBuilder`
 to declare consumed operations, owned Outcome slots and emitted packets.
 
 Standard Config arrays and `List<T>` are restored from the frozen Values by the
@@ -74,16 +97,15 @@ Intent Sources and Operators retain their explicit Host references. Typed Inbox
 adapters can be assigned or discovered among components inside the nearest
 Host boundary. A nested Host owns its own descendants.
 
-The Actor Context binding is also one explicit Host reference. It must implement
+The Host Context binding is also one explicit Host reference. It must implement
 the binding contract, stay inside the Host's transform scope without crossing a
-nested Host, and cover every Actor-owned writable Slot exactly once. It must be
-absent when the Layout contains no Actor-owned Slot.
+nested Host, and cover every Host-owned writable Slot exactly once. It must be
+absent when the Layout contains no Host-owned Slot.
 
 The Context Restore binding is one separate explicit Host reference and must
-implement `IContextRestoreBinding`. It is required when Temporal history
-is enabled with capacity of at least two, must remain inside the same Host
-boundary, and is never discovered through scene scanning. One component may
-implement both Actor capture and Context restore contracts and be assigned to
+implement `IHostRestoreBinding`. When assigned for Temporal history, it must remain inside the same Host
+boundary. The Inspector supplies the explicit reference. One component may
+implement both Host capture and Context restore contracts and be assigned to
 both fields.
 
 ## Shared graph, isolated Actor state
@@ -95,13 +117,13 @@ Inbox, pending staged Tick, Temporal Ring/cursor, and the latched Fault.
 
 The standard binding provider freezes the discovered State and Operator
 declarations into a catalog. To limit discovery, use
-`StandardBindingProvider.BuildForAssemblyOf<T>()` and
-`StateGraphProjectBindings.TryInstall` before starting the Host.
+`HostBindingProvider.BuildForAssemblyOf<T>()` and
+`HostProjectBindings.TryInstall` before starting the Host.
 The Host validates the assigned sources and operators against the compiled
 graph before a callback or Tick can run.
 
 Transaction preflight runs before Clock creation and before
-`StateGraphRuntime.TryCreate`. It classifies every non-Derived Context Slot
+`StateGraphInstance.TryCreate`. It classifies every non-Derived Context Slot
 exactly once as Graph state, Graph auxiliary value, canonical Claim, Operator
 Outcome, or Actor binding output; existing rebuilders exclusively own Derived
 Slots. Invalid producer, Operator, Claim, Actor-binding, or Outbox setup is
@@ -312,7 +334,7 @@ StateGraphHost resolves that staged Tick in one fixed transaction:
 ```text
 Preview -> Context Prepare -> Intent Collect/Freeze -> Graph Stage + Trace
   -> Graph-owned State/Value Capture -> Claim Arbitration/Claim Capture
-  -> Operators/Outcomes/Outbox -> Actor-owned Capture -> Derived Finalize
+  -> Operators/Outcomes/Outbox -> Host-owned Capture -> Derived Finalize
   -> Composite Preflight -> Temporal Projection Capture
   -> no-fail Commit + Temporal Publish -> complete Outbox Publish
 ```
@@ -336,7 +358,7 @@ Exit, Stop, Dispose, or the claim's explicit Suspend policy.
 
 Graph capture completes before arbitration and any real Operator callback.
 Operators produce only their declared Operator-owned Slots. The single Actor
-binding captures Actor-owned Slots after Operators, but like every Operator it
+binding captures Host-owned Slots after Operators, but like every Operator it
 reads only Previous Context and cannot see this Tick's candidate. Derived
 rebuilding begins only after all direct producers finish.
 
@@ -412,7 +434,7 @@ path described below. CoCoFlow does not expose a general `ClearFault()` API.
 
 ## Temporal mode and public orchestration
 
-`TemporalMode` is orthogonal to the Runtime lifecycle; it does not add a
+`HostHistoryMode` is orthogonal to the Runtime lifecycle; it does not add a
 sixth lifecycle state:
 
 - `Disabled`: configured history capacity is zero;
@@ -436,7 +458,7 @@ exposed.
 The Host API is synchronous:
 
 ```text
-TemporalState
+HostHistoryState
 TryBeginTemporalPreview
 TryPreviewTemporal(historyDepth)
 TryConfirmTemporalRestore
@@ -460,7 +482,7 @@ succeeds, a no-fail barrier swaps all logical authority, discards the abandoned
 future, and records the new-Epoch restore commit as the new history branch head.
 The next accepted positive-delta Tick resumes normal StateGraph execution.
 
-The callback receives only a token-scoped `ContextRestoreReader`; retaining
+The callback receives only a token-scoped `HostRestoreReader`; retaining
 it beyond the synchronous call yields an invalid reader. A preflight failure
 before any callback leaves a clean session healthy; if a previous Preview
 projection remains active, the same failure requires Correction. Once a binding
@@ -676,7 +698,7 @@ Formal Confirm uses the same single-use validation/prepare discipline:
 validate source and selection generation
   -> materialize Stored + Default + Derived Context candidate
   -> prepare Graph Path/Memory + Clock + Claim + branch-head entry
-  -> IContextRestoreBinding.TryApply(Confirm)
+  -> IHostRestoreBinding.TryApply(Confirm)
   -> no-fail authority swap + future discard + mailbox Epoch switch
 ```
 

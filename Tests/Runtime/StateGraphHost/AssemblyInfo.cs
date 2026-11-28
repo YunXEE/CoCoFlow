@@ -8,7 +8,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
     {
         internal static void ResetProjectBindings()
         {
-            CoCoFlow.Runtime.StateGraph.StateGraphProjectBindings.ResetForTests();
+            CoCoFlow.Runtime.StateGraph.HostProjectBindings.ResetForTests();
         }
     }
 }

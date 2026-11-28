@@ -11,3 +11,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Runtime.StateGraphHost")]
 [assembly: InternalsVisibleTo("CoCoFlow.Editor.StateGraph")]
 [assembly: InternalsVisibleTo("CoCoFlow.Tests.Editor.StateGraph")]
+
+// 0.4.10 正常保存的配置使用这一程序集名。CLR 保留相同类型的程序集转发。
+[assembly: TypeForwardedTo(typeof(CoCoFlow.Runtime.StateGraph.FieldConfig))]
+[assembly: TypeForwardedTo(typeof(CoCoFlow.Runtime.StateGraph.EmptyStateConfig))]

@@ -819,10 +819,15 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly ContextFrameStorage _storage;
         private readonly ulong _generation;
 
+        /// <summary>此 Context 帧的身份和时钟。</summary>
         public StateFlowFrameHeader Header => IsAlive ? _storage.Header : default;
+        /// <summary>此帧提交时的修订号。</summary>
         public ContextRevision Revision => IsAlive ? _storage.Revision : default;
+        /// <summary>此帧的来源，例如正常提交或恢复。</summary>
         public ContextFrameOrigin Origin => IsAlive ? _storage.Origin : default;
+        /// <summary>解释此帧中各槽值的冻结布局。</summary>
         public ContextFrameLayout Layout => IsAlive ? _storage.Layout : null;
+        /// <summary>当前存储代次仍与此帧匹配时为真。</summary>
         public bool IsAlive => _storage != null && _storage.IsAlive(_generation);
 
         internal byte[] Buffer => IsAlive ? _storage.Buffer : null;
@@ -831,6 +836,9 @@ namespace CoCoFlow.Runtime.StateGraph
         #region Public API
 
         /// <summary>从仍存活的帧读取所属布局的类型化槽，帧已释放或句柄不匹配时抛出异常。</summary>
+        /// <param name="slot">目标布局中的类型化槽或槽标识。</param>
+        /// <typeparam name="T">要读取的非托管槽值类型。</typeparam>
+        /// <returns>当前帧中指定槽的值。使用失效帧或不匹配的槽会抛出异常。</returns>
         public T Read<T>(StateSlot<T> slot)
             where T : unmanaged
         {
@@ -843,23 +851,34 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         /// <summary>增加当前帧代次的持有计数，帧已回收时返回 false。</summary>
+        /// <returns>存储代次有效且取得了一份持有时为真。</returns>
         public bool Retain() => _storage != null && _storage.TryRetain(_generation);
         /// <summary>释放当前帧的一份持有，帧已失效时返回 false。最后一个读者释放后存储可复用。</summary>
+        /// <returns>成功释放一份持有时为真，失效或未持有时为假。</returns>
         public bool Release() => _storage != null && _storage.TryRelease(_generation);
 
         /// <summary>按<c>storage</c>、<c>generation</c>比较两个值，全部相等时返回 true。</summary>
+        /// <param name="other">待比较的同类值。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public bool Equals(ContextFrame other) =>
             ReferenceEquals(_storage, other._storage) && _generation == other._generation;
 
         /// <summary>仅当对象属于同类型并且<c>storage</c>、<c>generation</c>相等时返回 true。</summary>
+        /// <param name="obj">待比较的对象。</param>
+        /// <returns>两者代表同一值时为真。</returns>
         public override bool Equals(object obj) => obj is ContextFrame other && Equals(other);
         /// <summary>为哈希集合计算与<c>storage</c>、<c>generation</c>的相等判定一致的散列值。</summary>
+        /// <returns>与相等判定一致的哈希值。</returns>
         public override int GetHashCode() =>
             unchecked(((_storage?.GetHashCode() ?? 0) * 397) ^ _generation.GetHashCode());
 
         /// <summary>比较两端的<c>storage</c>、<c>generation</c>，相等时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator ==(ContextFrame left, ContextFrame right) => left.Equals(right);
         /// <summary>比较两端的<c>storage</c>、<c>generation</c>，存在差异时返回 true。</summary>
+        /// <param name="left">左侧比较值。</param>
+        /// <param name="right">右侧比较值。</param>
         public static bool operator !=(ContextFrame left, ContextFrame right) => !left.Equals(right);
 
         #endregion
@@ -1020,18 +1039,31 @@ namespace CoCoFlow.Runtime.StateGraph
     /// <summary>区分一次 Context 候选提交成功及各类拒绝结果。</summary>
     public enum ContextCommitStatus
     {
+        /// <summary>尚无指定值。</summary>
         None = 0,
+        /// <summary>操作已成功提交。</summary>
         Succeeded = 1,
+        /// <summary>时钟与本次提交要求不符。</summary>
         InvalidTick = 2,
+        /// <summary>提交来源无效。</summary>
         InvalidOrigin = 3,
+        /// <summary>来源帧与目标图不匹配。</summary>
         GraphMismatch = 4,
+        /// <summary>来源帧与目标布局不匹配。</summary>
         LayoutMismatch = 5,
+        /// <summary>可用于本次准备的容量已耗尽。</summary>
         CapacityExhausted = 6,
+        /// <summary>已有尚未结束的准备。</summary>
         PreparationAlreadyActive = 7,
+        /// <summary>准备凭据已失效或与事务不匹配。</summary>
         InvalidPreparation = 8,
+        /// <summary>候选已取消。</summary>
         Cancelled = 9,
+        /// <summary>恢复准备未成功。</summary>
         RestoreFailed = 10,
+        /// <summary>无可用的后续修订号。</summary>
         RevisionExhausted = 11,
+        /// <summary>恢复后重建派生槽失败。</summary>
         DerivedRebuildFailed = 12
     }
 
@@ -1041,8 +1073,11 @@ namespace CoCoFlow.Runtime.StateGraph
 
         #region Public API
 
+        /// <summary>本次 Context 提交的结果状态。</summary>
         public ContextCommitStatus Status { get; }
+        /// <summary>与此结果关联的 Context 帧。</summary>
         public ContextFrame Frame { get; }
+        /// <summary>本次提交结果为成功时为真。</summary>
         public bool Succeeded => Status == ContextCommitStatus.Succeeded;
 
         #endregion
@@ -1065,12 +1100,18 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly ulong _token;
         private readonly StateBlockHandle _block;
 
+        /// <summary>本次写者有权写入的状态块。</summary>
         public StateBlockHandle Block => _block;
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _arena != null && _arena.IsPreparationActive(_token) && _block.IsValid;
 
         #region Public API
 
         /// <summary>在租约有效时将值写入该候选布局的槽，过期或槽不匹配时返回 false。</summary>
+        /// <param name="slot">目标布局中的类型化槽或槽标识。</param>
+        /// <param name="value">写入目标槽的值。</param>
+        /// <typeparam name="TValue">状态槽的非托管值类型。</typeparam>
+        /// <returns>写者及槽属于本次准备且写入成功时为真。</returns>
         public bool Write<TValue>(StateSlot<TValue> slot, in TValue value)
             where TValue : unmanaged
         {
@@ -1100,6 +1141,7 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly ContextFrameArena _arena;
         private readonly ulong _token;
 
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _arena != null && _arena.IsPreparationActive(_token);
 
         #region Internal Logic
@@ -1154,6 +1196,7 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly ContextFrameArena _arena;
         private readonly ulong _token;
 
+        /// <summary>此值已初始化且满足该类型的身份或代次约束时为真。</summary>
         public bool IsValid => _arena != null && _arena.IsFinalized(_token);
         internal bool IsCommitReady => _arena != null && _arena.IsCommitReady(_token);
 
@@ -1253,17 +1296,22 @@ namespace CoCoFlow.Runtime.StateGraph
         private bool _disposeRequested;
         private bool _isDisposed;
 
+        /// <summary>解释此帧中各槽值的冻结布局。</summary>
         public ContextFrameLayout Layout { get; }
         internal IReadOnlyList<StateSlotDescriptor> RetainedRestoreSlots { get; set; }
+        /// <summary>当前已提交的帧。</summary>
         public ContextFrame Current => _isDisposed ? default : _current;
+        /// <summary>当前帧之前保留的提交帧。</summary>
         public ContextFrameReadView Previous => _isDisposed
             ? default
             : HasCurrent
                 ? _current.ReadView
                 : new ContextFrameReadView(Layout);
+        /// <summary>已经产生可读取的当前帧时为真。</summary>
         public bool HasCurrent => !_isDisposed && _current.IsAlive;
         internal bool HasAvailableCapacity => !_isDisposed && _reserved == null && FindAvailableFrame() != null;
         internal bool IsDisposed => _isDisposed;
+        /// <summary>此存储可接纳的最大条目数。</summary>
         public int Capacity => _frames.Length;
 
         #region Public API

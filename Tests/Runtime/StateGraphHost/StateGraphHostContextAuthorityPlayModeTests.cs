@@ -21,7 +21,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             ContextAuthorityFactoryProbe.Reset();
             ContextAuthorityMemoryStateBinding.Reset();
             ContextAuthorityLogic.Reset();
@@ -39,7 +39,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             ContextAuthorityFactoryProbe.Reset();
             ContextAuthorityMemoryStateBinding.Reset();
             ContextAuthorityLogic.Reset();
@@ -207,7 +207,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             GraphStateRecord<int> oldGraphState = ReadGraphState(
                 oldAuthority,
                 ids.FirstGraphStateSlotId);
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             TimelineTick oldTick = runtime.Clock.Tick;
             int oldOperatorExecutions = runtimeOperator.ExecuteCount;
             ulong failedTick = oldTick.Value + 1UL;
@@ -265,7 +265,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             GraphStateRecord<int> oldGraphState = ReadGraphState(
                 oldAuthority,
                 ids.FirstGraphStateSlotId);
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             TimelineTick oldTick = runtime.Clock.Tick;
             int oldOperatorExecutions = runtimeOperator.ExecuteCount;
             ulong failedTick = oldTick.Value + 1UL;
@@ -451,7 +451,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Assert.That(host.RequiresWorldCorrection, Is.True);
                 Assert.That(host.CurrentContext, Is.EqualTo(source));
 
-                StateGraphRuntime runtime = GetRuntime(host);
+                StateGraphInstance runtime = GetRuntime(host);
                 TickFrame resumed = CreateResumedTick(source.Header.TickFrame);
                 int actorCaptures = actorBinding.CaptureCount;
                 int graphCaptures = ContextAuthorityMemoryStateBinding.CaptureCount;
@@ -461,7 +461,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 RuntimeFault fault = host.Fault;
 
                 Require(host.TryCaptureDebugSnapshot(
-                    out StateGraphHostDebugSnapshot snapshot,
+                    out HostDebugSnapshot snapshot,
                     out CoCoDiagnostic snapshotDiagnostic), snapshotDiagnostic);
                 Assert.That(snapshot.Lifecycle, Is.EqualTo(host.Lifecycle));
                 Assert.That(snapshot.Fault, Is.EqualTo(fault));
@@ -518,7 +518,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore cancelled,
+                    out PreparedHostRestore cancelled,
                     out ContextCommitStatus cancelStatus,
                     out CoCoDiagnostic cancelDiagnostic), cancelDiagnostic);
                 Assert.That(cancelStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -529,7 +529,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore prepared,
+                    out PreparedHostRestore prepared,
                     out ContextCommitStatus prepareStatus,
                     out CoCoDiagnostic prepareDiagnostic), prepareDiagnostic);
                 Assert.That(prepareStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -573,7 +573,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             try
             {
                 Assert.That(host.ActivePaths[0].ActiveLeaf, Is.EqualTo(ids.SecondStateId));
-                StateGraphRuntime runtime = GetRuntime(host);
+                StateGraphInstance runtime = GetRuntime(host);
                 TickFrame resumed = CreateResumedTick(source.Header.TickFrame);
                 int logicUpdates = ContextAuthorityLogic.UpdateCount;
                 int graphCaptures = ContextAuthorityMemoryStateBinding.CaptureCount;
@@ -582,7 +582,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore cancelled,
+                    out PreparedHostRestore cancelled,
                     out ContextCommitStatus cancelStatus,
                     out CoCoDiagnostic cancelDiagnostic), cancelDiagnostic);
                 Assert.That(cancelStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -594,7 +594,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TryPrepareRestore(
                     source,
                     resumed,
-                    out PreparedActorRestore prepared,
+                    out PreparedHostRestore prepared,
                     out ContextCommitStatus prepareStatus,
                     out CoCoDiagnostic prepareDiagnostic), prepareDiagnostic);
                 Assert.That(prepareStatus, Is.EqualTo(ContextCommitStatus.None));
@@ -637,7 +637,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(host.TryStep(0.1d, out CoCoDiagnostic transition), transition);
             ContextAuthorityLogic.RequestTransition = false;
             ContextFrame oldAuthority = host.CurrentContext;
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             TimelineTick oldTick = runtime.Clock.Tick;
             TickFrame resumed = CreateResumedTick(oldAuthority.Header.TickFrame);
             int logicUpdates = ContextAuthorityLogic.UpdateCount;
@@ -861,7 +861,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             var provider = new ContextAuthorityBindingProvider(ids, mode, includeOperation);
             Require(
-                StateGraphProjectBindings.TryInstall(
+                HostProjectBindings.TryInstall(
                     provider,
                     out CoCoDiagnostic diagnostic),
                 diagnostic);
@@ -911,13 +911,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return host;
         }
 
-        private static StateGraphRuntime GetRuntime(StateGraphHost host)
+        private static StateGraphInstance GetRuntime(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
-                "_runtime",
+                "_instance",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphRuntime)field.GetValue(host);
+            return (StateGraphInstance)field.GetValue(host);
         }
 
         private static GraphStateRecord<int> ReadGraphState(
@@ -1034,7 +1034,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         private static void SetActorBinding(
             StateGraphHost host,
             MonoBehaviour actorBinding) =>
-            SetField(host, "actorContextBinding", actorBinding);
+            SetField(host, "hostContextBinding", actorBinding);
 
         private static void SetField<TValue>(
             StateGraphHost host,
@@ -1076,7 +1076,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private sealed class ContextAuthorityBindingProvider :
-            IStateGraphProjectBindingProvider
+            IHostBindingProvider
         {
             private readonly ContextAuthorityTestIds _ids;
             private readonly ContextAuthorityBindingMode _mode;
@@ -1098,7 +1098,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public GraphDescriptorCatalog Catalog { get; }
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 if (_includeOperation &&

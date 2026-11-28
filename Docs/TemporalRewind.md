@@ -30,7 +30,7 @@ positive-delta Tick
 ```
 
 The complete committed `ContextFrame` remains the Actor's logical authority.
-Graph Path/Memory, ActorClock, and Claim state are mirrors exchanged with it by
+Graph Path/Memory, InstanceClock, and Claim state are mirrors exchanged with it by
 the same authority barrier.
 
 The Temporal Ring is not another authority and does not retain a ContextFrame.
@@ -91,7 +91,7 @@ If an Operator already touched Unity, the Host follows the world-correction rule
 below. After the composite authority barrier succeeds, publishing or overwriting
 the prepared Ring entry is no-fail.
 
-## Host surface and TemporalMode
+## Host surface and HostHistoryMode
 
 Temporal state is orthogonal to the Runtime lifecycle:
 
@@ -106,7 +106,7 @@ mutable history. Each Host owns its Ring, cursor, binding, and orchestration.
 The public Host surface is synchronous:
 
 ```text
-TemporalState TemporalState
+HostHistoryState HostHistoryState
 bool TryBeginTemporalPreview(out CoCoDiagnostic diagnostic)
 bool TryPreviewTemporal(int historyDepth, out CoCoDiagnostic diagnostic)
 bool TryConfirmTemporalRestore(out CoCoDiagnostic diagnostic)
@@ -114,13 +114,13 @@ bool TryCancelTemporalPreview(out CoCoDiagnostic diagnostic)
 bool TryCorrectWorld(out CoCoDiagnostic diagnostic)
 ```
 
-`TemporalState` exposes Mode, Capacity, Count, PreviewDepth, immutable
+`HostHistoryState` exposes Mode, Capacity, Count, PreviewDepth, immutable
 current/preview metadata, rewind/restore dropped-input count, and whether the
 selection can Confirm. It does not expose mutable Frames, payload buffers,
 prepared candidates, arena handles, or long-lived history tokens.
 
 The Confirm eligibility flag is a side-effect-free structural snapshot derived
-from cached Temporal records. Reading `TemporalState` never probes Unity object
+from cached Temporal records. Reading `HostHistoryState` never probes Unity object
 liveness, marks a retained physical identity unavailable, or latches world
 correction. Actual projection and Confirm preparation revalidate the physical
 identity and may still reject a selection that became unavailable after the
@@ -154,10 +154,10 @@ Suspended state.
 An enabled Temporal Host references exactly one component implementing:
 
 ```csharp
-public interface IContextRestoreBinding
+public interface IHostRestoreBinding
 {
     bool TryApply(
-        in ContextRestoreBindingContext context,
+        in HostRestoreContext context,
         out CoCoDiagnostic diagnostic);
 }
 ```
@@ -172,7 +172,7 @@ invalid, destroyed, or out-of-boundary component is ignored in that mode; one
 valid in-boundary binding may still be retained solely so `TryCorrectWorld` can
 repair Unity after a non-Temporal Tick failure that may have dirtied the world.
 
-The callback receives a read-only, token-scoped `ContextRestoreReader`.
+The callback receives a read-only, token-scoped `HostRestoreReader`.
 It can read the fully materialized policy-effective candidate, including Layout
 defaults and rebuilt Derived values. The reader expires when the callback
 returns; storing it does not retain a Frame or candidate.
@@ -225,7 +225,7 @@ validate source and selection generation
   -> materialize Stored + Default + Derived Context candidate
   -> prepare Graph Path/Memory + Clock + Claim
   -> prepare new-Epoch history branch head and mailbox switch
-  -> IContextRestoreBinding.TryApply(Confirm)
+  -> IHostRestoreBinding.TryApply(Confirm)
   -> no-fail authority exchange
 ```
 

@@ -29,7 +29,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void SetUp()
         {
             _objects.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             LocoMoveProbeLogic.LastDelta = null;
         }
 
@@ -44,7 +44,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
         }
 
         [UnityTest]
@@ -54,10 +54,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             // operator sections (the LocomotionOperator attribute points at
             // the registrar; the fixture assembly sees it via package
             // reference).
-            StandardBindingProvider provider =
-                StandardBindingProvider.Build(
+            HostBindingProvider provider =
+                HostBindingProvider.Build(
                     new[] { typeof(LocoMoveProbeLogic).Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(
+            Assert.IsTrue(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install), install.Message);
 

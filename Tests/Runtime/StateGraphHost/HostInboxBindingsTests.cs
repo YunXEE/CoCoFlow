@@ -3,7 +3,7 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;
 using UnityEngine;
-using HostComponent = CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+using HostComponent = CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {

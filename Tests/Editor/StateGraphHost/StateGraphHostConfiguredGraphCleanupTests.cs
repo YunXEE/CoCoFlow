@@ -20,15 +20,15 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
         [TestCase("CompileFailure")]
         public void TryStartReleasesOnlyItsConfiguredCopy(string path)
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             string graphName = "CleanupProbeGraph_" + System.Guid.NewGuid().ToString("N");
             asset.name = graphName;
             var owner = new GameObject("CleanupProbeHost");
             try
             {
-                var provider = StandardBindingProvider.Build(new[] { typeof(HostTestStartupLogic).Assembly });
-                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out _));
+                var provider = HostBindingProvider.Build(new[] { typeof(HostTestStartupLogic).Assembly });
+                Assert.IsTrue(HostProjectBindings.TryInstall(provider, out _));
                 Assert.IsTrue(StandardDescriptors.TryCreate(typeof(HostTestStartupLogic),
                     nameof(HostTestStartupLogic), out StateDescriptorId descriptor));
                 var graph = new SerializedObject(asset);
@@ -79,7 +79,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
                     .Where(graph => graph.name == graphName + "(Clone)"))
                     Object.DestroyImmediate(graph);
                 Object.DestroyImmediate(asset);
-                StateGraphProjectBindings.ResetForTests();
+                HostProjectBindings.ResetForTests();
             }
         }
 

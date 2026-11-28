@@ -136,7 +136,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             try
             {
                 var participant =
-                    (IStateGraphTemporalParticipant)fixture.Binding;
+                    (IHostHistoryParticipant)fixture.Binding;
                 fixture.HostScenario.Binding.Value = 73;
                 Assert.That(
                     fixture.HostScenario.Host.TryStep(
@@ -175,7 +175,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Assert.That(fixture.DownstreamProbe.ApplyCount, Is.EqualTo(1));
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Mode,
-                    Is.EqualTo(TemporalMode.Disabled));
+                    Is.EqualTo(HostHistoryMode.Disabled));
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Count,
                     Is.Zero);
@@ -186,7 +186,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     Is.False);
                 Assert.That(forwardCapture.IsError, Is.True);
 
-                TemporalFrameInfo authority =
+                HostHistoryFrame authority =
                     fixture.HostScenario.Host.TemporalState.Current;
                 Assert.That(authority.IsValid, Is.True);
                 Assert.That(
@@ -508,11 +508,11 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 await UniTask.NextFrame();
                 for (int poll = 0; poll < 3; poll++)
                 {
-                    TemporalState state =
+                    HostHistoryState state =
                         fixture.HostScenario.Host.TemporalState;
                     Assert.That(
                         state.Mode,
-                        Is.EqualTo(TemporalMode.Previewing));
+                        Is.EqualTo(HostHistoryMode.Previewing));
                     Assert.That(state.PreviewDepth, Is.EqualTo(1));
                     Assert.That(state.CanConfirm, Is.True);
                     Assert.That(
@@ -1010,7 +1010,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     Is.False);
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Mode,
-                    Is.EqualTo(TemporalMode.Ready));
+                    Is.EqualTo(HostHistoryMode.Ready));
                 Assert.That(retained.Instance.activeSelf, Is.False);
             }
             finally
@@ -1043,11 +1043,11 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 await UniTask.NextFrame();
                 for (int poll = 0; poll < 3; poll++)
                 {
-                    TemporalState state =
+                    HostHistoryState state =
                         fixture.HostScenario.Host.TemporalState;
                     Assert.That(
                         state.Mode,
-                        Is.EqualTo(TemporalMode.Previewing));
+                        Is.EqualTo(HostHistoryMode.Previewing));
                     Assert.That(state.PreviewDepth, Is.EqualTo(1));
                     Assert.That(state.CanConfirm, Is.True);
                     Assert.That(
@@ -1071,7 +1071,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     cancelled.Message);
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Mode,
-                    Is.EqualTo(TemporalMode.Ready));
+                    Is.EqualTo(HostHistoryMode.Ready));
                 Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.False);
                 Assert.That(
                     fixture.HostScenario.Host.RequiresWorldCorrection,
@@ -1117,7 +1117,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     corrected.Message);
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Mode,
-                    Is.EqualTo(TemporalMode.Ready));
+                    Is.EqualTo(HostHistoryMode.Ready));
                 Assert.That(fixture.HostScenario.Host.Fault.IsFaulted, Is.False);
                 Assert.That(
                     fixture.HostScenario.Host.RequiresWorldCorrection,
@@ -1191,7 +1191,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     confirmed.Message);
                 Assert.That(
                     fixture.HostScenario.Host.TemporalState.Mode,
-                    Is.EqualTo(TemporalMode.Ready));
+                    Is.EqualTo(HostHistoryMode.Ready));
 
                 for (int frame = 0; frame < 20; frame++)
                 {
@@ -1325,7 +1325,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 PoolEntrySnapshot before =
                     fixture.Scope.CaptureSnapshot().Entries.Single();
                 var participant =
-                    (IStateGraphTemporalParticipant)fixture.Binding;
+                    (IHostHistoryParticipant)fixture.Binding;
                 Assert.That(
                     participant.TryPrepareAuthorityReset(
                         fixture.HostScenario.Host.TemporalState.Current,
@@ -1370,7 +1370,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Assert.That(GetSidecarCount(fixture.Binding), Is.EqualTo(2));
 
                 var participant =
-                    (IStateGraphTemporalParticipant)fixture.Binding;
+                    (IHostHistoryParticipant)fixture.Binding;
                 Assert.That(
                     participant.TryPrepareAuthorityReset(
                         fixture.HostScenario.Host.TemporalState.Current,
@@ -1459,7 +1459,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                     fixture.Scope.CaptureSnapshot().Entries.Single();
 
                 var participant =
-                    (IStateGraphTemporalParticipant)fixture.Binding;
+                    (IHostHistoryParticipant)fixture.Binding;
                 Assert.That(
                     participant.TryPrepareAuthorityReset(
                         fixture.HostScenario.Host.TemporalState.Current,
@@ -1777,13 +1777,13 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
 
     internal sealed class PoolDownstreamRestoreProbe :
         MonoBehaviour,
-        IContextRestoreBinding
+        IHostRestoreBinding
     {
         internal PoolDownstreamFailure Failure { get; set; }
         internal int ApplyCount { get; private set; }
 
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             _ = context;

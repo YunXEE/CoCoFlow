@@ -633,7 +633,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private static ContextFrameArena CreateRestoreSource(
-            StateGraphRuntime runtime,
+            StateGraphInstance runtime,
             out ContextFrame source)
         {
             Assert.IsTrue(FrameLayoutId.TryCreate(
@@ -674,7 +674,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private static TickFrame CreateResumedTick(
-            ActorClock clock,
+            InstanceClock clock,
             ulong offset)
         {
             Assert.IsTrue(TimelinePosition.TryCreate(
@@ -882,7 +882,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             private Fixture(
                 CompiledStateGraph graph,
-                StateGraphRuntime runtime,
+                StateGraphInstance runtime,
                 RuntimeControl control,
                 List<string> trace,
                 LayerId layer,
@@ -903,7 +903,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
 
             public CompiledStateGraph Graph { get; }
-            public StateGraphRuntime Runtime { get; }
+            public StateGraphInstance Runtime { get; }
             public RuntimeControl Control { get; }
             public List<string> Trace { get; }
             public LayerId Layer { get; }
@@ -951,19 +951,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     Array.Empty<OperationRequirement>(),
                     out OperationFrame operationFrame,
                     out diagnostic), diagnostic.Message);
-                Assert.IsTrue(ActorClock.TryCreate(
+                Assert.IsTrue(InstanceClock.TryCreate(
                     ids.Timeline,
                     ids.ClockDomain,
                     new TimelineEpoch(1UL),
-                    out ActorClock clock,
+                    out InstanceClock clock,
                     out diagnostic), diagnostic.Message);
-                Assert.IsTrue(StateGraphRuntime.TryCreate(
+                Assert.IsTrue(StateGraphInstance.TryCreate(
                     graph,
                     graphInstanceId,
                     bindings,
                     operationFrame,
                     clock,
-                    out StateGraphRuntime runtime,
+                    out StateGraphInstance runtime,
                     out diagnostic), diagnostic.Message);
                 return new Fixture(
                     graph,

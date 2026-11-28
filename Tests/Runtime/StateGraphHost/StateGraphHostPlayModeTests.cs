@@ -22,7 +22,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             HostTestLogic.Reset();
         }
 
@@ -39,7 +39,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
             _objects.Clear();
             _eventGraphs.Clear();
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             HostTestLogic.Reset();
         }
 
@@ -50,7 +50,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new StartupExceptionBindingProvider(
                 new HostTestBindingProvider(ids, withIntentSource: true), duringCompilation);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             StateGraphHost host = CreateHost(CreateAsset(ids, withEvent: true), StateGraphDriver.Manual, 4);
             var source = host.gameObject.AddComponent<ThrowingHostTestIntentSource>();
             SetField(host, "intentSources", new MonoBehaviour[] { source });
@@ -110,8 +110,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void StandardFactoryReportsMissingUpdateAndStartsAfterCorrection(bool missingUpdate)
         {
             Type logicType = missingUpdate ? typeof(HostTestMissingUpdateLogic) : typeof(HostTestStartupLogic);
-            var provider = StandardBindingProvider.Build(new[] { logicType.Assembly });
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            var provider = HostBindingProvider.Build(new[] { logicType.Assembly });
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             StateGraphAsset asset = CreateAsset(HostTestIds.Create(), withEvent: false);
             StateGraphStateRecord state = asset.Layers[0].States[0];
             Require(StandardDescriptors.TryCreate(logicType, logicType.Name, out StateDescriptorId descriptor));
@@ -173,7 +173,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var provider = new HostTestBindingProvider(
                 ids,
                 ignoreExtraBinding: true);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
 
@@ -192,7 +192,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var provider = new HostTestBindingProvider(
                 ids,
                 mismatchedFactory: true);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
 
@@ -228,7 +228,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var provider = new StartCallbackBindingProvider(
                 inner,
                 () => nestedDispose = host.TryDispose(out nestedDiagnostic));
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             host = CreateHost(asset, StateGraphDriver.Manual, 4);
 
@@ -258,7 +258,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     UnityEngine.Object.DestroyImmediate(host.gameObject);
                     nestedStep = host.TryStep(0.02d, out nestedDiagnostic);
                 });
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             host = CreateHost(asset, StateGraphDriver.Manual, 4);
 
@@ -280,7 +280,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 32);
 
@@ -310,7 +310,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(
                 ids);
-            Require(StateGraphProjectBindings.TryInstall(
+            Require(HostProjectBindings.TryInstall(
                 provider,
                 out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(
@@ -349,11 +349,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             HostTestLogic.UpdateCallback = () =>
                 UnityEngine.Object.DestroyImmediate(host.gameObject);
 
@@ -376,11 +376,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             bool destroyed = false;
             HostTestLogic.MemoryFingerprintCallback = () =>
             {
@@ -413,7 +413,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -423,8 +423,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TrySuspend(out CoCoDiagnostic suspendDiagnostic), suspendDiagnostic);
             }
 
-            StateGraphRuntime runtime = GetRuntime(host);
-            StateGraphHostRuntimeBindings bindings = GetBindings(host);
+            StateGraphInstance runtime = GetRuntime(host);
+            HostRuntimeBindings bindings = GetBindings(host);
             GraphInstanceId graphInstanceId = host.GraphInstanceId;
             RuntimeLifecycleState lifecycle = host.Lifecycle;
             EventPacket<HostTestEvent> queued = Packet(
@@ -466,7 +466,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -488,7 +488,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -498,7 +498,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Require(host.TrySuspend(out CoCoDiagnostic suspendDiagnostic), suspendDiagnostic);
             }
 
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             ulong tick = runtime.Clock.Tick.Value;
             int updates = HostTestLogic.UpdateCount;
             int exits = HostTestLogic.ExitCount;
@@ -517,7 +517,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             SetAssetGraphId(asset, 1UL, 0UL);
             StateGraphHost first = CreateHost(asset, StateGraphDriver.Manual, 4);
@@ -554,11 +554,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 ids,
                 omitStateFactory: true);
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
-            StateGraphAssetCompileResult result =
-                new StateGraphAssetCompiler().Compile(asset, provider.Catalog);
+            GraphAssetCompileResult result =
+                new GraphAssetCompiler().Compile(asset, provider.Catalog);
             Assert.That(result.Succeeded, Is.True);
 
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install), install);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Assert.That(host.TryStart(out CoCoDiagnostic diagnostic), Is.False);
             Assert.That(host.HasLiveRuntime, Is.False);
@@ -572,7 +572,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
 
             StateGraphHost outside =
@@ -611,21 +611,21 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var selectedDriver = (StateGraphDriver)driverValue;
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, selectedDriver, 4);
             SetField(host, "timeScale", 2f);
             Require(host.TryStart(out CoCoDiagnostic start), start);
             Require(host.TrySuspend(out CoCoDiagnostic suspend), suspend);
             Require(host.TryCaptureDebugSnapshot(
-                out StateGraphHostDebugSnapshot before,
+                out HostDebugSnapshot before,
                 out CoCoDiagnostic beforeCapture), beforeCapture);
-            StateGraphHostDebugActiveState beforeState =
+            HostDebugActiveState beforeState =
                 before.GetLayer(0).GetActiveState(0);
 
             Require(host.TryDebugStepWhileSuspended(0.125d, out CoCoDiagnostic step), step);
             Require(host.TryCaptureDebugSnapshot(
-                out StateGraphHostDebugSnapshot after,
+                out HostDebugSnapshot after,
                 out CoCoDiagnostic afterCapture), afterCapture);
 
             Assert.That(host.Lifecycle, Is.EqualTo(RuntimeLifecycleState.Suspended));
@@ -671,7 +671,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Update, 4);
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -692,7 +692,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(host.Lifecycle, Is.EqualTo(RuntimeLifecycleState.Suspended));
             Assert.That(host.Trace, Is.Null);
             Require(host.TryCaptureDebugSnapshot(
-                out StateGraphHostDebugSnapshot snapshot,
+                out HostDebugSnapshot snapshot,
                 out CoCoDiagnostic capture), capture);
             Assert.That(snapshot.Tick.Value, Is.EqualTo(2UL));
             Assert.That(snapshot.ContextRevision.Value, Is.EqualTo(2UL));
@@ -703,7 +703,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start), start);
@@ -720,7 +720,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             SetField(host, "contextFrameCapacity", 2);
@@ -788,7 +788,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 1);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -849,7 +849,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 1);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -892,7 +892,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var provider = new HostTestBindingProvider(
                 ids,
                 withIntentSource: true);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             var throwing =
@@ -900,7 +900,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             SetField(host, "intentSources", new MonoBehaviour[] { throwing });
             Require(host.TryStart(out CoCoDiagnostic start));
 
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
             StateId committedLeaf = host.ActivePaths[0].ActiveLeaf;
             EventPacket<HostTestEvent> packet = Packet(
                 ids,
@@ -923,7 +923,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(GetCommittedMemoryValue(runtime), Is.Zero);
             Assert.That(GetCommittedContext(host), Is.EqualTo(default(ContextFrame)));
             Require(host.TryCaptureDebugSnapshot(
-                out StateGraphHostDebugSnapshot snapshot,
+                out HostDebugSnapshot snapshot,
                 out CoCoDiagnostic capture), capture);
             Assert.That(snapshot.Fault.IsFaulted, Is.True);
             Assert.That(snapshot.Tick.Value, Is.Zero);
@@ -940,7 +940,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost source = CreateHost(asset, StateGraphDriver.Manual, 4);
             StateGraphHost target = CreateHost(asset, StateGraphDriver.Manual, 4);
@@ -974,7 +974,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost first = CreateHost(asset, StateGraphDriver.Manual, 4);
             StateGraphHost second = CreateHost(asset, StateGraphDriver.Manual, 4);
@@ -999,7 +999,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost healthy = CreateHost(asset, StateGraphDriver.Manual, 1);
             StateGraphHost faulted = CreateHost(asset, StateGraphDriver.Manual, 1);
@@ -1007,8 +1007,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Require(faulted.TryStart(out CoCoDiagnostic faultedStart));
 
             Require(healthy.TryStep(0.02d, out CoCoDiagnostic healthyStep));
-            StateGraphRuntime healthyRuntime = GetRuntime(healthy);
-            StateGraphRuntime faultedRuntime = GetRuntime(faulted);
+            StateGraphInstance healthyRuntime = GetRuntime(healthy);
+            StateGraphInstance faultedRuntime = GetRuntime(faulted);
             Assert.That(healthyRuntime.Clock.Tick.Value, Is.EqualTo(1UL));
             Assert.That(faultedRuntime.Clock.Tick.Value, Is.Zero);
             Assert.That(HostTestLogic.GetMemoryValue(healthy.GraphInstanceId), Is.EqualTo(1));
@@ -1045,7 +1045,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: true);
             StateGraphHost host = CreateHost(asset, StateGraphDriver.Manual, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
@@ -1141,12 +1141,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         {
             HostTestIds ids = HostTestIds.Create();
             var provider = new HostTestBindingProvider(ids);
-            Require(StateGraphProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
+            Require(HostProjectBindings.TryInstall(provider, out CoCoDiagnostic install));
             StateGraphAsset asset = CreateAsset(ids, withEvent: false);
             StateGraphHost host = CreateHost(asset, selectedDriver, 4);
             Require(host.TryStart(out CoCoDiagnostic start));
             host.enabled = false;
-            StateGraphRuntime runtime = GetRuntime(host);
+            StateGraphInstance runtime = GetRuntime(host);
 
             int firstFrame = Time.frameCount;
             InvokePrivateCallback(host, callbackName);
@@ -1257,22 +1257,22 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return host.TryStep(0.001d, out _);
         }
 
-        private static StateGraphRuntime GetRuntime(StateGraphHost host)
+        private static StateGraphInstance GetRuntime(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
-                "_runtime",
+                "_instance",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphRuntime)field.GetValue(host);
+            return (StateGraphInstance)field.GetValue(host);
         }
 
-        private static StateGraphHostRuntimeBindings GetBindings(StateGraphHost host)
+        private static HostRuntimeBindings GetBindings(StateGraphHost host)
         {
             FieldInfo field = typeof(StateGraphHost).GetField(
                 "_bindings",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null);
-            return (StateGraphHostRuntimeBindings)field.GetValue(host);
+            return (HostRuntimeBindings)field.GetValue(host);
         }
 
         private static ulong GetCommittedSequence(
@@ -1297,9 +1297,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             callback.Invoke(host, null);
         }
 
-        private static int GetCommittedMemoryValue(StateGraphRuntime runtime)
+        private static int GetCommittedMemoryValue(StateGraphInstance runtime)
         {
-            FieldInfo layersField = typeof(StateGraphRuntime).GetField(
+            FieldInfo layersField = typeof(StateGraphInstance).GetField(
                 "_layers",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(layersField, Is.Not.Null);
@@ -1345,7 +1345,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             GraphId graphId,
             GraphInstanceId graphInstanceId)
         {
-            MethodInfo method = typeof(StateGraphHost).GetMethod(
+            MethodInfo method = typeof(HostStartup).GetMethod(
                 "TryCreateTimelineId",
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.That(method, Is.Not.Null);
@@ -1394,7 +1394,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 _inner.LogFormat(logType, context, format, args);
         }
 
-        private sealed class StartupExceptionBindingProvider : IStateGraphProjectBindingProvider
+        private sealed class StartupExceptionBindingProvider : IHostBindingProvider
         {
             private readonly HostTestBindingProvider _inner;
             private readonly bool _duringCompilation;
@@ -1417,10 +1417,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            public bool TryConfigure(StateGraphHostBindingBuilder builder, out CoCoDiagnostic diagnostic)
+            public bool TryConfigure(HostBindingBuilder builder, out CoCoDiagnostic diagnostic)
             {
                 if (!_inner.TryConfigure(builder, out diagnostic)) return false;
-                IntentRuntime = (IntentFrameRuntime)typeof(StateGraphHostBindingBuilder)
+                IntentRuntime = (IntentFrameRuntime)typeof(HostBindingBuilder)
                     .GetField("_intentRuntime", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(builder);
                 if (Fail) ThrowStartupException();
                 return true;
@@ -1441,13 +1441,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private sealed class StartCallbackBindingProvider :
-            IStateGraphProjectBindingProvider
+            IHostBindingProvider
         {
-            private readonly IStateGraphProjectBindingProvider _inner;
+            private readonly IHostBindingProvider _inner;
             private readonly Action _callback;
 
             public StartCallbackBindingProvider(
-                IStateGraphProjectBindingProvider inner,
+                IHostBindingProvider inner,
                 Action callback)
             {
                 _inner = inner;
@@ -1458,7 +1458,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public GraphDescriptorCatalog Catalog => _inner.Catalog;
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 CallbackCount++;
@@ -1467,7 +1467,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
         }
 
-        private sealed class HostTestBindingProvider : IStateGraphProjectBindingProvider
+        private sealed class HostTestBindingProvider : IHostBindingProvider
         {
             private const ulong ReducerFingerprint = 991UL;
             private const ulong OperationFingerprint = 992UL;
@@ -1502,7 +1502,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             public HostTestDiscreteSectionViewFactory OperationFactory { get; }
 
             public bool TryConfigure(
-                StateGraphHostBindingBuilder builder,
+                HostBindingBuilder builder,
                 out CoCoDiagnostic diagnostic)
             {
                 if (_withIntentSource)
@@ -1752,7 +1752,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         private static bool TryBindGraphState(
-            StateGraphHostBindingBuilder builder,
+            HostBindingBuilder builder,
             HostTestIds ids,
             out CoCoDiagnostic diagnostic) =>
             builder.TryBindGraphStateSlot<

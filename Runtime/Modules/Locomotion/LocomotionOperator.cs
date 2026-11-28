@@ -13,12 +13,12 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
     [AddComponentMenu("CoCoFlow/Locomotion/Locomotion Operator")]
     public sealed class LocomotionOperator :
         MonoBehaviour,
-        IPersistenceRestoreOperator,
-        ITemporalRestoreOperator
+        IHostPersistenceRestoreOperator,
+        IHostTemporalRestoreOperator
     {
         private static readonly OperationRequirement OperationRequirement;
         [OperatorDefinition]
-        private static StandardOperatorDefinition Definition { get; }
+        private static HostOperatorDefinition Definition { get; }
 
         [SerializeField] private LocomotionOperatorConfig config;
         [SerializeField] private bool applyLocalYawRotation = true;
@@ -33,7 +33,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
         /// <summary>从恢复的移动槽重建角色位置和控制状态，无法取得有效快照时返回 false 和诊断。</summary>
         public bool TryRestore(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             if (!context.IsValid ||
@@ -152,7 +152,7 @@ namespace CoCoFlow.Runtime.Modules.Locomotion
 
         static LocomotionOperator()
         {
-            var builder = new StandardOperatorBuilder();
+            var builder = new HostOperatorBuilder();
             OperationRequirement = builder.Require<ILocomotionOperation, LocomotionOperationViewFactory>(
                 LocoContractIds.OperationId, LocoContractIds.OperationSemanticFingerprint, new LocomotionOperationViewFactory());
             builder.OwnOutcome(LocoContractIds.StateBlockId, LocoContractIds.StateSlotId,

@@ -4,7 +4,7 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;
-using HostComponent = CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+using HostComponent = CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
@@ -153,7 +153,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(StateSlotId.TryCreate(31, 2, out var slotId), Is.True);
             Assert.That(FrameLayoutId.TryCreate(31, 3, out var layoutId), Is.True);
             var layout = new ContextFrameLayoutBuilder();
-            Assert.That(layout.TryAddBlock(blockId, StateBlockOwner.Actor, out _), Is.True);
+            Assert.That(layout.TryAddBlock(blockId, StateBlockOwner.Host, out _), Is.True);
             Assert.That(layout.TryAddSlot(blockId, slotId, ContextProjection.Temporal | ContextProjection.Durable,
                 ContextRestorePolicy.Stored, 4, default, null, out _), Is.True);
             Assert.That(layout.TryFreeze(layoutId, 1, out var frozen, out _), Is.True);
@@ -197,10 +197,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 get
                 {
                     if (_descriptor != null) return _descriptor;
-                    Assert.That(OperationSectionId.TryCreate(31, 5, out var section), Is.True);
+                    Assert.That(OperationId.TryCreate(31, 5, out var section), Is.True);
                     Assert.That(OperatorId.TryCreate(31, 6, out var id), Is.True);
                     var builder = new OperatorDescriptorBuilder();
-                    Assert.That(builder.TryRequire<IOperatorCommitSecondarySection>(section, OperationSectionMode.Discrete,
+                    Assert.That(builder.TryRequire<IOperatorCommitSecondarySection>(section, Mode.Discrete,
                         out _, out var diagnostic), Is.True, diagnostic.Message);
                     Assert.That(builder.TryFreeze<RestoreOperator>(id, out _descriptor, out _), Is.True);
                     return _descriptor;

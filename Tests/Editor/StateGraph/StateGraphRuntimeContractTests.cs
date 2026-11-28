@@ -751,11 +751,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         }
 
         private static RuntimeContractMemory ReadCommittedMemory(
-            StateGraphRuntime runtime,
+            StateGraphInstance runtime,
             int layerIndex,
             StateId stateId)
         {
-            FieldInfo layersField = typeof(StateGraphRuntime).GetField(
+            FieldInfo layersField = typeof(StateGraphInstance).GetField(
                 "_layers",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(layersField);
@@ -831,7 +831,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private sealed class RuntimeFixture
         {
             private RuntimeFixture(
-                StateGraphRuntime runtime,
+                StateGraphInstance runtime,
                 OperationFrame operationFrame,
                 OperationHandle<IRuntimeContractOperationSection> operationHandle)
             {
@@ -840,7 +840,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 OperationHandle = operationHandle;
             }
 
-            public StateGraphRuntime Runtime { get; }
+            public StateGraphInstance Runtime { get; }
             public OperationFrame OperationFrame { get; }
             public OperationHandle<IRuntimeContractOperationSection> OperationHandle { get; }
 
@@ -896,21 +896,21 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     requirements,
                     out OperationFrame operationFrame,
                     out CoCoDiagnostic frameDiagnostic), frameDiagnostic.Message);
-                Assert.IsTrue(ActorClock.TryCreate(
+                Assert.IsTrue(InstanceClock.TryCreate(
                     control.Ids.Timeline,
                     control.Ids.ClockDomain,
                     new TimelineEpoch(1UL),
-                    out ActorClock clock,
+                    out InstanceClock clock,
                     out CoCoDiagnostic clockDiagnostic), clockDiagnostic.Message);
 
                 StateGraphLogicBindings bindings = CreateBindings(graph, control);
-                Assert.IsTrue(StateGraphRuntime.TryCreate(
+                Assert.IsTrue(StateGraphInstance.TryCreate(
                     graph,
                     graphInstanceId,
                     bindings,
                     operationFrame,
                     clock,
-                    out StateGraphRuntime runtime,
+                    out StateGraphInstance runtime,
                     out CoCoDiagnostic runtimeDiagnostic), runtimeDiagnostic.Message);
                 return new RuntimeFixture(runtime, operationFrame, operationHandle);
             }

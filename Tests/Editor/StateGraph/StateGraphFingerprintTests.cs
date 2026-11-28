@@ -178,9 +178,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateGraphAsset reversed = Object.Instantiate(asset);
             try
             {
-                StateGraphAssetSnapshot originalSnapshot = Snapshot(asset);
+                GraphAssetSnapshot originalSnapshot = Snapshot(asset);
                 reversed.Layers.Reverse();
-                StateGraphAssetSnapshot reversedSnapshot = Snapshot(reversed);
+                GraphAssetSnapshot reversedSnapshot = Snapshot(reversed);
 
                 Assert.AreNotEqual(
                     originalSnapshot.ContentFingerprint,
@@ -250,11 +250,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return asset;
         }
 
-        private StateGraphAssetSnapshot Snapshot(StateGraphAsset asset) =>
-            StateGraphAssetSnapshotBuilder.Build(
+        private GraphAssetSnapshot Snapshot(StateGraphAsset asset) =>
+            GraphAssetSnapshotBuilder.Build(
                 asset,
                 catalog,
-                StateGraphManagedReferenceInspection.Empty);
+                GraphAssetReferenceInspection.Empty);
 
         private static LayerId ToLayerId(SerializedId128 id)
         {

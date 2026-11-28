@@ -197,8 +197,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 System.IO.File.WriteAllText(path + ".meta", "fileFormatVersion: 2\nguid: 5bc4ff4a71ed34d7a91be41c151d9371\n");
                 UnityEditor.AssetDatabase.ImportAsset(path, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
                 var asset = UnityEditor.AssetDatabase.LoadAssetAtPath<StateGraphAsset>(path);
-                var provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
-                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
+                var provider = HostBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
+                Assert.IsTrue(HostProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
                 Run(asset);
                 UnityEditor.EditorUtility.SetDirty(asset);
                 UnityEditor.AssetDatabase.SaveAssetIfDirty(asset);
@@ -340,11 +340,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             bool transition = false, int outboxCapacity = 32, bool twoLayers = false, int history = 0,
             bool any = false)
         {
-            var provider = StateGraphProjectBindings.Provider;
+            var provider = HostProjectBindings.Provider;
             if (provider == null)
             {
-                provider = StandardBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
-                Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var install), install.Message);
+                provider = HostBindingProvider.Build(new[] { typeof(MailboxProbeLogic).Assembly });
+                Assert.IsTrue(HostProjectBindings.TryInstall(provider, out var install), install.Message);
             }
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);

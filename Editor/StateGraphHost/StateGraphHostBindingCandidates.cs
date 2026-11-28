@@ -67,7 +67,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 MonoBehaviour component = components[index];
                 if (component == null ||
-                    !StateGraphHostBoundary.Contains(host, component) ||
+                    !HostComponentBoundary.For(host).Contains(component) ||
                     Contains(assigned, component) ||
                     !matches(component))
                 {

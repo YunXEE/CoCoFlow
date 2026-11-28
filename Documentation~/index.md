@@ -127,12 +127,12 @@ edge's window and priority. Empty requests leave the active leaf in place.
 ## Operator recovery
 
 In the Host's Operators list, each component exposes only the recovery switches
-supported by its interfaces: `IPersistenceRestoreOperator` for save/load and
-`ITemporalRestoreOperator` for history. Both switches start off and are independent.
+supported by its interfaces: `IHostPersistenceRestoreOperator` for save/load and
+`IHostTemporalRestoreOperator` for history. Both switches start off and are independent.
 Configure them before starting the Host; running Hosts keep their startup settings.
 Reordering the list keeps settings with the component, not the row number.
 
-Implement `TryRestore(in ContextRestoreBindingContext, out CoCoDiagnostic)`
+Implement `TryRestore(in HostRestoreContext, out CoCoDiagnostic)`
 and read committed state through `context.Reader` during that callback only.
 The Host dispatches enabled Operators in binding order. Normal execution and
 Context capture continue whether recovery is enabled or disabled.

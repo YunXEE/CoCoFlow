@@ -9,7 +9,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
     {
         private readonly Frame[] _frames;
         private TemporalEntityId[] _staging = Array.Empty<TemporalEntityId>();
-        private TemporalFrameInfo _stagingInfo;
+        private HostHistoryFrame _stagingInfo;
         private PreparedCaptureKind _preparedKind;
         private int _preparedCount;
         private int _preparedBranchDepth;
@@ -43,7 +43,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryPrepareForwardCapture(
             PoolTemporalRecord[] records,
             int recordCount,
-            in TemporalFrameInfo candidate)
+            in HostHistoryFrame candidate)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -111,7 +111,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         internal bool TryPrepareAuthorityReset(
             PoolTemporalRecord[] records,
             int recordCount,
-            in TemporalFrameInfo targetAuthority)
+            in HostHistoryFrame targetAuthority)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -177,7 +177,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         internal bool TryPrepareBranchCapture(
             int historyDepth,
-            in TemporalFrameInfo branchHead)
+            in HostHistoryFrame branchHead)
         {
             if (_isDisposed ||
                 _preparedKind != PreparedCaptureKind.None ||
@@ -417,7 +417,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 Array.Empty<TemporalEntityId>();
 
             internal int Count { get; set; }
-            internal TemporalFrameInfo Info { get; set; }
+            internal HostHistoryFrame Info { get; set; }
 
             internal void Clear()
             {

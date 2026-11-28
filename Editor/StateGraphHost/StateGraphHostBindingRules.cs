@@ -174,7 +174,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     chinese + "——启动时将被拒绝");
             }
 
-            if (!StateGraphHostBoundary.Contains(host, component))
+            if (!HostComponentBoundary.For(host).Contains(component))
             {
                 return new BindingHint(
                     BindingHintKind.Warning,
@@ -215,7 +215,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                         "启动时将被拒绝");
             }
 
-            if (!StateGraphHostBoundary.Contains(host, component))
+            if (!HostComponentBoundary.For(host).Contains(component))
             {
                 return new BindingHint(
                     BindingHintKind.Warning,
@@ -251,7 +251,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                         "将拒绝该 Actor Context 绑定");
             }
 
-            if (!StateGraphHostBoundary.Contains(host, component))
+            if (!HostComponentBoundary.For(host).Contains(component))
             {
                 return new BindingHint(
                     BindingHintKind.Warning,
@@ -280,18 +280,18 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return new BindingHint(BindingHintKind.Error, root,
                     "Remove this Operator binding and use its Host recovery switches.",
                     "请移除旧 Operator 恢复绑定，改用 Host 中的两个开关。");
-            if (!(root is IContextRestoreBinding))
+            if (!(root is IHostRestoreBinding))
             {
                 return new BindingHint(
                     BindingHintKind.Error,
                     root,
-                    root.name + " does not implement IContextRestoreBinding — " +
+                    root.name + " does not implement IHostRestoreBinding — " +
                         "enabled temporal history will reject this binding",
-                    root.name + " 未实现 IContextRestoreBinding——恢复投影" +
+                    root.name + " 未实现 IHostRestoreBinding——恢复投影" +
                         "启用时间历史时将拒绝此绑定");
             }
 
-            if (!StateGraphHostBoundary.Contains(host, root))
+            if (!HostComponentBoundary.For(host).Contains(root))
             {
                 return new BindingHint(
                     BindingHintKind.Warning,
@@ -385,11 +385,11 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 bool isDestroyed = current == null; // Unity 伪装 null：真实引用存在但已失销
                 bool implementsContract =
-                    !isDestroyed && current is IContextRestoreBinding;
+                    !isDestroyed && current is IHostRestoreBinding;
                 bool isRepeat = !isDestroyed && !seen.Add(current);
                 bool isInsideBoundary =
                     !isDestroyed &&
-                    StateGraphHostBoundary.Contains(host, current);
+                    HostComponentBoundary.For(host).Contains(current);
                 nodes.Add(new RestoreChainNode(
                     current,
                     ReferenceEquals(current, root),
@@ -403,7 +403,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                     return;
                 }
 
-                current = (current as ITemporalDecoratorBinding)
+                current = (current as IHostRestoreDecorator)
                     ?.DownstreamRestoreBinding;
             }
         }
@@ -441,9 +441,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                         BindingHintKind.Error,
                         node.Component,
                         node.Component.name + " breaks the chain — it implements no " +
-                            "IContextRestoreBinding",
+                            "IHostRestoreBinding",
                         node.Component.name + " 中断链——它未实现 " +
-                            "IContextRestoreBinding");
+                            "IHostRestoreBinding");
                 }
 
                 if (!node.IsInsideBoundary)
@@ -472,7 +472,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         // ----- 自动连接候选（D5：边界内扫描 + 层级排序） -----
 
         /// <summary>
-        /// 收集 Host 边界内全部 IContextRestoreBinding 组件并按
+        /// 收集 Host 边界内全部 IHostRestoreBinding 组件并按
         /// 层级路径（其次类型名）排序——自动连接的候选链。
         /// </summary>
         internal static void CollectRestoreChainCandidates(
@@ -490,8 +490,8 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 MonoBehaviour component = components[index];
                 if (component != null &&
-                    component is IContextRestoreBinding && !(component is IOperator) &&
-                    StateGraphHostBoundary.Contains(host, component))
+                    component is IHostRestoreBinding && !(component is IOperator) &&
+                    HostComponentBoundary.For(host).Contains(component))
                 {
                     chain.Add(component);
                 }
@@ -527,7 +527,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         /// <summary>
         /// 自动连接前置校验与写入目标解析（B2：失败零写入）：
         /// 非空、全部实现契约、无重复、全在边界内，且每个非尾节点实现
-        /// ITemporalDecoratorBinding 并具备可写的 downstreamRestoreBinding
+        /// IHostRestoreDecorator 并具备可写的 downstreamRestoreBinding
         /// 序列化字段；尾节点如具备该字段则列入清空目标。任何目标缺失立即失败。
         /// </summary>
         internal static bool TryBuildRestoreWirePlan(
@@ -542,9 +542,9 @@ namespace CoCoFlow.Editor.StateGraphHost
                 failure = new BindingHint(
                     BindingHintKind.Warning,
                     null,
-                    "no IContextRestoreBinding components found inside the Host " +
+                    "no IHostRestoreBinding components found inside the Host " +
                         "boundary — nothing to wire",
-                    "Host 边界内没有找到 IContextRestoreBinding 组件——" +
+                    "Host 边界内没有找到 IHostRestoreBinding 组件——" +
                         "无可连接");
                 return false;
             }
@@ -564,19 +564,19 @@ namespace CoCoFlow.Editor.StateGraphHost
                     return false;
                 }
 
-                if (!(component is IContextRestoreBinding))
+                if (!(component is IHostRestoreBinding))
                 {
                     failure = new BindingHint(
                         BindingHintKind.Warning,
                         component,
                         component.name + " does not implement " +
-                            "IContextRestoreBinding — abort, nothing was written",
-                        component.name + " 未实现 IContextRestoreBinding——" +
+                            "IHostRestoreBinding — abort, nothing was written",
+                        component.name + " 未实现 IHostRestoreBinding——" +
                             "中止，未写入任何内容");
                     return false;
                 }
 
-                if (!StateGraphHostBoundary.Contains(host, component))
+                if (!HostComponentBoundary.For(host).Contains(component))
                 {
                     failure = new BindingHint(
                         BindingHintKind.Warning,
@@ -605,16 +605,16 @@ namespace CoCoFlow.Editor.StateGraphHost
             {
                 MonoBehaviour upstream = chain[index];
                 MonoBehaviour downstream = chain[index + 1];
-                if (!(upstream is ITemporalDecoratorBinding))
+                if (!(upstream is IHostRestoreDecorator))
                 {
                     failure = new BindingHint(
                         BindingHintKind.Warning,
                         upstream,
                         upstream.name + " sits before another binding but implements " +
-                            "no ITemporalDecoratorBinding — the chain cannot " +
+                            "no IHostRestoreDecorator — the chain cannot " +
                             "link, abort, nothing was written",
                         upstream.name + " 位于另一绑定之前但未实现 " +
-                            "ITemporalDecoratorBinding——无法成链，中止，未写入任何内容");
+                            "IHostRestoreDecorator——无法成链，中止，未写入任何内容");
                     return false;
                 }
 
@@ -707,7 +707,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 if (component != null &&
                     component != assigned &&
                     component is IHostContextBinding &&
-                    StateGraphHostBoundary.Contains(host, component))
+                    HostComponentBoundary.For(host).Contains(component))
                 {
                     results.Add(component);
                 }

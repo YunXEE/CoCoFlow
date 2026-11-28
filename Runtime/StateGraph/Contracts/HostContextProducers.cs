@@ -36,7 +36,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
         bool TryCapture(
             ulong token,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -47,7 +47,7 @@ namespace CoCoFlow.Runtime.StateGraph
             out CoCoDiagnostic diagnostic);
 
         bool TryValidateInitialDefault(
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -72,7 +72,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
         bool TryPrepareRestore(
             ContextRestoreReadView source,
-            ActivationMemory candidateMemory,
+            StateActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic);
 
         void ClearCapture();
@@ -90,7 +90,7 @@ namespace CoCoFlow.Runtime.StateGraph
     /// <summary>保存一个状态与它的记忆绑定。已捕获值只在本次采集凭据有效时可读。</summary>
     internal sealed class GraphStateContextBinding<TMemory, TState, TBinding> :
         IGraphStateContextBinding
-        where TMemory : ActivationMemory
+        where TMemory : StateActivationMemory
         where TState : unmanaged
         where TBinding : IActivationMemoryStateBinding<TMemory, TState>
     {
@@ -145,7 +145,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
         public bool TryCapture(
             ulong token,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -213,7 +213,7 @@ namespace CoCoFlow.Runtime.StateGraph
         }
 
         public bool TryValidateInitialDefault(
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -335,7 +335,7 @@ namespace CoCoFlow.Runtime.StateGraph
 
         public bool TryPrepareRestore(
             ContextRestoreReadView source,
-            ActivationMemory candidateMemory,
+            StateActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic)
         {
             if (!source.TryRead(_slot, out GraphStateRecord<TState> record) ||

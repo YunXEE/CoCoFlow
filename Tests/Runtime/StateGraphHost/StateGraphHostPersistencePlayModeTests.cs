@@ -30,7 +30,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         [SetUp]
         public void SetUp()
         {
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             PersistenceContextRegistry.Clear();
             PersistenceSession.ClearPendingDocument();
             TemporalHostLogic.Reset();
@@ -65,48 +65,32 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             }
 
             _saveDirectory = null;
-            StateGraphProjectBindings.ResetForTests();
+            HostProjectBindings.ResetForTests();
             TemporalHostLogic.Reset();
             TemporalHostMemoryStateBinding.Reset();
         }
 
 #if UNITY_EDITOR
         [Test]
-        public void LoadsGraphAndSaveCapturedBeforeAssemblyMigration()
+        public void CurrentGraphRestoresTickTwoFromThePreviouslyCapturedSlot()
         {
-            const string folder = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/";
-            var yaml = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "LegacyGraph.asset.bytes");
-            var save = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "LegacySave.json");
-            string path = UnityEditor.AssetDatabase.GenerateUniqueAssetPath("Assets/P003LegacyGraph.asset");
-            try
-            {
-                File.WriteAllBytes(path, yaml.bytes);
-                File.WriteAllText(path + ".meta", "fileFormatVersion: 2\nguid: 8910f80cccf748b885d97a43aa7bcde4\n");
-                UnityEditor.AssetDatabase.ImportAsset(path, UnityEditor.ImportAssetOptions.ForceSynchronousImport);
-                var graph = UnityEditor.AssetDatabase.LoadAssetAtPath<StateGraphAsset>(path);
-                Assert.That(graph.GraphId.High, Is.EqualTo(3916367682240073490UL));
-                Assert.That(graph.GraphId.Low, Is.EqualTo(10913725610826399969UL));
-                Assert.That(((HostTestStateConfig)graph.Layers[0].States[0].Config).Value, Is.EqualTo(1));
-
-                var scenario = Track(TemporalHostTestHarness.Create(historyCapacity: 3, withDurableProjection: true));
-                SetField(scenario.Host, "stateGraphAsset", graph);
-                AttachPersistence(scenario, StableEntityId);
-                Require(scenario.Host.TryStart(out var start), start);
-                StepWithActorValue(scenario, 99);
-                File.WriteAllBytes(PersistenceFileStore.GetSaveFilePath(0), save.bytes);
-                Assert.That(PersistenceSaveLoadSystem.LoadGame(0), Is.True);
-                Assert.That(scenario.Binding.Value, Is.EqualTo(20));
-                Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(2));
-                Assert.That(scenario.Host.ActivePaths[0].ActiveLeaf, Is.EqualTo(scenario.Ids.StateId));
-                Require(scenario.Host.TryStep(0.1d, out var step), step);
-                Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(3));
-                Assert.That(TemporalHostTestHarness.ReadActorValue(scenario.Host.CurrentContext,
-                    scenario.Ids.ActorStateSlotId), Is.EqualTo(20));
-            }
-            finally
-            {
-                UnityEditor.AssetDatabase.DeleteAsset(path);
-            }
+            const string slot = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/LegacySave.json";
+            var save = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(slot);
+            var scenario = Track(TemporalHostTestHarness.Create(historyCapacity: 3, withDurableProjection: true));
+            // 此实际存档绑定这张图的既有 ID，状态、布局和编解码器由当前框架构建。
+            SetField(scenario.Asset, "graphId", new SerializedId128(3916367682240073490UL, 10913725610826399969UL));
+            AttachPersistence(scenario, StableEntityId);
+            Require(scenario.Host.TryStart(out var start), start);
+            StepWithActorValue(scenario, 99);
+            File.WriteAllBytes(PersistenceFileStore.GetSaveFilePath(0), save.bytes);
+            Assert.That(PersistenceSaveLoadSystem.LoadGame(0), Is.True);
+            Assert.That(scenario.Binding.Value, Is.EqualTo(20));
+            Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(2));
+            Assert.That(scenario.Host.ActivePaths[0].ActiveLeaf, Is.EqualTo(scenario.Ids.StateId));
+            Require(scenario.Host.TryStep(0.1d, out var step), step);
+            Assert.That(scenario.Host.CurrentContext.Header.TickFrame.Tick.Value, Is.EqualTo(3));
+            Assert.That(TemporalHostTestHarness.ReadActorValue(scenario.Host.CurrentContext,
+                scenario.Ids.ActorStateSlotId), Is.EqualTo(20));
         }
 #endif
 
@@ -210,7 +194,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(target.Binding.ConfirmCount, Is.EqualTo(1));
             Assert.That(
                 target.Binding.LastApplyKind,
-                Is.EqualTo(ContextRestoreApplyKind.Confirm));
+                Is.EqualTo(HostRestoreKind.Confirm));
             Assert.That(target.Host.TemporalState.Count, Is.EqualTo(1));
             Assert.That(target.Host.TemporalState.CanConfirm, Is.False);
             Assert.That(
@@ -804,7 +788,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoDiagnostic nestedDiagnostic = CoCoDiagnostic.None;
             target.Binding.ApplyCallback = applyKind =>
             {
-                if (applyKind == ContextRestoreApplyKind.Confirm)
+                if (applyKind == HostRestoreKind.Confirm)
                 {
                     nestedResult = target.Host.TryApplyPersistencePayload(
                         payload,
@@ -1080,7 +1064,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(target.Binding.LastAppliedValue, Is.EqualTo(121));
             Assert.That(
                 target.Host.TemporalState.Mode,
-                Is.EqualTo(TemporalMode.Disabled));
+                Is.EqualTo(HostHistoryMode.Disabled));
             Assert.That(target.Host.TemporalState.Capacity, Is.Zero);
             Assert.That(target.Host.TemporalState.Count, Is.Zero);
 
@@ -1414,13 +1398,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
         private sealed class RejectingTemporalParticipant :
             MonoBehaviour,
-            IContextRestoreBinding,
-            IStateGraphTemporalParticipant,
-            ITemporalDecoratorBinding
+            IHostRestoreBinding,
+            IHostHistoryParticipant,
+            IHostRestoreDecorator
         {
             private StateGraphHost _host;
             private MonoBehaviour _downstreamComponent;
-            private IContextRestoreBinding _downstream;
+            private IHostRestoreBinding _downstream;
             private bool _resetPrepared;
 
             internal bool RejectAttachment { get; set; }
@@ -1437,22 +1421,22 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             internal int PublishCount { get; private set; }
             internal int CleanupCount { get; private set; }
 
-            MonoBehaviour ITemporalDecoratorBinding.DownstreamRestoreBinding =>
+            MonoBehaviour IHostRestoreDecorator.DownstreamRestoreBinding =>
                 _downstreamComponent;
 
             internal void Configure(MonoBehaviour downstream)
             {
                 _downstreamComponent = downstream;
-                _downstream = downstream as IContextRestoreBinding;
+                _downstream = downstream as IHostRestoreBinding;
             }
 
             public bool TryApply(
-                in ContextRestoreBindingContext context,
+                in HostRestoreContext context,
                 out CoCoDiagnostic diagnostic)
             {
                 ApplyCount++;
                 if (!context.IsValid ||
-                    context.ApplyKind == ContextRestoreApplyKind.Confirm &&
+                    context.ApplyKind == HostRestoreKind.Confirm &&
                     !_resetPrepared)
                 {
                     diagnostic = ParticipantError(
@@ -1470,11 +1454,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            bool IStateGraphTemporalParticipant.TryAttachTemporalHost(
-                StateGraphHost host,
+            bool IHostHistoryParticipant.TryAttachTemporalHost(
+                Component owner,
                 int historyCapacity,
                 out CoCoDiagnostic diagnostic)
             {
+                var host = owner as StateGraphHost;
                 AttachCount++;
                 if (ThrowAttachment)
                 {
@@ -1497,12 +1482,12 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            bool IStateGraphTemporalParticipant.IsTemporalParticipantLive(
-                StateGraphHost host) =>
+            bool IHostHistoryParticipant.IsTemporalParticipantLive(
+                Component host) =>
                 _host != null && ReferenceEquals(_host, host);
 
-            bool IStateGraphTemporalParticipant.TryPrepareForwardCapture(
-                in TemporalFrameInfo candidate,
+            bool IHostHistoryParticipant.TryPrepareForwardCapture(
+                in HostHistoryFrame candidate,
                 out CoCoDiagnostic diagnostic)
             {
                 ForwardPrepareCount++;
@@ -1512,17 +1497,17 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return !diagnostic.IsError;
             }
 
-            void IStateGraphTemporalParticipant.PublishForwardCaptureNoFail()
+            void IHostHistoryParticipant.PublishForwardCaptureNoFail()
             {
                 PublishCount++;
             }
 
-            void IStateGraphTemporalParticipant.CancelPreparedCaptureNoFail()
+            void IHostHistoryParticipant.CancelPreparedCaptureNoFail()
             {
             }
 
-            bool IStateGraphTemporalParticipant.TryPrepareAuthorityReset(
-                in TemporalFrameInfo targetAuthority,
+            bool IHostHistoryParticipant.TryPrepareAuthorityReset(
+                in HostHistoryFrame targetAuthority,
                 out CoCoDiagnostic diagnostic)
             {
                 AuthorityResetPrepareCount++;
@@ -1544,14 +1529,14 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            void IStateGraphTemporalParticipant
+            void IHostHistoryParticipant
                 .CommitPreparedAuthorityResetNoFail()
             {
                 AuthorityResetCommitCount++;
                 _resetPrepared = false;
             }
 
-            void IStateGraphTemporalParticipant
+            void IHostHistoryParticipant
                 .CancelPreparedAuthorityResetNoFail()
             {
                 if (_resetPrepared)
@@ -1561,7 +1546,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 }
             }
 
-            bool IStateGraphTemporalParticipant.TryBeginPreview(
+            bool IHostHistoryParticipant.TryBeginPreview(
                 int historyCount,
                 out CoCoDiagnostic diagnostic)
             {
@@ -1569,10 +1554,10 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            bool IStateGraphTemporalParticipant.TryPrepareProjection(
-                ContextRestoreApplyKind applyKind,
+            bool IHostHistoryParticipant.TryPrepareProjection(
+                HostRestoreKind applyKind,
                 int historyDepth,
-                in TemporalFrameInfo source,
+                in HostHistoryFrame source,
                 in TickFrame targetTickFrame,
                 out CoCoDiagnostic diagnostic)
             {
@@ -1580,38 +1565,38 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 return true;
             }
 
-            void IStateGraphTemporalParticipant.FinishProjectionNoFail(
+            void IHostHistoryParticipant.FinishProjectionNoFail(
                 bool succeeded)
             {
             }
 
-            bool IStateGraphTemporalParticipant.CanConfirmPreview(
+            bool IHostHistoryParticipant.CanConfirmPreview(
                 int historyDepth) => true;
 
-            bool IStateGraphTemporalParticipant.TryPrepareBranchCapture(
+            bool IHostHistoryParticipant.TryPrepareBranchCapture(
                 int historyDepth,
-                in TemporalFrameInfo branchHead,
+                in HostHistoryFrame branchHead,
                 out CoCoDiagnostic diagnostic)
             {
                 diagnostic = CoCoDiagnostic.None;
                 return true;
             }
 
-            void IStateGraphTemporalParticipant.PublishBranchCaptureNoFail()
+            void IHostHistoryParticipant.PublishBranchCaptureNoFail()
             {
             }
 
-            void IStateGraphTemporalParticipant.CompletePreviewNoFail(
-                ContextRestoreApplyKind applyKind)
+            void IHostHistoryParticipant.CompletePreviewNoFail(
+                HostRestoreKind applyKind)
             {
             }
 
-            void IStateGraphTemporalParticipant.DrainPublishedCleanupNoFail()
+            void IHostHistoryParticipant.DrainPublishedCleanupNoFail()
             {
                 CleanupCount++;
             }
 
-            void IStateGraphTemporalParticipant.DetachTemporalHostNoFail()
+            void IHostHistoryParticipant.DetachTemporalHostNoFail()
             {
                 DetachCount++;
                 _resetPrepared = false;

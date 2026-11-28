@@ -18,6 +18,9 @@ namespace CoCoFlow.Runtime.StateGraph
     }
 
     /// <summary>按记忆字段的实际布局在 Logic 和预分配的值之间转移数据。</summary>
+    /// <param name="logic">提供或接收字段值的状态逻辑。</param>
+    /// <param name="state">反映逻辑字段的记忆值。</param>
+    /// <param name="load">为真时把记忆字段装入逻辑，为假时保存逻辑字段。</param>
     internal delegate void FieldMemoryTransfer<TState>(StateLogic logic, ref TState state, bool load);
 
     /// <summary>为声明了记忆字段的状态保存一次激活的字段副本。</summary>

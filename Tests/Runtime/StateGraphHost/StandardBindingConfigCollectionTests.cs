@@ -116,7 +116,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.Catch(() => config.Apply(logic));
             Assert.AreEqual(6f, logic.Speed);
             Assert.AreSame(original, logic.Windows);
-            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
+            var provider = HostBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigCollectionProbeLogic), "ConfigCollectionProbe", out var id);
             Assert.IsFalse(provider.Catalog.TryFreezeStateConfig(id, config, out _, out var diagnostic));
             Assert.IsFalse(diagnostic.IsNone);
@@ -133,7 +133,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.AreEqual(0.25f, logic.Window.startSeconds);
             CollectionAssert.AreEqual(new[] { 7f }, logic.Numbers);
             config.Set("Numbers", new[] { 1f, 2f });
-            var provider = StandardBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
+            var provider = HostBindingProvider.Build(new[] { typeof(ConfigCollectionProbeLogic).Assembly });
             StandardDescriptors.TryCreate(typeof(ConfigCollectionProbeLogic), "ConfigCollectionProbe", out var id);
             Assert.IsTrue(provider.Catalog.TryFreezeStateConfig(id, config, out var snapshot, out var diagnostic), diagnostic.Message);
             var original = config.Values.ToArray();
@@ -156,8 +156,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             CoCoServices.Register(_library);
             string[] keys = { "Attack.Light", "Attack.Heavy", "unmapped.Clip=1" };
             var type = typeof(ConfigCollectionProbeLogic);
-            var provider = StandardBindingProvider.Build(new[] { type.Assembly });
-            Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
+            var provider = HostBindingProvider.Build(new[] { type.Assembly });
+            Assert.IsTrue(HostProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
             StandardDescriptors.TryCreate(type, "ConfigCollectionProbe", out var descriptor);
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
             _objects.Add(asset);

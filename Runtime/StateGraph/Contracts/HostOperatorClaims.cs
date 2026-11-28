@@ -285,7 +285,7 @@ namespace CoCoFlow.Runtime.StateGraph
                     OperatorClaimRequirement claim = binding.Descriptor.Claims[claimIndex];
                     if (!operationFrame.TryGetHeader(
                             binding.ClaimSectionIndices[claimIndex],
-                            out OperationSectionEntryHeader header))
+                            out OperationEntryHeader header))
                     {
                         diagnostic = Error(
                             CoCoDiagnosticCode.InvalidOperatorDescriptor,
@@ -424,12 +424,12 @@ namespace CoCoFlow.Runtime.StateGraph
                 {
                     state = OperatorClaimState.Unheld(
                         resource.ClaimId,
-                        resource.Section.SectionId);
+                        resource.Section.OperationId);
                 }
                 else if (ownerIndex >= _operators.Length ||
                          !OperatorClaimState.TryCreateHeld(
                              resource.ClaimId,
-                             resource.Section.SectionId,
+                             resource.Section.OperationId,
                              _operators[ownerIndex].Descriptor.OperatorId,
                              _candidateClaimActivations[resourceIndex],
                              out state))
@@ -536,7 +536,7 @@ namespace CoCoFlow.Runtime.StateGraph
             if (!restore.TryRead(resource.Slot, out OperatorClaimState state) ||
                 !state.IsValid ||
                 state.ClaimId != resource.ClaimId ||
-                state.SectionId != resource.Section.SectionId)
+                state.OperationId != resource.Section.OperationId)
             {
                 diagnostic = RestoreError(
                     "Restored Claim identity or Operation Section does not match its descriptor.");
@@ -651,13 +651,13 @@ namespace CoCoFlow.Runtime.StateGraph
         internal sealed class Builder
         {
             private readonly ContextFrameLayout _layout;
-            private readonly OperationSectionRegistry _registry;
-            private readonly Dictionary<OperationSectionId, OperatorClaimId> _sectionClaims = new Dictionary<OperationSectionId, OperatorClaimId>();
+            private readonly OperationRegistry _registry;
+            private readonly Dictionary<OperationId, OperatorClaimId> _sectionClaims = new Dictionary<OperationId, OperatorClaimId>();
             private readonly Dictionary<StateSlotId, OperatorClaimId> _slotClaims = new Dictionary<StateSlotId, OperatorClaimId>();
             private readonly List<ClaimResource> _resources = new List<ClaimResource>();
             private readonly List<Binding> _operators = new List<Binding>();
 
-            internal Builder(ContextFrameLayout layout, OperationSectionRegistry registry)
+            internal Builder(ContextFrameLayout layout, OperationRegistry registry)
             {
                 _layout = layout;
                 _registry = registry;
@@ -688,9 +688,9 @@ namespace CoCoFlow.Runtime.StateGraph
         private static bool TryResolveClaims(
             OperatorDescriptor descriptor,
             ContextFrameLayout contextLayout,
-            OperationSectionRegistry operationRegistry,
+            OperationRegistry operationRegistry,
             List<ClaimResource> resources,
-            Dictionary<OperationSectionId, OperatorClaimId> sectionClaims,
+            Dictionary<OperationId, OperatorClaimId> sectionClaims,
             Dictionary<StateSlotId, OperatorClaimId> slotClaims,
             out int[] resourceIndices,
             out int[] sectionIndices,
@@ -702,7 +702,7 @@ namespace CoCoFlow.Runtime.StateGraph
             {
                 OperatorClaimRequirement claim = descriptor.Claims[claimIndex];
                 if (!operationRegistry.TryResolveDenseIndex(
-                        claim.Section,
+                        claim.Operation,
                         out sectionIndices[claimIndex]) ||
                     !TryResolveClaimStateSlot(
                         contextLayout,
@@ -711,7 +711,7 @@ namespace CoCoFlow.Runtime.StateGraph
                         out StateSlot<OperatorClaimState> claimSlot,
                         out OperatorClaimState defaultClaim) ||
                     defaultClaim.ClaimId != claim.ClaimId ||
-                    defaultClaim.SectionId != claim.Section.SectionId ||
+                    defaultClaim.OperationId != claim.Operation.OperationId ||
                     defaultClaim.IsHeld)
                 {
                     diagnostic = Error(
@@ -721,7 +721,7 @@ namespace CoCoFlow.Runtime.StateGraph
                 }
 
                 if (sectionClaims.TryGetValue(
-                        claim.Section.SectionId,
+                        claim.Operation.OperationId,
                         out OperatorClaimId existingClaimId) &&
                     existingClaimId != claim.ClaimId)
                 {
@@ -731,7 +731,7 @@ namespace CoCoFlow.Runtime.StateGraph
                     return false;
                 }
 
-                sectionClaims[claim.Section.SectionId] = claim.ClaimId;
+                sectionClaims[claim.Operation.OperationId] = claim.ClaimId;
                 if (slotClaims.TryGetValue(
                         claim.StateSlotId,
                         out OperatorClaimId existingSlotClaim) &&
@@ -752,7 +752,7 @@ namespace CoCoFlow.Runtime.StateGraph
                         continue;
                     }
 
-                    if (resources[index].Section != claim.Section ||
+                    if (resources[index].Section != claim.Operation ||
                         resources[index].StateSlotId != claim.StateSlotId)
                     {
                         diagnostic = Error(
@@ -770,7 +770,7 @@ namespace CoCoFlow.Runtime.StateGraph
                     resourceIndex = resources.Count;
                     resources.Add(new ClaimResource(
                         claim.ClaimId,
-                        claim.Section,
+                        claim.Operation,
                         claim.StateSlotId,
                         claimBlock,
                         claimSlot));
@@ -922,7 +922,7 @@ namespace CoCoFlow.Runtime.StateGraph
         {
             public ClaimResource(
                 OperatorClaimId claimId,
-                OperationSectionRequirement section,
+                OperationRequirement section,
                 StateSlotId stateSlotId,
                 StateBlockHandle block,
                 StateSlot<OperatorClaimState> slot)
@@ -935,7 +935,7 @@ namespace CoCoFlow.Runtime.StateGraph
             }
 
             public OperatorClaimId ClaimId { get; }
-            public OperationSectionRequirement Section { get; }
+            public OperationRequirement Section { get; }
             public StateSlotId StateSlotId { get; }
             public StateBlockHandle Block { get; }
             public StateSlot<OperatorClaimState> Slot { get; }

@@ -1,0 +1,94 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4123cdeecc154cdca56d605fc6bfaad8, type: 3}
+  m_Name: SharedGraph
+  m_EditorClassIdentifier: CoCoFlow.Runtime.StateGraphHost::CoCoFlow.Runtime.StateGraphHost.StateGraphAsset
+  schemaVersion: 1
+  graphId:
+    high: 3816462399227382036
+    low: 12994049928394231811
+  assetGuidStamp: bb252358fa1b641289742688e2010a99
+  layers:
+  - layerId:
+      high: 101
+      low: 1
+    displayName: Base
+    initialStateId:
+      high: 102
+      low: 1
+    states:
+    - stateId:
+        high: 102
+        low: 1
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: Walk
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 6150930381905091786
+      config:
+        rid: 7613975711628394533
+      initialChildStateId:
+        high: 0
+        low: 0
+    - stateId:
+        high: 102
+        low: 2
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: Wait
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 6150930381905091786
+      config:
+        rid: 7613975711628394533
+      initialChildStateId:
+        high: 0
+        low: 0
+    anyState:
+      rid: 7613975711628394534
+    transitions: []
+  eventAdapterDeclarations: []
+  editorLayout:
+    version: 1
+    statePositions: []
+  references:
+    version: 2
+    RefIds:
+    - rid: 7613975711628394533
+      type: {class: FieldConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data:
+        Values:
+        - Speed=3
+    - rid: 7613975711628394534
+      type: {class: StateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraphHost, asm: CoCoFlow.Runtime.StateGraphHost}
+      data:
+        stateId:
+          high: 102
+          low: 3
+        parentStateId:
+          high: 0
+          low: 0
+        displayName: Any
+        stateDescriptorId:
+          high: 4850169331680821588
+          low: 1866244324430012115
+        config:
+          rid: 7613975711628394535
+        initialChildStateId:
+          high: 0
+          low: 0
+    - rid: 7613975711628394535
+      type: {class: EmptyStateConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data: 

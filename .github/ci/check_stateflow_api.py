@@ -16,11 +16,12 @@ CORE_CONSUMER = "CoCoFlow.CI.CoreConsumer"
 GAME_CONSUMER = "CoCoFlow.CI.GameplayConsumer"
 # Each expression is checked in an otherwise compiling external Host consumer.
 DENIED = (
-    ("StateGraphProjectBindings.ResetForTests()", "CS0117", "ResetForTests"),
-    ("StateGraphRuntime.TryCreate(null, default, null, null, null, out _, out _)",
-     "CS0122", "StateGraphRuntime"),
+    ("HostProjectBindings.ResetForTests()", "CS0117", "ResetForTests"),
+    ("StateGraphInstance.TryCreate(null, default, null, null, null, out _, out _)",
+     "CS0122", "StateGraphInstance"),
     ("ContextFrameReadView.TryCreate(default, out _)", "CS0117", "TryCreate"),
-    ("_ = new StateGraphAssetCompiler()", "CS0122", "StateGraphAssetCompiler"),
+    ("_ = new GraphAssetCompiler()", "CS0122", "GraphAssetCompiler"),
+    ("_ = typeof(GraphAssetCompileResult)", "CS0122", "GraphAssetCompileResult"),
     ("_ = new StateGraphCompiler()", "CS0122", "StateGraphCompiler"),
     ("_ = default(StateExecutionContext).Operations", "CS1061", "Operations"),
     ("_ = new StateExecutionContext()", "CS1729", "StateExecutionContext"),
@@ -30,7 +31,7 @@ DENIED = (
     ("_ = typeof(OperationReader)", "CS0122", "OperationReader"),
     ("_ = typeof(OperationViewContext<>)", "CS0122", "OperationViewContext"),
     ("_ = typeof(IOperationViewFactory<>)", "CS0122", "IOperationViewFactory"),
-    ("_ = typeof(ActorClock)", "CS0122", "ActorClock"),
+    ("_ = typeof(InstanceClock)", "CS0122", "InstanceClock"),
     ("_ = typeof(IntentConsumeAttribute)", "CS0246", "IntentConsumeAttribute"),
     ("_ = typeof(OperationProvideAttribute)", "CS0246", "OperationProvideAttribute"),
     ("_ = typeof(ConditionAttribute)", "CS0246", "ConditionAttribute"),

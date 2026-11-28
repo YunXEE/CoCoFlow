@@ -45,7 +45,7 @@ namespace CoCoFlow.Editor.StateGraph
     [CustomEditor(typeof(StateGraphAsset))]
     internal sealed class StateGraphAssetEditor : UnityEditor.Editor
     {
-        private StateGraphAssetCompileResult analysisResult;
+        private GraphAssetCompileResult analysisResult;
         private GraphDescriptorCatalog analysisCatalog;
         private string analysisFailure = string.Empty;
         private string locatedPropertyPath = string.Empty;
@@ -330,7 +330,7 @@ namespace CoCoFlow.Editor.StateGraph
                 }
 
                 analysisCatalog = catalog;
-                analysisResult = new StateGraphAssetCompiler().Compile(asset, catalog);
+                analysisResult = new GraphAssetCompiler().Compile(asset, catalog);
             }
             catch (Exception exception)
             {
