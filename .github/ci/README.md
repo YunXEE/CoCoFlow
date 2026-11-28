@@ -16,7 +16,7 @@ deployed and validated before its new job routing is claimed as active.
 | `CI / win-mono`, `CI / win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
 | `CI / gate` | Requires every applicable job to succeed. On master push it verifies the release receipt and merged Git tree. |
 | `CI / tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
-| `Release / identity` | Validates an externally pushed Tag against the package version and the tagged commit's gate. |
+| `CI / release-identity` | Validates an externally pushed Tag against the package version and the tagged commit's gate. |
 
 | Target / event | Required checks |
 | --- | --- |
@@ -214,7 +214,7 @@ link a candidate without changing their manifests.
 ## Manual Windows Player experiments
 
 The optional workflow_dispatch input `player_probe=true` runs the separate
-`Diagnostics / Windows mono` or `Diagnostics / Windows il2cpp` job using the pinned installer,
+`CI / player-diagnostics` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
 Dev PRs retain the Editor path; master candidates also require both full Player
 profiles as described above. On this explicit

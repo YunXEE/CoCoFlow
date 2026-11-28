@@ -47,7 +47,6 @@ jobs:
       editor: ${{ steps.plan.outputs.editor }}
       api: ${{ steps.plan.outputs.api }}
       release: ${{ steps.plan.outputs.release }}
-      player_backends: ${{ steps.plan.outputs.player_backends }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -188,32 +187,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  player_probe:
-    name: ${{ needs.static.outputs.release == 'true' && format('CI / win-{0}', matrix.backend) || format('Diagnostics / Windows {0} ({1})', matrix.backend, inputs.player_suite) }}
+  win_mono:
+    name: CI / win-mono
     needs: static
     if: >-
-      (needs.static.outputs.release == 'true' ||
-       (github.event_name == 'workflow_dispatch' && inputs.player_probe)) &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        backend: ${{ fromJSON(needs.static.outputs.player_backends) }}
+      needs.static.outputs.release == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-2022
     timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
     env:
-      COCOFLOW_PLAYER_BACKEND: ${{ matrix.backend }}
-      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ github.event_name == 'workflow_dispatch' && inputs.player_probe && inputs.player_preserve_metadata }}
-      COCOFLOW_PLAYER_SUITE: ${{ needs.static.outputs.release == 'true' && 'all' || inputs.player_suite }}
+      COCOFLOW_PLAYER_BACKEND: mono
+      COCOFLOW_PLAYER_PRESERVE_METADATA: 'false'
+      COCOFLOW_PLAYER_SUITE: all
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
     defaults:
       run:
         shell: pwsh
-    steps:
+    steps: &player_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -263,20 +255,20 @@ jobs:
         run: python .github/ci/check_player_probe.py ci-results .ci-work/prepared.json
 
       - name: Set up .NET for Unity API collection
-        if: needs.static.outputs.release == 'true' && matrix.backend == 'mono'
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.301'
 
       - name: Collect the actual Editor DLL and matching compiler XML
-        if: needs.static.outputs.release == 'true' && matrix.backend == 'mono'
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
         run: |
           dotnet build .github/ci/api-surface/ApiSurface.csproj -o .ci-work/api-tool
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .github/ci/collect_api_surface.py .ci-work/host "$env:UNITY_PATH/Editor/Data" .ci-work/package ci-results/api-inputs .ci-work/api-tool/ApiSurface.dll
 
       - name: Upload API inputs once
-        if: needs.static.outputs.release == 'true' && matrix.backend == 'mono'
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
         uses: actions/upload-artifact@v4
         with:
           name: api-inputs-${{ github.sha }}-${{ github.run_attempt }}
@@ -286,13 +278,13 @@ jobs:
       - name: Record the Player candidate
         if: needs.static.outputs.release == 'true'
         run: |
-          python .github/ci/release_receipt.py record-player ${{ matrix.backend }} ci-results/candidate.json
+          python .github/ci/release_receipt.py record-player $env:COCOFLOW_PLAYER_BACKEND ci-results/candidate.json
 
       - name: Upload release Player candidate
         if: needs.static.outputs.release == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: release-player-${{ matrix.backend }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: release-player-${{ env.COCOFLOW_PLAYER_BACKEND }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/candidate.json
           if-no-files-found: error
 
@@ -300,24 +292,62 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: player-${{ env.COCOFLOW_PLAYER_SUITE }}-${{ matrix.backend }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: player-${{ env.COCOFLOW_PLAYER_SUITE }}-${{ env.COCOFLOW_PLAYER_BACKEND }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/
           if-no-files-found: error
           retention-days: 30
 
-  api:
-    name: CI / ${{ matrix.check }}
-    needs: [static, unity, player_probe]
+  win_il2cpp:
+    name: CI / win-il2cpp
+    needs: [static, win_mono]
     if: >-
+      !cancelled() && needs.static.result == 'success' &&
+      needs.static.outputs.release == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2022
+    timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
+    env:
+      COCOFLOW_PLAYER_BACKEND: il2cpp
+      COCOFLOW_PLAYER_PRESERVE_METADATA: 'false'
+      COCOFLOW_PLAYER_SUITE: all
+    concurrency:
+      group: unity-personal-activation
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    steps: *player_steps
+
+  player_probe:
+    name: CI / player-diagnostics
+    needs: static
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.player_probe
+    runs-on: windows-2022
+    timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
+    env:
+      COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
+      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ inputs.player_preserve_metadata }}
+      COCOFLOW_PLAYER_SUITE: ${{ inputs.player_suite }}
+    concurrency:
+      group: unity-personal-activation
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    steps: *player_steps
+
+  api:
+    name: CI / api
+    needs: &api_needs [static, unity, win_mono, win_il2cpp]
+    if: &api_condition >-
       always() && needs.static.result == 'success' && needs.static.outputs.api == 'true' &&
-      (needs.unity.result == 'success' || needs.player_probe.result == 'success')
-    strategy:
-      fail-fast: false
-      matrix:
-        check: [api, api-doc]
+      (needs.unity.result == 'success' || (needs.win_mono.result == 'success' && needs.win_il2cpp.result == 'success'))
+    env:
+      CHECK: api
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    steps:
+    steps: &api_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -329,7 +359,7 @@ jobs:
           path: .ci-work/api-inputs
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        if: matrix.check == 'api'
+        if: env.CHECK == 'api'
         with:
           dotnet-version: '10.0.301'
 
@@ -339,7 +369,6 @@ jobs:
           BASE_BRANCH: ${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_BRANCH: ${{ github.head_ref }}
-          CHECK: ${{ matrix.check }}
         run: |
           if [[ "$CHECK" == "api" ]]; then
             python3 .github/ci/check_api_surface.py api .ci-work/api-inputs --base "$BASE_SHA" --head "$HEAD_SHA" \
@@ -349,9 +378,19 @@ jobs:
             python3 .github/ci/check_api_surface.py docs .ci-work/api-inputs
           fi
 
+  api_doc:
+    name: CI / api-doc
+    needs: *api_needs
+    if: *api_condition
+    env:
+      CHECK: api-doc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: *api_steps
+
   gate:
     name: CI / gate
-    needs: [static, unity, player_probe, api]
+    needs: [static, unity, win_mono, win_il2cpp, api, api_doc]
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.player_probe)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -373,13 +412,19 @@ jobs:
           API_REQUIRED: ${{ needs.static.outputs.api }}
           RELEASE: ${{ needs.static.outputs.release }}
           EDITOR_RESULT: ${{ needs.unity.result }}
-          API_MATRIX_RESULT: ${{ needs.api.result }}
-          PLAYER_RESULT: ${{ needs.player_probe.result }}
+          API_RESULT: ${{ needs.api.result }}
+          DOCS_RESULT: ${{ needs.api_doc.result }}
+          MONO_RESULT: ${{ needs.win_mono.result }}
+          IL2CPP_RESULT: ${{ needs.win_il2cpp.result }}
         run: |
+          player_result="mono=$MONO_RESULT il2cpp=$IL2CPP_RESULT"
+          if [[ "$MONO_RESULT" == success && "$IL2CPP_RESULT" == success ]]; then
+            player_result=success
+          fi
           python3 .github/ci/cocoflow_ci.py gate --static-result "$STATIC_RESULT" \
             --editor-required "$EDITOR_REQUIRED" --api-required "$API_REQUIRED" --release "$RELEASE" \
-            --editor-result "$EDITOR_RESULT" --api-result "$API_MATRIX_RESULT" \
-            --docs-result "$API_MATRIX_RESULT" --player-result "$PLAYER_RESULT"
+            --editor-result "$EDITOR_RESULT" --api-result "$API_RESULT" \
+            --docs-result "$DOCS_RESULT" --player-result "$player_result"
 
       - name: Download both successful Player candidate identities
         if: needs.static.outputs.release == 'true'
