@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.10 · **Unity**: 6000+
+> **Version**: 0.4.11 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -122,7 +122,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.10
+https://github.com/YunXEE/CoCoFlow.git#v0.4.11
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -130,7 +130,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.11"
   }
 }
 ```

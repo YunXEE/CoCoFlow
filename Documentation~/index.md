@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.10`.
+`0.4.11`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -17,6 +17,14 @@ breaking changes and compatibility boundaries.
 - [简体中文概览](../README.zh-CN.md)
 - [Changelog](../CHANGELOG.md)
 - [Dependency matrix](../Docs/DependencyMatrix.md)
+
+## Animation in 0.4.11
+
+The legacy Animation module has been removed. Projects own animation playback,
+progress and root motion in this version. If a scene or prefab used the old
+Animation Operator, follow the [StateGraph Host migration
+steps](../Docs/StateGraphRuntime.md#migrating-a-0410-scene). A new Animation
+module is planned for 0.5.0.
 
 ## Windows Player validation for 0.4.8
 

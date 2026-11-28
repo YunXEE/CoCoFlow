@@ -44,9 +44,15 @@ Move each retired transition Condition into the source StateLogic before
 issuing the transition request. An edge with the old `MailboxReadyCondition`
 stays at its source when the logic makes no request. An explicit request can
 now take the edge even when the old condition would have rejected it. Exercise
-both values of the guard before saving the migrated graph. A retired Animation
-Operator appears as a missing component in existing prefabs. Replace its
-Inspector reference and verify the associated persistence and temporal switches.
+both values of the guard before saving the migrated graph.
+
+The legacy Animation module has been removed in 0.4.11. In scenes and prefabs
+that used it, remove the missing Animation component and its entry in the
+Host's Operators list. Move playback, progress and root motion into project
+code. If a project-owned component replaces the old Operator, assign it in the
+Host Inspector and verify its persistence and temporal recovery switches.
+Remove references to retired Animation assemblies and types from project code
+and asmdefs. A new Animation module is planned for 0.5.0.
 
 A saved Host checks the graph ID, Context layout ID, layout version and schema
 hash before applying its Durable payload. The layout ID includes the project
