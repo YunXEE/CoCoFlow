@@ -23,6 +23,7 @@ namespace CoCoFlow.Editor.Core
     {
         #region Public API
 
+        /// <summary>打开或聚焦 Utility 窗口，并刷新当前项目的依赖状态。</summary>
         [MenuItem("CoCoFlow/Utility Panel")]
         public static void Open()
         {
@@ -32,6 +33,7 @@ namespace CoCoFlow.Editor.Core
             window.Show();
         }
 
+        /// <summary>创建 Utility 窗口的界面，并在尚未读取时加载项目状态。</summary>
         public void CreateGUI()
         {
             CoCoEditorElements.ApplyTheme(rootVisualElement);

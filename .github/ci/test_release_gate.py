@@ -1,7 +1,5 @@
 import json
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -9,89 +7,60 @@ from pathlib import Path
 
 import cocoflow_ci as ci
 import prepare_unity_host as host
+import release_receipt as receipts
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class ScopeAndReleaseTests(unittest.TestCase):
-    def test_pr_targets_select_editor_for_dev_and_both_players_for_any_master_pr(self):
+    def test_pr_routes(self):
         for target in ("dev/0.4.8", "dev/0.5.0"):
             plan = ci.validation_plan("pull_request", target)
-            self.assertTrue(plan["force_unity"], "Docs and version-only Dev PRs also require Editor")
-            self.assertFalse(plan["players"])
-        # 来源分支不参与此选择；所有指向 master 的 PR 都必须通过两种 Player。
-        plan = ci.validation_plan("pull_request", "master")
-        self.assertTrue(plan["force_unity"])
-        self.assertTrue(plan["players"])
+            self.assertTrue(plan["editor"])
+            self.assertTrue(plan["api"])
+            self.assertFalse(plan["release"])
+        plan = ci.validation_plan("pull_request", "master", head_branch="dev/0.4.11")
+        self.assertFalse(plan["editor"])
+        self.assertTrue(plan["release"])
+        self.assertTrue(plan["api"])
         self.assertEqual(["mono", "il2cpp"], plan["player_backends"])
+        with self.assertRaises(ValueError):
+            ci.validation_plan("pull_request", "master", head_branch="fix/example")
+        plan = ci.validation_plan("pull_request", "experiment")
+        self.assertFalse(plan["editor"] or plan["api"] or plan["release"])
 
-    def test_master_push_and_manual_validation_require_full_suite(self):
-        for event in ("push", "workflow_dispatch"):
-            plan = ci.validation_plan(event, ref_name="master")
-            self.assertTrue(plan["force_unity"])
-            self.assertTrue(plan["players"])
-        plan = ci.validation_plan("workflow_dispatch", ref_name="feat/example")
-        self.assertTrue(plan["force_unity"])
-        self.assertFalse(plan["players"])
-
-    def test_explicit_player_diagnostic_remains_separate_from_merge_gate(self):
+    def test_push_verifies_only_the_receipt_and_manual_routes_are_diagnostic(self):
+        plan = ci.validation_plan("push", ref_name="master")
+        self.assertTrue(plan["master_push"])
+        self.assertFalse(plan["editor"] or plan["release"] or plan["api"])
+        self.assertTrue(ci.validation_plan("workflow_dispatch", ref_name="master")["editor"])
         for backend in ("mono", "il2cpp"):
             plan = ci.validation_plan("workflow_dispatch", ref_name="master",
                                       player_probe=True, player_backend=backend)
-            self.assertFalse(plan["force_unity"])
-            self.assertFalse(plan["players"])
+            self.assertFalse(plan["editor"] or plan["api"] or plan["release"])
             self.assertEqual([backend], plan["player_backends"])
-        # PR 不能用手动探针参数降低 master 的必需范围。
-        self.assertTrue(ci.validation_plan("pull_request", "master", player_probe=True)["players"])
 
-    def test_gate_rejects_each_missing_failed_cancelled_or_skipped_required_job(self):
-        self.assertEqual([], ci.gate_errors("success", "true", "success", "false", "skipped"))
-        self.assertEqual([], ci.gate_errors("success", "true", "success", "true", "success"))
-        for outcome in ("failure", "cancelled", "skipped", ""):
-            self.assertTrue(ci.gate_errors(outcome, "true", "success", "true", "success"))
-            self.assertTrue(ci.gate_errors("success", "true", outcome, "true", "success"))
-            self.assertTrue(ci.gate_errors("success", "true", "success", "true", outcome))
-        for unknown in ("", "unknown"):
-            self.assertTrue(ci.gate_errors("success", unknown, "success", "false", "skipped"))
-            self.assertTrue(ci.gate_errors("success", "true", "success", unknown, "success"))
-        self.assertTrue(ci.gate_errors("success", "false", "skipped", "true", "success"))
+    def test_gate_rejects_any_unsuccessful_required_job(self):
+        dev = ("success", "true", "true", "false", "success", "success", "success", "skipped")
+        release = ("success", "false", "true", "true", "skipped", "success", "success", "success")
+        for results, required in ((dev, (0, 4, 5, 6)), (release, (0, 5, 6, 7))):
+            self.assertEqual([], ci.gate_errors(*results))
+            for index in required:
+                for outcome in ("failure", "cancelled", "skipped", ""):
+                    variation = list(results)
+                    variation[index] = outcome
+                    self.assertTrue(ci.gate_errors(*variation), (index, outcome))
 
-    def test_docs_can_skip_but_unknown_inputs_and_release_candidates_cannot(self):
-        self.assertFalse(ci.unity_required(["README.md", "Documentation~/index.md"]))
-        self.assertFalse(ci.unity_required(["package.json"], version_only=True))
-        for paths in ([], ["Tests/new-test.cs"], [".github/workflows/ci-static.yml"],
-                      ["package.json"], ["Unknown.asset"]):
-            self.assertTrue(ci.unity_required(paths))
-        self.assertTrue(ci.unity_required(["README.md"], release_candidate=True))
-
-    def test_source_renamed_to_documentation_still_requires_unity(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-
-            def git(*arguments):
-                return subprocess.check_output(
-                    ["git", "-c", "user.name=CI Test", "-c", "user.email=ci@example.invalid",
-                     "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + str(root / "hooks"),
-                     *arguments], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
-
-            git("init")
-            git("config", "diff.renames", "true")
-            (root / "package.json").write_text('{"version":"0.4.7"}')
-            (root / "Runtime").mkdir()
-            source = root / "Runtime/Foo.cs"
-            source.write_text("public sealed class Foo {}\n")
-            git("add", ".")
-            git("commit", "-m", "source")
-            before = git("rev-parse", "HEAD")
-            source.rename(root / "Runtime/Foo.md")
-            git("add", "-A")
-            git("commit", "-m", "rename source to documentation")
-            self.assertEqual("Runtime/Foo.md", git("diff", "--name-only", before, "HEAD"))
-            result = subprocess.check_output(
-                [sys.executable, str(Path(ci.__file__).resolve()), "scope", "--base", before],
-                cwd=root, text=True).strip()
-            self.assertEqual("unity=true", result)
+    def test_release_receipt_binds_pr_candidate_tree_run_and_attempt(self):
+        pull = {"number": 42, "head": {"sha": "head"}}
+        run = {"id": 123, "run_attempt": 2}
+        merged = {"tree": "tree", "base": "base"}
+        receipt = {"pr": 42, "head": "head", "base": "base", "sha": "1" * 40,
+                   "tree": "tree", "run": 123, "attempt": 2}
+        self.assertTrue(receipts.matches(receipt, pull, run, merged))
+        for field in receipt:
+            self.assertFalse(receipts.matches({**receipt, field: "different"}, pull, run, merged), field)
 
     def test_release_identity_rejects_mismatched_refs_changelog_exceptions_and_tag(self):
         with tempfile.TemporaryDirectory() as temporary:
