@@ -1,7 +1,7 @@
 using CoCoFlow.Runtime.StateGraph;
 using UnityEditor;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
     internal static class CoreEditorIntegration
     {

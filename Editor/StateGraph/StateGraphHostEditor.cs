@@ -8,10 +8,8 @@ using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     /// <summary>
     /// StateGraphHost Inspector（UI Toolkit 重做，D1/D2）。
     /// 六区信息架构：Overview / Bindings / Restore / Capacities / Runtime / Diagnostics。
@@ -25,9 +23,7 @@ namespace CoCoFlow.Editor.StateGraphHost
     internal sealed class StateGraphHostEditor : UnityEditor.Editor
     {
         private const string ModuleUssPath =
-            "Packages/com.yunxee.cocoflow/Editor/StateGraphHost/StateGraphHostEditor.uss";
-
-        private const string DownstreamPropertyName = "downstreamRestoreBinding";
+            "Packages/com.yunxee.cocoflow/Editor/StateGraph/StateGraphHostEditor.uss";
 
         private static bool _moduleUssMissingReported;
 
@@ -40,19 +36,7 @@ namespace CoCoFlow.Editor.StateGraphHost
         private VisualElement _diagnosticsContent;
         private bool _rebuilding;
 
-        private void OnEnable()
-        {
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-            Undo.undoRedoPerformed += OnUndoRedoPerformed;
-            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
-        }
-
-        private void OnDisable()
-        {
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
-            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
-            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
-        }
+        #region Public API
 
         public override VisualElement CreateInspectorGUI()
         {
@@ -80,6 +64,10 @@ namespace CoCoFlow.Editor.StateGraphHost
             RebuildAll();
             return _root;
         }
+
+        #endregion
+
+        #region Internal Logic
 
         // ===== 主题 =====
 
@@ -435,12 +423,12 @@ namespace CoCoFlow.Editor.StateGraphHost
             var results = new List<MonoBehaviour>();
             if (kind == BindingListKind.IntentSources)
             {
-                StateGraphHostBindingRules.CollectIntentSourceCandidates(
+                StateGraphHostBindingCandidates.FindIntentSources(
                     host, assigned, results);
             }
             else
             {
-                StateGraphHostBindingRules.CollectOperatorCandidates(
+                StateGraphHostBindingCandidates.FindOperators(
                     host, assigned, results);
             }
 
@@ -568,7 +556,7 @@ namespace CoCoFlow.Editor.StateGraphHost
                 property.objectReferenceValue as MonoBehaviour;
             var host = (StateGraphHost)target;
             var results = new List<MonoBehaviour>();
-            StateGraphHostBindingRules.CollectActorContextCandidates(
+            StateGraphHostBindingCandidates.FindActorContexts(
                 host,
                 assigned,
                 results);
@@ -690,11 +678,11 @@ namespace CoCoFlow.Editor.StateGraphHost
                 return;
             }
 
-            var nodes = new List<StateGraphHostBindingRules.RestoreChainNode>();
-            StateGraphHostBindingRules.BuildRestoreChainPreview(root, host, nodes);
+            var nodes = new List<StateGraphHostRestoreChain.RestoreChainNode>();
+            StateGraphHostRestoreChain.BuildRestoreChainPreview(root, host, nodes);
             for (int index = 0; index < nodes.Count; index++)
             {
-                StateGraphHostBindingRules.RestoreChainNode node = nodes[index];
+                StateGraphHostRestoreChain.RestoreChainNode node = nodes[index];
                 var row = new VisualElement();
                 row.AddToClassList("ccflow-host-chain-row");
                 var arrow = new Label(node.IsRoot ? "root →" : "      →")
@@ -724,7 +712,7 @@ namespace CoCoFlow.Editor.StateGraphHost
             }
 
             BindingHint? breakHint =
-                StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
             if (breakHint.HasValue)
             {
                 _restoreHintContent.Add(BuildHintRow(breakHint.Value));
@@ -740,11 +728,11 @@ namespace CoCoFlow.Editor.StateGraphHost
     {
         var host = (StateGraphHost)target;
         var chain = new List<MonoBehaviour>();
-        StateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
-        if (!StateGraphHostBindingRules.TryBuildRestoreWirePlan(
+        StateGraphHostRestoreChain.CollectRestoreChainCandidates(host, chain);
+        if (!StateGraphHostRestoreChain.TryBuildRestoreWirePlan(
                 host,
                 chain,
-                out StateGraphHostBindingRules.RestoreWirePlan plan,
+                out StateGraphHostRestoreChain.RestoreWirePlan plan,
                 out BindingHint failure))
         {
             CoCoLog.Warning("[Host Inspector] " + failure.English);
@@ -1117,11 +1105,11 @@ namespace CoCoFlow.Editor.StateGraphHost
             if (restoreRoot != null)
             {
                 var nodes =
-                    new List<StateGraphHostBindingRules.RestoreChainNode>();
-                StateGraphHostBindingRules.BuildRestoreChainPreview(
+                    new List<StateGraphHostRestoreChain.RestoreChainNode>();
+                StateGraphHostRestoreChain.BuildRestoreChainPreview(
                     restoreRoot, host, nodes);
                 BindingHint? breakHint =
-                    StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                    StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
                 if (breakHint.HasValue)
                 {
                     hints.Add(breakHint.Value);
@@ -1227,6 +1215,20 @@ namespace CoCoFlow.Editor.StateGraphHost
 
         // ===== 生命周期回调 =====
 
+        private void OnEnable()
+        {
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            CoCoEditorLocalization.LanguageChanged += OnLanguageChanged;
+        }
+
+        private void OnDisable()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            CoCoEditorLocalization.LanguageChanged -= OnLanguageChanged;
+        }
+
         private void OnPlayModeStateChanged(PlayModeStateChange change)
         {
             if (_root == null)
@@ -1258,5 +1260,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             RebuildAll();
         }
+
+        #endregion
     }
 }

@@ -3,18 +3,18 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Editor.StateGraphHost
+namespace CoCoFlow.Editor.StateGraph
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
-
     internal static class StateGraphHostBindingCandidates
     {
+        #region Public API
+
         internal static void FindIntentSources(
             StateGraphHost host,
             IReadOnlyList<MonoBehaviour> assigned,
             List<MonoBehaviour> results)
         {
-            Find(host, assigned, results, IsIntentSource);
+            Find(host, assigned, results, StateGraphHostBindingRules.IsIntentFrameSource);
         }
 
         internal static void FindOperators(
@@ -22,33 +22,22 @@ namespace CoCoFlow.Editor.StateGraphHost
             IReadOnlyList<MonoBehaviour> assigned,
             List<MonoBehaviour> results)
         {
-            Find(
-                host,
-                assigned,
-                results,
-                component => component is IOperator);
+            Find(host, assigned, results, StateGraphHostBindingRules.IsOperator);
         }
 
-        internal static bool IsIntentSource(MonoBehaviour component)
+        internal static void FindActorContexts(
+            StateGraphHost host,
+            MonoBehaviour assigned,
+            List<MonoBehaviour> results)
         {
-            if (component == null)
-            {
-                return false;
-            }
-
-            Type[] interfaces = component.GetType().GetInterfaces();
-            for (int index = 0; index < interfaces.Length; index++)
-            {
-                Type contract = interfaces[index];
-                if (contract.IsGenericType &&
-                    contract.GetGenericTypeDefinition() == typeof(IIntentFrameSource<>))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            Find(host, null, results,
+                component => component != assigned &&
+                    StateGraphHostBindingRules.IsActorContextBinding(component));
         }
+
+        #endregion
+
+        #region Internal Logic
 
         private static void Find(
             StateGraphHost host,
@@ -57,17 +46,18 @@ namespace CoCoFlow.Editor.StateGraphHost
             Func<MonoBehaviour, bool> matches)
         {
             results.Clear();
-            if (host == null || matches == null)
+            if (host == null)
             {
                 return;
             }
 
+            var boundary = HostComponentBoundary.For(host);
             MonoBehaviour[] components = host.GetComponentsInChildren<MonoBehaviour>(true);
             for (int index = 0; index < components.Length; index++)
             {
                 MonoBehaviour component = components[index];
                 if (component == null ||
-                    !HostComponentBoundary.For(host).Contains(component) ||
+                    !boundary.Contains(component) ||
                     Contains(assigned, component) ||
                     !matches(component))
                 {
@@ -97,5 +87,7 @@ namespace CoCoFlow.Editor.StateGraphHost
 
             return false;
         }
+
+        #endregion
     }
 }
