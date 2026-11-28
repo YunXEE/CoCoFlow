@@ -9,13 +9,13 @@ deployed and validated before its new job routing is claimed as active.
 
 | Check | Responsibility |
 | --- | --- |
-| `CI / static` | Package name and version, diff hygiene and tests for changed CI rules. Release PRs also validate version progression and release metadata. |
-| `CI / api` | Approved API and XML contract comparison for Core and StateGraph, plus external consumer compilation. |
-| `CI / api-doc` | XML summaries for externally accessible handwritten Core and StateGraph methods and overloads. |
-| `CI / win-editor` | Complete package EditMode and PlayMode with fresh results, assembly discovery and seat cleanup. |
-| `CI / win-mono`, `CI / win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
+| `static` | Package name and version, diff hygiene and tests for changed CI rules. Release PRs also validate version progression and release metadata. |
+| `api` | Approved API and XML contract comparison for Core and StateGraph, plus external consumer compilation. |
+| `api-doc` | XML summaries for externally accessible handwritten Core and StateGraph methods and overloads. |
+| `win-editor` | Complete package EditMode and PlayMode with fresh results, assembly discovery and seat cleanup. |
+| `win-mono`, `win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
 | `CI / gate` | Requires every applicable job to succeed. On master push it verifies the release receipt and merged Git tree. |
-| `CI / tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
+| `tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
 | `CI / release-identity` | Validates an externally pushed Tag against the package version and the tagged commit's gate. |
 
 | Target / event | Required checks |
@@ -214,7 +214,7 @@ link a candidate without changing their manifests.
 ## Manual Windows Player experiments
 
 The optional workflow_dispatch input `player_probe=true` runs the separate
-`CI / player-diagnostics` job using the pinned installer,
+`player-diagnostics` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
 Dev PRs retain the Editor path; master candidates also require both full Player
 profiles as described above. On this explicit

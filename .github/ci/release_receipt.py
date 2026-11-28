@@ -13,7 +13,7 @@ from collect_api_surface import git
 
 
 WORKFLOW = "ci-static.yml"
-RELEASE_JOBS = {"CI / static", "CI / api", "CI / api-doc", "CI / win-mono", "CI / win-il2cpp", "CI / gate"}
+RELEASE_JOBS = {"static", "api", "api-doc", "win-mono", "win-il2cpp", "CI / gate"}
 
 
 def candidate():
