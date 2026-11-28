@@ -58,7 +58,7 @@ namespace CoCoFlow.Tests.Runtime.Core
                 Assert.That(consoleTypes, Is.EqualTo(new[] { LogType.Warning, LogType.Error }));
                 foreach (CoCoLogEvent entry in events)
                 {
-                    Assert.That(entry.ModuleName, Is.EqualTo("Core"));
+                    Assert.That(entry.ModuleName, Is.EqualTo("Runtime"));
                     Assert.That(entry.ClassName, Is.EqualTo(nameof(CoCoRuntimeBoundaryTests)));
                 }
             }
