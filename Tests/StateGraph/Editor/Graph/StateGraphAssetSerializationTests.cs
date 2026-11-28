@@ -34,7 +34,7 @@ namespace CoCoFlow.Tests.StateGraph
         [Test]
         public void RetiredPrefixedRecordIsReportedAsMissing()
         {
-            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/BeforePrefixRemoval.asset.bytes";
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/StateGraph/Runtime/Legacy/BeforePrefixRemoval.asset.bytes";
             File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
             var graph = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
@@ -47,7 +47,7 @@ namespace CoCoFlow.Tests.StateGraph
         [Test]
         public void Released0410FieldConfigKeepsItsSharedReferenceAcrossCopyAndResave()
         {
-            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410FieldConfig.asset.bytes";
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/StateGraph/Runtime/Legacy/Released0410FieldConfig.asset.bytes";
             const string originalGuid = "bb252358fa1b641289742688e2010a99";
             bool originalIsPresent = !string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(originalGuid));
             File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
@@ -97,7 +97,7 @@ namespace CoCoFlow.Tests.StateGraph
         [Test]
         public void Released0410SharedConfigAndGraphIdentitiesSurviveImportAndResave()
         {
-            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410Shared.asset.bytes";
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/StateGraph/Runtime/Legacy/Released0410Shared.asset.bytes";
             File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
             File.WriteAllText(AssetPath + ".meta", "fileFormatVersion: 2\nguid: c7723ff27124f4f0fba916bff8269504\n");
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
