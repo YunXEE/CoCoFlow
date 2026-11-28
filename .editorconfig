@@ -19,3 +19,6 @@ charset = utf-8-bom
 # Asset 与 Binding 是维护目录。StateGraph 的统一 CLR 命名空间由包体 API 检查校验。
 [Runtime/StateGraph/{Asset,Binding}/*.cs]
 resharper_check_namespace_highlighting = none
+
+[Tests/StateGraph/Editor/{State,Graph,Contracts}/*.cs]
+resharper_check_namespace_highlighting = none
