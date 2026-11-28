@@ -39,92 +39,67 @@ concurrency:
 
 jobs:
   static:
-    name: CI Static / gate
+    name: CI / static
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      unity: ${{ steps.scope.outputs.unity }}
-      players: ${{ steps.validation.outputs.players }}
-      player_backends: ${{ steps.validation.outputs.player_backends }}
+      editor: ${{ steps.plan.outputs.editor }}
+      api: ${{ steps.plan.outputs.api }}
+      release: ${{ steps.plan.outputs.release }}
     steps:
-      - name: Check out pull request
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check pull request diff
+      - name: Select checks by PR route
+        id: plan
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          PLAYER_PROBE: ${{ inputs.player_probe }}
+          PLAYER_BACKEND: ${{ inputs.player_backend || 'mono' }}
+        run: |
+          args=(--event "$GITHUB_EVENT_NAME" --base-branch "$BASE_BRANCH" --head-branch "$HEAD_BRANCH"
+                --ref-name "$GITHUB_REF_NAME" --player-backend "$PLAYER_BACKEND")
+          if [[ "$PLAYER_PROBE" == "true" ]]; then args+=(--player-probe); fi
+          python3 .github/ci/cocoflow_ci.py validation-plan "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Check package identity
+        run: python3 .github/ci/cocoflow_ci.py package
+
+      - name: Check pull request diff and affected CI rules
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --check "$BASE_SHA...$HEAD_SHA"
-
-      - name: Reject tracked ignored files
         run: |
-          tracked_ignored="$(git ls-files -ci --exclude-standard)"
-          if [[ -n "$tracked_ignored" ]]; then
-            echo "Tracked files match .gitignore:"
-            echo "$tracked_ignored"
-            exit 1
+          git diff --check "$BASE_SHA...$HEAD_SHA"
+          if ! git diff --quiet "$BASE_SHA...$HEAD_SHA" -- .gitignore; then
+            tracked_ignored="$(git ls-files -ci --exclude-standard)"
+            if [[ -n "$tracked_ignored" ]]; then
+              printf '%s\n' "$tracked_ignored"
+              exit 1
+            fi
+          fi
+          if ! git diff --quiet "$BASE_SHA...$HEAD_SHA" -- .github/ci .github/workflows; then
+            python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
           fi
 
-      - name: Test Unity result reader
-        run: python3 -m unittest discover -s .github/ci -p "test_*.py" -v
-
-      - name: Set up .NET for the StateFlow API check
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
-        with:
-          dotnet-version: '10.0.301'
-
-      - name: Check required StateFlow API
-        run: python3 .github/ci/check_stateflow_api.py
-
-      - name: Check current package identity
-        run: python3 .github/ci/cocoflow_ci.py release
-
-      - name: Select tests by PR target
-        id: validation
+      - name: Check release version and installation identity
+        if: steps.plan.outputs.release == 'true'
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_BRANCH: ${{ github.base_ref }}
-          REF_NAME: ${{ github.ref_name }}
-          PLAYER_PROBE: ${{ inputs.player_probe }}
-          PLAYER_BACKEND: ${{ inputs.player_backend || 'mono' }}
-        shell: bash
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          plan_args=(--event "$EVENT_NAME" --base-branch "$BASE_BRANCH" --ref-name "$REF_NAME" --player-backend "$PLAYER_BACKEND")
-          if [[ "$PLAYER_PROBE" == "true" ]]; then plan_args+=(--player-probe); fi
-          python3 .github/ci/cocoflow_ci.py validation-plan "${plan_args[@]}" >> "$GITHUB_OUTPUT"
-
-      - name: Classify this candidate
-        id: scope
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_BRANCH: ${{ github.base_ref }}
-          HEAD_BRANCH: ${{ github.head_ref }}
-          REF_NAME: ${{ github.ref_name }}
-          FORCE_UNITY: ${{ steps.validation.outputs.force_unity }}
-        shell: bash
-        run: |
-          scope_args=(--base "$BASE_SHA")
-          if [[ "$FORCE_UNITY" == "true" ]]; then
-            scope_args+=(--force-unity)
-          fi
-          if [[ "$BASE_BRANCH" == "master" && "$HEAD_BRANCH" == dev/* ]]; then
-            scope_args+=(--release-candidate)
-            previous_version="$(git show "$BASE_SHA:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
-            python3 .github/ci/cocoflow_ci.py release --previous "$previous_version"
-          fi
-          python3 .github/ci/cocoflow_ci.py scope "${scope_args[@]}" >> "$GITHUB_OUTPUT"
+          previous="$(git show "$BASE_SHA:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          python3 .github/ci/cocoflow_ci.py release --previous "$previous"
 
   unity:
-    name: Unity / complete package
+    name: CI / win-editor
     needs: static
     if: >-
-      !(github.event_name == 'workflow_dispatch' && inputs.player_probe) &&
-      needs.static.outputs.unity == 'true' &&
+      needs.static.outputs.editor == 'true' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: windows-2022
@@ -182,6 +157,27 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         run: python .github/ci/cocoflow_ci.py unity-suite ci-results .ci-work/prepared.json
 
+      - name: Set up .NET for Unity API collection
+        if: needs.static.outputs.api == 'true'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.301'
+
+      - name: Collect the actual Editor DLL and matching compiler XML
+        if: needs.static.outputs.api == 'true'
+        run: |
+          dotnet build .github/ci/api-surface/ApiSurface.csproj -o .ci-work/api-tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python .github/ci/collect_api_surface.py .ci-work/host "$env:UNITY_PATH/Editor/Data" .ci-work/package ci-results/api-inputs .ci-work/api-tool/ApiSurface.dll
+
+      - name: Upload API inputs once
+        if: needs.static.outputs.api == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-inputs-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-results/api-inputs/
+          if-no-files-found: error
+
       - name: Preserve this run's test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -191,33 +187,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  player_probe:
-    name: Player ${{ needs.static.outputs.players == 'true' && 'all' || inputs.player_suite }} / Windows ${{ matrix.backend == 'il2cpp' && 'IL2CPP' || 'Mono' }}${{ github.event_name == 'workflow_dispatch' && inputs.player_probe && inputs.player_preserve_metadata && ' / metadata diagnostic' || '' }}
-    needs: [static, unity]
+  win_mono:
+    name: CI / win-mono
+    needs: static
     if: >-
-      always() && needs.static.result == 'success' &&
-      (needs.static.outputs.players == 'true' ||
-       (github.event_name == 'workflow_dispatch' && inputs.player_probe)) &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        backend: ${{ fromJSON(needs.static.outputs.player_backends) }}
+      needs.static.outputs.release == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-2022
-    timeout-minutes: ${{ (needs.static.outputs.players == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
+    timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
     env:
-      COCOFLOW_PLAYER_BACKEND: ${{ matrix.backend }}
-      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ github.event_name == 'workflow_dispatch' && inputs.player_probe && inputs.player_preserve_metadata }}
-      COCOFLOW_PLAYER_SUITE: ${{ needs.static.outputs.players == 'true' && 'all' || inputs.player_suite }}
+      COCOFLOW_PLAYER_BACKEND: mono
+      COCOFLOW_PLAYER_PRESERVE_METADATA: 'false'
+      COCOFLOW_PLAYER_SUITE: all
     concurrency:
       group: unity-personal-activation
       cancel-in-progress: false
     defaults:
       run:
         shell: pwsh
-    steps:
+    steps: &player_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -236,7 +224,7 @@ jobs:
 
       - name: Build and run the requested tests in Windows Player
         id: tests
-        timeout-minutes: ${{ (needs.static.outputs.players == 'true' || inputs.player_suite == 'all') && 85 || 40 }}
+        timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 85 || 40 }}
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
@@ -266,36 +254,220 @@ jobs:
         if: always() && steps.prepare.outcome == 'success'
         run: python .github/ci/check_player_probe.py ci-results .ci-work/prepared.json
 
+      - name: Set up .NET for Unity API collection
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.301'
+
+      - name: Collect the actual Editor DLL and matching compiler XML
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
+        run: |
+          dotnet build .github/ci/api-surface/ApiSurface.csproj -o .ci-work/api-tool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python .github/ci/collect_api_surface.py .ci-work/host "$env:UNITY_PATH/Editor/Data" .ci-work/package ci-results/api-inputs .ci-work/api-tool/ApiSurface.dll
+
+      - name: Upload API inputs once
+        if: needs.static.outputs.release == 'true' && env.COCOFLOW_PLAYER_BACKEND == 'mono'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-inputs-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-results/api-inputs/
+          if-no-files-found: error
+
+      - name: Record the Player candidate
+        if: needs.static.outputs.release == 'true'
+        run: |
+          python .github/ci/release_receipt.py record-player $env:COCOFLOW_PLAYER_BACKEND ci-results/candidate.json
+
+      - name: Upload release Player candidate
+        if: needs.static.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-player-${{ env.COCOFLOW_PLAYER_BACKEND }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-results/candidate.json
+          if-no-files-found: error
+
       - name: Preserve this experiment's evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: player-${{ env.COCOFLOW_PLAYER_SUITE }}-${{ matrix.backend }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: player-${{ env.COCOFLOW_PLAYER_SUITE }}-${{ env.COCOFLOW_PLAYER_BACKEND }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-results/
           if-no-files-found: error
           retention-days: 30
 
+  win_il2cpp:
+    name: CI / win-il2cpp
+    needs: [static, win_mono]
+    if: >-
+      !cancelled() && needs.static.result == 'success' &&
+      needs.static.outputs.release == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2022
+    timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
+    env:
+      COCOFLOW_PLAYER_BACKEND: il2cpp
+      COCOFLOW_PLAYER_PRESERVE_METADATA: 'false'
+      COCOFLOW_PLAYER_SUITE: all
+    concurrency:
+      group: unity-personal-activation
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    steps: *player_steps
+
+  player_probe:
+    name: CI / player-diagnostics
+    needs: static
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.player_probe
+    runs-on: windows-2022
+    timeout-minutes: ${{ (needs.static.outputs.release == 'true' || inputs.player_suite == 'all') && 130 || 80 }}
+    env:
+      COCOFLOW_PLAYER_BACKEND: ${{ inputs.player_backend }}
+      COCOFLOW_PLAYER_PRESERVE_METADATA: ${{ inputs.player_preserve_metadata }}
+      COCOFLOW_PLAYER_SUITE: ${{ inputs.player_suite }}
+    concurrency:
+      group: unity-personal-activation
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    steps: *player_steps
+
+  api:
+    name: CI / api
+    needs: &api_needs [static, unity, win_mono, win_il2cpp]
+    if: &api_condition >-
+      always() && needs.static.result == 'success' && needs.static.outputs.api == 'true' &&
+      (needs.unity.result == 'success' || (needs.win_mono.result == 'success' && needs.win_il2cpp.result == 'success'))
+    env:
+      CHECK: api
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: &api_steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-inputs-${{ github.sha }}-${{ github.run_attempt }}
+          path: .ci-work/api-inputs
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        if: env.CHECK == 'api'
+        with:
+          dotnet-version: '10.0.301'
+
+      - name: Compare the actual candidate with the approved API and XML
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ "$CHECK" == "api" ]]; then
+            python3 .github/ci/check_api_surface.py api .ci-work/api-inputs --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --base-branch "$BASE_BRANCH" --head-branch "$HEAD_BRANCH"
+            python3 .github/ci/check_stateflow_api.py
+          else
+            python3 .github/ci/check_api_surface.py docs .ci-work/api-inputs
+          fi
+
+  api_doc:
+    name: CI / api-doc
+    needs: *api_needs
+    if: *api_condition
+    env:
+      CHECK: api-doc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: *api_steps
+
   gate:
     name: CI / gate
-    needs: [static, unity, player_probe]
+    needs: [static, unity, win_mono, win_il2cpp, api, api_doc]
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.player_probe)
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Require every applicable check
+        if: github.event_name != 'push'
         env:
           STATIC_RESULT: ${{ needs.static.result }}
-          UNITY_REQUIRED: ${{ needs.static.outputs.unity }}
-          UNITY_RESULT: ${{ needs.unity.result }}
-          PLAYERS_REQUIRED: ${{ needs.static.outputs.players }}
-          PLAYER_RESULT: ${{ needs.player_probe.result }}
-        shell: bash
+          EDITOR_REQUIRED: ${{ needs.static.outputs.editor }}
+          API_REQUIRED: ${{ needs.static.outputs.api }}
+          RELEASE: ${{ needs.static.outputs.release }}
+          EDITOR_RESULT: ${{ needs.unity.result }}
+          API_RESULT: ${{ needs.api.result }}
+          DOCS_RESULT: ${{ needs.api_doc.result }}
+          MONO_RESULT: ${{ needs.win_mono.result }}
+          IL2CPP_RESULT: ${{ needs.win_il2cpp.result }}
         run: |
-          python3 .github/ci/cocoflow_ci.py gate \
-            --static-result "$STATIC_RESULT" \
-            --unity-required "$UNITY_REQUIRED" --unity-result "$UNITY_RESULT" \
-            --players-required "$PLAYERS_REQUIRED" --player-result "$PLAYER_RESULT"
+          player_result="mono=$MONO_RESULT il2cpp=$IL2CPP_RESULT"
+          if [[ "$MONO_RESULT" == success && "$IL2CPP_RESULT" == success ]]; then
+            player_result=success
+          fi
+          python3 .github/ci/cocoflow_ci.py gate --static-result "$STATIC_RESULT" \
+            --editor-required "$EDITOR_REQUIRED" --api-required "$API_REQUIRED" --release "$RELEASE" \
+            --editor-result "$EDITOR_RESULT" --api-result "$API_RESULT" \
+            --docs-result "$DOCS_RESULT" --player-result "$player_result"
+
+      - name: Download both successful Player candidate identities
+        if: needs.static.outputs.release == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-player-*-${{ github.sha }}-${{ github.run_attempt }}
+          path: .ci-work/release-players
+
+      - name: Bind the release receipt to this tested commit and tree
+        if: needs.static.outputs.release == 'true'
+        run: |
+          mkdir -p ci-results
+          python3 .github/ci/release_receipt.py issue .ci-work/release-players ci-results/release-receipt.json
+
+      - name: Upload this release run's receipt
+        if: needs.static.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-receipt-${{ github.run_attempt }}
+          path: ci-results/release-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Check the merged release's successful receipt
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/release_receipt.py verify
+
+  tag:
+    name: CI / tag
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify the merged SHA gate and publish its version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/release_receipt.py tag

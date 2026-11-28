@@ -123,6 +123,19 @@ def write_project(directory, name, framework, sources, projects=(), engine=None,
     return path
 
 
+def require_denied(command, env, directory, probe, imports, expression, code, symbol):
+    probe.write_text(imports + "\nclass Denied { void Probe() {\n" + expression + ";\n} }\n", encoding="utf-8")
+    build = subprocess.run([*command, "--no-restore"], cwd=directory, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    errors = {line.strip() for line in build.stdout.splitlines() if ": error " in line}
+    expected = re.compile(r"Denied\.cs\(\d+,\d+\): error " + code + r": .*'" + symbol + r"(?:<[^']*>)?'")
+    if not build.returncode or not errors or any(not expected.search(line) for line in errors):
+        print(f"Expected only {code} for {symbol}.\n{build.stdout}")
+        return False
+    print(f"Denied {symbol}: {code}", flush=True)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework", default="net10.0")
@@ -153,7 +166,9 @@ def main():
                 engine if uses_engine else None,
                 unsafe=definition["allowUnsafeCode"],
             )
-        write_project(directory, CORE_CONSUMER, args.framework, [CHECK / "CoreApi.cs"], [RUNTIME[0]])
+        core_probe = directory / CORE_CONSUMER / "Denied.cs"
+        core = write_project(directory, CORE_CONSUMER, args.framework, [CHECK / "CoreApi.cs", core_probe], [RUNTIME[0]])
+        core_probe.write_text("", encoding="utf-8")
         declaration = directory / "Declaration.cs"
         declaration.write_text("", encoding="utf-8")
         write_project(directory, GAME_CONSUMER, args.framework, [CHECK / "GameplayApi.cs", declaration],
@@ -166,24 +181,26 @@ def main():
         )
         # Isolate CLI first-run files from the user's .dotnet directory.
         env = dict(os.environ, DOTNET_CLI_HOME=temporary, DOTNET_NOLOGO="1", DOTNET_CLI_TELEMETRY_OPTOUT="1")
-        command = ["dotnet", "build", str(consumer), "--nologo", "-v", "quiet", "-warnaserror",
-                   "--disable-build-servers", "-m:1"]
+        flags = ["--nologo", "-v", "quiet", "-warnaserror", "--disable-build-servers", "-m:1"]
+        core_command = ["dotnet", "build", str(core), *flags]
+        build = subprocess.run(core_command, cwd=directory, env=env)
+        if build.returncode:
+            return build.returncode
+        print("Core: external consumer may register, query and wait for services, and create diagnostics", flush=True)
+        for expression in ("_ = CoCoLog.WarningSink", "CoCoLog.WarningSink = null"):
+            if not require_denied(core_command, env, directory, core_probe, "using CoCoFlow.Runtime.Core;",
+                                  expression, "CS0117", "WarningSink"):
+                return 1
+        core_probe.write_text("", encoding="utf-8")
+        command = ["dotnet", "build", str(consumer), *flags]
         build = subprocess.run(command, cwd=directory, env=env)
         if build.returncode:
             return build.returncode
+        print("StateGraph: external gameplay and Host consumers compile", flush=True)
+        imports = "using CoCoFlow.Runtime.StateGraph;\nusing CoCoFlow.Runtime.Input.Contracts;"
         for expression, code, symbol in DENIED:
-            probe.write_text(
-                "using CoCoFlow.Runtime.StateGraph;\n"
-                "using CoCoFlow.Runtime.Input.Contracts;\n"
-                "class Denied { void Probe() {\n" + expression + ";\n} }\n", encoding="utf-8")
-            build = subprocess.run([*command, "--no-restore"], cwd=directory, env=env,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            errors = {line.strip() for line in build.stdout.splitlines() if ": error " in line}
-            expected = re.compile(r"Denied\.cs\(\d+,\d+\): error " + code + r": .*'" + symbol + r"(?:<[^']*>)?'")
-            if not build.returncode or not errors or any(not expected.search(line) for line in errors):
-                print(f"Expected only {code} for {symbol}.\n{build.stdout}")
+            if not require_denied(command, env, directory, probe, imports, expression, code, symbol):
                 return 1
-            print(f"Denied {symbol}: {code}", flush=True)
         probe.write_text("", encoding="utf-8")
         invalid = (
             ("[Operation] interface IBad : IOperation { int Value {get; set;} }", "declare Continuous or Discrete mode"),

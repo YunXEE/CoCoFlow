@@ -95,3 +95,8 @@ crashlytics-build.properties
 !/Tools~/StateFlowGenerator/CoCoFlow.StateFlow.Generator.csproj
 /Tools~/StateFlowGenerator/bin/
 /Tools~/StateFlowGenerator/obj/
+
+# CI metadata reader
+!/.github/ci/api-surface/ApiSurface.csproj
+/.github/ci/api-surface/bin/
+/.github/ci/api-surface/obj/

@@ -860,6 +860,7 @@ namespace CoCoFlow.Editor.StateGraph
     {
         public int callbackOrder => -1000;
 
+        /// <summary>清理上次构建的链接状态，并在项目包含状态图资产时校验当前构建输入。</summary>
         public void OnPreprocessBuild(BuildReport report)
         {
             StateGraphOperationLinkerState.Clear();
@@ -878,6 +879,7 @@ namespace CoCoFlow.Editor.StateGraph
     {
         public int callbackOrder => -1000;
 
+        /// <summary>检查 Player 脚本程序集的图创作依赖和 Operation 元数据，并准备本次构建的 UnityLinker 保留文件。</summary>
         public void OnPostBuildPlayerScriptDLLs(BuildReport report)
         {
             if (report == null)
@@ -919,6 +921,7 @@ namespace CoCoFlow.Editor.StateGraph
     {
         public int callbackOrder => -1000;
 
+        /// <summary>返回本次构建已生成的 Operation 保留文件；所需元数据缺失时停止构建。</summary>
         public string GenerateAdditionalLinkXmlFile(
             BuildReport report,
             UnityLinkerBuildPipelineData data)

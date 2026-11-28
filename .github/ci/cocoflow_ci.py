@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -16,27 +15,32 @@ COUNT_KEYS = ("total", "passed", "failed", "inconclusive", "skipped")
 
 
 def validation_plan(event: str, base_branch: str = "", ref_name: str = "",
-                    player_probe: bool = False, player_backend: str = "mono") -> dict:
+                    player_probe: bool = False, player_backend: str = "mono",
+                    head_branch: str = "") -> dict:
     probe = event == "workflow_dispatch" and player_probe
-    master = ((event == "pull_request" and base_branch == "master") or
-              (event in ("push", "workflow_dispatch") and ref_name == "master"))
+    release = event == "pull_request" and base_branch == "master"
+    if release and not head_branch.startswith("dev/"):
+        raise ValueError("Release PRs to master must come from dev/*")
     development = event == "pull_request" and base_branch.startswith("dev/")
     return {
-        "force_unity": not probe and (master or development or event == "workflow_dispatch"),
-        "players": master and not probe,
+        "editor": development or (event == "workflow_dispatch" and not probe),
+        "api": development or release,
+        "release": release,
+        "master_push": event == "push" and ref_name == "master",
         "player_backends": [player_backend] if probe else ["mono", "il2cpp"],
     }
 
 
-def gate_errors(static_result: str, unity_required: str, unity_result: str,
-                players_required: str, player_result: str) -> list[str]:
+def gate_errors(static_result: str, editor_required: str, api_required: str, release: str,
+                editor_result: str, api_result: str, docs_result: str, player_result: str) -> list[str]:
     errors = []
     if static_result != "success":
         errors.append("Static checks must succeed")
-    if players_required == "true" and unity_required != "true":
-        errors.append("Full Player validation also requires the Editor suite")
-    for name, required, result in (("Editor", unity_required, unity_result),
-                                   ("Player Mono and IL2CPP", players_required, player_result)):
+    for name, required, result in (
+        ("Windows Editor", editor_required, editor_result),
+        ("API", api_required, api_result), ("API documentation", api_required, docs_result),
+        ("Windows Mono and IL2CPP", release, player_result),
+    ):
         if required not in ("true", "false"):
             errors.append(name + " validation scope is missing or invalid")
         elif required == "true" and result != "success":
@@ -44,20 +48,21 @@ def gate_errors(static_result: str, unity_required: str, unity_result: str,
     return errors
 
 
-def unity_required(paths: Sequence[str], version_only: bool = False,
-                   release_candidate: bool = False) -> bool:
-    if release_candidate or not paths:
-        return True
-    return any(not (path.endswith(".md") or path.endswith(".md.meta") or
-                    (version_only and path in ("package.json", "ValidationExceptions.json")))
-               for path in paths)
+def package_errors(root: Path) -> list[str]:
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    errors = []
+    if package.get("name") != "com.yunxee.cocoflow":
+        errors.append("Expected package com.yunxee.cocoflow")
+    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", package.get("version", "")):
+        errors.append("Package version must be X.Y.Z")
+    return errors
 
 
 def release_errors(root: Path, previous: str = "", tag: str = "") -> list[str]:
+    errors = package_errors(root)
+    if errors:
+        return errors
     version = json.loads((root / "package.json").read_text())["version"]
-    errors = []
-    if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
-        return ["Release package version must be X.Y.Z"]
     if previous and tuple(map(int, version.split("."))) <= tuple(map(int, previous.split("."))):
         errors.append("Package version must increase from the release base")
     headings = re.findall(r"^## \[([^\]]+)\]", (root / "CHANGELOG.md").read_text(), re.M)
@@ -189,18 +194,17 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--root", type=Path, default=Path.cwd())
     release.add_argument("--previous", default="")
     release.add_argument("--tag", default="")
-    scope = subparsers.add_parser("scope", help="classify this candidate for the workflow")
-    scope.add_argument("--base", default="")
-    scope.add_argument("--release-candidate", action="store_true")
-    scope.add_argument("--force-unity", action="store_true")
+    subparsers.add_parser("package", help="check the package name and version")
     plan = subparsers.add_parser("validation-plan", help="select PR target validation requirements")
     plan.add_argument("--event", required=True)
     plan.add_argument("--base-branch", default="")
+    plan.add_argument("--head-branch", default="")
     plan.add_argument("--ref-name", default="")
     plan.add_argument("--player-probe", action="store_true")
     plan.add_argument("--player-backend", choices=("mono", "il2cpp"), default="mono")
     gate = subparsers.add_parser("gate", help="require every job selected by the validation plan")
-    for name in ("static-result", "unity-required", "unity-result", "players-required", "player-result"):
+    for name in ("static-result", "editor-required", "api-required", "release",
+                 "editor-result", "api-result", "docs-result", "player-result"):
         gate.add_argument("--" + name, required=True)
     return parser
 
@@ -209,39 +213,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "validation-plan":
         plan = validation_plan(args.event, args.base_branch, args.ref_name,
-                               args.player_probe, args.player_backend)
+                               args.player_probe, args.player_backend, args.head_branch)
         for key, value in plan.items():
             print(key + "=" + json.dumps(value, separators=(",", ":")))
         return 0
     if args.command == "gate":
-        errors = gate_errors(args.static_result, args.unity_required, args.unity_result,
-                             args.players_required, args.player_result)
+        errors = gate_errors(args.static_result, args.editor_required, args.api_required, args.release,
+                             args.editor_result, args.api_result, args.docs_result, args.player_result)
         print(json.dumps({"passedGate": not errors, "errors": errors}))
         return 1 if errors else 0
-    if args.command == "scope":
-        paths = []
-        version_only = False
-        if args.base and not re.fullmatch("0+", args.base):
-            paths = subprocess.check_output(
-                ["git", "diff", "--name-only", "--no-renames", args.base, "HEAD"], text=True).splitlines()
-            before = json.loads(subprocess.check_output(
-                ["git", "show", args.base + ":package.json"], text=True))
-            after = json.loads(Path("package.json").read_text())
-            before.pop("version", None)
-            after.pop("version", None)
-            version_only = before == after
-            if "ValidationExceptions.json" in paths:
-                old_exceptions = json.loads(subprocess.check_output(
-                    ["git", "show", args.base + ":ValidationExceptions.json"], text=True))
-                new_exceptions = json.loads(Path("ValidationExceptions.json").read_text())
-                for document in (old_exceptions, new_exceptions):
-                    for entries in document.values():
-                        for entry in entries:
-                            entry.pop("PackageVersion", None)
-                version_only = version_only and old_exceptions == new_exceptions
-        required = args.force_unity or unity_required(paths, version_only, args.release_candidate)
-        print("unity=" + str(required).lower())
-        return 0
+    if args.command == "package":
+        errors = package_errors(Path.cwd())
+        print(json.dumps({"passedGate": not errors, "errors": errors}))
+        return 1 if errors else 0
     if args.command == "release":
         errors = release_errors(args.root, args.previous, args.tag)
         print(json.dumps({"passedGate": not errors, "errors": errors}, ensure_ascii=False))
