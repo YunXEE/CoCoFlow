@@ -391,9 +391,9 @@ namespace CoCoFlow.Runtime.StateGraph
             {
                 Component = component;
                 Persistence = saved?.persistence == true && component is IHostPersistenceRestoreOperator persistent
-                    ? persistent.TryRestore : (ApplyProjection)null;
+                    ? persistent.TryRestore : null;
                 Temporal = saved?.temporal == true && component is IHostTemporalRestoreOperator temporal
-                    ? temporal.TryRestore : (ApplyProjection)null;
+                    ? temporal.TryRestore : null;
             }
 
             internal ApplyProjection Callback(ContextProjection? projection)

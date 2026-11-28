@@ -17,10 +17,13 @@ namespace CoCoFlow.Runtime.StateGraph
             StateFields.Fields(type, typeof(StateConfigAttribute)).Length != 0 ||
             StateFields.Fields(type, typeof(StateMemoryAttribute)).Length != 0;
 
-        internal static object InvokeFields(string method, Type logic, params object[] args) =>
-            typeof(StateFieldBindings).GetMethod(method,
+        internal static object InvokeFields(string method, Type logic, params object[] args)
+        {
+            var definition = typeof(StateFieldBindings).GetMethod(method,
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-                .MakeGenericMethod(logic, StateFields.StoredType(logic)).Invoke(null, args);
+                ?? throw new MissingMethodException(typeof(StateFieldBindings).FullName, method);
+            return definition.MakeGenericMethod(logic, StateFields.StoredType(logic)).Invoke(null, args);
+        }
 
         private static unsafe FieldMemoryTransfer<TState> FieldTransfer<TState>(Type logicType) where TState : unmanaged
         {

@@ -83,6 +83,10 @@ def runtime_sources(root=ROOT):
         module_path = root / "Runtime" / module
         for path in sorted(module_path.rglob("*.cs")):
             relative = path.relative_to(module_path)
+            if module == "StateGraph":
+                namespaces = re.findall(r"^\s*namespace\s+([\w.]+)", path.read_text(encoding="utf-8-sig"), re.MULTILINE)
+                if any(namespace != "CoCoFlow.Runtime.StateGraph" for namespace in namespaces):
+                    raise ValueError(f"{path.relative_to(root)}: expected the shared StateGraph namespace")
             expected = pure if module == "StateGraph" and relative.parts[0] in pure_dirs else unity
             if path.name in ("StateConfig.cs", "FieldConfig.cs", "IEventInboxAdapter.cs"):
                 expected = pure

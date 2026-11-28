@@ -637,7 +637,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             Assert.That(escapedValue, Is.Zero);
 
             FieldInfo leaseField = typeof(HostRestoreReader).GetField(
-                "_lease", BindingFlags.Instance | BindingFlags.NonPublic);
+                "_lease", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new MissingFieldException(typeof(HostRestoreReader).FullName, "_lease");
             var lease = (HostRestoreReadLease)leaseField.GetValue(escaped);
             Assert.That(lease, Is.Not.Null);
             Assert.That(escaped.IsValid, Is.False);

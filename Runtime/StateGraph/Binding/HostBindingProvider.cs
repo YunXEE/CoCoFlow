@@ -33,7 +33,7 @@ namespace CoCoFlow.Runtime.StateGraph
         private readonly Dictionary<StateBlockId, HostOperatorDefinition>
             _contextBinders;
 
-        internal static bool HasStateDeclarations(IEnumerable<System.Reflection.Assembly> assemblies) =>
+        internal static bool HasStateDeclarations(IEnumerable<Assembly> assemblies) =>
             assemblies.SelectMany(GetLoadableTypes).Any(type => type != null && !type.IsAbstract &&
                 typeof(StateLogic).IsAssignableFrom(type) && type.IsDefined(typeof(StateAttribute), false));
 

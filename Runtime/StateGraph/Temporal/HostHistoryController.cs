@@ -151,16 +151,14 @@ namespace CoCoFlow.Runtime.StateGraph
         {
             frames = Array.Empty<HostHistoryFrame>();
             if (_disposed) return false;
-            int count = History?.Count ?? 0;
-            if (count == 0)
-            {
-                return true;
-            }
+            var history = History;
+            if (history == null || history.Count == 0) return true;
 
+            int count = history.Count;
             var copy = new HostHistoryFrame[count];
             for (int depth = 0; depth < count; depth++)
             {
-                if (!History.TryGetInfo(depth, out TemporalHistoryEntryInfo info))
+                if (!history.TryGetInfo(depth, out TemporalHistoryEntryInfo info))
                 {
                     return false;
                 }

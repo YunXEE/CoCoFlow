@@ -48,6 +48,13 @@ both values of the guard before saving the migrated graph. A retired Animation
 Operator appears as a missing component in existing prefabs. Replace its
 Inspector reference and verify the associated persistence and temporal switches.
 
+A saved Host checks the graph ID, Context layout ID, layout version and schema
+hash before applying its Durable payload. The layout ID includes the project
+catalog fingerprint. Retiring a registered Condition or Operator can change that
+ID even for a graph that never used the declaration. Such an existing slot
+reports `InvalidFrameLayout` and preserves the current Tick. Check an actual
+project slot before replacing a catalog on which saved games depend.
+
 Project code derived from `EntityContext`, or declaring an `EntityIdentity`
 field, requires a source migration. Inspect serialized references to these
 types before resaving project assets. `PersistenceContext` owns its stable
