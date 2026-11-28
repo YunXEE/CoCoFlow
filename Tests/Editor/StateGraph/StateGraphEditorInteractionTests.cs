@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -15,29 +14,25 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
+// 编辑器测试向实际挂载的画布派发交互事件，检查选择、连边、定位和视口响应。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>编辑器测试向实际挂载的画布派发交互事件，检查选择、连边、定位和视口响应。</summary>
     public sealed class StateGraphEditorInteractionTests
     {
-        private static readonly MethodInfo InvokeClickable = typeof(Clickable).GetMethod(
-            "Invoke",
-            BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private readonly List<StateGraphAsset> assets = new List<StateGraphAsset>();
-        private readonly List<EditorWindow> windows = new List<EditorWindow>();
-        private readonly List<StateGraphEditorCanvas> canvases =
-            new List<StateGraphEditorCanvas>();
-        private readonly List<StateGraphEditorController> controllers =
-            new List<StateGraphEditorController>();
+        #region Public API
 
+        /// <summary>选择断言所用的界面语言，并准备本次窗口交互环境。</summary>
         [SetUp]
         public void SetUp()
         {
-            // 语言自钉：反馈文案断言依赖英文态；EditorPrefs 机器级共享。
+
             CoCoFlow.Editor.Core.CoCoEditorLocalization.SetLanguage(
                 CoCoFlow.Editor.Core.CoCoEditorLanguage.English);
         }
 
+        /// <summary>释放测试窗口及面板，解除本例的图目录 Provider。</summary>
         [TearDown]
         public void TearDown()
         {
@@ -76,6 +71,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             assets.Clear();
         }
 
+        /// <summary>保留未保存草稿并取消导航，确认当前层与复合节点选择保持原值。</summary>
         [UnityTest]
         public IEnumerator CancelledDraftNavigationKeepsLayerAndCompositeUnchanged()
         {
@@ -116,6 +112,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(other, controller.Session.SelectedLayerId);
         }
 
+        /// <summary>打开失去 Logic 的节点，确认编辑器显示未解析状态直到选择替代项。</summary>
         [UnityTest]
         public IEnumerator UnresolvedLogicStaysExplicitUntilTheUserSelectsAReplacement()
         {
@@ -153,6 +150,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 asset.Layers[0].States[0].StateDescriptorId);
         }
 
+        /// <summary>在详情面板编辑节点草稿，核对保存前资产未改且现有控件没有被替换。</summary>
         [UnityTest]
         public IEnumerator StateDraftEditsWaitForSaveAndPreserveControls()
         {
@@ -255,9 +253,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         for (int index = 0; index < 30; index++)
                             Assert.IsTrue(previewController.AddTransition(movePreviewState, state, index, TransitionWindow.Always));
                         previewController.SelectTransition(focusedTransition);
-                        Assert.IsTrue(catalog.TryGetConditionDescriptor(StateGraphTestFactory.ConditionDescriptorId,
-                            out ConditionDescriptor condition));
-                        Assert.IsTrue(previewController.AddCondition(condition));
                         previewController.Analyze();
                     }
                     if (preview >= 4)
@@ -290,7 +285,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     RenderTexture.active = buffer;
                     var image = new Texture2D(width, height, TextureFormat.RGB24, false);
                     image.ReadPixels(new Rect(0f, 0f, width, height), 0, 0);
-                    // Metal's Editor back buffer has a top-origin pixel layout.
+
                     Color[] pixels = image.GetPixels();
                     for (int row = 0; row < height / 2; row++)
                     {
@@ -317,6 +312,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>选中状态后检查详情仅列其出边，诊断仍留在原导航区域。</summary>
         [UnityTest]
         public IEnumerator StateDetailsShowOnlyOutgoingTransitionsAndKeepDiagnosticsOnLeft()
         {
@@ -396,6 +392,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.AreEqual(order, asset.Layers[0].Transitions.Select(edge => edge.TransitionId).ToArray());
         }
 
+        /// <summary>分别触发明确分析和窗口生命周期变化，检查待处理任务被取消。</summary>
         [UnityTest]
         public IEnumerator ExplicitAnalysisAndWindowLifecycleCancelPendingWork()
         {
@@ -455,6 +452,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(before, StateGraphFixtureCounters.StateFreezeCalls);
         }
 
+        /// <summary>对节点草稿依次保存、丢弃、撤销和切换选择，检查每次只提交预期改动。</summary>
         [UnityTest]
         public IEnumerator StateDraftSaveDiscardUndoAndSelectionAreAtomic()
         {
@@ -509,10 +507,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             CollectionAssert.AreEqual(order, asset.Layers[0].States.Select(state => state.StateId).ToArray());
         }
 
-        private static StateGraphEditorController WindowController(StateGraphEditorWindow window) =>
-            (StateGraphEditorController)typeof(StateGraphEditorWindow)
-                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
-
+        /// <summary>更改搜索条件与配置字段，检查当前输入控件的实例仍然有效。</summary>
         [UnityTest]
         public IEnumerator SearchAndConfigChangesPreserveLiveControls()
         {
@@ -583,6 +578,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(ContainsLabel(feedback, "Compilation succeeded."));
         }
 
+        /// <summary>在增加节点前切换选择或现有 Logic，检查已选描述符仍为原项。</summary>
         [UnityTest]
         public IEnumerator AddDescriptorChoiceSurvivesSelectionAndSelectedLogicChanges()
         {
@@ -656,6 +652,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsInstanceOf<RuntimeFixtureStateAuthoringConfig>(contextAdded.Config);
         }
 
+        /// <summary>模拟错误指针、取消和丢失捕获，确认拖动只有在有效完成时提交一次。</summary>
         [UnityTest]
         public IEnumerator StateDragCaptureHandlesWrongPointerCancelCaptureOutAndSingleCommit()
         {
@@ -720,6 +717,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         }
 
+        /// <summary>用滚轮缩放后比较指针下的图坐标，确认位置保持不动。</summary>
         [UnityTest]
         public IEnumerator WheelZoomKeepsThePointUnderThePointerFixed()
         {
@@ -778,6 +776,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertPosition(asset, stateId, statePosition);
         }
 
+        /// <summary>取消再完成连边与平移，检查取消无副作用且完成只执行一次。</summary>
         [UnityTest]
         public IEnumerator TransitionAndPanCaptureCancelWithoutCommittingAndCompleteOnce()
         {
@@ -813,7 +812,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             yield return null;
             Assert.NotNull(canvas.panel);
 
-            // 维护者反馈：连接点已移除，改为右键从源 State 卡拖拽建 Transition。
             VisualElement sourceCard = FirstSourceCard(canvas);
             Vector2 source = sourceCard.worldBound.center;
             Vector2 target = canvas.worldBound.position + new Vector2(10f, 20f) + new Vector2(320f, 80f);
@@ -942,6 +940,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         }
 
+        /// <summary>折叠节点时保留草稿，在拖动中检查隐藏卡片未被重建。</summary>
         [UnityTest]
         public IEnumerator CollapseButtonKeepsDraftAndDraggingDoesNotRecreateHiddenCards()
         {
@@ -1002,6 +1001,170 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertPosition(asset, child, new Vector2(40, 190));
         }
 
+        /// <summary>通过配置列表的新增回调验证多层字符串字段可以立即保存，并在重读时保留原值。</summary>
+        [TestCase(nameof(CollectionConfigLogic.Clips))]
+        [TestCase(nameof(CollectionConfigLogic.ClipList))]
+        public void AddConfigCollectionElementInitializesNestedStrings(string path)
+        {
+            var logic = new CollectionConfigLogic();
+            var field = typeof(CollectionConfigLogic).GetField(path);
+            var guiType = typeof(StateGraphEditorWindow).GetNestedType("ConfigFieldGUI", BindingFlags.NonPublic);
+            var gui = Activator.CreateInstance(guiType, nonPublic: true);
+            var getList = guiType.GetMethod("GetList", BindingFlags.Instance | BindingFlags.NonPublic);
+            var list = (UnityEditorInternal.ReorderableList)getList.Invoke(gui,
+                new[] { path, (object)field.FieldType, field.GetValue(logic) });
+
+            list.onAddCallback(list);
+
+            Assert.AreEqual(2, list.count);
+            var previous = (CollectionClip)list.list[0];
+            Assert.AreEqual("Existing", previous.Reference.Key);
+            Assert.AreEqual(2, previous.Speed);
+            var added = (CollectionClip)list.list[1];
+            Assert.AreEqual(string.Empty, added.Reference.Key);
+            Assert.AreEqual(0, added.Speed);
+
+            var config = new FieldConfig();
+            config.Set(path, list.list);
+            added.Reference.Key = " Attack.Light=Variant ";
+            list.list[1] = added;
+            config.Set(path, list.list);
+            var restored = new CollectionConfigLogic();
+            new FieldConfig { Values = config.Values.ToArray() }.Apply(restored);
+            CollectionAssert.AreEqual(list.list, (IList)field.GetValue(restored));
+        }
+
+        /// <summary>修改标准字段草稿，检查提交前不重复构建控件且保存只触发一次分析。</summary>
+        [UnityTest]
+        public IEnumerator StandardConfigDraftCommitsWithoutRebuildingAndAnalyzesOnceOnSave()
+        {
+            var original = new FieldConfig();
+            original.Set("speed", 1f);
+            StateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out var root);
+            var controller = WindowController(window);
+            yield return null;
+            controller.Analyze();
+            Assert.IsTrue(controller.AnalysisResult.Succeeded);
+            ulong before = controller.AnalysisResult.ContentFingerprint;
+            VisualElement configHost = root.Q<VisualElement>("state-graph-state-config-host");
+            IMGUIContainer input = configHost.Q<IMGUIContainer>();
+            Assert.NotNull(input, "The standard Config must use the real field editor.");
+            Assert.AreNotSame(original, controller.BeginStateDraft().Config);
+            Assert.AreNotSame(original.Values, ((FieldConfig)controller.BeginStateDraft().Config).Values);
+            input.Focus();
+            yield return null;
+            Assert.AreSame(input, root.focusController.focusedElement);
+            int analyses = 0;
+            controller.Changed += invalidation =>
+            {
+                if (invalidation == StateGraphEditorInvalidation.All) analyses++;
+            };
+
+            var edited = new FieldConfig { Values = original.Values.ToArray() };
+            edited.Set("speed", 2.5f);
+            CommitStandardConfig(window, edited);
+            yield return null;
+            Assert.AreEqual(0, analyses, "Committing an input must only update the draft.");
+            Assert.IsTrue(controller.HasStateDraftChanges);
+            Assert.AreEqual(1f, ReadStandardConfig(asset).speed);
+            Assert.AreSame(input, configHost.Q<IMGUIContainer>());
+            Assert.AreSame(configHost, root.Q<VisualElement>("state-graph-state-config-host"));
+            Assert.AreSame(input, root.focusController.focusedElement);
+
+            window.SaveChanges();
+            Assert.AreEqual(2.5f, ReadStandardConfig(asset).speed);
+            Assert.AreEqual(1, analyses);
+            Assert.IsFalse(controller.HasStateDraftChanges);
+            Assert.IsTrue(controller.AnalysisResult.Succeeded);
+            Assert.AreNotEqual(before, controller.AnalysisResult.ContentFingerprint);
+        }
+
+        /// <summary>编辑集合草稿并分别丢弃、保存和撤销，核对资产只在相应操作后改变。</summary>
+        [UnityTest]
+        public IEnumerator StandardCollectionDraftDiscardSaveAndUndoKeepTheAssetIsolated()
+        {
+            var original = new FieldConfig();
+            original.Set("windows", new[] { new StandardConfigWindow { start = 1f }, new StandardConfigWindow { start = 2f } });
+            original.Set("ClipKey", "Attack.Light");
+            original.Set("samples", new List<float> { 3f, 4f });
+            string[] saved = original.Values.ToArray();
+            StateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out _);
+            var controller = WindowController(window);
+            yield return null;
+
+            var edited = new FieldConfig { Values = saved.ToArray() };
+            edited.Set("windows", new[] { new StandardConfigWindow { start = 2f }, new StandardConfigWindow { start = 0.25f } });
+            const string literal = " Attack.Heavy=Second ";
+            edited.Set("ClipKey", literal);
+            edited.Set("samples", new List<float> { 4f, 5f, 3f });
+            CommitStandardConfig(window, edited);
+            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
+            Assert.AreEqual(0.25f, ReadStandardConfig(controller.StateEditingAsset).windows[1].start);
+            Assert.AreNotSame(((FieldConfig)controller.StateEditingAsset.Layers[0].States[0].Config).Values,
+                ((FieldConfig)asset.Layers[0].States[0].Config).Values);
+            window.DiscardChanges();
+            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
+            Assert.AreEqual(1f, ReadStandardConfig(controller.StateEditingAsset).windows[0].start);
+            Assert.IsFalse(controller.HasStateDraftChanges);
+
+            CommitStandardConfig(window, edited);
+            window.SaveChanges();
+            Assert.AreEqual(literal, ReadStandardConfig(asset).ClipKey);
+            Assert.AreEqual(2f, ReadStandardConfig(asset).windows[0].start);
+            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
+            yield return null;
+            Undo.FlushUndoRecordObjects();
+            Undo.PerformUndo();
+            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
+            Undo.PerformRedo();
+            Assert.AreEqual(0.25f, ReadStandardConfig(asset).windows[1].start);
+            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
+        }
+
+        #endregion
+
+        #region Internal Logic
+
+        private static readonly MethodInfo InvokeClickable = typeof(Clickable).GetMethod(
+            "Invoke",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private readonly List<StateGraphAsset> assets = new List<StateGraphAsset>();
+        /// <summary>为配置编辑器提供同一种结构体的数组和列表。</summary>
+        private sealed class CollectionConfigLogic : StateLogic
+        {
+            [Config] public CollectionClip[] Clips = { new CollectionClip
+                { Reference = new CollectionClipReference { Key = "Existing" }, Speed = 2 } };
+            [Config] public List<CollectionClip> ClipList = new List<CollectionClip> { new CollectionClip
+                { Reference = new CollectionClipReference { Key = "Existing" }, Speed = 2 } };
+        }
+
+        /// <summary>组合数值和嵌套的字符串引用，以检查新增元素的默认值。</summary>
+        private struct CollectionClip
+        {
+            public CollectionClipReference Reference;
+            public int Speed;
+        }
+
+        /// <summary>为配置元素提供位于第二层的字符串字段。</summary>
+        private struct CollectionClipReference
+        {
+            public string Key;
+        }
+
+        private readonly List<EditorWindow> windows = new List<EditorWindow>();
+        private readonly List<StateGraphEditorCanvas> canvases =
+            new List<StateGraphEditorCanvas>();
+        private readonly List<StateGraphEditorController> controllers =
+            new List<StateGraphEditorController>();
+
+        private static StateDescriptorId AlternateDescriptorId =>
+            StateGraphTestFactory.CreateStateDescriptorId(2UL);
+
+        private static StateGraphEditorController WindowController(StateGraphEditorWindow window) =>
+            (StateGraphEditorController)typeof(StateGraphEditorWindow)
+                .GetField("controller", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(window);
+
         private StateGraphAsset CreateAsset()
         {
             var asset = ScriptableObject.CreateInstance<StateGraphAsset>();
@@ -1023,7 +1186,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
         private InteractionPanelHost CreatePanelHost(VisualElement content)
         {
-            // Editor binding and pointer capture need an Editor panel, not a runtime UIDocument.
+
             var window = ScriptableObject.CreateInstance<StateGraphTestPanelWindow>();
             windows.Add(window);
             window.position = new Rect(80f, 80f, 900f, 600f);
@@ -1231,87 +1394,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static Vector2 OutsidePanel(VisualElement root) =>
             root.worldBound.max + new Vector2(100f, 100f);
 
-        [UnityTest]
-        public IEnumerator StandardConfigDraftCommitsWithoutRebuildingAndAnalyzesOnceOnSave()
-        {
-            var original = new FieldConfig();
-            original.Set("speed", 1f);
-            StateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out var root);
-            var controller = WindowController(window);
-            yield return null;
-            controller.Analyze();
-            Assert.IsTrue(controller.AnalysisResult.Succeeded);
-            ulong before = controller.AnalysisResult.ContentFingerprint;
-            VisualElement configHost = root.Q<VisualElement>("state-graph-state-config-host");
-            IMGUIContainer input = configHost.Q<IMGUIContainer>();
-            Assert.NotNull(input, "The standard Config must use the real field editor.");
-            Assert.AreNotSame(original, controller.BeginStateDraft().Config);
-            Assert.AreNotSame(original.Values, ((FieldConfig)controller.BeginStateDraft().Config).Values);
-            input.Focus();
-            yield return null;
-            Assert.AreSame(input, root.focusController.focusedElement);
-            int analyses = 0;
-            controller.Changed += invalidation =>
-            {
-                if (invalidation == StateGraphEditorInvalidation.All) analyses++;
-            };
-
-            var edited = new FieldConfig { Values = original.Values.ToArray() };
-            edited.Set("speed", 2.5f);
-            CommitStandardConfig(window, edited);
-            yield return null;
-            Assert.AreEqual(0, analyses, "Committing an input must only update the draft.");
-            Assert.IsTrue(controller.HasStateDraftChanges);
-            Assert.AreEqual(1f, ReadStandardConfig(asset).speed);
-            Assert.AreSame(input, configHost.Q<IMGUIContainer>());
-            Assert.AreSame(configHost, root.Q<VisualElement>("state-graph-state-config-host"));
-            Assert.AreSame(input, root.focusController.focusedElement);
-
-            window.SaveChanges();
-            Assert.AreEqual(2.5f, ReadStandardConfig(asset).speed);
-            Assert.AreEqual(1, analyses);
-            Assert.IsFalse(controller.HasStateDraftChanges);
-            Assert.IsTrue(controller.AnalysisResult.Succeeded);
-            Assert.AreNotEqual(before, controller.AnalysisResult.ContentFingerprint);
-        }
-
-        [UnityTest]
-        public IEnumerator StandardCollectionDraftDiscardSaveAndUndoKeepTheAssetIsolated()
-        {
-            var original = new FieldConfig();
-            original.Set("windows", new[] { new StandardConfigWindow { start = 1f }, new StandardConfigWindow { start = 2f } });
-            original.Set("samples", new List<float> { 3f, 4f });
-            string[] saved = original.Values.ToArray();
-            StateGraphEditorWindow window = CreateStandardConfigWindow(original, out var asset, out _);
-            var controller = WindowController(window);
-            yield return null;
-
-            var edited = new FieldConfig { Values = saved.ToArray() };
-            edited.Set("windows", new[] { new StandardConfigWindow { start = 2f }, new StandardConfigWindow { start = 0.25f } });
-            edited.Set("samples", new List<float> { 4f, 5f, 3f });
-            CommitStandardConfig(window, edited);
-            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
-            Assert.AreEqual(0.25f, ReadStandardConfig(controller.StateEditingAsset).windows[1].start);
-            Assert.AreNotSame(((FieldConfig)controller.StateEditingAsset.Layers[0].States[0].Config).Values,
-                ((FieldConfig)asset.Layers[0].States[0].Config).Values);
-            window.DiscardChanges();
-            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
-            Assert.AreEqual(1f, ReadStandardConfig(controller.StateEditingAsset).windows[0].start);
-            Assert.IsFalse(controller.HasStateDraftChanges);
-
-            CommitStandardConfig(window, edited);
-            window.SaveChanges();
-            Assert.AreEqual(2f, ReadStandardConfig(asset).windows[0].start);
-            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
-            yield return null;
-            Undo.FlushUndoRecordObjects();
-            Undo.PerformUndo();
-            CollectionAssert.AreEqual(saved, ((FieldConfig)asset.Layers[0].States[0].Config).Values);
-            Undo.PerformRedo();
-            Assert.AreEqual(0.25f, ReadStandardConfig(asset).windows[1].start);
-            CollectionAssert.AreEqual(new[] { 4f, 5f, 3f }, ReadStandardConfig(asset).samples);
-        }
-
         private StateGraphEditorWindow CreateStandardConfigWindow(FieldConfig config,
             out StateGraphAsset asset, out VisualElement root)
         {
@@ -1404,15 +1486,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return (T)field.GetValue(target);
         }
 
-        private static StateDescriptorId AlternateDescriptorId =>
-            StateGraphTestFactory.CreateStateDescriptorId(2UL);
-
         private static SerializedId128 Serialize(StateId id) =>
             new SerializedId128(id.High, id.Low);
 
         private static SerializedId128 Serialize(StateDescriptorId id) =>
             new SerializedId128(id.High, id.Low);
 
+        /// <summary>安装实际窗口和 UI Toolkit 面板，使指针事件经过编辑器正常捕获路径。</summary>
         private sealed class InteractionPanelHost
         {
             internal InteractionPanelHost(
@@ -1427,6 +1507,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             internal VisualElement contentRoot { get; }
         }
 
+        /// <summary>在挂载的编辑器面板上模拟带指针身份的位置事件。</summary>
         private sealed class TestPointerEvent : IPointerEvent
         {
             internal TestPointerEvent(
@@ -1470,7 +1551,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public bool altKey => false;
             public bool actionKey => false;
         }
+
+        #endregion
     }
 
+    /// <summary>为交互测试提供真实 EditorWindow 面板以接受布局、捕获及事件。</summary>
     internal sealed class StateGraphTestPanelWindow : EditorWindow { }
 }

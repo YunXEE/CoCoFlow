@@ -28,7 +28,7 @@ Actor GameObject
 
 `StateGraphHost` is the only public `MonoBehaviour` introduced by this
 runtime and disallows duplicate instances on the same GameObject. Runtime,
-Clock, Inbox, Router, StateLogic, Condition, ActivationMemory, and Factory
+Clock, Inbox, Router, StateLogic, StateActivationMemory, and Factory
 objects are ordinary C# objects, not components or extra Inspector assets.
 
 ### Standard binding startup
@@ -40,7 +40,7 @@ otherwise it scans loaded non-package assemblies for concrete
 no-op for projects that do not use the standard path.
 
 Standard Intent binding matches each Host source by its exact
-IIntentFrameSource<T> payload type, not list position. InputIntentData uses the
+IIntentFrameSource<T> payload type, not list position. InputIntentContract uses the
 Host-local InputIntent; CameraIntentData uses CameraIntent. Missing, extra,
 duplicate or ambiguous sources reject startup. Each Host owns its source handles.
 
@@ -49,7 +49,7 @@ For a single source, mark the State property `[Intent]` and supply an
 The standard catalog derives the ID from the payload. Modules with multiple
 sources can declare an explicit reducer and capacity using `IntentRegistrationAttribute`.
 An operator uses `[OperatorDefinition]` and `StandardOperatorBuilder`
-to declare consumed sections, owned Outcome slots and emitted packets.
+to declare consumed operations, owned Outcome slots and emitted packets.
 
 Standard Config arrays and `List<T>` are restored from the frozen Values by the
 existing standard Factory. Omitted fields retain Logic constructor defaults;
@@ -89,7 +89,7 @@ both fields.
 ## Shared graph, isolated Actor state
 
 Hosts may share one immutable compiled result from the same Asset. Everything
-that can change at runtime remains instance-owned: StateLogic and Condition
+that can change at runtime remains instance-owned: StateLogic
 instances, double-buffered State memory, the active leaf of every Layer, Clock,
 Inbox, pending staged Tick, Temporal Ring/cursor, and the latched Fault.
 
@@ -105,7 +105,7 @@ Transaction preflight runs before Clock creation and before
 exactly once as Graph state, Graph auxiliary value, canonical Claim, Operator
 Outcome, or Actor binding output; existing rebuilders exclusively own Derived
 Slots. Invalid producer, Operator, Claim, Actor-binding, or Outbox setup is
-therefore rejected before Logic, Condition, Memory create/reset/fingerprint, or
+therefore rejected before Logic, Memory create/reset/fingerprint, or
 Graph-capture callbacks can run. A Transaction created for a later Runtime
 create/start/initial-validation failure is disposed before the Host returns.
 
@@ -144,7 +144,7 @@ For each Layer, one Tick has this order:
 2. Run the full active path's mandatory `Update` callbacks, root to leaf.
 3. Run the optional Layer AnyState's `Update` after the ordinary leaf.
 4. Evaluate requested edges: eligible AnyState edges win before ordinary edges;
-   within each source, arbitrate by Priority after Window and Condition checks.
+   within each source, arbitrate by Priority after Window checks.
 5. When there is a winner, run the old ordinary exit suffix's optional `OnExit`
    callbacks, leaf to parent.
 
@@ -173,7 +173,7 @@ complete Logic binding surface:
 | --- | --- |
 | Config / Intent / previous Context | Existing frozen Config, current Intent and callback-scoped read rules |
 | Memory / Activation | Independent, persistent for this Graph instance; candidate writes remain transactional |
-| Operation | Existing declared Sections, field composition and callback-scoped writer |
+| Operation | Existing declared Operations, field composition and callback-scoped writer |
 | Inbox / Outbox | Existing typed mailbox and commit-only publication; no extra permission restriction |
 | Transition requests | Predeclared AnyState outgoing edges to ordinary leaves in its own Layer |
 | LocalSeconds / ActionProgress | AnyState's own Activation clock/progress; progress requires the usual declaration |
@@ -183,7 +183,7 @@ Execution is `A.Update → B.Update → C.Update → AnyState.Update → arbitra
 → ordinary Exit → commit`. AnyState runs at the next deeper execution position;
 it never changes `ParentStateId`, the initial child, or the ordinary active path.
 Its declared `StateId` and transition `SourceStateId` identify AnyState.
-`ActiveLeafStateId` on execution and condition contexts identifies the current
+`ActiveLeafStateId` on the State execution context identifies the current
 ordinary leaf without replacing the owner's Config, Memory or clock identity.
 
 AnyState → C while C is active is the existing C → C self-loop: C exits, gets
@@ -208,7 +208,7 @@ public sealed class PlayerLifeAnyLogic : AnyStateLogic
     [Memory] public bool DeathRequested;
     [Memory] public int UpdateCount;
     [Intent] public LifeIntent Life { get; set; }
-    [Operation] public ILocomotionSection Movement { get; set; }
+    [Operation] public ILocomotionOperation Movement { get; set; }
 
     public override void Update(StateExecutionContext context)
     {
@@ -246,17 +246,15 @@ can only request a compiled Transition handle that is already an outgoing edge
 of its own source. A leaf with no outgoing edge performs no ordinary Transition work.
 
 One Update may request several handles. After Update completes, the Runtime
-evaluates their declared windows and Conditions and selects the single highest
+evaluates their declared windows and selects the single highest
 Priority eligible candidate. AnyState's eligible set takes precedence; only if
 it has no eligible request can an ordinary request win. Priority is unique among
 the outgoing edges of one declared source. The same numeric Priority may be reused
 by another source or Layer because those candidates never share an arbitration
 set.
 
-Conditions are pure reads over the frozen IntentFrame, previous Context read view,
-Tick, Config, `LocalSeconds`, and `ActionProgress`. They do not declare or write
-Operation Sections. Completion and InterruptPolicy are not StateGraph concepts;
-reaching progress `1` never exits a State automatically.
+A State may read frozen Intent, previous Context, Tick, Config and its own progress
+before making a request. Reaching progress 1 leaves that decision to the State.
 
 Timed windows are half-open `[StartInclusive, EndExclusive)`:
 
@@ -287,14 +285,14 @@ composition rank. A higher Layer overrides a lower Layer; within one Layer, a
 deeper child overrides its parent. Invocation order cannot reverse that rank,
 so leaf-to-parent Exit still leaves the child's contribution above its parent.
 Within the same State and rank, the later Enter/Update/Exit write wins.
-The writer accepts only Sections declared by that State's `OperationProvides`
+The writer accepts only Operations declared by that State's `OperationProvides`
 manifest and expires when the callback returns; an escaped or undeclared write
 faults and rolls back the candidate Tick.
 
-Continuous Sections compose per field: fields that a higher-ranked State does
-not write retain lower-ranked contributions. A Discrete Section allocates its
+Continuous Operations compose per field: fields that a higher-ranked State does
+not write retain lower-ranked contributions. A Discrete Operation allocates its
 OperationSequence once, for the final winning contribution only. Declaring the
-same Section on parent and child is legal and produces a non-blocking warning;
+same Operation on parent and child is legal and produces a non-blocking warning;
 the same declaration across Layers is normal composition and produces no
 warning.
 
@@ -406,7 +404,7 @@ Fault, or required world Correction rejects the request. If the Tick fails, the
 real lifecycle, Fault, and correction state remain visible; the Host does not
 fabricate a successful suspension.
 
-Callback or Condition exceptions, failed Operation finalization, and reliable
+Callback exceptions, failed Operation finalization, and reliable
 Inbox overflow cancel the candidate and latch Fault at a safe boundary. A
 faulted Host rejects normal Resume and new gameplay input. Recovery requires
 Stop followed by a fresh instance, except for the narrow world-correction
@@ -451,7 +449,7 @@ commit. Begin requires a healthy Running Host and at least one older entry.
 Moving the cursor decodes Stored bytes over Layout defaults, rebuilds Derived,
 and invokes the single Restore binding with `Preview`. The cursor changes only
 after that call succeeds. Preview never invokes State Enter/Exit, Update,
-Condition, Transition, Operator, Actor capture, Event, Trace, or sequence work.
+Transition, Operator, Actor capture, Event, Trace, or sequence work.
 
 Cancel invokes the same binding with `Cancel` to reapply current authority only
 after at least one Preview projection succeeded. Cancelling directly after Begin
@@ -631,28 +629,10 @@ nothing. Capacity shares the Host outbox limit. Cached typed publication items
 are reused after warm-up without per-message allocation. Ordinary bus subscribers
 and other Hosts' mailbox Adapters observe the same published event type.
 
-`[State("Attack", ProvidesActionProgress = true)]` enables the existing
-progress setter/window for both ordinary and Config/Memory states. Independent
-classes marked `[Condition]` register automatically with empty config and the
-existing factory/Evaluate contract. They must be concrete, non-generic subclasses
-of `StateCondition`, implement `IStateConditionEvaluator`, and expose a
-public parameterless constructor. The implicit constructor in this example is
-sufficient; no explicit constructor is needed:
-
-```csharp
-using CoCoFlow.Runtime.StateGraph;
-
-[Condition]
-public sealed class AttackProgressReadyCondition : StateCondition,
-    IStateConditionEvaluator
-{
-    public bool Evaluate(ConditionEvaluationContext context) =>
-        context.ActionProgress >= 0.8;
-}
-```
-
-Multiple Condition classes may share one file. The existing Graph selector is reused. Conditions still evaluate only requested
-transitions, and reaching progress 1 does not itself request a transition.
+A State marked `[State("Attack", ProvidesActionProgress = true)]` may advance
+its own action progress and request a declared edge from Update. Evaluate any
+gameplay rule before requesting the edge. A progress window and source priority
+then determine which request can win on this Tick.
 
 ### Packet delivery and lifecycle
 
@@ -673,13 +653,13 @@ requested during publication is deferred until the committed list completes.
 
 Runtime Trace is an optional fixed-capacity immutable ring. Capacity zero creates
 no buffer, and Running never resizes it. Accepted Transition Candidates are emitted in compiled order after
-their source/window/conditions pass, and the Winner is emitted again with an
+their source and window match, and the Winner is emitted again with an
 explicit Winner role. A value-only Frame reference records Frame identity, exact
 Layout identity/version/schema hash, Revision, and whether a committed Frame
 exists. The first Tick therefore references exact Previous Layout defaults with
 `HasCommittedFrame == false`, never a fictional Revision 0.
 
-Successful ordering is Tick inputs, Candidates, Winner, Operation Sections,
+Successful ordering is Tick inputs, Candidates, Winner, Operations,
 Operator Outcomes, Context commit, ActivePath, EventSequence, then publication
 or publish diagnostics. A failed transaction ends with Cancelled and cannot
 contain commit, sequence, or published entries. Trace never stores payloads,
@@ -709,7 +689,7 @@ Origin records the selected source identity.
 All compatibility, overflow, graph-path, Memory, Clock, Claim, history capacity,
 mailbox, and token validation completes before the Unity binding. Once that
 binding succeeds, the remaining authority exchange and branch-head publication
-cannot fail. Restore itself invokes no State, Condition, Transition, Operator,
+cannot fail. Restore itself invokes no State, Transition, Operator,
 Actor capture, Event, Trace, Outbox, OperationSequence, or EventSequence work.
 
 This is same-session, same-GraphInstance, exact-layout restoration. Temporal

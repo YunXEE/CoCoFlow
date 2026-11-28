@@ -13,8 +13,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new OperatorDescriptorBuilder();
             Assert.IsTrue(builder.TryRequire<ITestSection>(
                 CreateSectionId(1UL),
-                OperationSectionMode.Discrete,
-                out OperationSectionRequirement section,
+                Mode.Discrete,
+                out OperationRequirement section,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryClaim(
@@ -71,8 +71,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new OperatorDescriptorBuilder();
             Assert.IsTrue(builder.TryRequire<ITestSection>(
                 CreateSectionId(10UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement continuous,
+                Mode.Continuous,
+                out OperationRequirement continuous,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
             Assert.IsFalse(builder.TryClaim(
@@ -88,8 +88,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var discreteBuilder = new OperatorDescriptorBuilder();
             Assert.IsTrue(discreteBuilder.TryRequire<ITestSection>(
                 CreateSectionId(12UL),
-                OperationSectionMode.Discrete,
-                out OperationSectionRequirement discrete,
+                Mode.Discrete,
+                out OperationRequirement discrete,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(discreteBuilder.TryClaim(
@@ -118,7 +118,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var builder = new OperatorDescriptorBuilder();
             Assert.IsTrue(builder.TryRequire<ITestSection>(
                 CreateSectionId(14UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 out _,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
@@ -187,8 +187,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             Assert.IsTrue(builder.TryRequire<ITestSection>(
                 CreateSectionId(19UL),
-                OperationSectionMode.Continuous,
-                out OperationSectionRequirement requirement,
+                Mode.Continuous,
+                out OperationRequirement requirement,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(builder.TryFreeze<TestOperator>(
@@ -235,7 +235,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var descriptorBuilder = new OperatorDescriptorBuilder();
             Assert.IsTrue(descriptorBuilder.TryRequire<ITestSection>(
                 CreateSectionId(20UL),
-                OperationSectionMode.Continuous,
+                Mode.Continuous,
                 out _,
                 out CoCoDiagnostic diagnostic),
                 diagnostic.Message);
@@ -275,16 +275,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(arena.TryPrepare(tick, out PreparedContextCommit prepared, out _));
             var sink = new OutcomeSink(prepared, layout, block, operatorId, 99UL);
 
-            var operationBuilder = new OperationSectionRegistryBuilder();
+            var operationBuilder = new OperationRegistryBuilder();
             Assert.IsTrue(operationBuilder.TryFreeze(
                 CreateLayoutId(26UL),
-                out OperationSectionRegistry registry,
+                out OperationRegistry registry,
                 out diagnostic),
                 diagnostic.Message);
             Assert.IsTrue(OperationFrame.TryCreate(
                 registry,
                 graph,
-                Array.Empty<OperationSectionRequirement>(),
+                Array.Empty<OperationRequirement>(),
                 out OperationFrame operation,
                 out diagnostic),
                 diagnostic.Message);
@@ -295,7 +295,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 descriptor,
                 tick,
                 arena.Previous,
-                finalizedOperation,
+                finalizedOperation.ReadView,
                 sink,
                 default,
                 99UL);
@@ -327,9 +327,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return id;
         }
 
-        private static OperationSectionId CreateSectionId(ulong low)
+        private static OperationId CreateSectionId(ulong low)
         {
-            Assert.IsTrue(OperationSectionId.TryCreate(0UL, low, out OperationSectionId id));
+            Assert.IsTrue(OperationId.TryCreate(0UL, low, out OperationId id));
             return id;
         }
 
@@ -382,7 +382,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return frame;
         }
 
-        private interface ITestSection : IOperationSection
+        private interface ITestSection : IOperation
         {
             int Value { get; }
         }

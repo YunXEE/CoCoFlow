@@ -58,8 +58,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
             EventDomainId eventDomainId,
             EventTypeId eventTypeA,
             EventTypeId eventTypeB,
-            OperationSectionId primarySectionId,
-            OperationSectionId secondarySectionId,
+            OperationId primarySectionId,
+            OperationId secondarySectionId,
             OperatorClaimId primaryClaimId,
             OperatorClaimId secondaryClaimId)
         {
@@ -103,8 +103,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         public EventDomainId EventDomainId { get; }
         public EventTypeId EventTypeA { get; }
         public EventTypeId EventTypeB { get; }
-        public OperationSectionId PrimarySectionId { get; }
-        public OperationSectionId SecondarySectionId { get; }
+        public OperationId PrimarySectionId { get; }
+        public OperationId SecondarySectionId { get; }
         public OperatorClaimId PrimaryClaimId { get; }
         public OperatorClaimId SecondaryClaimId { get; }
 
@@ -127,8 +127,8 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
                 !EventDomainId.TryCreate(507UL, out EventDomainId domainId) ||
                 !EventTypeId.TryCreate(508UL, 1UL, out EventTypeId eventTypeA) ||
                 !EventTypeId.TryCreate(508UL, 2UL, out EventTypeId eventTypeB) ||
-                !OperationSectionId.TryCreate(509UL, 1UL, out OperationSectionId primarySectionId) ||
-                !OperationSectionId.TryCreate(509UL, 2UL, out OperationSectionId secondarySectionId) ||
+                !OperationId.TryCreate(509UL, 1UL, out OperationId primarySectionId) ||
+                !OperationId.TryCreate(509UL, 2UL, out OperationId secondarySectionId) ||
                 !OperatorClaimId.TryCreate(510UL, 1UL, out OperatorClaimId primaryClaimId) ||
                 !OperatorClaimId.TryCreate(510UL, 2UL, out OperatorClaimId secondaryClaimId))
             {
@@ -428,24 +428,23 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    public interface IOperatorCommitPrimarySection : IOperationSection
+    public interface IOperatorCommitPrimarySection : IOperation
     {
         int Value { get; }
     }
 
-    public interface IOperatorCommitSecondarySection : IOperationSection
+    public interface IOperatorCommitSecondarySection : IOperation
     {
         int Value { get; }
     }
 
     public sealed class OperatorCommitPrimarySectionView : IOperatorCommitPrimarySection
     {
-        private readonly OperationSectionReader _reader;
-        private readonly OperationSectionField<int> _value;
+        private readonly OperationReader _reader;
+        private readonly OperationField<int> _value;
 
-        public OperatorCommitPrimarySectionView(
-            OperationSectionReader reader,
-            OperationSectionField<int> value)
+        internal OperatorCommitPrimarySectionView(OperationReader reader,
+            OperationField<int> value)
         {
             _reader = reader;
             _value = value;
@@ -456,12 +455,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
     public sealed class OperatorCommitSecondarySectionView : IOperatorCommitSecondarySection
     {
-        private readonly OperationSectionReader _reader;
-        private readonly OperationSectionField<int> _value;
+        private readonly OperationReader _reader;
+        private readonly OperationField<int> _value;
 
-        public OperatorCommitSecondarySectionView(
-            OperationSectionReader reader,
-            OperationSectionField<int> value)
+        internal OperatorCommitSecondarySectionView(OperationReader reader,
+            OperationField<int> value)
         {
             _reader = reader;
             _value = value;
@@ -471,15 +469,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     }
 
     public sealed class OperatorCommitPrimarySectionFactory :
-        IOperationSectionViewFactory<IOperatorCommitPrimarySection>
+        IOperationViewFactory<IOperatorCommitPrimarySection>
     {
-        public OperationSectionHandle<IOperatorCommitPrimarySection> Handle { get; private set; }
-        public OperationSectionField<int> ValueField { get; private set; }
+        public OperationHandle<IOperatorCommitPrimarySection> Handle { get; private set; }
+        public OperationField<int> ValueField { get; private set; }
 
-        public IOperatorCommitPrimarySection Create(
-            in OperationSectionViewContext<IOperatorCommitPrimarySection> context)
+        IOperatorCommitPrimarySection IOperationViewFactory<IOperatorCommitPrimarySection>.Create(
+            in OperationViewContext<IOperatorCommitPrimarySection> context)
         {
-            if (!context.TryGetField(0, out OperationSectionField<int> value))
+            if (!context.TryGetField(0, out OperationField<int> value))
             {
                 throw new InvalidOperationException("Primary Claim Section field is unavailable.");
             }
@@ -491,15 +489,15 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
     }
 
     public sealed class OperatorCommitSecondarySectionFactory :
-        IOperationSectionViewFactory<IOperatorCommitSecondarySection>
+        IOperationViewFactory<IOperatorCommitSecondarySection>
     {
-        public OperationSectionHandle<IOperatorCommitSecondarySection> Handle { get; private set; }
-        public OperationSectionField<int> ValueField { get; private set; }
+        public OperationHandle<IOperatorCommitSecondarySection> Handle { get; private set; }
+        public OperationField<int> ValueField { get; private set; }
 
-        public IOperatorCommitSecondarySection Create(
-            in OperationSectionViewContext<IOperatorCommitSecondarySection> context)
+        IOperatorCommitSecondarySection IOperationViewFactory<IOperatorCommitSecondarySection>.Create(
+            in OperationViewContext<IOperatorCommitSecondarySection> context)
         {
-            if (!context.TryGetField(0, out OperationSectionField<int> value))
+            if (!context.TryGetField(0, out OperationField<int> value))
             {
                 throw new InvalidOperationException("Secondary Claim Section field is unavailable.");
             }
@@ -510,7 +508,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    public sealed class OperatorCommitClaimMemory : ActivationMemory
+    public sealed class OperatorCommitClaimMemory : StateActivationMemory
     {
         public int Value;
     }
@@ -529,18 +527,18 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
 
     public sealed class OperatorCommitClaimLogic : StateLogic, IStateUpdate
     {
-        private readonly OperationSectionHandle<IOperatorCommitPrimarySection> _primary;
-        private readonly OperationSectionField<int> _primaryValue;
-        private readonly OperationSectionHandle<IOperatorCommitSecondarySection> _secondary;
-        private readonly OperationSectionField<int> _secondaryValue;
+        private readonly OperationHandle<IOperatorCommitPrimarySection> _primary;
+        private readonly OperationField<int> _primaryValue;
+        private readonly OperationHandle<IOperatorCommitSecondarySection> _secondary;
+        private readonly OperationField<int> _secondaryValue;
         private readonly TransitionHandle _transition;
 
         public OperatorCommitClaimLogic(
             StateFactoryContext context,
-            OperationSectionHandle<IOperatorCommitPrimarySection> primary,
-            OperationSectionField<int> primaryValue,
-            OperationSectionHandle<IOperatorCommitSecondarySection> secondary,
-            OperationSectionField<int> secondaryValue)
+            OperationHandle<IOperatorCommitPrimarySection> primary,
+            OperationField<int> primaryValue,
+            OperationHandle<IOperatorCommitSecondarySection> secondary,
+            OperationField<int> secondaryValue)
         {
             _primary = primary;
             _primaryValue = primaryValue;

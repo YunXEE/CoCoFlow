@@ -1,20 +1,24 @@
 using System.Collections.Generic;
+using System.IO;
+using CoCoFlow.Runtime.Input.Contracts;
 using System.Linq;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 
+// 使用 AssetDatabase 保存、重导入并重存图，核对节点、共享引用、稳定身份和配置字段。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>使用 AssetDatabase 保存、重导入并重存图，核对节点、共享引用、稳定身份和配置字段。</summary>
     public sealed class StateGraphAssetSerializationTests
     {
-        private const string TestRoot = "Assets/__CoCoFlowStateGraphSerializationTests";
-        private const string AssetPath = TestRoot + "/StateGraph.asset";
 
+        #region Public API
+
+        /// <summary>清理上一次的临时资产并为本例创建独立测试目录。</summary>
         [SetUp]
         public void SetUp()
         {
@@ -22,6 +26,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.CreateFolder("Assets", "__CoCoFlowStateGraphSerializationTests");
         }
 
+        /// <summary>释放本次资产测试使用的临时目录并刷新 AssetDatabase。</summary>
         [TearDown]
         public void TearDown()
         {
@@ -30,6 +35,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.Refresh();
         }
 
+        /// <summary>导入已有 AnyState 托管引用资产，检查程序集迁移后可恢复其配置。</summary>
         [Test]
         public void HistoricalAnyStateRetainsItsManagedReferenceAfterTheAssemblyMove()
         {
@@ -47,10 +53,11 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.That(any.Config, Is.TypeOf<EmptyStateConfig>());
         }
 
+        /// <summary>导入历史节点的共享配置，保存并重载后比较各节点引用指向的实际对象。</summary>
         [TestCase("BeforeNamespaceMigration.asset.bytes")]
         [TestCase("BeforeNamespaceMigrationPR96.asset.bytes")]
         [TestCase("BeforePrefixRemoval.asset.bytes")]
-        public void HistoricalSharedConfigAndConditionSurviveNamespaceMigrationAndResave(string fileName)
+        public void HistoricalSharedStateConfigSurvivesNamespaceMigrationAndResave(string fileName)
         {
             const string folder = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/";
             var original = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + fileName);
@@ -63,7 +70,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssetDatabase.SaveAssetIfDirty(graph);
             var saved = System.IO.File.ReadAllText(AssetPath);
             Assert.That(saved, Does.Not.Contain("class: Legacy"));
-            Assert.That(saved, Does.Contain("class: StateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraphHost"));
+            Assert.That(saved, Does.Contain("class: StateGraphStateRecord, ns: CoCoFlow.Runtime.StateGraph"));
             Assert.That(saved, Does.Contain("class: FieldConfig, ns: CoCoFlow.Runtime.StateGraph"));
             Resources.UnloadAsset(graph);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
@@ -71,7 +78,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             static void CheckConfig(StateGraphAsset asset)
             {
-                Assert.That(SerializationUtility.HasManagedReferencesWithMissingTypes(asset), Is.False);
+                foreach (var missing in SerializationUtility.GetManagedReferencesWithMissingTypes(asset))
+                    Assert.That(missing.className, Is.EqualTo("CoCoEmptyConditionConfig").Or.EqualTo("EmptyConditionConfig"));
                 var layer = asset.Layers[0];
                 Assert.That(layer.AnyState, Is.TypeOf<StateGraphStateRecord>());
                 Assert.That(layer.AnyState.Config, Is.TypeOf<EmptyStateConfig>());
@@ -79,10 +87,62 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.That(layer.States[1].Config, Is.SameAs(layer.States[0].Config));
                 Assert.That(((FieldConfig)layer.States[0].Config).Values,
                     Is.EqualTo(new[] { "Distance=2.5", "Enabled=True" }));
-                Assert.That(layer.Transitions[0].Conditions[0].Config, Is.TypeOf<EmptyConditionConfig>());
             }
         }
 
+        /// <summary>用 0.4.10 写出的图核对普通和 AnyState 节点、共享配置、图目录与布局指纹，并在重存后再次核对。</summary>
+        [Test]
+        public void Released0410SharedConfigAndGraphIdentitiesSurviveImportAndResave()
+        {
+            const string fixture = "Packages/com.yunxee.cocoflow/Tests/Runtime/StateGraphHost/Legacy/Released0410Shared.asset.bytes";
+            File.WriteAllBytes(AssetPath, AssetDatabase.LoadAssetAtPath<TextAsset>(fixture).bytes);
+            File.WriteAllText(AssetPath + ".meta", "fileFormatVersion: 2\nguid: c7723ff27124f4f0fba916bff8269504\n");
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            var asset = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
+            Verify(asset);
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+            Resources.UnloadAsset(asset);
+            AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceSynchronousImport);
+            Verify(AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath));
+
+            static void Verify(StateGraphAsset graph)
+            {
+                Assert.IsFalse(SerializationUtility.HasManagedReferencesWithMissingTypes(graph));
+                var layer = graph.Layers.Single();
+                Assert.That(layer.States.Select(state => state.DisplayName), Is.EqualTo(new[] { "First", "Second" }));
+                Assert.That(layer.States[0].Config, Is.SameAs(layer.States[1].Config));
+                Assert.AreEqual(27, ((TestStateAuthoringConfig)layer.States[0].Config).Value);
+                Assert.AreEqual(73, ((TestStateAuthoringConfig)layer.AnyState.Config).Value);
+                Assert.AreEqual(layer.States[0].StateId, layer.InitialStateId);
+                var edge = layer.Transitions.Single();
+                Assert.AreEqual(layer.InitialStateId, edge.SourceStateId);
+                Assert.AreEqual(layer.States[1].StateId, edge.TargetStateId);
+                Assert.AreEqual(7, edge.Priority);
+                var catalog = StateGraphTestFactory.CreateCatalog(false, includeAnyState: true);
+                var result = new StateGraphAssetCompiler(new StateGraphCompilationCache()).Compile(graph, catalog);
+                Assert.IsTrue(result.Succeeded, string.Join(", ", result.Diagnostics.Select(d => d.Diagnostic.Message)));
+                Assert.AreEqual(17614652859590910492UL, result.ContentFingerprint);
+                Assert.AreEqual(11069643992310798211UL, result.Graph.CatalogFingerprint);
+                Assert.AreEqual("b4a2b4ceea50e156e4f3596ca4fe617b", result.Graph.IntentRequirements.LayoutId.ToString());
+                Assert.AreEqual("4c71f553f86c1a55fcd776c4e0493bb7", result.Graph.OperationProvides.LayoutId.ToString());
+                Assert.AreEqual("fd73df8be5570214ad2b2a775e3bb0d6", result.Graph.ContextStateRequirements.LayoutId.ToString());
+            }
+        }
+
+        /// <summary>比较 0.4.10 的标准记忆、玩家输入和泛型实参类型名及派生指纹。</summary>
+        [Test]
+        public void Released0410InputAndMemoryKeepTheirPublishedTypeIdentity()
+        {
+            Assert.AreEqual("CoCoFlow.Runtime.Core.StateGraph", GraphTypeIdentity.AssemblyName(typeof(StatelessMemory)));
+            Assert.AreEqual("CoCoFlow.Runtime.Core.StatelessMemory", GraphTypeIdentity.FullName(typeof(StatelessMemory)));
+            Assert.AreEqual("CoCoFlow.Runtime.Core.Contracts", GraphTypeIdentity.AssemblyName(typeof(InputIntentContract)));
+            Assert.AreEqual("CoCoFlow.Runtime.Core.InputIntentData", GraphTypeIdentity.FullName(typeof(InputIntentContract)));
+            Assert.AreEqual(3660957098222782772UL, StandardTypeIdentity.Hash(typeof(InputIntentContract)));
+            Assert.AreEqual("System.Collections.Generic.Dictionary`2[[CoCoFlow.Runtime.Core.CoCoStateId, CoCoFlow.Runtime.Core.Contracts, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null],[CoCoFlow.Runtime.Core.StatelessMemory[], CoCoFlow.Runtime.Core.StateGraph, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null]]", GraphTypeIdentity.FullName(typeof(Dictionary<StateId, StatelessMemory[]>)));
+        }
+
+        /// <summary>分别在有无 AnyState 的资产上保存、重载和撤销，比较节点与配置引用。</summary>
         [Test]
         [TestCase(false)]
         [TestCase(true)]
@@ -125,6 +185,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 asset, StateGraphTestFactory.CreateCatalog(false, includeAnyState: true)).Succeeded);
         }
 
+        /// <summary>保存图后执行重导入、重命名、移动和重排，逐项对照各元素的稳定 ID。</summary>
         [Test]
         public void SaveReimportRenameMoveAndReorderPreserveStableIds()
         {
@@ -171,6 +232,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(11, ((TestStateAuthoringConfig)reloaded.Layers[0].States[1].Config).Value);
         }
 
+        /// <summary>在同一 schema 的已有边上修改窗口及端点，重载后核对仍是原有边。</summary>
         [Test]
         public void TransitionContractChangesInPlaceWithinSchemaV1()
         {
@@ -213,6 +275,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 reloaded.Layers[0].Transitions[0].WindowMode);
         }
 
+        /// <summary>对创作命令撤销再重做，核对恢复的节点和边仍沿用原 ID。</summary>
         [Test]
         public void AuthoringOperationsParticipateInUndoAndRedoWithoutChangingRestoredIds()
         {
@@ -231,6 +294,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(addedLayerId, ToLayerId(asset.Layers[0].LayerId));
         }
 
+        /// <summary>复制子树再撤销和重做，检查新节点和内部边保留第一次复制生成的 ID。</summary>
         [Test]
         public void DuplicateSubtreeUndoRedoRestoresTheSameNewStateAndTransitionIds()
         {
@@ -302,6 +366,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     .Select(transition => transition.TransitionId));
         }
 
+        /// <summary>复制图层后重复撤销与重做，验证生成的整层拓扑标识保持一致。</summary>
         [Test]
         public void DuplicateLayerUndoRedoRestoresTheSameGeneratedTopologyIds()
         {
@@ -360,6 +425,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 duplicate.Transitions.Select(transition => transition.TransitionId));
         }
 
+        /// <summary>重载共享顶层配置，核对节点间对象身份与编译内容指纹。</summary>
         [Test]
         public void SharedTopLevelConfigKeepsIdentityAndCompileFingerprintAfterReload()
         {
@@ -409,6 +475,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 reloaded.Layers[0].States[1].Config);
         }
 
+        /// <summary>保存集合元素中的浮点窗口，用于比较资产重导入后的顺序与值。</summary>
         [System.Serializable]
         public struct ConfigCollectionSerializationWindow
         {
@@ -416,6 +483,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public double endSeconds;
         }
 
+        /// <summary>以数组和列表覆盖节点，检查撤销、重做及重导入保留元素次序与字符串原文。</summary>
         [TestCase(0, false)]
         [TestCase(1, false)]
         [TestCase(3, false)]
@@ -429,6 +497,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var windows = Enumerable.Range(0, count).Select(i => new ConfigCollectionSerializationWindow
                 { startSeconds = i + 0.25f, endSeconds = i + 0.75d }).Reverse().Take(2).ToArray();
             var config = new FieldConfig();
+            string clipKey = count == 0 ? string.Empty : "  Attack=Light.$count[0]  ";
+            config.Set("ClipKey", clipKey);
             config.Set("Windows", list ? windows.ToList() : windows);
             config.Set("Numbers", list ? new List<float> { 2.5f } : new[] { 2.5f });
             string[] expected = config.Values.ToArray();
@@ -452,9 +522,17 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             var reloaded = AssetDatabase.LoadAssetAtPath<StateGraphAsset>(AssetPath);
             var restored = (FieldConfig)reloaded.Layers[0].States[0].Config;
             CollectionAssert.AreEqual(expected, restored.Values);
+            Assert.Contains("ClipKey=" + clipKey, restored.Values);
             Assert.Contains("Windows.$count=" + windows.Length, restored.Values);
             Assert.IsFalse(restored.Values.Any(entry => entry.StartsWith("Windows[2]")));
         }
+
+        #endregion
+
+        #region Internal Logic
+
+        private const string TestRoot = "Assets/__CoCoFlowStateGraphSerializationTests";
+        private const string AssetPath = TestRoot + "/StateGraph.asset";
 
         private static StateGraphAsset CreateSavedAsset()
         {
@@ -486,5 +564,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(StateId.TryCreate(id.High, id.Low, out StateId value));
             return value;
         }
+
+        #endregion
     }
 }

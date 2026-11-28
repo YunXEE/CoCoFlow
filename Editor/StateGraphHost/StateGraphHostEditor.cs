@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -11,7 +10,7 @@ using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>
     /// StateGraphHost Inspector（UI Toolkit 重做，D1/D2）。

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using NUnit.Framework;
 using UnityEngine;
@@ -11,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public sealed class StateGraphHostTemporalPlayModeTests
     {

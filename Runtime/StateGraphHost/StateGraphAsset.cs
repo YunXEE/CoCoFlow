@@ -4,7 +4,7 @@ using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core.StateGraphAuthoring", sourceClassName: "CoCoStateGraphAsset")]
     [CreateAssetMenu(fileName = "StateGraph", menuName = "CoCoFlow/State Graph")]

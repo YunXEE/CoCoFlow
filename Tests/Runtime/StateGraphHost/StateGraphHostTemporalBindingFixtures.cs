@@ -2,13 +2,12 @@ using System;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures;
 using UnityEngine;
 
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public enum TemporalRestoreFixtureFailure
     {
@@ -20,13 +19,13 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
 
     internal sealed class TemporalActorRestoreBinding :
         MonoBehaviour,
-        IActorContextBinding,
+        IHostContextBinding,
         IContextRestoreBinding
     {
         private StateSlotId _slotId;
-        private ActorContextBindingDescriptor _descriptor;
+        private HostContextBindingDescriptor _descriptor;
 
-        public ActorContextBindingDescriptor Descriptor => _descriptor;
+        public HostContextBindingDescriptor Descriptor => _descriptor;
         public int Value { get; set; } = TemporalHostDefaults.ActorStateValue;
         public int CaptureCount { get; private set; }
         public int ApplyCount { get; private set; }
@@ -47,7 +46,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         public void Configure(StateSlotId slotId)
         {
             _slotId = slotId;
-            var builder = new ActorContextBindingDescriptorBuilder();
+            var builder = new HostContextBindingDescriptorBuilder();
             if (!builder.TryProduce<int>(slotId, out CoCoDiagnostic produce))
             {
                 throw new InvalidOperationException(produce.Message);
@@ -63,7 +62,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
         }
 
         public bool TryCapture(
-            in ActorContextCaptureContext context,
+            in HostContextCaptureContext context,
             out CoCoDiagnostic diagnostic)
         {
             CaptureCount++;
@@ -257,7 +256,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 out CoCoDiagnostic graphSlot), graphSlot);
             Ensure(builder.TryRegisterStateBlock(
                 ids.ActorStateBlockId,
-                StateBlockOwner.Actor,
+                StateBlockOwner.Host,
                 out CoCoDiagnostic actorBlock), actorBlock);
             Ensure(builder.TryRegisterStateSlot(
                 ids.ActorStateBlockId,
@@ -473,7 +472,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             if (!EventSequence.TryCreate(
                     eventSequence,
                     out EventSequence sequence) ||
-                !ActorEventEnvelope.TryCreate(
+                !GraphEventEnvelope.TryCreate(
                     scenario.Ids.EventTypeId,
                     scenario.Ids.EventDomainId,
                     scenario.Host.GraphInstanceId,
@@ -486,7 +485,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                     default,
                     default,
                     default,
-                    out ActorEventEnvelope envelope) ||
+                    out GraphEventEnvelope envelope) ||
                 !EventPacket<TemporalHostEvent>.TryCreate(
                     envelope,
                     new TemporalHostEvent { Value = value },

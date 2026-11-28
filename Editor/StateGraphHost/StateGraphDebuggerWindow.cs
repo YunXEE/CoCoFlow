@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -13,7 +12,7 @@ using UnityEngine.UIElements;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>
     /// Serializable identity for a scene Host. The live component instance is

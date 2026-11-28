@@ -62,8 +62,8 @@ namespace CoCoFlow.Tests.Editor.Core
                 CoCoDiagnosticCode.InvalidStateSlot,
                 CoCoDiagnosticCode.RegistryFrozen,
                 CoCoDiagnosticCode.RegistryNotFrozen,
-                CoCoDiagnosticCode.InvalidOperationSection,
-                CoCoDiagnosticCode.MissingOperationSection,
+                CoCoDiagnosticCode.InvalidOperationContract,
+                CoCoDiagnosticCode.MissingOperationContract,
                 CoCoDiagnosticCode.InvalidIntentDescriptor,
                 CoCoDiagnosticCode.MissingIntentReducer,
                 CoCoDiagnosticCode.InvalidIntentContribution,
@@ -130,7 +130,7 @@ namespace CoCoFlow.Tests.Editor.Core
                 CoCoDiagnosticCode.ContextCaptureFailed,
                 CoCoDiagnosticCode.InvalidGraphRestore,
                 CoCoDiagnosticCode.InvalidClaimRestore,
-                CoCoDiagnosticCode.InvalidActorBinding
+                CoCoDiagnosticCode.InvalidHostConfiguration
             };
             for (int index = 0; index < contextAuthorityCodes.Length; index++)
             {

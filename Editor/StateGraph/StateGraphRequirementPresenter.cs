@@ -3,13 +3,10 @@ using CoCoFlow.Editor.Core;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+// 图编辑器读取编译或目录给出的要件，展示节点需要的输入、输出和数据槽。
 namespace CoCoFlow.Editor.StateGraph
 {
-    /// <summary>
-    /// 需求/Host 建议的结构化呈现器（维护者反馈：全量 32 位十六进制 ID 不可读）。
-    /// 窗口「需求 / Host 建议」卡与 Inspector「Host 需求（manifest）」卡共用；
-    /// 类型名 + 短 ID 徽章，完整 ID 放 tooltip。
-    /// </summary>
+    /// <summary>为图编辑器展示节点与图的输入、操作和 Context 要件。</summary>
     internal static class StateGraphRequirementPresenter
     {
         internal static void FillCard(
@@ -61,9 +58,6 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 case RequirementScopeKind.SelectedState:
                     kindText = CoCoEditorLocalization.Text("Selected State", "选中 State");
-                    break;
-                case RequirementScopeKind.SelectedCondition:
-                    kindText = CoCoEditorLocalization.Text("Condition", "条件");
                     break;
                 default:
                     kindText = CoCoEditorLocalization.Text("Compiled · Host Requirements", "编译结果 · Host 需求");

@@ -3,7 +3,7 @@
     "rootNamespace": "CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph"
+        "CoCoFlow.Runtime.StateGraph.Contracts"
     ],
     "includePlatforms": [
         "Editor"

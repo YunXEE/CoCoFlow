@@ -1,13 +1,12 @@
 using System;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Pooling;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal sealed class PoolTemporalRecord
     {

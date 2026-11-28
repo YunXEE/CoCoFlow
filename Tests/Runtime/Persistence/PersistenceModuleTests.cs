@@ -463,7 +463,7 @@ namespace CoCoFlow.Tests.Runtime.Persistence
         private static System.Type ResolveStateGraphHostType()
         {
             System.Type type = System.Type.GetType(
-                "CoCoFlow.Runtime.StateGraphHost.StateGraphHost, CoCoFlow.Runtime.StateGraphHost");
+                "CoCoFlow.Runtime.StateGraph.StateGraphHost, CoCoFlow.Runtime.StateGraph");
             Assert.IsNotNull(type, "StateGraphHost runtime type could not be resolved.");
             return type;
         }

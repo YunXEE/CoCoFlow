@@ -5,10 +5,10 @@ using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// 标准 Provider 扫描项目给定的程序集，把状态、输入与输出登记进目录并为 Host 建立运行时绑定。
+namespace CoCoFlow.Runtime.StateGraph
 {
-    /// <summary>Builds the standard catalog and binds module-declared Intents,
-    /// Operations and graph state to each Host's explicit scene references.</summary>
+    /// <summary>扫描项目状态与依赖，向图编译器提供目录并向 Host 提供实例工厂。</summary>
     public sealed partial class StandardBindingProvider :
         IStateGraphProjectBindingProvider
     {
@@ -19,16 +19,36 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private readonly Dictionary<IntentId, IStandardIntentRegistration> _intentRegistrations;
         internal IReadOnlyList<System.Reflection.Assembly> Assemblies { get; private set; }
         private readonly Dictionary<StateDescriptorId, Type> _stateTypes;
-        private Dictionary<ConditionDescriptorId, IConditionRuntimeFactory> _conditionFactories;
-        private readonly Dictionary<OperationSectionId, StandardOperatorDefinition>
+        private readonly Dictionary<OperationId, StandardOperatorDefinition>
             _operationBinders;
         private readonly Dictionary<StateBlockId, StandardOperatorDefinition>
             _contextBinders;
 
+        public GraphDescriptorCatalog Catalog => _catalog;
+
+        #region Public API
+
+        /// <summary>从指定项目类型所在程序集构建标准绑定，以该程序集提供状态和操作声明。</summary>
+        public static StandardBindingProvider BuildForAssemblyOf<TMarker>()
+        {
+            return Build(new[] { typeof(TMarker).Assembly });
+        }
+
+        /// <summary>扫描传入的程序集并构建项目目录及运行时绑定，声明冲突或类型不合约时报告错误。</summary>
+        public static StandardBindingProvider Build(
+            IReadOnlyList<System.Reflection.Assembly> assemblies) => Build(assemblies, null);
+
+        bool IStateGraphProjectBindingProvider.TryConfigure(StateGraphHostBindingBuilder host,
+            out CoCoDiagnostic diagnostic) => TryConfigure(host, out diagnostic);
+
+        #endregion
+
+        #region Internal Logic
+
         private StandardBindingProvider(
             GraphDescriptorCatalog catalog,
             Dictionary<StateDescriptorId, Type> stateTypes,
-            Dictionary<OperationSectionId, StandardOperatorDefinition>
+            Dictionary<OperationId, StandardOperatorDefinition>
                 operationBinders,
             Dictionary<StateBlockId, StandardOperatorDefinition>
                 contextBinders,
@@ -41,39 +61,20 @@ namespace CoCoFlow.Runtime.StateGraphHost
             _intentRegistrations = intentRegistrations;
         }
 
-        public GraphDescriptorCatalog Catalog => _catalog;
-
-        /// <summary>
-        /// Scans the assembly of the marker type (put the marker next to your
-        /// state scripts, or call the scan overload directly) for
-        /// StateAttribute classes and builds the standard catalog.
-        /// Registered Intent payloads are wired automatically.
-        /// </summary>
-        public static StandardBindingProvider BuildForAssemblyOf<TMarker>()
-        {
-            return Build(new[] { typeof(TMarker).Assembly });
-        }
-
-        public static StandardBindingProvider Build(
-            IReadOnlyList<System.Reflection.Assembly> assemblies) => Build(assemblies, null);
-
         internal static StandardBindingProvider Build(
             IReadOnlyList<System.Reflection.Assembly> assemblies,
             IReadOnlyDictionary<StateDescriptorId, Type> aliases)
         {
             var builder = new GraphDescriptorCatalogBuilder();
             var operationIdsByType =
-                new Dictionary<Type, OperationSectionId>();
+                new Dictionary<Type, OperationId>();
             var operatorsBySectionType =
                 new Dictionary<Type, StandardOperatorDefinition>();
             var operationBinders =
-                new Dictionary<OperationSectionId, StandardOperatorDefinition>();
+                new Dictionary<OperationId, StandardOperatorDefinition>();
             var contextBinders =
                 new Dictionary<StateBlockId, StandardOperatorDefinition>();
 
-            // Operator modules carry their own registrations. Package module
-            // assemblies are added to the caller's graph-author assemblies,
-            // then sorted so discovery is independent of load order.
             var moduleAssemblies =
                 new List<System.Reflection.Assembly>(assemblies);
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -114,12 +115,12 @@ namespace CoCoFlow.Runtime.StateGraphHost
                         definition.RegisterCatalog(builder);
                         foreach (var operation in definition.Operations)
                         {
-                            if (!operation.IsValid || operationIdsByType.ContainsKey(operation.SectionType) ||
-                                operationBinders.ContainsKey(operation.SectionId))
-                                throw new InvalidOperationException($"Duplicate or invalid Operation Section {operation.SectionType.FullName}.");
-                            operationIdsByType.Add(operation.SectionType, operation.SectionId);
-                            operatorsBySectionType.Add(operation.SectionType, definition);
-                            operationBinders.Add(operation.SectionId, definition);
+                            if (!operation.IsValid || operationIdsByType.ContainsKey(operation.OperationType) ||
+                                operationBinders.ContainsKey(operation.OperationId))
+                                throw new InvalidOperationException($"Duplicate or invalid Operation Section {operation.OperationType.FullName}.");
+                            operationIdsByType.Add(operation.OperationType, operation.OperationId);
+                            operatorsBySectionType.Add(operation.OperationType, definition);
+                            operationBinders.Add(operation.OperationId, definition);
                         }
 
                         foreach (var block in definition.ContextBlocks)
@@ -166,49 +167,36 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
                     if (aliases != null)
                         descriptorId = aliases.First(pair => pair.Value == type && !stateTypes.ContainsKey(pair.Key)).Key;
-                    var intentDeclarations = new List<IntentConsumeAttribute>(Array.ConvertAll(
-                        type.GetCustomAttributes(typeof(IntentConsumeAttribute), false),
-                        value => (IntentConsumeAttribute)value));
-                    var operationDeclarations = new List<OperationProvideAttribute>(Array.ConvertAll(
-                        type.GetCustomAttributes(typeof(OperationProvideAttribute), false),
-                        value => (OperationProvideAttribute)value));
-                    foreach (var property in StatePropertyBindings.Properties(type))
-                    {
-                        if (property.IsDefined(typeof(IntentAttribute), false))
-                            intentDeclarations.Add(new IntentConsumeAttribute(property.PropertyType));
-                        else operationDeclarations.Add(new OperationProvideAttribute(property.PropertyType));
-                    }
-
+                    var properties = StatePropertyBindings.Properties(type);
                     var requiredIntents = new HashSet<IntentId>();
-                    foreach (IntentConsumeAttribute consume in intentDeclarations)
+                    foreach (var property in properties.Where(p => p.IsDefined(typeof(IntentAttribute), false)))
                     {
-                        if (!intentsByType.TryGetValue(consume.IntentType, out var registration))
+                        if (!intentsByType.TryGetValue(property.PropertyType, out var registration))
                         {
-                            registration = StandardSingleIntent.For(consume.IntentType);
+                            registration = StandardSingleIntent.For(property.PropertyType);
                             if (intentRegistrations.ContainsKey(registration.IntentId))
-                                throw new InvalidOperationException("Duplicate Intent id for " + consume.IntentType.FullName + ".");
+                                throw new InvalidOperationException("Duplicate Intent id for " + property.PropertyType.FullName + ".");
                             registration.RegisterCatalog(builder);
                             intentRegistrations.Add(registration.IntentId, registration);
-                            intentsByType.Add(consume.IntentType, registration);
+                            intentsByType.Add(property.PropertyType, registration);
                         }
                         requiredIntents.Add(registration.IntentId);
                     }
                     IntentId[] consumedIntents = requiredIntents
                         .OrderBy(id => id.High).ThenBy(id => id.Low).ToArray();
 
-                    var stateProvides = new HashSet<OperationSectionId>();
+                    var stateProvides = new HashSet<OperationId>();
                     var stateContextBlocks = new HashSet<StateBlockId>
                     {
                         StandardGraphState.BlockFor(descriptorId),
                     };
-                    foreach (OperationProvideAttribute provide in
-                             operationDeclarations)
+                    foreach (var property in properties.Where(p => p.IsDefined(typeof(OperationAttribute), false)))
                     {
                         if (operationIdsByType.TryGetValue(
-                                provide.SectionType,
-                                out OperationSectionId providedId) &&
+                                property.PropertyType,
+                                out OperationId providedId) &&
                             operatorsBySectionType.TryGetValue(
-                                provide.SectionType,
+                                property.PropertyType,
                                 out StandardOperatorDefinition owner))
                         {
                             stateProvides.Add(providedId);
@@ -223,12 +211,12 @@ namespace CoCoFlow.Runtime.StateGraphHost
                         {
                             throw new InvalidOperationException(
                                 "State " + type.Name + " provides Operation " +
-                                provide.SectionType.Name +
+                                property.PropertyType.Name +
                                 " but no Operator registers it.");
                         }
                     }
 
-                    OperationSectionId[] providedSections =
+                    OperationId[] providedSections =
                         ToSortedArray(stateProvides);
                     StateBlockId[] contextBlocks =
                         ToSortedArray(stateContextBlocks);
@@ -264,7 +252,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     "state logic classes in the scanned assemblies.");
             }
 
-            var conditionFactories = RegisterConditions(assemblies, builder);
             if (!builder.TryFreeze(
                     out GraphDescriptorCatalog catalog,
                     out CoCoDiagnostic freezeDiagnostic))
@@ -278,7 +265,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 stateTypes,
                 operationBinders,
                 contextBinders, intentRegistrations)
-                { Assemblies = assemblies.ToArray(), _conditionFactories = conditionFactories };
+                { Assemblies = assemblies.ToArray() };
         }
 
         private static Dictionary<IntentId, IStandardIntentRegistration> RegisterIntents(
@@ -324,9 +311,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return result;
         }
 
-        bool IStateGraphProjectBindingProvider.TryConfigure(StateGraphHostBindingBuilder host,
-            out CoCoDiagnostic diagnostic) => TryConfigure(host, out diagnostic);
-
         internal bool TryConfigure(
             StateGraphHostBindingBuilder bindingBuilder,
             out CoCoDiagnostic diagnostic)
@@ -344,8 +328,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 return false;
             }
 
-            return TryBindStandardFactories(bindingBuilder, out diagnostic) &&
-                   TryBindStandardConditions(bindingBuilder, out diagnostic);
+            return TryBindStandardFactories(bindingBuilder, out diagnostic);
         }
 
         private bool TryBindRequiredIntent(
@@ -418,20 +401,20 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 bindingBuilder.Graph.OperationProvides.Provides;
             for (int index = 0; index < operations.Count; index++)
             {
-                OperationSectionId sectionId = operations[index].SectionId;
+                OperationId operationId = operations[index].OperationId;
                 if (!_operationBinders.TryGetValue(
-                        sectionId,
+                        operationId,
                         out StandardOperatorDefinition registrar))
                 {
                     diagnostic = RegistryError(
                         CoCoDiagnosticCode.MissingOperationBinding,
                         "No standard Operator owns compiled Operation Section " +
-                        sectionId + ".");
+                        operationId + ".");
                     return false;
                 }
 
                 if (!registrar.TryBindOperation(
-                        sectionId,
+                        operationId,
                         bindingBuilder,
                         out diagnostic))
                 {
@@ -558,8 +541,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 return false;
             }
 
-            // AnyState owns a persistent Activation without joining the active
-            // path or receiving Enter. Ordinary initial-path defaults stay unchanged.
             ulong initialActivation = InitialActivation(bindingBuilder.Graph, state);
             bool hasInitialActivation = initialActivation != 0;
             bool isOnActivePath = hasInitialActivation && !state.IsAnyState;
@@ -619,7 +600,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             Type type,
             StateDescriptorId descriptorId,
             IntentId[] consumedIntents,
-            OperationSectionId[] providedSections,
+            OperationId[] providedSections,
             StateBlockId[] contextBlocks)
         {
             if (HasFields(type))
@@ -653,7 +634,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             GraphDescriptorCatalogBuilder builder,
             StateDescriptorId descriptorId,
             IntentId[] consumedIntents,
-            OperationSectionId[] providedSections,
+            OperationId[] providedSections,
             StateBlockId[] contextBlocks)
             where TLogic : StateLogic, new()
         {
@@ -763,7 +744,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             Type logicType,
             out IStateRuntimeFactory factory)
         {
-            // IL2CPP 的 MakeGenericMethod 不保证执行与 Mono 相同的约束检查。
+
             if (!typeof(IStateUpdate).IsAssignableFrom(logicType))
             {
                 throw new ArgumentException(
@@ -835,10 +816,10 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return string.CompareOrdinal(left.FullName, right.FullName);
         }
 
-        private static OperationSectionId[] ToSortedArray(
-            HashSet<OperationSectionId> source)
+        private static OperationId[] ToSortedArray(
+            HashSet<OperationId> source)
         {
-            var values = new OperationSectionId[source.Count];
+            var values = new OperationId[source.Count];
             source.CopyTo(values);
             Array.Sort(values, CompareOperationIds);
             return values;
@@ -854,8 +835,8 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
 
         private static int CompareOperationIds(
-            OperationSectionId left,
-            OperationSectionId right)
+            OperationId left,
+            OperationId right)
         {
             int high = left.High.CompareTo(right.High);
             return high != 0 ? high : left.Low.CompareTo(right.Low);
@@ -873,63 +854,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             ((StateAttribute)Attribute.GetCustomAttribute(type, typeof(StateAttribute)))
                 ?.ProvidesActionProgress ?? false;
 
-        private static Dictionary<ConditionDescriptorId, IConditionRuntimeFactory> RegisterConditions(
-            IReadOnlyList<System.Reflection.Assembly> assemblies, GraphDescriptorCatalogBuilder builder)
-        {
-            var factories = new Dictionary<ConditionDescriptorId, IConditionRuntimeFactory>();
-            foreach (var type in assemblies.SelectMany(GetLoadableTypes))
-            {
-                if (type == null || !type.IsDefined(typeof(ConditionAttribute), false)) continue;
-                if (type.IsAbstract || type.ContainsGenericParameters ||
-                    !typeof(StateCondition).IsAssignableFrom(type) ||
-                    !typeof(IStateConditionEvaluator).IsAssignableFrom(type) ||
-                    type.GetConstructor(Type.EmptyTypes) == null)
-                    throw new InvalidOperationException("Invalid standard Condition: " + type.FullName);
-                ConditionDescriptorId.TryCreate(0x434F434F434F4E44UL,
-                    StandardDescriptors.DeriveLow(GraphTypeIdentity.FullName(type)), out var id);
-                var factory = (IConditionRuntimeFactory)typeof(StandardBindingProvider)
-                    .GetMethod(nameof(RegisterCondition),
-                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
-                    .MakeGenericMethod(type).Invoke(null, new object[] { builder, id });
-                factories.Add(id, factory);
-            }
-            return factories;
-        }
-
-        private static IConditionRuntimeFactory RegisterCondition<TCondition>(
-            GraphDescriptorCatalogBuilder builder, ConditionDescriptorId id)
-            where TCondition : StateCondition, IStateConditionEvaluator, new()
-        {
-            if (!builder.TryRegisterCondition(
-                    id, 1, new EmptyConditionConfig.Freezer(),
-                    new ConditionRuntimeRegistration<TCondition, EmptyConfigSchema>(EmptySchemas.State),
-                    Array.Empty<IntentId>(), Array.Empty<StateBlockId>(), out var diagnostic))
-                throw new InvalidOperationException(diagnostic.Message);
-            return new ConditionRuntimeFactory<TCondition>(_ => new TCondition());
-        }
-
-        private bool TryBindStandardConditions(StateGraphHostBindingBuilder builder,
-            out CoCoDiagnostic diagnostic)
-        {
-            var bound = new HashSet<ConditionDescriptorId>();
-            foreach (var layer in builder.Graph.Layers)
-            foreach (var transition in layer.Transitions)
-            foreach (var condition in transition.Conditions)
-            {
-                var id = condition.Descriptor.DescriptorId;
-                if (!bound.Add(id)) continue;
-                if (!_conditionFactories.TryGetValue(id, out var factory))
-                {
-                    diagnostic = RegistryError(CoCoDiagnosticCode.MissingDescriptor,
-                        "No standard Condition factory for " + id);
-                    return false;
-                }
-                if (!builder.TryBindCondition(id, factory, out diagnostic)) return false;
-            }
-            diagnostic = CoCoDiagnostic.None;
-            return true;
-        }
-
         private static CoCoDiagnostic RegistryError(
             CoCoDiagnosticCode code,
             string message)
@@ -939,5 +863,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 code,
                 message);
         }
+
+        #endregion
     }
 }

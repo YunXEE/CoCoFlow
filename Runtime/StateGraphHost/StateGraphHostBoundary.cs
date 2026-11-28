@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal static class StateGraphHostBoundary
     {

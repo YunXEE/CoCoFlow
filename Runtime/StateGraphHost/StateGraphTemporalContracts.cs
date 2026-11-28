@@ -3,7 +3,7 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     public enum TemporalMode
     {
@@ -278,7 +278,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private static CoCoDiagnostic InvalidChain(string message) =>
             CoCoDiagnostic.Error(
                 CoCoDiagnosticDomain.Context,
-                CoCoDiagnosticCode.InvalidActorBinding,
+                CoCoDiagnosticCode.InvalidHostConfiguration,
                 message);
     }
 

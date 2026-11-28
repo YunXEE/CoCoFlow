@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal sealed class StateGraphManagedReferenceInspection
     {

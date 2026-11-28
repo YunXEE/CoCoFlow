@@ -7,12 +7,16 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 
+// 驱动带观察器的真实图实例，检查父子和 AnyState 回调、请求仲裁以及提交后的活动路径。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>驱动带观察器的真实图实例，检查父子和 AnyState 回调、请求仲裁以及提交后的活动路径。</summary>
     public sealed class StateGraphRuntimeContractTests
     {
-        private static long _nextGraphInstance = 3000L;
 
+        #region Public API
+
+        /// <summary>同一步从普通叶和 AnyState 请求不同边，核对回调顺序与最终胜出的请求。</summary>
         [TestCase(true, false)]
         [TestCase(false, false)]
         [TestCase(false, true)]
@@ -31,8 +35,8 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(fixture.Runtime.TryStart(out _));
             fixture.Accept(fixture.Stage(0.1d));
             control.Callbacks.Clear();
-            control.RequestFirst = control.RequestSecond = true;
-            control.RejectedConditionTransition = allowed ? default : ids.SecondTransition;
+            control.RequestFirst = true;
+            control.RequestSecond = allowed;
 
             fixture.Accept(fixture.Stage(0.1d));
             AssertTrace(control.Callbacks.GetRange(0, 4),
@@ -44,10 +48,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(RuntimeContractCallbackPhase.Exit, control.Callbacks[4].Phase);
             Assert.AreEqual(ids.StateA, control.Callbacks[4].StateId);
             Assert.AreEqual(allowed ? ids.StateA : ids.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
-            Assert.AreEqual(closedWindow ? default : ids.StateC, control.AnyConditionSource);
-            Assert.AreEqual(closedWindow ? default : ids.StateA, control.AnyConditionActiveLeaf);
         }
 
+        /// <summary>由 AnyState 请求重新进入当前叶，核对叶激活重置而常驻状态记忆保留。</summary>
         [Test]
         public void AnySelfReentryResetsLeafAndPreservesOwnMemory()
         {
@@ -88,6 +91,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(3, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
         }
 
+        /// <summary>比较常驻状态和普通路径的操作写入顺序，并核对被拒候选未推进提交状态。</summary>
         [Test]
         public void AnyOperationDepthAndRejectedTickPreserveContract()
         {
@@ -101,7 +105,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             control.RequestSecond = true;
             StagedGraphStep rejected = fixture.Stage(0.1d);
             Assert.IsTrue(rejected.OperationFrame.TryGet(fixture.OperationHandle,
-                out OperationSectionEntry<IRuntimeContractOperationSection> entry));
+                out OperationEntry<IRuntimeContractOperationSection> entry));
             Assert.AreEqual(40, entry.View.Value, "Later ordinary Exit writes cannot override AnyState depth.");
             Assert.IsTrue(fixture.Runtime.TryRejectStagedStep(rejected, CoCoDiagnostic.None, false, out _));
             Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
@@ -120,6 +124,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(3, ReadCommittedMemory(fixture.Runtime, 0, ids.StateC).UpdateCount);
         }
 
+        /// <summary>构造普通 Logic、非法层级或进入 AnyState 的边，检查编译诊断。</summary>
         [TestCase(1, CoCoDiagnosticCode.DescriptorTypeMismatch)]
         [TestCase(2, CoCoDiagnosticCode.InvalidInitialState)]
         [TestCase(3, CoCoDiagnosticCode.NonLeafTransitionEndpoint)]
@@ -132,6 +137,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.That(result.Diagnostics, Has.Some.Property("Diagnostic").Property("Code").EqualTo(code));
         }
 
+        /// <summary>组合实现不同生命周期的父子状态，检查实际进入、更新和退出的顺序。</summary>
         [Test]
         public void OptionalLifecyclePhasesPreserveEnterUpdateExitPathOrder()
         {
@@ -174,6 +180,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 (RuntimeContractCallbackPhase.Update, ids.StateB));
         }
 
+        /// <summary>分别停止、越过进度窗口及拒绝候选，核对进度只随成功提交更新。</summary>
         [Test]
         public void ActionProgressStallLargeSweepAndRejectedTickAreTransactional()
         {
@@ -227,6 +234,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "The [start,end) sweep must detect a jump that passes over the whole Window.");
         }
 
+        /// <summary>让进度达到一且没有请求出边，验证状态继续保持激活。</summary>
         [Test]
         public void ReachingActionProgressOneDoesNotAutomaticallyExit()
         {
@@ -262,6 +270,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>单步跨过秒数窗口，验证窗口扫过期间登记的出边能参与仲裁。</summary>
         [Test]
         public void LocalSecondsWindowUsesSweepForLargeDelta()
         {
@@ -285,8 +294,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "A large Delta must sweep across a LocalSeconds Window instead of skipping it.");
         }
 
+        /// <summary>分别请求一条和多条出边，确认未请求的高优先级边不参选，多请求时按优先级选中。</summary>
         [Test]
-        public void MultipleRequestsUseConditionsThenPriorityToChooseOneWinner()
+        public void HighestRequestedPriorityWinsAndUnrequestedEdgesAreSkipped()
         {
             ContractIds ids = ContractIds.Create();
             StateGraphSource source = ArbitrationSource(ids);
@@ -300,54 +310,22 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             RuntimeFixture highWins = RuntimeFixture.Create(source, catalog, allAccepted, false);
             Assert.IsTrue(highWins.Runtime.TryStart(out _));
             highWins.Accept(highWins.Stage(0.1d));
-            Assert.AreEqual(2, allAccepted.ConditionEvaluationCount);
             Assert.AreEqual(ids.StateC, highWins.Runtime.GetActivePath(0).ActiveLeaf,
-                "When both Conditions pass, the higher explicitly-declared Priority must win.");
+                "When both edges are requested, the higher priority must win.");
 
-            var highRejected = new RuntimeContractControl(ids)
+            var onlyLowRequested = new RuntimeContractControl(ids)
             {
                 RequestFirst = true,
-                RequestSecond = true,
-                RejectedConditionTransition = ids.SecondTransition
+                RequestSecond = false
             };
-            RuntimeFixture lowWins = RuntimeFixture.Create(source, catalog, highRejected, false);
+            RuntimeFixture lowWins = RuntimeFixture.Create(source, catalog, onlyLowRequested, false);
             Assert.IsTrue(lowWins.Runtime.TryStart(out _));
             lowWins.Accept(lowWins.Stage(0.1d));
-            Assert.AreEqual(2, highRejected.ConditionEvaluationCount);
             Assert.AreEqual(ids.StateB, lowWins.Runtime.GetActivePath(0).ActiveLeaf,
-                "A higher-priority request whose Condition fails cannot suppress an accepted request.");
+                "An unrequested higher-priority edge cannot suppress the requested edge.");
         }
 
-        [Test]
-        public void ConditionExceptionCancelsCandidateAndLatchesFault()
-        {
-            ContractIds ids = ContractIds.Create();
-            var control = new RuntimeContractControl(ids);
-            RuntimeFixture fixture = RuntimeFixture.Create(
-                ArbitrationSource(ids),
-                CreateCatalog(false),
-                control,
-                false);
-            Assert.IsTrue(fixture.Runtime.TryStart(out _));
-            fixture.Accept(fixture.Stage(0.1d));
-
-            control.RequestFirst = true;
-            control.ThrowOnCondition = true;
-            Assert.IsTrue(fixture.Runtime.TryPreviewNextTick(0.1d, 1d, out TickFrame tick, out _));
-            Assert.IsFalse(fixture.Runtime.TryStageStep(
-                tick,
-                null,
-                default,
-                out _,
-                out CoCoDiagnostic diagnostic));
-
-            Assert.IsTrue(diagnostic.IsError);
-            Assert.IsTrue(fixture.Runtime.IsFaulted);
-            Assert.AreEqual(1UL, fixture.Runtime.Clock.Tick.Value);
-            Assert.AreEqual(ids.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
-            Assert.IsFalse(fixture.Runtime.TryResume(out _));
-        }
-
+        /// <summary>驱动没有出边的叶节点，检查运行时无需评估转换。</summary>
         [Test]
         public void ActiveLeafWithoutOutgoingEdgesDoesNotEvaluateTransitions()
         {
@@ -367,10 +345,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(ids.StateA, fixture.Runtime.GetActivePath(0).ActiveLeaf);
             Assert.AreEqual(0, control.TransitionRequestCheckCount,
                 "A leaf with no declared outgoing Handles must not calculate requests.");
-            Assert.AreEqual(0, control.ConditionEvaluationCount,
-                "Conditions on another leaf's outgoing edge must remain untouched.");
         }
 
+        /// <summary>预热两层父子状态的操作组合，在稳定步进阶段测量托管分配量。</summary>
         [Test]
         public void TwoLayerParentChildOperationCompositionHasZeroSteadyStateAllocations()
         {
@@ -395,7 +372,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StagedGraphStep first = fixture.Stage(0.1d);
             Assert.IsTrue(first.OperationFrame.TryGet(
                 fixture.OperationHandle,
-                out OperationSectionEntry<IRuntimeContractOperationSection> entry));
+                out OperationEntry<IRuntimeContractOperationSection> entry));
             Assert.AreEqual(40, entry.View.Value,
                 "Higher Layer then deeper child must determine the final composed field.");
             fixture.Accept(first);
@@ -417,6 +394,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0L, allocated);
         }
 
+        /// <summary>准备离散操作后先取消再提交，核对序号只在整步确认时消耗。</summary>
         [Test]
         public void PreparedCommitDoesNotConsumeDiscreteOperationSequenceUntilBarrier()
         {
@@ -429,16 +407,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             };
             RuntimeFixture fixture = RuntimeFixture.Create(
                 OperationFinalizeFailureSource(ids),
-                CreateCatalog(true, OperationSectionMode.Discrete),
+                CreateCatalog(true, Mode.Discrete),
                 control,
                 true,
-                OperationSectionMode.Discrete);
+                Mode.Discrete);
             Assert.IsTrue(fixture.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
 
             StagedGraphStep first = fixture.Stage(0.1d);
             Assert.IsTrue(first.OperationFrame.TryGet(
                 fixture.OperationHandle,
-                out OperationSectionEntry<IRuntimeContractOperationSection> firstEntry));
+                out OperationEntry<IRuntimeContractOperationSection> firstEntry));
             Assert.AreEqual(1UL, firstEntry.Header.OperationSequence.Value);
             Assert.IsTrue(fixture.Runtime.TryPrepareStagedCommit(
                 first,
@@ -454,7 +432,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StagedGraphStep retry = fixture.Stage(0.1d);
             Assert.IsTrue(retry.OperationFrame.TryGet(
                 fixture.OperationHandle,
-                out OperationSectionEntry<IRuntimeContractOperationSection> retryEntry));
+                out OperationEntry<IRuntimeContractOperationSection> retryEntry));
             Assert.AreEqual(
                 1UL,
                 retryEntry.Header.OperationSequence.Value,
@@ -464,11 +442,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StagedGraphStep following = fixture.Stage(0.1d);
             Assert.IsTrue(following.OperationFrame.TryGet(
                 fixture.OperationHandle,
-                out OperationSectionEntry<IRuntimeContractOperationSection> followingEntry));
+                out OperationEntry<IRuntimeContractOperationSection> followingEntry));
             Assert.AreEqual(2UL, followingEntry.Header.OperationSequence.Value);
             Assert.IsTrue(fixture.Runtime.TryCancelStagedStep(following, out _));
         }
 
+        /// <summary>令输出最终确认失败，核对故障信息及上次提交的时钟、路径和记忆。</summary>
         [Test]
         public void OperationFinalizeFailureFaultsAndRollsBackClockPathAndMemory()
         {
@@ -481,10 +460,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             };
             RuntimeFixture fixture = RuntimeFixture.Create(
                 OperationFinalizeFailureSource(ids),
-                CreateCatalog(true, OperationSectionMode.Discrete),
+                CreateCatalog(true, Mode.Discrete),
                 control,
                 true,
-                OperationSectionMode.Discrete);
+                Mode.Discrete);
             Assert.IsTrue(fixture.Runtime.TryStart(out CoCoDiagnostic start), start.Message);
 
             fixture.Accept(fixture.Stage(0.1d));
@@ -518,6 +497,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(1, ReadCommittedMemory(fixture.Runtime, 0, ids.StateA).UpdateCount);
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private static long _nextGraphInstance = 3000L;
+
         private static StateGraphSource AnySource(
             ContractIds ids,
             int invalidKind = 0,
@@ -538,9 +523,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 new[]
                 {
                     Transition(ids.FirstTransition, ids.StateA, ids.StateB, 100,
-                        TransitionWindow.Always, false, ids),
+                        TransitionWindow.Always),
                     Transition(ids.SecondTransition, ids.StateC, invalidKind == 3 ? ids.StateC : ids.StateA, 0,
-                        closedWindow ? laterWindow : TransitionWindow.Always, true, ids)
+                        closedWindow ? laterWindow : TransitionWindow.Always)
                 },
                 State(ids.StateC, invalidKind == 2 ? ids.Root : default, default, ids.UpdateOnlyDescriptor));
             return Source(ids, 0xC0407UL, layer);
@@ -553,9 +538,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 ids.StateA,
                 ids.StateB,
                 10,
-                TransitionWindow.Always,
-                false,
-                ids);
+                TransitionWindow.Always);
             var layer = new StateLayerSource(
                 ids.LowLayer,
                 ids.Root,
@@ -590,9 +573,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         ids.StateA,
                         ids.StateB,
                         10,
-                        window,
-                        false,
-                        ids)
+                        window)
                 });
             return Source(ids, 0xC0402UL, layer);
         }
@@ -616,17 +597,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         ids.StateA,
                         ids.StateB,
                         10,
-                        TransitionWindow.Always,
-                        true,
-                        ids),
+                        TransitionWindow.Always),
                     Transition(
                         ids.SecondTransition,
                         ids.StateA,
                         ids.StateC,
                         20,
-                        TransitionWindow.Always,
-                        true,
-                        ids)
+                        TransitionWindow.Always)
                 });
             return Source(ids, 0xC0403UL, layer);
         }
@@ -649,9 +626,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         ids.StateB,
                         ids.StateA,
                         10,
-                        TransitionWindow.Always,
-                        true,
-                        ids)
+                        TransitionWindow.Always)
                 });
             return Source(ids, 0xC0404UL, layer);
         }
@@ -721,40 +696,32 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             StateId source,
             StateId target,
             int priority,
-            TransitionWindow window,
-            bool withCondition,
-            ContractIds ids) =>
+            TransitionWindow window) =>
             new TransitionSource(
                 id,
                 source,
                 target,
                 priority,
-                window,
-                withCondition
-                    ? new[]
-                    {
-                        new ConditionSource(ids.ConditionDescriptor, ConditionConfig(1))
-                    }
-                    : Array.Empty<ConditionSource>());
+                window);
 
         private static GraphDescriptorCatalog CreateCatalog(
             bool withOperation,
-            OperationSectionMode operationMode = OperationSectionMode.Continuous,
+            Mode operationMode = Mode.Continuous,
             bool withAny = false)
         {
             ContractIds ids = ContractIds.Create();
             var builder = new GraphDescriptorCatalogBuilder();
-            OperationSectionId[] operations = null;
+            OperationId[] operations = null;
             if (withOperation)
             {
-                Assert.IsTrue(builder.TryRegisterOperationSection(
-                    ids.OperationSection,
+                Assert.IsTrue(builder.TryRegisterOperation(
+                    ids.Operation,
                     operationMode,
-                    new OperationSectionViewFactoryToken<
+                    new OperationViewFactoryToken<
                         IRuntimeContractOperationSection,
                         RuntimeContractOperationSectionViewFactory>(0xC040UL),
                     out CoCoDiagnostic operationDiagnostic), operationDiagnostic.Message);
-                operations = new[] { ids.OperationSection };
+                operations = new[] { ids.Operation };
             }
 
             if (withAny)
@@ -777,16 +744,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 builder,
                 ids.AllPhasesDescriptor,
                 operations);
-            Assert.IsTrue(builder.TryRegisterCondition(
-                ids.ConditionDescriptor,
-                1U,
-                new RuntimeContractConditionConfigFreezer(),
-                new ConditionRuntimeRegistration<
-                    RuntimeContractCondition,
-                    RuntimeContractConditionConfigSchema>(RuntimeContractSchemas.Condition),
-                null,
-                null,
-                out CoCoDiagnostic conditionDiagnostic), conditionDiagnostic.Message);
             Assert.IsTrue(builder.TryFreeze(
                 out GraphDescriptorCatalog catalog,
                 out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
@@ -832,7 +789,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         private static void RegisterState<TLogic>(
             GraphDescriptorCatalogBuilder builder,
             StateDescriptorId descriptorId,
-            OperationSectionId[] operations)
+            OperationId[] operations)
             where TLogic : StateLogic
         {
             Assert.IsTrue(builder.TryRegisterState(
@@ -858,15 +815,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return snapshot;
         }
 
-        private static FrozenConfigSnapshot ConditionConfig(int value)
-        {
-            FrozenConfigWriter<RuntimeContractConditionConfigSchema> writer =
-                RuntimeContractSchemas.Condition.CreateWriter();
-            Assert.IsTrue(writer.TryWrite(RuntimeContractSchemas.ConditionValue, value, out _));
-            Assert.IsTrue(writer.TrySeal(out FrozenConfigSnapshot snapshot, out _));
-            return snapshot;
-        }
-
         private static void AssertTrace(
             IReadOnlyList<CallbackRecord> actual,
             params (RuntimeContractCallbackPhase Phase, StateId StateId)[] expected)
@@ -879,12 +827,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>将已编译拓扑、时钟、工厂和观察器组装成可逐步执行的运行合同场景。</summary>
         private sealed class RuntimeFixture
         {
             private RuntimeFixture(
                 StateGraphRuntime runtime,
                 OperationFrame operationFrame,
-                OperationSectionHandle<IRuntimeContractOperationSection> operationHandle)
+                OperationHandle<IRuntimeContractOperationSection> operationHandle)
             {
                 Runtime = runtime;
                 OperationFrame = operationFrame;
@@ -893,25 +842,25 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public StateGraphRuntime Runtime { get; }
             public OperationFrame OperationFrame { get; }
-            public OperationSectionHandle<IRuntimeContractOperationSection> OperationHandle { get; }
+            public OperationHandle<IRuntimeContractOperationSection> OperationHandle { get; }
 
             public static RuntimeFixture Create(
                 StateGraphSource source,
                 GraphDescriptorCatalog catalog,
                 RuntimeContractControl control,
                 bool withOperation,
-                OperationSectionMode operationMode = OperationSectionMode.Continuous)
+                Mode operationMode = Mode.Continuous)
             {
                 StateGraphCompileResult result = new StateGraphCompiler().Compile(source, catalog);
                 Assert.IsTrue(result.Succeeded, JoinDiagnostics(result.Diagnostics));
                 CompiledStateGraph graph = result.Graph;
 
-                var registryBuilder = new OperationSectionRegistryBuilder();
-                OperationSectionRequirement operationRequirement = default;
+                var registryBuilder = new OperationRegistryBuilder();
+                OperationRequirement operationRequirement = default;
                 if (withOperation)
                 {
                     Assert.IsTrue(registryBuilder.TryRegister(
-                        control.Ids.OperationSection,
+                        control.Ids.Operation,
                         operationMode,
                         new RuntimeContractOperationSectionViewFactory(),
                         out operationRequirement,
@@ -920,16 +869,16 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
                 Assert.IsTrue(registryBuilder.TryFreeze(
                     graph.OperationProvides.LayoutId,
-                    out OperationSectionRegistry registry,
+                    out OperationRegistry registry,
                     out CoCoDiagnostic registryDiagnostic), registryDiagnostic.Message);
-                OperationSectionHandle<IRuntimeContractOperationSection> operationHandle = default;
+                OperationHandle<IRuntimeContractOperationSection> operationHandle = default;
                 if (withOperation)
                 {
                     Assert.IsTrue(registry.TryResolve(operationRequirement, out operationHandle));
                     Assert.IsTrue(registry.TryResolveField(
                         operationHandle,
                         0,
-                        out OperationSectionField<int> valueField));
+                        out OperationField<int> valueField));
                     control.OperationField = valueField;
                     control.OperationHandle = operationHandle;
                 }
@@ -938,9 +887,9 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 Assert.IsTrue(GraphInstanceId.TryCreate(
                     (ulong)instanceValue,
                     out GraphInstanceId graphInstanceId));
-                IReadOnlyList<OperationSectionRequirement> requirements = withOperation
+                IReadOnlyList<OperationRequirement> requirements = withOperation
                     ? new[] { operationRequirement }
-                    : Array.Empty<OperationSectionRequirement>();
+                    : Array.Empty<OperationRequirement>();
                 Assert.IsTrue(OperationFrame.TryCreate(
                     registry,
                     graphInstanceId,
@@ -1003,7 +952,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 bool enterUpdate = false;
                 bool updateExit = false;
                 bool allPhases = false;
-                bool condition = false;
                 for (int layerIndex = 0; layerIndex < graph.Layers.Count; layerIndex++)
                 {
                     CompiledStateLayer layer = graph.Layers[layerIndex];
@@ -1018,12 +966,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         allPhases |= descriptorId == control.Ids.AllPhasesDescriptor;
                     }
 
-                    for (int transitionIndex = 0;
-                         transitionIndex < layer.Transitions.Count;
-                         transitionIndex++)
-                    {
-                        condition |= layer.Transitions[transitionIndex].Conditions.Count > 0;
-                    }
                 }
 
                 var builder = new StateGraphLogicBindingsBuilder(graph);
@@ -1100,15 +1042,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                             FingerprintMemory));
                 }
 
-                if (condition)
-                {
-                    Assert.IsTrue(builder.TryBindCondition(
-                        control.Ids.ConditionDescriptor,
-                        new ConditionRuntimeFactory<RuntimeContractCondition>(
-                            context => new RuntimeContractCondition(context, control)),
-                        out CoCoDiagnostic diagnostic), diagnostic.Message);
-                }
-
                 Assert.IsTrue(builder.TryFreeze(
                     out StateGraphLogicBindings bindings,
                     out CoCoDiagnostic freezeDiagnostic), freezeDiagnostic.Message);
@@ -1150,6 +1083,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>在步进前指定出边请求和进度，并收集每个状态的实际回调。</summary>
         private sealed class RuntimeContractControl : IRuntimeContractObserver
         {
             private StateId _lowRoot;
@@ -1169,19 +1103,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public bool RecordCallbacks = true;
             public bool RequestFirst;
             public bool RequestSecond;
-            public bool ThrowOnCondition;
             public bool WriteOperations;
             public bool WriteOnExit;
             public bool EnableDiscreteOperation;
             public int TransitionRequestCheckCount;
-            public int ConditionEvaluationCount;
-            public StateId AnyConditionSource;
-            public StateId AnyConditionActiveLeaf;
-            public TransitionId RejectedConditionTransition;
             public StateId ActionProgressState;
             public double DesiredActionProgress;
-            public OperationSectionField<int> OperationField;
-            public OperationSectionHandle<IRuntimeContractOperationSection> OperationHandle;
+            public OperationField<int> OperationField;
+            public OperationHandle<IRuntimeContractOperationSection> OperationHandle;
 
             public void ConfigureOperationStates(
                 StateId lowRoot,
@@ -1205,25 +1134,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public double GetActionProgress(StateId stateId, double currentValue) =>
                 stateId == ActionProgressState ? DesiredActionProgress : currentValue;
-
-            public bool EvaluateCondition(
-                TransitionId transitionId,
-                ConditionEvaluationContext context)
-            {
-                ConditionEvaluationCount++;
-                if (context.SourceStateId == Ids.StateC)
-                {
-                    AnyConditionSource = context.SourceStateId;
-                    AnyConditionActiveLeaf = context.ActiveLeafStateId;
-                }
-
-                if (ThrowOnCondition)
-                {
-                    throw new InvalidOperationException("synthetic Condition failure");
-                }
-
-                return transitionId != RejectedConditionTransition;
-            }
 
             public void OnStateCallback(
                 RuntimeContractCallbackPhase phase,
@@ -1265,6 +1175,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>保存一个节点实际收到的生命周期阶段及相关时间数据。</summary>
         private readonly struct CallbackRecord
         {
             public CallbackRecord(
@@ -1291,6 +1202,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public double ActionProgress { get; }
         }
 
+        /// <summary>为合同测试的各层、节点和出边提供可复核的固定标识。</summary>
         private readonly struct ContractIds
         {
             private const ulong High = 0xC04UL;
@@ -1314,8 +1226,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 StateDescriptorId enterUpdateDescriptor,
                 StateDescriptorId updateExitDescriptor,
                 StateDescriptorId allPhasesDescriptor,
-                ConditionDescriptorId conditionDescriptor,
-                OperationSectionId operationSection,
+                OperationId operationSection,
                 TimelineId timeline,
                 ClockDomainId clockDomain)
             {
@@ -1337,8 +1248,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 EnterUpdateDescriptor = enterUpdateDescriptor;
                 UpdateExitDescriptor = updateExitDescriptor;
                 AllPhasesDescriptor = allPhasesDescriptor;
-                ConditionDescriptor = conditionDescriptor;
-                OperationSection = operationSection;
+                Operation = operationSection;
                 Timeline = timeline;
                 ClockDomain = clockDomain;
             }
@@ -1361,8 +1271,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public StateDescriptorId EnterUpdateDescriptor { get; }
             public StateDescriptorId UpdateExitDescriptor { get; }
             public StateDescriptorId AllPhasesDescriptor { get; }
-            public ConditionDescriptorId ConditionDescriptor { get; }
-            public OperationSectionId OperationSection { get; }
+            public OperationId Operation { get; }
             public TimelineId Timeline { get; }
             public ClockDomainId ClockDomain { get; }
 
@@ -1398,14 +1307,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     High,
                     43UL,
                     out StateDescriptorId allPhasesDescriptor);
-                ConditionDescriptorId.TryCreate(
-                    High,
-                    50UL,
-                    out ConditionDescriptorId conditionDescriptor);
-                OperationSectionId.TryCreate(
+                OperationId.TryCreate(
                     High,
                     60UL,
-                    out OperationSectionId operationSection);
+                    out OperationId operationSection);
                 TimelineId.TryCreate(High, 70UL, out TimelineId timeline);
                 ClockDomainId.TryCreate(71UL, out ClockDomainId clockDomain);
                 return new ContractIds(
@@ -1427,11 +1332,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     enterUpdateDescriptor,
                     updateExitDescriptor,
                     allPhasesDescriptor,
-                    conditionDescriptor,
                     operationSection,
                     timeline,
                     clockDomain);
             }
         }
+
+        #endregion
     }
 }

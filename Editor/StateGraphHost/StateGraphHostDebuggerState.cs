@@ -4,14 +4,13 @@ using System.Globalization;
 using CoCoFlow.Editor.Core;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Persistence;
 using UnityEditor;
 using UnityEngine;
 
 namespace CoCoFlow.Editor.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal enum DebuggerSnapshotFreshness
     {

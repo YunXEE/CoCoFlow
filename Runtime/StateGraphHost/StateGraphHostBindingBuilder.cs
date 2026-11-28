@@ -4,11 +4,10 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// Host 启动前用本构建器把已编译图所需的来源、Operator 与 Context 编解码器接入运行实例。
+namespace CoCoFlow.Runtime.StateGraph
 {
-    /// <summary>
-    /// Matches compiled requirements to state factories, scene input sources and context producers.
-    /// </summary>
+    /// <summary>将图编译所需的项目绑定、场景来源与 Context 编解码器接入某个 Host。</summary>
     internal sealed class StateGraphHostBindingBuilder
     {
         private readonly CompiledStateGraph _graph;
@@ -17,7 +16,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private readonly IReadOnlyList<MonoBehaviour> _intentSourceComponents;
 
         private readonly StateGraphLogicBindingsBuilder _logic;
-        private readonly OperationSectionRegistryBuilder _operations;
+        private readonly OperationRegistryBuilder _operations;
         private readonly ContextFrameLayoutBuilder _contextLayout;
         private readonly ContextCodecRegistry _contextCodecs;
         private readonly List<ContextCodecBinding> _contextCodecBindings;
@@ -27,7 +26,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private readonly bool[] _boundIntentSourceSlots;
 
         private readonly HashSet<EntityId> _boundIntentComponentIds;
-        private readonly List<OperationSectionRequirement> _operationRequirements;
+        private readonly List<OperationRequirement> _operationRequirements;
         private readonly List<IGraphContextProducerBinding> _graphContextProducers;
         private readonly List<IHostIntentContribution> _intentContributions;
         private int _nextContextSlotIndex;
@@ -47,7 +46,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             _intentSourceComponents = host?.IntentSources ?? Array.Empty<MonoBehaviour>();
 
             _logic = new StateGraphLogicBindingsBuilder(graph);
-            _operations = new OperationSectionRegistryBuilder();
+            _operations = new OperationRegistryBuilder();
             _contextLayout = new ContextFrameLayoutBuilder();
             _contextCodecs = new ContextCodecRegistry();
             _contextCodecBindings = new List<ContextCodecBinding>();
@@ -76,7 +75,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             _boundIntentSourceSlots = new bool[_intentSourceComponents.Count];
 
             _boundIntentComponentIds = new HashSet<EntityId>();
-            _operationRequirements = new List<OperationSectionRequirement>(
+            _operationRequirements = new List<OperationRequirement>(
                 graph.OperationProvides.Count);
             _graphContextProducers = new List<IGraphContextProducerBinding>();
             _intentContributions = new List<IHostIntentContribution>();
@@ -96,17 +95,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             bool succeeded = _isFrozen
                 ? FrozenFailure(out diagnostic)
                 : _logic.TryBindState(descriptorId, factory, out diagnostic);
-            return succeeded || LatchFailure(diagnostic);
-        }
-
-        public bool TryBindCondition(
-            ConditionDescriptorId descriptorId,
-            IConditionRuntimeFactory factory,
-            out CoCoDiagnostic diagnostic)
-        {
-            bool succeeded = _isFrozen
-                ? FrozenFailure(out diagnostic)
-                : _logic.TryBindCondition(descriptorId, factory, out diagnostic);
             return succeeded || LatchFailure(diagnostic);
         }
 
@@ -222,20 +210,20 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return true;
         }
 
-        public bool TryRegisterOperation<TSection>(
-            OperationSectionId sectionId,
-            OperationSectionMode mode,
-            IOperationSectionViewFactory<TSection> viewFactory,
+        internal bool TryRegisterOperation<TOperation>(
+            OperationId operationId,
+            Mode mode,
+            IOperationViewFactory<TOperation> viewFactory,
             ulong semanticFingerprint,
-            out OperationSectionRequirement requirement,
+            out OperationRequirement requirement,
             out CoCoDiagnostic diagnostic)
-            where TSection : class, IOperationSection
+            where TOperation : class, IOperation
         {
             requirement = default;
             if (_isFrozen || semanticFingerprint == 0UL ||
-                !TryFindOperation(sectionId, out GraphOperationProvision compiled) ||
+                !TryFindOperation(operationId, out GraphOperationProvision compiled) ||
                 compiled.Mode != mode ||
-                compiled.SectionType != typeof(TSection) ||
+                compiled.OperationType != typeof(TOperation) ||
                 compiled.ViewFactoryType != viewFactory?.GetType() ||
                 compiled.ViewFactorySemanticFingerprint != semanticFingerprint)
             {
@@ -247,7 +235,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
             for (int index = 0; index < _operationRequirements.Count; index++)
             {
-                if (_operationRequirements[index].SectionId == sectionId)
+                if (_operationRequirements[index].OperationId == operationId)
                 {
                     diagnostic = RegistryError(
                         CoCoDiagnosticCode.DuplicateIdentifier,
@@ -257,7 +245,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             }
 
             if (!_operations.TryRegister(
-                    sectionId,
+                    operationId,
                     mode,
                     viewFactory,
                     out requirement,
@@ -353,7 +341,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             ulong defaultValueFingerprint,
             TBinding memoryBinding,
             out CoCoDiagnostic diagnostic)
-            where TMemory : ActivationMemory
+            where TMemory : StateActivationMemory
             where TState : unmanaged
             where TBinding : IActivationMemoryStateBinding<TMemory, TState>
         {
@@ -379,7 +367,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             IContextValueCodec<GraphStateRecord<TState>> codec,
             TBinding memoryBinding,
             out CoCoDiagnostic diagnostic)
-            where TMemory : ActivationMemory
+            where TMemory : StateActivationMemory
             where TState : unmanaged
             where TBinding : IActivationMemoryStateBinding<TMemory, TState>
         {
@@ -686,7 +674,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             if (_operationRequirements.Count != _graph.OperationProvides.Count ||
                 !_operations.TryFreeze(
                     _graph.OperationProvides.LayoutId,
-                    out OperationSectionRegistry operationRegistry,
+                    out OperationRegistry operationRegistry,
                     out diagnostic) ||
                 !OperationFrame.TryCreate(
                     operationRegistry,
@@ -863,14 +851,14 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
 
         private bool TryFindOperation(
-            OperationSectionId sectionId,
+            OperationId operationId,
             out GraphOperationProvision requirement)
         {
             IReadOnlyList<GraphOperationProvision> provides =
                 _graph.OperationProvides.Provides;
             for (int index = 0; index < provides.Count; index++)
             {
-                if (provides[index].SectionId == sectionId)
+                if (provides[index].OperationId == operationId)
                 {
                     requirement = provides[index];
                     return true;
@@ -1067,6 +1055,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return true;
         }
 
+        /// <summary>将项目 codec 注册到该实例对应的 Context 编解码目录。</summary>
         private readonly struct ContextCodecBinding
         {
             public ContextCodecBinding(

@@ -3,9 +3,9 @@
     "rootNamespace": "CoCoFlow.Runtime.Modules.Map.Temporal",
     "references": [
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
-        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Runtime.StateGraph",
         "UniTask"
     ],
     "includePlatforms": [],

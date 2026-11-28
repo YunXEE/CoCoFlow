@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Editor.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
@@ -260,7 +259,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     default,
                     default,
                     default,
-                    -1,
                     -1,
                     -1,
                     -1,

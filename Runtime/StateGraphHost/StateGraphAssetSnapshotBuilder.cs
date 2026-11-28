@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+// Host 和编辑器调用快照构建器，将 Unity 图、节点和冻结后的配置转换为纯编译输入。
+namespace CoCoFlow.Runtime.StateGraph
 {
+    /// <summary>保存资产编译时使用的纯图输入、内容身份与构建诊断。</summary>
     internal sealed class StateGraphAssetSnapshot
     {
         private readonly IReadOnlyList<GraphDiagnostic> preflightDiagnostics;
@@ -46,20 +48,20 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
     }
 
+    /// <summary>从 Unity 记录构造纯图源并在节点配置缺失时报告准确位置。</summary>
     internal static class StateGraphAssetSnapshotBuilder
     {
+        /// <summary>将属于同一层的节点配置指纹汇总到图内容指纹。</summary>
         private sealed class LayerConfigFingerprints
         {
             internal LayerConfigFingerprints(int stateCount, int transitionCount)
             {
                 States = new ulong[stateCount];
-                Conditions = new ulong[transitionCount][];
                 InvalidWindows = new ulong[transitionCount];
             }
 
             internal ulong[] States { get; }
             internal ulong AnyState;
-            internal ulong[][] Conditions { get; }
             internal ulong[] InvalidWindows { get; }
         }
 
@@ -202,7 +204,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                             default,
                             layerIndex,
                             -1,
-                            -1,
                             -1),
                         CoCoDiagnosticCode.MissingTopologyElement,
                         "StateGraph contains a null Layer record."));
@@ -231,7 +232,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                                 default,
                                 layerIndex,
                                 stateIndex,
-                                -1,
                                 -1),
                             CoCoDiagnosticCode.MissingTopologyElement,
                             "Layer contains a null State record."));
@@ -253,7 +253,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                                 default,
                                 layerIndex,
                                 stateIndex,
-                                -1,
                                 -1);
                         if (!managedReferenceInspection.ContainsLocation(configLocation))
                         {
@@ -281,66 +280,12 @@ namespace CoCoFlow.Runtime.StateGraphHost
                                 default,
                                 layerIndex,
                                 -1,
-                                transitionIndex,
-                                -1),
+                                transitionIndex),
                             CoCoDiagnosticCode.MissingTopologyElement,
                             "Layer contains a null Transition record."));
                         continue;
                     }
 
-                    TransitionId.TryCreate(
-                        transition.TransitionId.High,
-                        transition.TransitionId.Low,
-                        out TransitionId transitionId);
-                    StateId.TryCreate(
-                        transition.SourceStateId.High,
-                        transition.SourceStateId.Low,
-                        out StateId sourceStateId);
-                    for (int conditionIndex = 0;
-                         conditionIndex < transition.Conditions.Count;
-                         conditionIndex++)
-                    {
-                        StateGraphConditionRecord condition = transition.Conditions[conditionIndex];
-                        if (condition == null)
-                        {
-                            diagnostics.Add(Error(
-                                Location(
-                                    GraphElementKind.Condition,
-                                    GraphField.None,
-                                    graphId,
-                                    layerId,
-                                    sourceStateId,
-                                    transitionId,
-                                    layerIndex,
-                                    -1,
-                                    transitionIndex,
-                                    conditionIndex),
-                                CoCoDiagnosticCode.MissingTopologyElement,
-                                "Transition contains a null Condition record."));
-                            continue;
-                        }
-
-                        if (condition.Config == null)
-                        {
-                            GraphDiagnosticLocation configLocation = Location(
-                                    GraphElementKind.Condition,
-                                    GraphField.Config,
-                                    graphId,
-                                    layerId,
-                                    sourceStateId,
-                                    transitionId,
-                                    layerIndex,
-                                    -1,
-                                    transitionIndex,
-                                    conditionIndex);
-                            if (!managedReferenceInspection.ContainsLocation(configLocation))
-                            {
-                                diagnostics.Add(AuthoringError(
-                                    configLocation,
-                                    "Condition is missing its managed-reference Config."));
-                            }
-                        }
-                    }
                 }
             }
 
@@ -464,7 +409,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     configFreezer,
                     preflightDiagnostics,
                     adapterDiagnostics,
-                    out configFingerprints.Conditions[transitionIndex],
                     out configFingerprints.InvalidWindows[transitionIndex]);
             }
 
@@ -522,7 +466,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 default,
                 layerIndex,
                 stateIndex,
-                -1,
                 -1);
             FrozenConfigSnapshot frozenConfig = null;
             ulong authoringFingerprint = state.Config == null
@@ -543,7 +486,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                         default,
                         layerIndex,
                         stateIndex,
-                        -1,
                         -1),
                     CoCoDiagnosticCode.InvalidIdentifier,
                     "State has an invalid descriptor ID."));
@@ -586,7 +528,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
             StateGraphConfigFreezer configFreezer,
             ICollection<GraphDiagnostic> preflightDiagnostics,
             ICollection<GraphDiagnostic> adapterDiagnostics,
-            out ulong[] conditionFingerprints,
             out ulong invalidWindowFingerprint)
         {
             TransitionId.TryCreate(
@@ -614,116 +555,12 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     transition.WindowStartInclusive,
                     transition.WindowEndExclusive);
 
-            conditionFingerprints = new ulong[transition.Conditions.Count];
-            var conditionSources = new ConditionSource[transition.Conditions.Count];
-            for (int conditionIndex = 0; conditionIndex < transition.Conditions.Count; conditionIndex++)
-            {
-                StateGraphConditionRecord condition = transition.Conditions[conditionIndex];
-                if (condition == null)
-                {
-                    continue;
-                }
-
-                conditionSources[conditionIndex] = BuildCondition(
-                    condition,
-                    graphId,
-                    layerId,
-                    sourceStateId,
-                    transitionId,
-                    layerIndex,
-                    transitionIndex,
-                    conditionIndex,
-                    allowFreezing,
-                    configFreezer,
-                    preflightDiagnostics,
-                    adapterDiagnostics,
-                    out conditionFingerprints[conditionIndex]);
-            }
-
             return new TransitionSource(
                 transitionId,
                 sourceStateId,
                 targetStateId,
                 transition.Priority,
-                window,
-                conditionSources);
-        }
-
-        private static ConditionSource BuildCondition(
-            StateGraphConditionRecord condition,
-            GraphId graphId,
-            LayerId layerId,
-            StateId sourceStateId,
-            TransitionId transitionId,
-            int layerIndex,
-            int transitionIndex,
-            int conditionIndex,
-            bool allowFreezing,
-            StateGraphConfigFreezer configFreezer,
-            ICollection<GraphDiagnostic> preflightDiagnostics,
-            ICollection<GraphDiagnostic> adapterDiagnostics,
-            out ulong configFingerprint)
-        {
-            ConditionDescriptorId.TryCreate(
-                condition.ConditionDescriptorId.High,
-                condition.ConditionDescriptorId.Low,
-                out ConditionDescriptorId descriptorId);
-
-            FrozenConfigSnapshot frozenConfig = null;
-            ulong authoringFingerprint = condition.Config == null
-                ? 0UL
-                : StateGraphConfigFreezer.ComputeAuthoringFingerprint(condition.Config);
-            configFingerprint = condition.Config == null
-                ? 0UL
-                : ComputeFailedConfigFingerprint(authoringFingerprint, CoCoDiagnostic.None);
-            if (!descriptorId.IsValid)
-            {
-                preflightDiagnostics.Add(Error(
-                    Location(
-                        GraphElementKind.Condition,
-                        GraphField.Descriptor,
-                        graphId,
-                        layerId,
-                        sourceStateId,
-                        transitionId,
-                        layerIndex,
-                        -1,
-                        transitionIndex,
-                        conditionIndex),
-                    CoCoDiagnosticCode.InvalidIdentifier,
-                    "Condition has an invalid descriptor ID."));
-            }
-            else if (allowFreezing && condition.Config != null)
-            {
-                if (!configFreezer.TryFreezeCondition(
-                        descriptorId,
-                        condition.Config,
-                        Location(
-                            GraphElementKind.Condition,
-                            GraphField.Config,
-                            graphId,
-                            layerId,
-                            sourceStateId,
-                            transitionId,
-                            layerIndex,
-                            -1,
-                            transitionIndex,
-                            conditionIndex),
-                        out frozenConfig,
-                        out GraphDiagnostic configDiagnostic))
-                {
-                    adapterDiagnostics.Add(configDiagnostic);
-                    configFingerprint = ComputeFailedConfigFingerprint(
-                        authoringFingerprint,
-                        configDiagnostic.Diagnostic);
-                }
-                else
-                {
-                    configFingerprint = frozenConfig.Fingerprint;
-                }
-            }
-
-            return new ConditionSource(descriptorId, frozenConfig);
+                window);
         }
 
         private static GraphDiagnosticLocation GraphLocation(
@@ -736,7 +573,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 default,
                 default,
                 default,
-                -1,
                 -1,
                 -1,
                 -1);
@@ -754,7 +590,6 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 -1,
                 -1,
                 -1,
-                -1,
                 declarationIndex);
 
         private static GraphDiagnosticLocation Location(
@@ -766,8 +601,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             TransitionId transitionId,
             int layerIndex,
             int stateIndex,
-            int transitionIndex,
-            int conditionIndex) =>
+            int transitionIndex) =>
             new GraphDiagnosticLocation(
                 elementKind,
                 field,
@@ -777,8 +611,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 transitionId,
                 layerIndex,
                 stateIndex,
-                transitionIndex,
-                conditionIndex);
+                transitionIndex);
 
         private static GraphDiagnostic Error(
             GraphDiagnosticLocation location,
@@ -916,37 +749,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                         Add(ref hash, 0x494E56414C494457UL);
                         Add(ref hash, invalidWindowFingerprint);
                     }
-                    Add(ref hash, transition.Conditions?.Count ?? -1);
-                    if (transition.Conditions == null)
-                    {
-                        continue;
-                    }
-
-                    ulong[] transitionConditionFingerprints =
-                        layerConfigFingerprints != null &&
-                        transitionIndex < layerConfigFingerprints.Conditions.Length
-                            ? layerConfigFingerprints.Conditions[transitionIndex]
-                            : null;
-                    for (int conditionIndex = 0;
-                         conditionIndex < transition.Conditions.Count;
-                         conditionIndex++)
-                    {
-                        ConditionSource condition = transition.Conditions[conditionIndex];
-                        if (condition == null)
-                        {
-                            Add(ref hash, ulong.MaxValue);
-                            continue;
-                        }
-
-                        Add(ref hash, condition.DescriptorId.High);
-                        Add(ref hash, condition.DescriptorId.Low);
-                        Add(
-                            ref hash,
-                            transitionConditionFingerprints != null &&
-                            conditionIndex < transitionConditionFingerprints.Length
-                                ? transitionConditionFingerprints[conditionIndex]
-                                : condition.Config?.Fingerprint ?? 0UL);
-                    }
+                    Add(ref hash, 0);
                 }
             }
 
@@ -987,7 +790,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 Add(ref hash, diagnostic.Location.LayerIndex);
                 Add(ref hash, diagnostic.Location.StateIndex);
                 Add(ref hash, diagnostic.Location.TransitionIndex);
-                Add(ref hash, diagnostic.Location.ConditionIndex);
+                Add(ref hash, -1);
                 Add(ref hash, diagnostic.Location.EventAdapterDeclarationIndex);
             }
 

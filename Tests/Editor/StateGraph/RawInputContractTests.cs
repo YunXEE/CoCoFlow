@@ -1,3 +1,4 @@
+using CoCoFlow.Runtime.Input.Contracts;
 using CoCoFlow.Runtime.StateGraph;
 using NUnit.Framework;
 
@@ -50,14 +51,14 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void Intent_TryGetReadsChangesThenCurrentBeyondEightRecords()
         {
-            Assert.IsFalse(default(InputIntentData).TryGet(0, out _));
+            Assert.IsFalse(default(InputIntentContract).TryGet(0, out _));
             var changes = new RawInputRecord[10];
             for (int index = 0; index < changes.Length; index++)
             {
                 changes[index] = Record("Jump", RawInputPhase.Performed, (ulong)(index + 1));
             }
 
-            var intent = new InputIntentData(default, changes, new[] { Record("Move", RawInputPhase.Held) });
+            var intent = new InputIntentContract(default, changes, new[] { Record("Move", RawInputPhase.Held) });
             Assert.AreEqual(11, intent.Count);
             Assert.IsTrue(intent.TryGet(9, out RawInputRecord lastChange));
             Assert.AreEqual(10UL, lastChange.Sequence);
@@ -70,7 +71,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
         [Test]
         public void Intent_TryFindMatchesPhaseAndReturnsFirstDuplicate()
         {
-            var intent = new InputIntentData(default, new[]
+            var intent = new InputIntentContract(default, new[]
             {
                 Record("Jump", RawInputPhase.Started, 1),
                 Record("Jump", RawInputPhase.Performed, 2),

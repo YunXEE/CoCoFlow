@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Modules.Camera;
+using CoCoFlow.Runtime.Modules.Locomotion;
 using CoCoFlow.Tests.GameplayBinding;
 using NUnit.Framework;
 using Unity.Cinemachine;
@@ -13,17 +13,22 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
+// 实际启动手动 Host，验证项目状态的伤害和摄像机输出、移动、上一提交的 Context 与失败诊断。
 namespace CoCoFlow.Tests.Runtime.StateGraphHost
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
+    /// <summary>实际启动手动 Host，验证项目状态的伤害和摄像机输出、移动、上一提交的 Context 与失败诊断。</summary>
     public sealed class DeclarativeGameplayPlayModeTests
     {
-        private readonly List<Object> _objects = new List<Object>();
 
+        #region Public API
+
+        /// <summary>重置已安装的项目绑定，使本例独立装配标准 Provider。</summary>
         [SetUp]
         public void Setup() => StateGraphProjectBindings.ResetForTests();
 
+        /// <summary>释放本例创建的场景对象并清除安装的项目绑定。</summary>
         [TearDown]
         public void Teardown()
         {
@@ -32,6 +37,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StateGraphProjectBindings.ResetForTests();
         }
 
+        /// <summary>投递定向输入并实际步进 Host，对照自定义输出、上一提交的账本及拒绝候选后的值。</summary>
         [UnityTest]
         public IEnumerator EnemyAndDamageUseTheStandardHost()
         {
@@ -39,6 +45,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var host = CreateHost<EnemyLogic>("P001.Enemy");
             var enemy = host.gameObject.AddComponent<EnemyIntent>();
             var damage = host.gameObject.AddComponent<DamageOperator>();
+            EnemyLogic.Ledger = DamageOperator.Ledger;
             host.gameObject.AddComponent<InteractionReceiver>().PlayerId = 7;
             Set(host, "intentSources", new MonoBehaviour[] { enemy });
             Set(host, "operators", new MonoBehaviour[] { damage });
@@ -66,6 +73,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 Assert.AreEqual(23, damage.LastWindow);
                 Assert.AreEqual(24, damage.LastPulse);
                 Assert.AreEqual(0, damage.PreviousLedger);
+                Assert.AreEqual(0, EnemyLogic.PreviousLedger);
                 Assert.AreEqual(1, EnemyLogic.RepeatedRead);
                 Assert.IsFalse(EnemyLogic.LastBatch.TryRead(0, out _));
                 CollectionAssert.AreEqual(new[] { 23 }, started);
@@ -76,6 +84,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoEventBus.Publish(new Interaction { PlayerId = 7, Window = 51 });
                 Assert.IsTrue(host.TryStep(.05, out diagnostic), diagnostic.Message);
                 Assert.AreEqual(23, damage.PreviousLedger);
+                Assert.AreEqual(23, EnemyLogic.PreviousLedger);
                 Assert.AreEqual(23, EnemyLogic.LastContact);
                 Assert.IsTrue(host.TryBeginTemporalPreview(out diagnostic), diagnostic.Message);
                 Assert.IsTrue(host.TryPreviewTemporal(1, out diagnostic), diagnostic.Message);
@@ -87,6 +96,9 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 damage.Reject = true;
                 CoCoEventBus.Publish(new Interaction { PlayerId = 7, Window = 87 });
                 Assert.IsFalse(host.TryStep(.05, out _));
+                Assert.AreEqual(23, EnemyLogic.PreviousLedger);
+                Assert.AreEqual(23, damage.PreviousLedger);
+                Assert.AreEqual(23, host.CurrentContext.Read(ledger));
                 CollectionAssert.AreEqual(new[] { 23, 51 }, started);
                 Assert.AreEqual(2, directed.Count);
             }
@@ -94,9 +106,11 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
                 CoCoServices.Unregister(service); events.UnsubscribeAll(); }
         }
 
+        /// <summary>在一次手动步进中写移动与多个机位字段，比较实际位移和优先级，并在下一步空写时复核。</summary>
         [UnityTest]
-        public IEnumerator CameraUsesTheSameIntentPath()
+        public IEnumerator CameraAndLocomotionUseTheSameHostStepAndOnlyApplyRequestedOutputs()
         {
+            CameraProbeLogic.RequestShot = false;
             Install();
             var host = CreateHost<CameraProbeLogic>("P001.Camera");
             host.transform.position = new Vector3(14, 8, 3);
@@ -107,13 +121,46 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             var source = host.gameObject.AddComponent<CameraIntent>();
             Set(source, "director", director);
             Set(host, "intentSources", new MonoBehaviour[] { source });
+            var cameraOperator = host.gameObject.AddComponent<CameraOperator>();
+            Set(cameraOperator, "director", director);
+            host.gameObject.AddComponent<CharacterController>();
+            var movement = host.gameObject.AddComponent<LocomotionOperator>();
+            Set(host, "operators", new MonoBehaviour[] { cameraOperator, movement });
+
+            var child = new GameObject("Shot rig");
+            child.transform.SetParent(host.transform, false);
+            var rig = child.AddComponent<CameraRig>();
+            var camera = child.AddComponent<CinemachineCamera>();
+            Set(rig, "cameras", new List<CameraRigCameraEntry> { new CameraRigCameraEntry("Follow", camera) });
+            Set(rig, "currentModeId", "Follow");
+            rig.SetPriority(8);
+            director.RegisterRig(rig);
+            var rigMap = AddNumericMapping(director, "rigMappings");
+            Set(rigMap, "rigId", 1);
+            Set(rigMap, "rig", rig);
+            var cameraMap = AddNumericMapping(rigMap, "cameras");
+            Set(cameraMap, "cameraId", 2);
+            Set(cameraMap, "modeId", "Follow");
             yield return null;
             Assert.IsTrue(host.TryStart(out var diagnostic), diagnostic.Message);
             Assert.IsTrue(host.TryStep(.05, out diagnostic), diagnostic.Message);
             Assert.AreEqual(14f, CameraProbeLogic.Sample.PositionX);
-            Assert.AreEqual(8f, CameraProbeLogic.Sample.PositionY);
+            Assert.That(CameraProbeLogic.Sample.PositionY, Is.EqualTo(8f).Within(0.01f));
+            Assert.AreEqual(8, rig.Priority);
+            float z = host.transform.position.z;
+            CameraProbeLogic.RequestShot = true;
+            Assert.IsTrue(host.TryStep(.05, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(20, rig.Priority);
+            Assert.Greater(host.transform.position.z, z);
+            rig.SetPriority(37);
+            z = host.transform.position.z;
+            CameraProbeLogic.RequestShot = false;
+            Assert.IsTrue(host.TryStep(.05, out diagnostic), diagnostic.Message);
+            Assert.AreEqual(37, rig.Priority);
+            Assert.That(host.transform.position.z, Is.EqualTo(z).Within(0.001f));
         }
 
+        /// <summary>将缺少模式的接口登记为 Operator 要件，检查异常指明具体的接口。</summary>
         [Test]
         public void MissingModeNamesTheSection()
         {
@@ -122,6 +169,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StringAssert.Contains(nameof(IMissingModeSection), error.Message);
         }
 
+        /// <summary>分别缺失和重复配置同类型来源，检查启动诊断均能指出相应的载荷。</summary>
         [UnityTest]
         public IEnumerator MissingAndConflictingSourcesNameThePayload()
         {
@@ -142,9 +190,16 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             StringAssert.Contains(nameof(EnemyIntentData), diagnostic.Message);
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private readonly List<Object> _objects = new List<Object>();
+
         private static void Install()
         {
-            var provider = StandardBindingProvider.Build(new[] { typeof(EnemyLogic).Assembly, typeof(DamageOperator).Assembly });
+            var provider = StandardBindingProvider.Build(new[] { typeof(EnemyLogic).Assembly, typeof(DamageOperator).Assembly,
+                typeof(CameraOperator).Assembly, typeof(LocomotionOperator).Assembly });
             Assert.IsTrue(StateGraphProjectBindings.TryInstall(provider, out var diagnostic), diagnostic.Message);
         }
 
@@ -168,7 +223,20 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost
             return host;
         }
 
+        private static object AddNumericMapping(object owner, string fieldName)
+        {
+            var field = owner.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var type = field.FieldType.GetElementType();
+            var mapping = Activator.CreateInstance(type, true);
+            var values = Array.CreateInstance(type, 1);
+            values.SetValue(mapping, 0);
+            field.SetValue(owner, values);
+            return mapping;
+        }
+
         private static void Set(object instance, string field, object value) =>
-            instance.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(instance, value);
+            instance.GetType().GetField(field, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).SetValue(instance, value);
+
+        #endregion
     }
 }

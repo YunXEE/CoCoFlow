@@ -5,10 +5,16 @@ using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures;
 using NUnit.Framework;
 
+// EditMode 驱动图实例执行、暂停和恢复，读取实际路径、记忆与时间线。
 namespace CoCoFlow.Tests.Editor.StateGraph
 {
+    /// <summary>EditMode 驱动图实例执行、暂停和恢复，读取实际路径、记忆与时间线。</summary>
     public sealed class StateGraphRuntimeTests
     {
+
+        #region Public API
+
+        /// <summary>请求转换并连续步进两次，核对源在当前步退出、目标在下一步进入。</summary>
         [Test]
         public void TransitionTickKeepsSourcePathAndTargetEntersOnFollowingTick()
         {
@@ -28,7 +34,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Control.RequestAtoB = true;
             StagedGraphStep transition = fixture.Stage();
             CollectionAssert.AreEqual(
-                new[] { "update:root:1", "update:a:1", "condition:a-b", "exit:a:2" },
+                new[] { "update:root:1", "update:a:1", "exit:a:2" },
                 fixture.Trace);
             Assert.AreEqual(
                 fixture.StateA,
@@ -46,6 +52,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(targetTick);
         }
 
+        /// <summary>检查提交跟踪的路径和胜者，确保前一步的胜出边不会延续到当前步。</summary>
         [Test]
         public void CommittedTraceSeamReportsPathAndOnlyTheCurrentTickWinner()
         {
@@ -104,6 +111,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             AssertPath(entries[1], fixture, following.TickFrame, fixture.StateB);
         }
 
+        /// <summary>读取候选至提交期间的跟踪，核对已接受请求、胜出边和提交的记录顺序。</summary>
         [Test]
         public void StagedTraceReportsAcceptedCandidateThenWinnerBeforeCommit()
         {
@@ -131,6 +139,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(staged);
         }
 
+        /// <summary>拒绝一次带转换与输出的步进，复核先前时钟、路径、记忆和操作状态。</summary>
         [Test]
         public void RejectedTickRollsBackPathMemoryClockAndOperationTransaction()
         {
@@ -162,6 +171,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(retried);
         }
 
+        /// <summary>准备提交后在最终确认前读取实例，检查公开状态仍指向上次成功结果。</summary>
         [Test]
         public void PreparedCommitKeepsAuthorityHiddenUntilNoFailBarrier()
         {
@@ -210,6 +220,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 "The checked compatibility wrapper must reject a consumed proof.");
         }
 
+        /// <summary>取消已经准备的提交，核对时钟、节点与操作并未推进。</summary>
         [Test]
         public void PreparedCommitCanStillCancelWithoutAdvancingAuthority()
         {
@@ -240,6 +251,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(retry);
         }
 
+        /// <summary>在新候选存在时尝试使用陈旧凭据，验证只拒绝旧凭据且新候选仍可处理。</summary>
         [Test]
         public void PreparedCommitPreflightRejectsStaleStepWithoutDisturbingCurrentCandidate()
         {
@@ -276,6 +288,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(2UL, fixture.Runtime.Clock.Tick.Value);
         }
 
+        /// <summary>准备历史恢复但尚未应用，核对外部仍读到当前成功提交。</summary>
         [Test]
         public void RestorePrepareKeepsAuthorityHiddenUntilNoFailApply()
         {
@@ -335,6 +348,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             sourceArena.Dispose();
         }
 
+        /// <summary>取消已经准备的恢复，确认现时路径与时钟没有变化。</summary>
         [Test]
         public void CancelledRestorePreparationLeavesCurrentGraphAndClockAuthoritative()
         {
@@ -370,6 +384,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             sourceArena.Dispose();
         }
 
+        /// <summary>使用不匹配指纹准备恢复，验证取消时钟候选并保留现时实例。</summary>
         [Test]
         public void RestoreFingerprintMismatchCancelsClockCandidateWithoutChangingAuthority()
         {
@@ -403,6 +418,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             sourceArena.Dispose();
         }
 
+        /// <summary>触发自环并分两步观察，核对当前退出、激活重置和随后重新进入。</summary>
         [Test]
         public void SelfLoopExitsNowResetsLeafActivationAndEntersNextTick()
         {
@@ -431,6 +447,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(next);
         }
 
+        /// <summary>在回调中写入更低的动作进度，检查错误与最近成功提交均可查询。</summary>
         [Test]
         public void ActionProgressDecreaseFaultsAndPreservesLastCommittedTick()
         {
@@ -455,6 +472,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.IsTrue(fixture.Runtime.TryStop(out _));
         }
 
+        /// <summary>交错驱动共享同一编译图的两个实例，核对时钟、记忆、路径与故障互相独立。</summary>
         [Test]
         public void TwoRuntimesSharingCompiledGraphKeepClockMemoryPathAndFaultIsolated()
         {
@@ -477,6 +495,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(second.StateA, second.Runtime.GetActivePath(0).ActiveLeaf);
         }
 
+        /// <summary>暂停实例后尝试步进，验证没有新帧产生且原状态保留。</summary>
         [Test]
         public void SuspendPreservesStateAndDoesNotProduceTicks()
         {
@@ -492,6 +511,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(2UL, fixture.Runtime.Clock.Tick.Value);
         }
 
+        /// <summary>预热正常与转换两种步进路径，然后以托管分配计数核查稳定阶段。</summary>
         [Test]
         public void NormalAndTransitionStepsHaveZeroSteadyStateManagedAllocations()
         {
@@ -535,6 +555,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0L, transitionAllocated);
         }
 
+        /// <summary>重复预热后的暂停与恢复，测量该路径的托管分配。</summary>
         [Test]
         public void SuspendResumeHasZeroSteadyStateManagedAllocations()
         {
@@ -560,6 +581,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             Assert.AreEqual(0L, allocated);
         }
 
+        /// <summary>仅请求最低整数优先级的边，核对它仍是合法候选并可胜出。</summary>
         [Test]
         public void MinimumPriorityIsStillAValidTransitionWinner()
         {
@@ -573,6 +595,10 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             fixture.Accept(transition);
             Assert.AreEqual(fixture.StateB, fixture.Runtime.GetActivePath(0).ActiveLeaf);
         }
+
+        #endregion
+
+        #region Internal Logic
 
         private static void AssertCommittedTrace(
             Fixture fixture,
@@ -667,6 +693,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             return tickFrame;
         }
 
+        /// <summary>在运行测试中保存恢复步骤所需的准备状态与回调结果。</summary>
         private sealed class RestoreContext : IStateGraphContextRuntime
         {
             private readonly CompiledStateGraph _graph;
@@ -693,7 +720,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public bool TryCaptureState(
                 int orderedStateIndex,
-                ActivationMemory memory,
+                StateActivationMemory memory,
                 bool isOnActivePath,
                 ActivationId activationId,
                 double localSeconds,
@@ -705,7 +732,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
 
             public bool TryValidateInitialStateDefault(
                 int orderedStateIndex,
-                ActivationMemory memory,
+                StateActivationMemory memory,
                 bool isOnActivePath,
                 ActivationId activationId,
                 double localSeconds,
@@ -742,7 +769,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public bool TryPrepareStateRestore(
                 int orderedStateIndex,
                 ContextRestoreReadView source,
-                ActivationMemory candidateMemory,
+                StateActivationMemory candidateMemory,
                 out StateGraphRestoreState state,
                 out CoCoDiagnostic diagnostic)
             {
@@ -848,6 +875,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     message);
         }
 
+        /// <summary>将执行器、时钟和观察器组合为运行及回滚测试的场景。</summary>
         private sealed class Fixture
         {
             private static ulong _nextInstanceId = 100UL;
@@ -908,24 +936,19 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                         memory => memory.Value = 0,
                         memory => unchecked((ulong)(uint)memory.Value)),
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
-                Assert.IsTrue(bindingBuilder.TryBindCondition(
-                    ids.ConditionDescriptor,
-                    new ConditionRuntimeFactory<RuntimeFixtureCondition>(
-                        context => new RuntimeFixtureCondition(context, control)),
-                    out diagnostic), diagnostic.Message);
                 Assert.IsTrue(bindingBuilder.TryFreeze(
                     out StateGraphLogicBindings bindings,
                     out diagnostic), diagnostic.Message);
 
-                var registryBuilder = new OperationSectionRegistryBuilder();
+                var registryBuilder = new OperationRegistryBuilder();
                 Assert.IsTrue(registryBuilder.TryFreeze(
                     graph.OperationProvides.LayoutId,
-                    out OperationSectionRegistry registry,
+                    out OperationRegistry registry,
                     out diagnostic), diagnostic.Message);
                 Assert.IsTrue(OperationFrame.TryCreate(
                     registry,
                     graphInstanceId,
-                    Array.Empty<OperationSectionRequirement>(),
+                    Array.Empty<OperationRequirement>(),
                     out OperationFrame operationFrame,
                     out diagnostic), diagnostic.Message);
                 Assert.IsTrue(ActorClock.TryCreate(
@@ -999,16 +1022,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     null,
                     null,
                     out CoCoDiagnostic diagnostic), diagnostic.Message);
-                Assert.IsTrue(catalogBuilder.TryRegisterCondition(
-                    ids.ConditionDescriptor,
-                    1U,
-                    new RuntimeFixtureConditionConfigFreezer(),
-                    new ConditionRuntimeRegistration<
-                        RuntimeFixtureCondition,
-                        RuntimeFixtureConditionConfigSchema>(RuntimeFixtureSchemas.Condition),
-                    null,
-                    null,
-                    out diagnostic), diagnostic.Message);
                 Assert.IsTrue(catalogBuilder.TryFreeze(
                     out GraphDescriptorCatalog catalog,
                     out diagnostic), diagnostic.Message);
@@ -1021,18 +1034,13 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     ids.StateA,
                     ids.StateB,
                     aToBPriority,
-                    TransitionWindow.Always,
-                    new[]
-                    {
-                        new ConditionSource(ids.ConditionDescriptor, ConditionConfig(1))
-                    });
+                    TransitionWindow.Always);
                 var bSelf = new TransitionSource(
                     ids.BSelf,
                     ids.StateB,
                     ids.StateB,
                     10,
-                    TransitionWindow.Always,
-                    Array.Empty<ConditionSource>());
+                    TransitionWindow.Always);
                 var source = new StateGraphSource(
                     StateGraphCompiler.CurrentSchemaVersion,
                     0x404UL,
@@ -1073,15 +1081,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 return snapshot;
             }
 
-            private static FrozenConfigSnapshot ConditionConfig(int value)
-            {
-                FrozenConfigWriter<RuntimeFixtureConditionConfigSchema> writer =
-                    RuntimeFixtureSchemas.Condition.CreateWriter();
-                Assert.IsTrue(writer.TryWrite(RuntimeFixtureSchemas.ConditionValue, value, out _));
-                Assert.IsTrue(writer.TrySeal(out FrozenConfigSnapshot snapshot, out _));
-                return snapshot;
-            }
-
             private static string JoinDiagnostics(IReadOnlyList<GraphDiagnostic> diagnostics)
             {
                 string result = string.Empty;
@@ -1094,6 +1093,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>指定运行测试的出边请求和故障，并记录状态调用次序。</summary>
         private sealed class RuntimeControl : IRuntimeStateGraphFixtureObserver
         {
             private readonly List<string> _trace;
@@ -1121,6 +1121,7 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             }
         }
 
+        /// <summary>为运行测试的状态、层和转换提供固定标识。</summary>
         private readonly struct RuntimeIds
         {
             private RuntimeIds(
@@ -1132,7 +1133,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 TransitionId aToB,
                 TransitionId bSelf,
                 StateDescriptorId stateDescriptor,
-                ConditionDescriptorId conditionDescriptor,
                 FrameLayoutId operationLayout,
                 TimelineId timeline,
                 ClockDomainId clockDomain)
@@ -1145,7 +1145,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                 AToB = aToB;
                 BSelf = bSelf;
                 StateDescriptor = stateDescriptor;
-                ConditionDescriptor = conditionDescriptor;
                 OperationLayout = operationLayout;
                 Timeline = timeline;
                 ClockDomain = clockDomain;
@@ -1159,7 +1158,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
             public TransitionId AToB { get; }
             public TransitionId BSelf { get; }
             public StateDescriptorId StateDescriptor { get; }
-            public ConditionDescriptorId ConditionDescriptor { get; }
             public FrameLayoutId OperationLayout { get; }
             public TimelineId Timeline { get; }
             public ClockDomainId ClockDomain { get; }
@@ -1177,10 +1175,6 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     0x40UL,
                     8UL,
                     out StateDescriptorId stateDescriptor);
-                ConditionDescriptorId.TryCreate(
-                    0x40UL,
-                    9UL,
-                    out ConditionDescriptorId conditionDescriptor);
                 FrameLayoutId.TryCreate(0x40UL, 10UL, out FrameLayoutId operationLayout);
                 TimelineId.TryCreate(0x40UL, 11UL, out TimelineId timeline);
                 ClockDomainId.TryCreate(12UL, out ClockDomainId clockDomain);
@@ -1193,11 +1187,12 @@ namespace CoCoFlow.Tests.Editor.StateGraph
                     aToB,
                     bSelf,
                     stateDescriptor,
-                    conditionDescriptor,
                     operationLayout,
                     timeline,
                     clockDomain);
             }
         }
+
+        #endregion
     }
 }

@@ -2,8 +2,10 @@ using System;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 
+// Runtime 测试通过这些节点工厂和冻结配置驱动真实执行器并记录回调。
 namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
 {
+    /// <summary>使运行测试能决定更新行为并收集真实的进入、更新和退出记录。</summary>
     public interface IRuntimeStateGraphFixtureObserver
     {
         bool RequestAtoB { get; }
@@ -11,27 +13,27 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
         bool ThrowOnUpdate { get; }
         bool RecordCallbacks { get; }
         double ActionProgress { get; }
+        /// <summary>接收节点回调记录，供场景用例核对精确的进入、更新和退出顺序。</summary>
         void Record(string value);
     }
 
-    public sealed class RuntimeFixtureMemory : ActivationMemory
+    /// <summary>为运行测试保留激活级数据，以验证提交、切换和恢复。</summary>
+    public sealed class RuntimeFixtureMemory : StateActivationMemory
     {
         public int Value;
     }
 
+    /// <summary>按测试观察器的请求更新记忆、写出状态并记录生命周期。</summary>
     public sealed class RuntimeFixtureStateLogic :
         StateLogic,
         IStateEnter,
         IStateUpdate,
         IStateExit
     {
-        private readonly IRuntimeStateGraphFixtureObserver _observer;
-        private readonly StateId _stateId;
-        private readonly StateId _stateA;
-        private readonly StateId _stateB;
-        private readonly string _name;
-        private readonly TransitionHandle _transition;
 
+        #region Public API
+
+        /// <summary>保存观察器和工厂上下文中的节点身份，缺少观察器时抛出异常。</summary>
         public RuntimeFixtureStateLogic(
             StateFactoryContext context,
             IRuntimeStateGraphFixtureObserver observer,
@@ -50,6 +52,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
             }
         }
 
+        /// <summary>按观察器的记录开关写入本次进入的状态名和调用信息。</summary>
         public void OnEnter(StateExecutionContext context)
         {
             if (_observer.RecordCallbacks)
@@ -58,6 +61,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
             }
         }
 
+        /// <summary>由观察器控制记忆更新、出边请求及模拟故障，用于比较候选与已提交状态。</summary>
         public void Update(StateExecutionContext context)
         {
             if (_observer.ThrowOnUpdate)
@@ -83,6 +87,7 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
             }
         }
 
+        /// <summary>按观察器的记录开关写入本次退出的状态名和调用信息。</summary>
         public void OnExit(StateExecutionContext context)
         {
             if (_observer.RecordCallbacks)
@@ -90,54 +95,38 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
                 _observer.Record("exit:" + _name + ":" + context.Memory<RuntimeFixtureMemory>().Value);
             }
         }
-    }
 
-    public sealed class RuntimeFixtureCondition :
-        StateCondition,
-        IStateConditionEvaluator
-    {
+        #endregion
+
+        #region Internal Logic
+
         private readonly IRuntimeStateGraphFixtureObserver _observer;
+        private readonly StateId _stateId;
+        private readonly StateId _stateA;
+        private readonly StateId _stateB;
+        private readonly string _name;
+        private readonly TransitionHandle _transition;
 
-        public RuntimeFixtureCondition(
-            ConditionFactoryContext context,
-            IRuntimeStateGraphFixtureObserver observer)
-        {
-            _observer = observer ?? throw new ArgumentNullException(nameof(observer));
-        }
-
-        public bool Evaluate(ConditionEvaluationContext context)
-        {
-            if (_observer.RecordCallbacks)
-            {
-                _observer.Record("condition:a-b");
-            }
-            return true;
-        }
+        #endregion
     }
 
+    /// <summary>供运行测试在节点级配置实例工厂需要的初始值。</summary>
     [Serializable]
     public sealed class RuntimeFixtureStateAuthoringConfig : StateConfig
     {
         public int Value;
     }
 
-    [Serializable]
-    public sealed class RuntimeFixtureConditionAuthoringConfig : ConditionConfig
-    {
-        public int Value;
-    }
-
+    /// <summary>声明运行测试工厂读取的冻结字段结构。</summary>
     public readonly struct RuntimeFixtureStateConfigSchema : IFrozenConfigSchema
     {
     }
 
-    public readonly struct RuntimeFixtureConditionConfigSchema : IFrozenConfigSchema
-    {
-    }
-
+    /// <summary>将运行测试的节点字段写入预定义 schema，缺少源对象时报告诊断。</summary>
     public sealed class RuntimeFixtureStateConfigFreezer :
         IConfigFreezer<RuntimeFixtureStateAuthoringConfig, RuntimeFixtureStateConfigSchema>
     {
+        /// <summary>将运行测试的初始配置写入类型化字段，源对象缺失时返回失败诊断。</summary>
         public bool TryFreeze(
             RuntimeFixtureStateAuthoringConfig source,
             FrozenConfigWriter<RuntimeFixtureStateConfigSchema> writer,
@@ -156,29 +145,19 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
         }
     }
 
-    public sealed class RuntimeFixtureConditionConfigFreezer :
-        IConfigFreezer<RuntimeFixtureConditionAuthoringConfig, RuntimeFixtureConditionConfigSchema>
-    {
-        public bool TryFreeze(
-            RuntimeFixtureConditionAuthoringConfig source,
-            FrozenConfigWriter<RuntimeFixtureConditionConfigSchema> writer,
-            out CoCoDiagnostic diagnostic)
-        {
-            if (source == null)
-            {
-                diagnostic = CoCoDiagnostic.Error(
-                    CoCoDiagnosticDomain.State,
-                    CoCoDiagnosticCode.InvalidFrozenConfig,
-                    "Runtime fixture Condition config is required.");
-                return false;
-            }
-
-            return writer.TryWrite(RuntimeFixtureSchemas.ConditionValue, source.Value, out diagnostic);
-        }
-    }
-
+    /// <summary>维护运行测试所共享的 schema 和字段句柄。</summary>
     public static class RuntimeFixtureSchemas
     {
+
+        #region Public API
+
+        public static readonly FrozenConfigField<RuntimeFixtureStateConfigSchema, int> StateValue;
+        public static readonly FrozenConfigSchema<RuntimeFixtureStateConfigSchema> State;
+
+        #endregion
+
+        #region Internal Logic
+
         static RuntimeFixtureSchemas()
         {
             var stateBuilder = new FrozenConfigSchemaBuilder<RuntimeFixtureStateConfigSchema>();
@@ -190,25 +169,8 @@ namespace CoCoFlow.Runtime.Core.StateGraph.Tests.Fixtures
                 throw new InvalidOperationException(stateDiagnostic.Message);
             }
 
-            var conditionBuilder = new FrozenConfigSchemaBuilder<RuntimeFixtureConditionConfigSchema>();
-            CoCoDiagnostic conditionDiagnostic = CoCoDiagnostic.None;
-            if (!FrozenConfigFieldId.TryCreate(
-                    0x44UL,
-                    2UL,
-                    out FrozenConfigFieldId conditionId) ||
-                !conditionBuilder.TryAddField(
-                    conditionId,
-                    out ConditionValue,
-                    out conditionDiagnostic) ||
-                !conditionBuilder.TryFreeze(out Condition, out conditionDiagnostic))
-            {
-                throw new InvalidOperationException(conditionDiagnostic.Message);
-            }
         }
 
-        public static readonly FrozenConfigField<RuntimeFixtureStateConfigSchema, int> StateValue;
-        public static readonly FrozenConfigSchema<RuntimeFixtureStateConfigSchema> State;
-        public static readonly FrozenConfigField<RuntimeFixtureConditionConfigSchema, int> ConditionValue;
-        public static readonly FrozenConfigSchema<RuntimeFixtureConditionConfigSchema> Condition;
+        #endregion
     }
 }

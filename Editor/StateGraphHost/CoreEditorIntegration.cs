@@ -1,4 +1,4 @@
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using UnityEditor;
 
 namespace CoCoFlow.Editor.StateGraphHost

@@ -2,7 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     /// <summary>实体在 Host 中的生命周期阶段。</summary>
     [MovedFrom(true, sourceNamespace: "CoCoFlow.Runtime.Core", sourceAssembly: "CoCoFlow.Runtime.Core", sourceClassName: "CoCoLifecycleState")]

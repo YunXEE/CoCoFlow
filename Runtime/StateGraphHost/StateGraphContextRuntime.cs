@@ -5,7 +5,7 @@ using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
 using UnityEngine;
 
-namespace CoCoFlow.Runtime.StateGraphHost
+namespace CoCoFlow.Runtime.StateGraph
 {
     internal enum GraphContextProducerKind
     {
@@ -34,7 +34,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         bool TryCapture(
             ulong token,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -45,7 +45,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             out CoCoDiagnostic diagnostic);
 
         bool TryValidateInitialDefault(
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -70,7 +70,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         bool TryPrepareRestore(
             ContextRestoreReadView source,
-            ActivationMemory candidateMemory,
+            StateActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic);
 
         void ClearCapture();
@@ -86,7 +86,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
     internal sealed class GraphStateContextBinding<TMemory, TState, TBinding> :
         IGraphStateContextBinding
-        where TMemory : ActivationMemory
+        where TMemory : StateActivationMemory
         where TState : unmanaged
         where TBinding : IActivationMemoryStateBinding<TMemory, TState>
     {
@@ -141,7 +141,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         public bool TryCapture(
             ulong token,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -209,7 +209,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         }
 
         public bool TryValidateInitialDefault(
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -331,7 +331,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         public bool TryPrepareRestore(
             ContextRestoreReadView source,
-            ActivationMemory candidateMemory,
+            StateActivationMemory candidateMemory,
             out CoCoDiagnostic diagnostic)
         {
             if (!source.TryRead(_slot, out GraphStateRecord<TState> record) ||
@@ -539,7 +539,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
     internal sealed class StateGraphContextRuntime :
         IStateGraphContextRuntime,
         IStagedGraphReadSource,
-        IActorContextValueSink,
+        IHostContextValueSink,
         IDisposable
     {
         private readonly CompiledStateGraph _graph;
@@ -549,8 +549,8 @@ namespace CoCoFlow.Runtime.StateGraphHost
         private readonly IGraphValueContextBinding[] _values;
         private readonly StateSlotId[] _claimSlots;
         private readonly MonoBehaviour _actorComponent;
-        private readonly IActorContextBinding _actorBinding;
-        private readonly ActorContextBindingDescriptor _actorDescriptor;
+        private readonly IHostContextBinding _actorBinding;
+        private readonly HostContextBindingDescriptor _actorDescriptor;
         private readonly ActorValueBinding[] _actorValues;
         private readonly bool[] _actorWritten;
         private PreparedContextCommit _prepared;
@@ -570,8 +570,8 @@ namespace CoCoFlow.Runtime.StateGraphHost
             IGraphValueContextBinding[] values,
             StateSlotId[] claimSlots,
             MonoBehaviour actorComponent,
-            IActorContextBinding actorBinding,
-            ActorContextBindingDescriptor actorDescriptor,
+            IHostContextBinding actorBinding,
+            HostContextBindingDescriptor actorDescriptor,
             ActorValueBinding[] actorValues)
         {
             _graph = graph;
@@ -683,7 +683,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     {
                         diagnostic = Error(
                             CoCoDiagnosticCode.InvalidContextProducer,
-                            "Every compiled State must map to one exact Graph State record and ActivationMemory binding.");
+                            "Every compiled State must map to one exact Graph State record and StateActivationMemory binding.");
                         return false;
                     }
 
@@ -704,8 +704,8 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     host,
                     layout,
                     actorComponent,
-                    out IActorContextBinding actorBinding,
-                    out ActorContextBindingDescriptor actorDescriptor,
+                    out IHostContextBinding actorBinding,
+                    out HostContextBindingDescriptor actorDescriptor,
                     out ActorValueBinding[] actorValues,
                     out diagnostic))
             {
@@ -755,7 +755,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         public bool TryCaptureState(
             int orderedStateIndex,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -787,7 +787,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
 
         public bool TryValidateInitialStateDefault(
             int orderedStateIndex,
-            ActivationMemory memory,
+            StateActivationMemory memory,
             bool isOnActivePath,
             ActivationId activationId,
             double localSeconds,
@@ -896,11 +896,11 @@ namespace CoCoFlow.Runtime.StateGraphHost
             bool captured;
             try
             {
-                var context = new ActorContextCaptureContext(
+                var context = new HostContextCaptureContext(
                     _graphInstanceId,
                     tickFrame,
                     previous,
-                    new ActorContextWriter(
+                    new HostContextWriter(
                         _actorBinding,
                         _actorDescriptor,
                         this,
@@ -1065,7 +1065,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
         public bool TryPrepareStateRestore(
             int orderedStateIndex,
             ContextRestoreReadView source,
-            ActivationMemory candidateMemory,
+            StateActivationMemory candidateMemory,
             out StateGraphRestoreState header,
             out CoCoDiagnostic diagnostic)
         {
@@ -1199,15 +1199,15 @@ namespace CoCoFlow.Runtime.StateGraphHost
             return false;
         }
 
-        bool IActorContextValueSink.IsActive(
+        bool IHostContextValueSink.IsActive(
             ulong token,
-            IActorContextBinding binding) =>
+            IHostContextBinding binding) =>
             !_isDisposed && _actorCaptureActive && token != 0UL &&
             token == _activeToken && ReferenceEquals(binding, _actorBinding);
 
-        void IActorContextValueSink.RejectWrite(
+        void IHostContextValueSink.RejectWrite(
             ulong token,
-            IActorContextBinding binding)
+            IHostContextBinding binding)
         {
             if (_actorCaptureActive)
             {
@@ -1215,13 +1215,13 @@ namespace CoCoFlow.Runtime.StateGraphHost
             }
         }
 
-        bool IActorContextValueSink.TryWrite<TValue>(
+        bool IHostContextValueSink.TryWrite<TValue>(
             ulong token,
-            IActorContextBinding binding,
+            IHostContextBinding binding,
             StateSlotId slotId,
             in TValue value)
         {
-            if (!((IActorContextValueSink)this).IsActive(token, binding) ||
+            if (!((IHostContextValueSink)this).IsActive(token, binding) ||
                 !_layout.TryResolveSlot(slotId, out StateSlot<TValue> slot))
             {
                 return false;
@@ -1318,8 +1318,8 @@ namespace CoCoFlow.Runtime.StateGraphHost
             StateGraphHost host,
             ContextFrameLayout layout,
             MonoBehaviour component,
-            out IActorContextBinding actorBinding,
-            out ActorContextBindingDescriptor descriptor,
+            out IHostContextBinding actorBinding,
+            out HostContextBindingDescriptor descriptor,
             out ActorValueBinding[] values,
             out CoCoDiagnostic diagnostic)
         {
@@ -1327,7 +1327,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             for (int blockIndex = 0; blockIndex < layout.Blocks.Count; blockIndex++)
             {
                 StateBlockDescriptor block = layout.Blocks[blockIndex];
-                if (block.Owner != StateBlockOwner.Actor)
+                if (block.Owner != StateBlockOwner.Host)
                 {
                     continue;
                 }
@@ -1349,7 +1349,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 if (!ReferenceEquals(component, null))
                 {
                     diagnostic = Error(
-                        CoCoDiagnosticCode.InvalidActorBinding,
+                        CoCoDiagnosticCode.InvalidHostConfiguration,
                         "Actor Context component must be empty when the Layout has no direct Actor-owned Slot.");
                     return false;
                 }
@@ -1358,11 +1358,11 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 return true;
             }
 
-            if (component == null || !(component is IActorContextBinding typed) ||
+            if (component == null || !(component is IHostContextBinding typed) ||
                 !StateGraphHostBoundary.Contains(host, component))
             {
                 diagnostic = Error(
-                    CoCoDiagnosticCode.InvalidActorBinding,
+                    CoCoDiagnosticCode.InvalidHostConfiguration,
                     "Direct Actor-owned Slots require one live binding inside the Host boundary.");
                 return false;
             }
@@ -1374,7 +1374,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             catch (Exception)
             {
                 diagnostic = Error(
-                    CoCoDiagnosticCode.InvalidActorBinding,
+                    CoCoDiagnosticCode.InvalidHostConfiguration,
                     "Actor Context descriptor getter threw during preflight.");
                 return false;
             }
@@ -1384,7 +1384,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
                 descriptor.ValueCount != required.Count)
             {
                 diagnostic = Error(
-                    CoCoDiagnosticCode.InvalidActorBinding,
+                    CoCoDiagnosticCode.InvalidHostConfiguration,
                     "Actor Context descriptor must exactly match its component and every Actor-owned Slot.");
                 return false;
             }
@@ -1393,7 +1393,7 @@ namespace CoCoFlow.Runtime.StateGraphHost
             var seen = new HashSet<StateSlotId>();
             for (int index = 0; index < descriptor.Values.Count; index++)
             {
-                ActorContextValueRequirement declared = descriptor.Values[index];
+                HostContextValueRequirement declared = descriptor.Values[index];
                 StateSlotDescriptor slot = null;
                 StateBlockDescriptor block = null;
                 for (int blockIndex = 0; blockIndex < layout.Blocks.Count && slot == null; blockIndex++)
@@ -1410,13 +1410,13 @@ namespace CoCoFlow.Runtime.StateGraphHost
                     }
                 }
 
-                if (slot == null || block == null || block.Owner != StateBlockOwner.Actor ||
+                if (slot == null || block == null || block.Owner != StateBlockOwner.Host ||
                     slot.RestorePolicy == ContextRestorePolicy.Derived ||
                     slot.ValueType != declared.ValueType || !seen.Add(declared.SlotId) ||
                     !layout.TryResolveBlock(block.BlockId, out StateBlockHandle blockHandle))
                 {
                     diagnostic = Error(
-                        CoCoDiagnosticCode.InvalidActorBinding,
+                        CoCoDiagnosticCode.InvalidHostConfiguration,
                         "Actor Context descriptor contains a missing, duplicate, derived, or type-mismatched Slot.");
                     return false;
                 }

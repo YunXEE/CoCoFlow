@@ -111,7 +111,7 @@ namespace CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures
         }
     }
 
-    public sealed class TemporalHostMemory : ActivationMemory
+    public sealed class TemporalHostMemory : StateActivationMemory
     {
         public int Value;
     }
