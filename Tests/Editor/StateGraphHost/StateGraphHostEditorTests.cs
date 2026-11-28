@@ -603,8 +603,8 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             serializedRoot.ApplyModifiedPropertiesWithoutUndo();
 
             var nodes =
-                new List<StateGraphHostBindingRules.RestoreChainNode>();
-            StateGraphHostBindingRules.BuildRestoreChainPreview(
+                new List<StateGraphHostRestoreChain.RestoreChainNode>();
+            StateGraphHostRestoreChain.BuildRestoreChainPreview(
                 root, host, nodes);
 
             Assert.That(nodes.Count, Is.EqualTo(2));
@@ -613,7 +613,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Assert.That(nodes[1].ImplementsContract, Is.False);
 
             BindingHint? breakHint =
-                StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
             Assert.That(breakHint.HasValue, Is.True);
             Assert.That(breakHint.Value.Kind, Is.EqualTo(BindingHintKind.Error));
             Assert.That(breakHint.Value.Target, Is.SameAs(plain));
@@ -633,14 +633,14 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             serialized.ApplyModifiedPropertiesWithoutUndo();
 
             var nodes =
-                new List<StateGraphHostBindingRules.RestoreChainNode>();
-            StateGraphHostBindingRules.BuildRestoreChainPreview(
+                new List<StateGraphHostRestoreChain.RestoreChainNode>();
+            StateGraphHostRestoreChain.BuildRestoreChainPreview(
                 inside, host, nodes);
 
             Assert.That(nodes.Count, Is.EqualTo(2));
             Assert.That(nodes[1].IsInsideBoundary, Is.False);
             BindingHint? breakHint =
-                StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
             Assert.That(breakHint.Value.Kind, Is.EqualTo(BindingHintKind.Error));
             Assert.That(breakHint.Value.Target, Is.SameAs(outside));
         }
@@ -657,14 +657,14 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             serializedRoot.ApplyModifiedPropertiesWithoutUndo();
 
             var nodes =
-                new List<StateGraphHostBindingRules.RestoreChainNode>();
-            StateGraphHostBindingRules.BuildRestoreChainPreview(
+                new List<StateGraphHostRestoreChain.RestoreChainNode>();
+            StateGraphHostRestoreChain.BuildRestoreChainPreview(
                 root, host, nodes);
 
             Assert.That(nodes.Count, Is.EqualTo(2));
             Assert.That(nodes[1].IsRepeat, Is.True);
             BindingHint? breakHint =
-                StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
             Assert.That(breakHint.Value.Kind, Is.EqualTo(BindingHintKind.Error));
         }
 
@@ -685,15 +685,15 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             Object.DestroyImmediate(tail);
 
             var nodes =
-                new List<StateGraphHostBindingRules.RestoreChainNode>();
+                new List<StateGraphHostRestoreChain.RestoreChainNode>();
             Assert.DoesNotThrow(() =>
-                StateGraphHostBindingRules.BuildRestoreChainPreview(
+                StateGraphHostRestoreChain.BuildRestoreChainPreview(
                     root, host, nodes));
             Assert.That(nodes.Count, Is.EqualTo(2));
             Assert.That(nodes[1].IsDestroyed, Is.True);
 
             BindingHint? breakHint =
-                StateGraphHostBindingRules.BuildRestoreChainBreakHint(nodes);
+                StateGraphHostRestoreChain.BuildRestoreChainBreakHint(nodes);
             Assert.That(breakHint.HasValue, Is.True);
             Assert.That(breakHint.Value.Kind, Is.EqualTo(BindingHintKind.Error));
         }
@@ -758,7 +758,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             var deep = deepChild.AddComponent<EditorRestoreNodeComponent>();
 
             var chain = new List<MonoBehaviour>();
-            StateGraphHostBindingRules.CollectRestoreChainCandidates(host, chain);
+            StateGraphHostRestoreChain.CollectRestoreChainCandidates(host, chain);
 
             // 层级路径排序：父路径 Wire/B_Root 先于子路径 Wire/B_Root/A_Deep。
             Assert.That(chain, Is.EqualTo(new[] { root, deep }));
@@ -775,9 +775,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
             var chain = new List<MonoBehaviour> { root, tail };
             Assert.That(
-                StateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                StateGraphHostRestoreChain.TryBuildRestoreWirePlan(
                     host, chain,
-                    out StateGraphHostBindingRules.RestoreWirePlan plan,
+                    out StateGraphHostRestoreChain.RestoreWirePlan plan,
                     out BindingHint failure),
                 Is.True,
                 failure.English);
@@ -788,7 +788,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             // 尾节点具备 downstream 字段 → 列入清空目标。
             Assert.That(plan.TailToClear, Is.SameAs(tail));
             Assert.That(
-                StateGraphHostBindingRules.FindDownstreamProperty(root),
+                StateGraphHostRestoreChain.FindDownstreamProperty(root),
                 Is.Not.Null);
         }
 
@@ -804,9 +804,9 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
 
             var chain = new List<MonoBehaviour> { root, tail };
             Assert.That(
-                StateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                StateGraphHostRestoreChain.TryBuildRestoreWirePlan(
                     host, chain,
-                    out StateGraphHostBindingRules.RestoreWirePlan plan,
+                    out StateGraphHostRestoreChain.RestoreWirePlan plan,
                     out BindingHint failure),
                 Is.False);
             Assert.That(failure.Kind, Is.EqualTo(BindingHintKind.Warning));
@@ -822,7 +822,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             var chain = new List<MonoBehaviour>();
 
             Assert.That(
-                StateGraphHostBindingRules.TryBuildRestoreWirePlan(
+                StateGraphHostRestoreChain.TryBuildRestoreWirePlan(
                     host, chain,
                     out _,
                     out BindingHint failure),
@@ -852,27 +852,27 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             outside.AddComponent<EditorHostOperatorComponent>();
 
             var results = new List<MonoBehaviour>();
-            StateGraphHostBindingRules.CollectIntentSourceCandidates(
+            StateGraphHostBindingCandidates.FindIntentSources(
                 host,
                 new[] { insideSource },
                 results);
             // 边界内、未分配、非嵌套宿主才出现；越界与嵌套不出现（P2-02 回归签名方案）。
             Assert.That(results, Is.Empty);
 
-            StateGraphHostBindingRules.CollectIntentSourceCandidates(
+            StateGraphHostBindingCandidates.FindIntentSources(
                 host,
                 null,
                 results);
             Assert.That(results, Is.EqualTo(new[] { insideSource }));
             Assert.That(results, Has.No.Member(nestedSource));
 
-            StateGraphHostBindingRules.CollectOperatorCandidates(
+            StateGraphHostBindingCandidates.FindOperators(
                 host,
                 new[] { insideOperator },
                 results);
             Assert.That(results, Is.Empty);
 
-            StateGraphHostBindingRules.CollectOperatorCandidates(
+            StateGraphHostBindingCandidates.FindOperators(
                 host,
                 null,
                 results);
@@ -890,7 +890,7 @@ namespace CoCoFlow.Tests.Editor.StateGraphHost
             outside.AddComponent<EditorHostActorContextComponent>();
 
             var results = new List<MonoBehaviour>();
-            StateGraphHostBindingRules.CollectActorContextCandidates(
+            StateGraphHostBindingCandidates.FindActorContexts(
                 host,
                 null,
                 results);
