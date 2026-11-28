@@ -389,7 +389,7 @@ jobs:
     steps: *api_steps
 
   gate:
-    name: CI / gate
+    name: gate
     needs: [static, unity, win_mono, win_il2cpp, api, api_doc]
     if: always() && !(github.event_name == 'workflow_dispatch' && inputs.player_probe)
     runs-on: ubuntu-24.04
