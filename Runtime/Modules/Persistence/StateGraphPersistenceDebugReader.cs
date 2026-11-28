@@ -2,19 +2,19 @@
 using System;
 using System.Globalization;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Modules.Persistence.Context;
 using CoCoFlow.Runtime.Modules.Persistence.Core;
 
 namespace CoCoFlow.Runtime.Modules.Persistence
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     /// <summary>Metadata copied from one successfully decoded on-disk save record.</summary>
     internal readonly struct PersistedFrameDebugInfo
     {
         internal PersistedFrameDebugInfo(
-            TemporalFrameInfo sourceFrame,
+            HostHistoryFrame sourceFrame,
             int slotIndex,
             DateTimeOffset updatedUtc)
         {
@@ -23,7 +23,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             UpdatedUtc = updatedUtc;
         }
 
-        internal TemporalFrameInfo SourceFrame { get; }
+        internal HostHistoryFrame SourceFrame { get; }
         internal int SlotIndex { get; }
         internal DateTimeOffset UpdatedUtc { get; }
         internal bool IsValid =>
@@ -58,7 +58,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
             bool found = false;
             DateTimeOffset latestUtc = default;
             int latestSlot = -1;
-            TemporalFrameInfo latestFrame = default;
+            HostHistoryFrame latestFrame = default;
             string firstFailure = string.Empty;
             int slotCount = Math.Max(0, PersistenceSaveLoadSystem.MaxSaveSlots);
             for (int slotIndex = 0; slotIndex < slotCount; slotIndex++)
@@ -107,7 +107,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence
 
                     if (!host.TryDecodePersistenceDebugFrame(
                             payload,
-                            out TemporalFrameInfo frame,
+                            out HostHistoryFrame frame,
                             out CoCoDiagnostic diagnostic))
                     {
                         if (string.IsNullOrEmpty(firstFailure))

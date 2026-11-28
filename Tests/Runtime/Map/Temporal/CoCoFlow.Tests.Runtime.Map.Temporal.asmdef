@@ -4,12 +4,12 @@
     "references": [
         "CoCoFlow.Runtime.Content",
         "CoCoFlow.Runtime.Core",
-        "CoCoFlow.Runtime.StateGraph",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.Modules.Map",
         "CoCoFlow.Runtime.Modules.Map.Temporal",
         "CoCoFlow.Runtime.Pooling",
         "CoCoFlow.Runtime.Pooling.Temporal",
-        "CoCoFlow.Runtime.StateGraphHost",
+        "CoCoFlow.Runtime.StateGraph",
         "CoCoFlow.Tests.Runtime.StateGraphHost",
         "CoCoFlow.Tests.Runtime.StateGraphHost.Fixtures",
         "UniTask"

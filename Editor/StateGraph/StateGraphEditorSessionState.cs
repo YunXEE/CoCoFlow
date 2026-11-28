@@ -1,26 +1,16 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
+// 编辑器将图选择与画布位置保存为可恢复的窗口会话状态。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>管理窗口重载后仍需恢复的选择、视口和分析请求。</summary>
     internal sealed class StateGraphEditorSessionState
     {
-        private const string KeyPrefix = "CoCoFlow.StateGraph.Editor.";
-
-        private readonly string sessionKey;
-        private readonly HashSet<StateId> collapsedStateIds = new HashSet<StateId>();
-        private readonly HashSet<StateId> _canvasCollapsedStateIds = new HashSet<StateId>();
-        private readonly Dictionary<string, StateGraphCanvasView> canvasViews =
-            new Dictionary<string, StateGraphCanvasView>(StringComparer.Ordinal);
-
-        private StateGraphEditorSessionState(string sessionKey)
-        {
-            this.sessionKey = sessionKey;
-        }
+        #region Public API
 
         internal LayerId SelectedLayerId { get; set; }
         internal StateId DrillRootStateId { get; set; }
@@ -28,7 +18,6 @@ namespace CoCoFlow.Editor.StateGraph
         internal TransitionId SelectedTransitionId { get; set; }
         internal string SearchText { get; set; } = string.Empty;
         internal bool AnalysisRequested { get; set; }
-        internal GraphDiagnosticLocation? SelectedDiagnosticLocation { get; set; }
         internal IReadOnlyCollection<StateId> CollapsedStateIds => collapsedStateIds;
         internal IReadOnlyCollection<StateId> CanvasCollapsedStateIds => _canvasCollapsedStateIds;
 
@@ -52,7 +41,7 @@ namespace CoCoFlow.Editor.StateGraph
                 }
                 catch (Exception)
                 {
-                    // Corrupt per-session UI data is intentionally discarded.
+
                 }
             }
 
@@ -72,8 +61,7 @@ namespace CoCoFlow.Editor.StateGraph
                 analysisRequested = AnalysisRequested,
                 collapsedStateIds = new List<string>(),
                 canvasCollapsedStateIds = new List<string>(),
-                canvasViews = new List<StateGraphCanvasViewDto>(),
-                selectedDiagnostic = CreateDiagnosticDto(SelectedDiagnosticLocation)
+                canvasViews = new List<StateGraphCanvasViewDto>()
             };
             foreach (StateId stateId in collapsedStateIds)
             {
@@ -187,19 +175,6 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 canvasViews.Remove(key);
             }
-
-            if (SelectedDiagnosticLocation.HasValue)
-            {
-                GraphDiagnosticLocation location = SelectedDiagnosticLocation.Value;
-                bool validLocation = (!location.LayerId.IsValid || layerIds.Contains(location.LayerId)) &&
-                                     (!location.StateId.IsValid || stateOwners.ContainsKey(location.StateId)) &&
-                                     (!location.TransitionId.IsValid ||
-                                      transitionOwners.ContainsKey(location.TransitionId));
-                if (!validLocation)
-                {
-                    SelectedDiagnosticLocation = null;
-                }
-            }
         }
 
         internal bool IsCollapsed(StateId stateId) => collapsedStateIds.Contains(stateId);
@@ -247,6 +222,23 @@ namespace CoCoFlow.Editor.StateGraph
             canvasViews[CanvasKey(layerId, parentStateId)] = view.Clamp();
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private const string KeyPrefix = "CoCoFlow.StateGraph.Editor.";
+
+        private readonly string sessionKey;
+        private readonly HashSet<StateId> collapsedStateIds = new HashSet<StateId>();
+        private readonly HashSet<StateId> _canvasCollapsedStateIds = new HashSet<StateId>();
+        private readonly Dictionary<string, StateGraphCanvasView> canvasViews =
+            new Dictionary<string, StateGraphCanvasView>(StringComparer.Ordinal);
+
+        private StateGraphEditorSessionState(string sessionKey)
+        {
+            this.sessionKey = sessionKey;
+        }
+
         private void Read(StateGraphEditorSessionDto dto)
         {
             if (dto == null)
@@ -264,7 +256,6 @@ namespace CoCoFlow.Editor.StateGraph
             SelectedTransitionId = selectedTransitionId;
             SearchText = dto.searchText ?? string.Empty;
             AnalysisRequested = dto.analysisRequested;
-            SelectedDiagnosticLocation = ReadDiagnostic(dto.selectedDiagnostic);
 
             if (dto.collapsedStateIds != null)
             {
@@ -333,54 +324,7 @@ namespace CoCoFlow.Editor.StateGraph
         private static bool TryTransitionId(SerializedId128 id, out TransitionId value) =>
             TransitionId.TryCreate(id.High, id.Low, out value);
 
-        private static StateGraphDiagnosticDto CreateDiagnosticDto(
-            GraphDiagnosticLocation? location)
-        {
-            if (!location.HasValue)
-            {
-                return null;
-            }
-
-            GraphDiagnosticLocation value = location.Value;
-            return new StateGraphDiagnosticDto
-            {
-                elementKind = (int)value.ElementKind,
-                field = (int)value.Field,
-                layerId = Format(value.LayerId),
-                stateId = Format(value.StateId),
-                transitionId = Format(value.TransitionId),
-                layerIndex = value.LayerIndex,
-                stateIndex = value.StateIndex,
-                transitionIndex = value.TransitionIndex,
-                conditionIndex = value.ConditionIndex,
-                eventAdapterDeclarationIndex = value.EventAdapterDeclarationIndex
-            };
-        }
-
-        private static GraphDiagnosticLocation? ReadDiagnostic(StateGraphDiagnosticDto dto)
-        {
-            if (dto == null)
-            {
-                return null;
-            }
-
-            LayerId.TryParse(dto.layerId, out LayerId layerId);
-            StateId.TryParse(dto.stateId, out StateId stateId);
-            TransitionId.TryParse(dto.transitionId, out TransitionId transitionId);
-            return new GraphDiagnosticLocation(
-                (GraphElementKind)dto.elementKind,
-                (GraphField)dto.field,
-                default,
-                layerId,
-                stateId,
-                transitionId,
-                dto.layerIndex,
-                dto.stateIndex,
-                dto.transitionIndex,
-                dto.conditionIndex,
-                dto.eventAdapterDeclarationIndex);
-        }
-
+        /// <summary>保存窗口会话的序列化数据，供编辑器重载时重新应用。</summary>
         [Serializable]
         private sealed class StateGraphEditorSessionDto
         {
@@ -393,9 +337,9 @@ namespace CoCoFlow.Editor.StateGraph
             public List<string> collapsedStateIds;
             public List<string> canvasCollapsedStateIds;
             public List<StateGraphCanvasViewDto> canvasViews;
-            public StateGraphDiagnosticDto selectedDiagnostic;
         }
 
+        /// <summary>保存可序列化的画布缩放与平移。</summary>
         [Serializable]
         private sealed class StateGraphCanvasViewDto
         {
@@ -405,22 +349,10 @@ namespace CoCoFlow.Editor.StateGraph
             public float zoom;
         }
 
-        [Serializable]
-        private sealed class StateGraphDiagnosticDto
-        {
-            public int elementKind;
-            public int field;
-            public string layerId;
-            public string stateId;
-            public string transitionId;
-            public int layerIndex;
-            public int stateIndex;
-            public int transitionIndex;
-            public int conditionIndex;
-            public int eventAdapterDeclarationIndex;
-        }
+        #endregion
     }
 
+    /// <summary>表示当前画布的可见位置与缩放，供布局与交互计算使用。</summary>
     internal readonly struct StateGraphCanvasView
     {
         internal StateGraphCanvasView(Vector2 pan, float zoom)

@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   identity:
-    name: Release / identity
+    name: CI / release-identity
     permissions:
       contents: read
       checks: read
@@ -30,9 +30,9 @@ jobs:
             [[ "$(git rev-list -n 1 "$TAG_NAME")" == "$TESTED_SHA" ]]
             python3 .github/ci/cocoflow_ci.py release --tag "$TAG_NAME"
             gate_passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TESTED_SHA/check-runs?per_page=100" \
-              --jq '[.check_runs[] | select(.name == "CI / gate" and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length > 0')"
+              --jq '[.check_runs[] | select(.name == "gate" and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length > 0')"
             if [[ "$gate_passed" != "true" ]]; then
-              echo "::error::The tagged commit has no successful CI / gate."
+              echo "::error::The tagged commit has no successful gate."
               exit 1
             fi
           else

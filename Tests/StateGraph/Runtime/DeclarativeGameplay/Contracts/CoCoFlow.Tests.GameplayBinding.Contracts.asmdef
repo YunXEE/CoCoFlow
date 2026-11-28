@@ -1,0 +1,18 @@
+{
+    "name": "CoCoFlow.Tests.GameplayBinding.Contracts",
+    "references": [
+        "CoCoFlow.Runtime.StateGraph.Contracts",
+        "CoCoFlow.Runtime.Camera.Contracts",
+        "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Tests.StateGraphTransitiveDependencyHelper",
+        "CoCoFlow.Runtime.Locomotion.Contracts"
+    ],
+    "noEngineReferences": true,
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

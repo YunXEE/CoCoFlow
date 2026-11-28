@@ -26,7 +26,7 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
             RotationSmoothTime = 0.1f,
         };
 
-        private static LocoSectionInput Idle() => new LocoSectionInput
+        private static LocoOperationInput Idle() => new LocoOperationInput
         {
             UseGravity = true,
             GravityScale = 1f,
@@ -56,7 +56,7 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
                 next.VerticalVelocity,
                 1e-6f);
             // gravity scale tier
-            var slow = new LocoSectionInput { UseGravity = true, GravityScale = 0.5f };
+            var slow = new LocoOperationInput { UseGravity = true, GravityScale = 0.5f };
             var nextSlow = LocomotionStateMath.Step(
                 default(LocomotionState), slow, Config(), false, dt,
                 out _, out _, out _, out _);
@@ -181,41 +181,41 @@ namespace CoCoFlow.Tests.Runtime.Locomotion
         [Test]
         public void SectionFieldConstantsMatchFrozenAlphabeticalShape()
         {
-            Assert.IsTrue(OperationSectionShape.TryCreate(
-                typeof(ILocomotionSection),
-                out OperationSectionShape shape,
+            Assert.IsTrue(OperationShape.TryCreate(
+                typeof(ILocomotionOperation),
+                out OperationShape shape,
                 out CoCoDiagnostic diagnostic), diagnostic.Message);
 
-            AssertField(shape, LocomotionSectionFields.ForcedX, nameof(ILocomotionSection.ForcedX), typeof(float));
-            AssertField(shape, LocomotionSectionFields.ForcedZ, nameof(ILocomotionSection.ForcedZ), typeof(float));
-            AssertField(shape, LocomotionSectionFields.GravityScale, nameof(ILocomotionSection.GravityScale), typeof(float));
-            AssertField(shape, LocomotionSectionFields.InstantRotation, nameof(ILocomotionSection.InstantRotation), typeof(bool));
-            AssertField(shape, LocomotionSectionFields.JumpRequested, nameof(ILocomotionSection.JumpRequested), typeof(bool));
-            AssertField(shape, LocomotionSectionFields.LaunchForced, nameof(ILocomotionSection.LaunchForced), typeof(bool));
-            AssertField(shape, LocomotionSectionFields.LookX, nameof(ILocomotionSection.LookX), typeof(float));
-            AssertField(shape, LocomotionSectionFields.LookZ, nameof(ILocomotionSection.LookZ), typeof(float));
-            AssertField(shape, LocomotionSectionFields.MoveX, nameof(ILocomotionSection.MoveX), typeof(float));
-            AssertField(shape, LocomotionSectionFields.MoveZ, nameof(ILocomotionSection.MoveZ), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportRequested, nameof(ILocomotionSection.TeleportRequested), typeof(bool));
-            AssertField(shape, LocomotionSectionFields.TeleportRotationW, nameof(ILocomotionSection.TeleportRotationW), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportRotationX, nameof(ILocomotionSection.TeleportRotationX), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportRotationY, nameof(ILocomotionSection.TeleportRotationY), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportRotationZ, nameof(ILocomotionSection.TeleportRotationZ), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportX, nameof(ILocomotionSection.TeleportX), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportY, nameof(ILocomotionSection.TeleportY), typeof(float));
-            AssertField(shape, LocomotionSectionFields.TeleportZ, nameof(ILocomotionSection.TeleportZ), typeof(float));
-            AssertField(shape, LocomotionSectionFields.UseGravity, nameof(ILocomotionSection.UseGravity), typeof(bool));
-            AssertField(shape, LocomotionSectionFields.VerticalImpulse, nameof(ILocomotionSection.VerticalImpulse), typeof(float));
+            AssertField(shape, LocomotionOperationFields.ForcedX, nameof(ILocomotionOperation.ForcedX), typeof(float));
+            AssertField(shape, LocomotionOperationFields.ForcedZ, nameof(ILocomotionOperation.ForcedZ), typeof(float));
+            AssertField(shape, LocomotionOperationFields.GravityScale, nameof(ILocomotionOperation.GravityScale), typeof(float));
+            AssertField(shape, LocomotionOperationFields.InstantRotation, nameof(ILocomotionOperation.InstantRotation), typeof(bool));
+            AssertField(shape, LocomotionOperationFields.JumpRequested, nameof(ILocomotionOperation.JumpRequested), typeof(bool));
+            AssertField(shape, LocomotionOperationFields.LaunchForced, nameof(ILocomotionOperation.LaunchForced), typeof(bool));
+            AssertField(shape, LocomotionOperationFields.LookX, nameof(ILocomotionOperation.LookX), typeof(float));
+            AssertField(shape, LocomotionOperationFields.LookZ, nameof(ILocomotionOperation.LookZ), typeof(float));
+            AssertField(shape, LocomotionOperationFields.MoveX, nameof(ILocomotionOperation.MoveX), typeof(float));
+            AssertField(shape, LocomotionOperationFields.MoveZ, nameof(ILocomotionOperation.MoveZ), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportRequested, nameof(ILocomotionOperation.TeleportRequested), typeof(bool));
+            AssertField(shape, LocomotionOperationFields.TeleportRotationW, nameof(ILocomotionOperation.TeleportRotationW), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportRotationX, nameof(ILocomotionOperation.TeleportRotationX), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportRotationY, nameof(ILocomotionOperation.TeleportRotationY), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportRotationZ, nameof(ILocomotionOperation.TeleportRotationZ), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportX, nameof(ILocomotionOperation.TeleportX), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportY, nameof(ILocomotionOperation.TeleportY), typeof(float));
+            AssertField(shape, LocomotionOperationFields.TeleportZ, nameof(ILocomotionOperation.TeleportZ), typeof(float));
+            AssertField(shape, LocomotionOperationFields.UseGravity, nameof(ILocomotionOperation.UseGravity), typeof(bool));
+            AssertField(shape, LocomotionOperationFields.VerticalImpulse, nameof(ILocomotionOperation.VerticalImpulse), typeof(float));
         }
 
         private static void AssertField(
-            OperationSectionShape shape,
+            OperationShape shape,
             int denseIndex,
             string name,
             Type valueType)
         {
             Assert.That(denseIndex, Is.InRange(0, shape.FieldCount - 1));
-            OperationSectionFieldShape field = shape.Fields[denseIndex];
+            OperationFieldShape field = shape.Fields[denseIndex];
             Assert.AreEqual(denseIndex, field.DenseIndex);
             Assert.AreEqual(name, field.Name);
             Assert.AreEqual(valueType, field.ValueType);

@@ -6,6 +6,25 @@ The earlier release-candidate and pre-release lines are preserved in the history
 below. The 0.4 line targets new projects and does not include an automatic
 migration runtime for 0.3.9 projects.
 
+## [0.4.11] - 2026-11-28
+
+### Changed
+
+- Consolidate the Core and StateGraph APIs and move Host runtime and editor
+  code into their respective StateGraph assemblies. See the [Core API migration
+  notes](Documentation~/index.md#runtime-core-api-migration-for-0411) and
+  [StateGraph migration guide](Docs/StateGraphRuntime.md#migrating-a-0410-scene).
+- Add compiled API and XML documentation checks and reorganize the Core,
+  StateGraph, and Host tests around the approved contracts.
+
+### Compatibility
+
+- Move retired transition Conditions into the source StateLogic before issuing
+  a transition request. Check existing save slots if the project catalog changes.
+- The legacy Animation module has been removed. Remove its old components and
+  Host Operator references, and keep animation playback in project code for
+  0.4.11. A new Animation module is planned for 0.5.0.
+
 ## [0.4.10] - 2026-11-23
 
 ### Changed

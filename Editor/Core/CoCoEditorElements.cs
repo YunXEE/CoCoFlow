@@ -21,12 +21,7 @@ namespace CoCoFlow.Editor.Core
     /// </summary>
     public static class CoCoEditorElements
     {
-        private const string ThemePath =
-            "Packages/com.yunxee.cocoflow/Editor/Core/CoCoEditorCommon.uss";
-
-        private const string BadgeTextName = "ccflow-badge-text";
-
-        private static bool _themeMissingReported;
+        #region Public API
 
         /// <summary>
         /// 应用共享主题：加载 USS（去重）并为根节点挂 ccflow-root。
@@ -209,6 +204,17 @@ namespace CoCoFlow.Editor.Core
             return host;
         }
 
+        #endregion
+
+        #region Internal Logic
+
+        private const string ThemePath =
+            "Packages/com.yunxee.cocoflow/Editor/Core/CoCoEditorCommon.uss";
+
+        private const string BadgeTextName = "ccflow-badge-text";
+
+        private static bool _themeMissingReported;
+
         private static string KindToClassName(CoCoEditorBadgeKind kind)
         {
             switch (kind)
@@ -222,7 +228,7 @@ namespace CoCoFlow.Editor.Core
         }
 
         /// <summary>BUG-044：徽章可读严重度短标签（双语，D3 不单靠颜色）。</summary>
-        private static string KindLabel(CoCoEditorBadgeKind kind)
+        internal static string KindLabel(CoCoEditorBadgeKind kind)
         {
             switch (kind)
             {
@@ -238,5 +244,7 @@ namespace CoCoFlow.Editor.Core
                     return CoCoEditorLocalization.Text("Note", "注记");
             }
         }
+
+        #endregion
     }
 }

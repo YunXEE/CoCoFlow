@@ -36,7 +36,7 @@ Input / AI + sealed EventInbox
   -> IntentFrame B
   + Previous ContextFrame B
   -> StateGraph
-  -> OperationFrame Sections
+  -> OperationFrame entries
   -> Operators
   -> Outcomes + EventOutbox candidates
   -> Commit ContextFrame B
@@ -76,24 +76,15 @@ StateGraph 永远只读取已经翻译并冻结的 IntentFrame。
 
 ### OperationFrame
 
-`OperationFrame` 是 StateGraph 为当前 Tick 生成的完整执行指南，也是唯一公开 Section
-契约的 Frame：
+State 通过已声明的 Operation 属性写入本步输出。框架按操作接口的身份登记布局，Operator 通过已登记的要件读取本步数据。
 
-- Operator 通过 Section Interface 声明自己需要的执行数据；
-- 去重后的 Operator Requirement 并集必须与 Graph Operation Provides 精确双向匹配；
-- 多个 Operator 要求同一 Interface 时按 Interface Identity 去重；
-- 字段形状相同但 Identity 不同的 Interface 永远是不同 Section；
-- Section Interface 只允许继承框架 Marker，Section-to-Section 继承非法；
-- Provides Manifest 必须包含完整 Section Shape：总字节数、字段数，以及每个
-  字段的 dense index、ordinal name、unmanaged type、byte offset 与 size；
-- Section 在 Operator 执行期间只读，不能作为 Actor 持久状态；
-- 离散执行使用结构化 Section，并明确 Enabled、ActivationId 和 Sequence；
-- 无输入时产生合法 Disabled/Zero Section，而不是建立第二套 Command Queue。
+- 每个操作接口直接继承 `IOperation`，以 `[Operation(Mode.Continuous)]` 或 `[Operation(Mode.Discrete)]` 声明模式。
+- 同一合同的多个消费者共用一个注册项。不同接口各有独立身份，即使字段相同。
+- 图和执行者的操作要件必须匹配。编译清单记录总字节数，以及各字段的索引、名字、非托管类型、偏移和尺寸。
+- 离散条目记录启用状态、激活身份和序号。本步没有写入时，连续字段为默认值，离散条目未启用。
 
-StateGraph 通过携带固定合成等级的受限 Writer 产生 Section：Layer 列表越靠后
-等级越高，同一 Layer 中子 State 高于父 State。同等级的后一次生命周期调用覆盖前一次，
-但调用顺序不能反转等级，因此 Leaf→Parent Exit 不会让父 State 覆盖子 State。
-Continuous Section 按字段合成；Discrete Section 只为最终胜出的贡献分配一次 Sequence。
+合成顺序取决于图层和路径深度。后面的图层优先，同一层内子节点的贡献优先于父节点。
+连续 Operation 按字段合成，离散 Operation 只为最终胜出的贡献分配一次 Sequence。
 
 OperationFrame 使用独立的两阶段协议：
 
@@ -121,7 +112,7 @@ Schema 与诊断见
 捕获的 Generation 不可复用：
 
 - 包含 GraphInstanceId、TimelineEpoch、Tick、Revision 和 Layout 兼容身份；
-- 使用固定 StateBlock/Slot Layout，而不是公开 Root Context 或 Operation Section；
+- 使用固定 StateBlock/Slot Layout，而不是公开 Root Context 或 Operation；
 - StateBlock Owner 固定为 Graph、Operator 或 Actor；Graph state、Graph auxiliary、
   canonical Claim、Operator Outcome、Actor Binding 与 Derived rebuilder 必须把每个 Slot
   精确分类并覆盖一次，但可以有多个 Reader；
@@ -139,7 +130,7 @@ Schema 与诊断见
   并记录 Source GraphInstanceId、TimelineEpoch、Tick 与 Revision。
 
 ContextFrame 是唯一可以携带、Retain 与 Restore 的 Actor 提交记录。Graph
-Path/Memory/Activation、ActorClock 与 Claim 的 live cache 只能是它的镜像，或由它唯一
+Path/Memory/Activation、InstanceClock 与 Claim 的 live cache 只能是它的镜像，或由它唯一
 重建，不能形成第二份权威。ContextFrame 只承诺单 Actor 逻辑恢复；它不恢复世界、其他
 Actor，或撤销已经交付给其他 Actor 的 Event 后果。
 
@@ -151,7 +142,7 @@ hash。Runtime 初始化后、公开前会捕获一次初始 Graph State 并与�
 ## 3. Operation、Outcome 与 Commit Barrier
 
 Operator 是允许接触 Unity 对象和项目服务的执行边界。StateGraph 不调用具体 Unity
-API，而是交付 OperationFrame；Operator 读取对应 Section，执行后产生 Outcome 与
+API，而是交付 OperationFrame；Operator 读取对应 Operation，执行后产生 Outcome 与
 可选 EventOutbox Candidate。
 
 Commit 顺序固定：
@@ -192,7 +183,7 @@ ContextFrame Commit 是当前 Tick 唯一已提交的 gameplay 逻辑权威边�
 - 失败路径同时取消 staged Tick，不发布 Event、不消耗最终 EventSequence 或
   OperationSequence，也不产生跨 Actor 副作用；
 - no-fail barrier 内禁止 Callback、分配、容量申请与可失败 Mutation；它一次性交换
-  Context 权威，提交 OperationSequence、Graph Path/Memory/Activation、ActorClock、Claim、
+  Context 权威，提交 OperationSequence、Graph Path/Memory/Activation、InstanceClock、Claim、
   连续 EventSequence range 与 Intent Tick；
 - 真实 Operator Callback 之后失败时，旧 Context 保持权威，Host Fault 并标记
   `RequiresWorldCorrection`；不伪造 Unity 世界回滚。
@@ -203,7 +194,7 @@ Operator append 顺序发布；同一 GraphInstance/Epoch 的所有 EventType �
 Sequence。Subscriber 异常继续隔离；基础设施异常记录 Fault 并继续发布剩余已提交
 Packet，不回收 Sequence、不自动重发、不回滚已送达 Event。
 
-Trace 先按 compiled order 记录 Source/Window 合法且 Conditions 全通过的 Transition
+Trace 先按 compiled order 记录 State 已请求且源和执行窗口均匹配的 Transition
 Candidate，再为 Winner 单独记录一条。Frame Reference 只保存 identity、精确 Layout
 metadata、Revision 与 `HasCommittedFrame`，不 Retain Context Handle；首 Tick Previous
 引用精确 Layout Default 且 `HasCommittedFrame=false`，不伪造 Revision 0。失败事务以
@@ -221,7 +212,7 @@ capacity 默认为 0，Running 时不可改变。失败或取消的 Tick 不能�
 0.4 gameplay 消息使用一个原子值：
 
 ```text
-EventPacket<TEvent> = ActorEventEnvelope + immutable typed payload
+EventPacket<TEvent> = GraphEventEnvelope + immutable typed payload
 ```
 
 Envelope 至少表达：
@@ -369,8 +360,8 @@ Codec/capture 失败会令整个 Tick 失败，旧 Context/Graph/Clock/Claim/His
 普通 ContextFrame `Retain`/`Release` 契约继续有效，只是 Temporal Ring 不使用它。
 
 Preview 只移动非权威游标并调用 Host 的唯一同步
-`IContextRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
-Condition、Transition、Operator、Actor capture、Event 或 Trace。Cancel 仅在本次
+`IHostRestoreBinding`。它不使用负 Delta，不运行 State Enter/Exit、
+Transition、Operator、Actor capture、Event 或 Trace。Cancel 仅在本次
 会话至少成功完成一次 Preview 投射后通过同一 Binding 重新投射 current authority；
 Begin 后直接 Cancel 不调用 Binding。两条路径都不交换逻辑权威或切换 Epoch。
 
@@ -411,17 +402,18 @@ producer、按序显式引用的 Intent Sources、Event-to-Intent Adapters 与 O
 Actor Context Binding、启用 Temporal History 时的 Restore Binding，以及
 Operator/Outcome/Claim、Temporal 容量与 Outbox 容量全部合法，才创建 Clock、Runtime、
 执行 Start 和初始 Graph/default validation，最后公开 Host 字段并注册 Router。
-因此配置错误不会触发 Logic/Condition/Memory factory、Reset、Fingerprint、Graph capture、
+因此配置错误不会触发 Logic/Memory factory、Reset、Fingerprint、Graph capture、
 Operator 或 Actor callback，Host 保持 `Created`。
 
 `StateGraphHost` 仍是框架唯一 public MonoBehaviour；Asset 是唯一必填项，其他
 Driver、AutoStart、TimeScale、Temporal history 与诊断容量都是同一 Host 的设置。
 这些 Host 引用只决定当前 Actor 使用哪些具体场景实例及其顺序；Project Provider 继续
-拥有冻结 Catalog、State/Condition Factory、通用 Intent/Adapter binding、Operation/
+拥有冻结 Catalog、State Factory、通用 Intent/Adapter binding、Operation/
 Context 类型、Codec、Default 与 AOT-safe construction 的类型权威。Editor 可以提出建议，
 但必须由用户确认后才保存；Running 配置只读。Host 不通过场景扫描发现这些引用。
-Runtime、Clock、Inbox、Router、Logic、Condition、Memory 与 Temporal Ring 都是内部普通
-对象。Playable Animation、可控播放进度与 Root Motion 属于 Animation 或项目表现层。
+Runtime、Clock、Inbox、Router、Logic、Memory 与 Temporal Ring 都是内部普通
+对象。0.4.11 已移除旧 Animation 模块。Playable 动画、播放进度和 Root Motion 由项目表现层
+负责。旧场景和 Prefab 的处理见 [StateGraph Host 迁移步骤](StateGraphRuntime.md#migrating-a-0410-scene)。
 
 ## 9. 架构依赖门禁
 
@@ -451,7 +443,7 @@ Runtime 的 direct-reference guard 只是快速防线，不代替闭包验证；
 - StateGraph Editor 是当前可用工具，但不属于 Runtime API 成熟保证。
 - Persistence 通过 Durable Context projection 接入 Host；它独立负责 schema v2、
   StableEntityId、Container 和文件生命周期。
-- Animation、Input、Locomotion、Content、Map、Pooling 等模块只能通过已声明的 Intent、
+- Input、Locomotion、Content、Map、Pooling 等模块只能通过已声明的 Intent、
   Operation、Context、Event 或 restore-binding 边界接入，不能绕过 Commit authority。
 - Core 成熟不表示跨 Actor 原子事务、全世界回滚、Jobs/Burst 调度、零分配覆盖所有
   Unity 回调、完整 Editor 工具或商店级认证。

@@ -1,6 +1,6 @@
 # CoCoFlow CI and release gates
 
-The master and `dev/*` rulesets require `CI / gate`. Its required jobs are selected
+The master and `dev/*` rulesets require `gate`. Its required jobs are selected
 by the PR target as described below. Local script checks or successful license
 activation do not prove that package tests passed. A policy change must be
 deployed and validated before its new job routing is claimed as active.
@@ -9,33 +9,33 @@ deployed and validated before its new job routing is claimed as active.
 
 | Check | Responsibility |
 | --- | --- |
-| `CI Static / gate` | Diff hygiene, accidentally tracked ignored files, result-reader tests, required StateFlow APIs, current release metadata, and change classification |
-| `Unity / complete package` | A new host, complete dependencies, real Unity compilation, package EditMode and PlayMode, strict XML/suite checks, and seat cleanup |
-| `Player all / Windows Mono`, `Player all / Windows IL2CPP` | Complete Player-eligible tests with the existing Mono / Disabled and IL2CPP / Medium profiles; strict build, XML, assembly and seat-return checks |
-| `CI / gate` | Always summarizes applicable jobs; failed, cancelled, missing, or required-but-skipped Unity does not pass |
-| `Release / identity` | Checks tag/package/current-doc identity and successful `CI / gate` on that commit; does not rerun tests or publish |
+| `static` | Package name and version, diff hygiene and tests for changed CI rules. Release PRs also validate version progression and release metadata. |
+| `api` | Approved API and XML contract comparison for Core and StateGraph, plus external consumer compilation. |
+| `api-doc` | XML summaries for externally accessible handwritten Core and StateGraph methods and overloads. |
+| `win-editor` | Complete package EditMode and PlayMode with fresh results, assembly discovery and seat cleanup. |
+| `win-mono`, `win-il2cpp` | Complete Player tests in Mono / Disabled and IL2CPP / Medium with build and result validation. The jobs run serially. |
+| `gate` | Requires every applicable job to succeed. On master push it verifies the release receipt and merged Git tree. |
+| `tag` | After the master push gate passes, publishes the package version Tag and reads back its target SHA. |
+| `CI / release-identity` | Validates an externally pushed Tag against the package version and the tagged commit's gate. |
 
-PR requirements follow the **target branch**, regardless of the source branch:
-
-| Target / event | Required tests |
+| Target / event | Required checks |
 | --- | --- |
-| PR into `dev/*` | Static checks + complete package Editor EditMode and PlayMode |
-| Any PR into `master` | Static + complete Editor + complete Windows Mono and IL2CPP Players |
-| Push to `master`, ordinary manual validation on `master` | The same complete combination |
-| Ordinary manual validation on another branch | Static + complete Editor |
+| PR into `dev/*` | Static, API, API docs, Windows Editor |
+| Same-repository `dev/*` PR into `master` | Static, API, API docs, Windows Mono, Windows IL2CPP |
+| PR into another branch | Static |
+| Push to `master` | Successful release receipt for the exact merged Git tree, then Tag |
+| Ordinary manual validation | Static and Windows Editor |
 
-Documentation-only and version-only changes into `dev/*` or `master` follow the
-same requirements. Other targets retain path-based classification. An explicit
-manual Player experiment remains separate and cannot satisfy `CI / gate`.
-External PRs never receive Unity credentials; skipped required tests block the
-gate until a trusted candidate produces real results.
+Documentation-only and version-only PRs follow the same route. External PRs
+receive no Unity credentials, so required Unity evidence must come from a
+same-repository candidate. Manual Player experiments provide diagnostic evidence.
 
-Player jobs wait for Editor completion, then run Mono and IL2CPP sequentially
-with `max-parallel: 1` and `fail-fast: false`. This preserves the shared Personal
-license limit and collects both backend results even if one fails. `CI / gate`
-requires the matrix to succeed for master candidates; failure, cancellation or
-a skipped required job blocks it. Existing master/dev rulesets already require
-`CI / gate`; this change does not alter review, bypass or merge-method settings.
+Both release Player jobs record their checkout SHA and tree. When both Player
+jobs, Static, API and API docs pass, the gate uploads a receipt with the PR, base,
+head, tested SHA, tree, run and attempt. Master validates the merged PR, successful
+run, completed job results and exact tree before publishing its gate. The Tag
+job runs after that gate. An existing Tag at the same SHA is accepted. A Tag
+pointing elsewhere fails the job. GitHub Release remains a manual operation.
 
 ## Disposable host and complete dependencies
 
@@ -172,11 +172,10 @@ After the new required gate is enabled:
   matrix, migration/contract checks and maintainer version acceptance.
 - Z candidates changing public contracts, migration or support boundaries return
   to the maintainer to decide acceptance strength.
-- Green CI does not authorize merge, tag, GitHub Release or branch deletion.
+- Merge, GitHub Release and branch deletion require maintainer authorization.
 
 Preserve current master/dev PR, thread-resolution, merge-method, bypass and
-force-push/delete settings, including the existing `CI / gate` required check
-and its GitHub Actions integration.
+force-push/delete settings. Require `gate` from the GitHub Actions integration.
 
 ## Local infrastructure checks
 
@@ -184,24 +183,41 @@ and its GitHub Actions integration.
     python3 .github/ci/cocoflow_ci.py release
     python3 .github/ci/check_stateflow_api.py
 
-The StateFlow API check requires the .NET 10 SDK. It compiles package sources
+The Core and StateFlow consumer checks require the .NET 10 SDK. It compiles package sources
 using the asmdef boundaries and builds a separate consumer without friend
 access. Compiler errors identify the unavailable call in the
 [required API list](stateflow-api/RequiredApi.cs). See the
 [API and assembly boundaries](stateflow-api/boundaries.md) for migration
 decisions and verification scope.
 
-These do not prove Unity tests. Persistent 03/05 hosts remain separate;
-temporary linkage requires exclusive use and exact manifest/lock restoration.
+The Windows Editor job for a task PR or the Mono job for a release PR also
+collects the actual DLLs from the disposable host's Editor compilation. The
+collector replays each assembly's matching Bee compiler responses to emit XML.
+The reader checks the public metadata of the replay against the final Unity DLL
+before publishing the DLL, XML, symbols and input digests. API and API docs
+consume the same artifact linked to the candidate SHA and tree.
+
+The approved lists are under `api-baselines/`. `StateGraph.types.jsonl` assigns
+each declaring type in shared assemblies to StateGraph or Host. A new
+unassigned type is an error. `Core.jsonl` and `StateGraph.jsonl` list assembly,
+member ID, owner, signature and normalized XML. The Host-owned records retain
+their signatures. Host-specific documentation rules are downstream. The first
+lists require maintainer approval before the P007 PR. Subsequent CI compares
+against the lists from the PR target SHA. The first release promotes the
+lists already merged into dev when master has neither list.
+
+The local script and source-compiled consumer checks are separate from Unity
+test results. Persistent 03/05 hosts remain separate. Use an isolated host to
+link a candidate without changing their manifests.
 
 ## Manual Windows Player experiments
 
 The optional workflow_dispatch input `player_probe=true` runs the separate
-`Player experiment / Windows Mono` or `Windows IL2CPP` job using the pinned installer,
+`player-diagnostics` job using the pinned installer,
 GameCI CLI, complete host dependencies and Personal-seat cleanup. Ordinary
 Dev PRs retain the Editor path; master candidates also require both full Player
 profiles as described above. On this explicit
-experiment, the complete Editor job and `CI / gate` are skipped: the probe is
+experiment, the complete Editor job and `gate` are skipped: the probe is
 not complete-package release evidence and does not change branch protection.
 
 Select `player_backend=mono` (default, stripping Disabled) or

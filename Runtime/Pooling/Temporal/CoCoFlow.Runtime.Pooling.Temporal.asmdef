@@ -3,8 +3,8 @@
     "rootNamespace": "CoCoFlow.Runtime.Pooling.Temporal",
     "references": [
         "CoCoFlow.Runtime.Core",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.StateGraph",
-        "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Runtime.Pooling"
     ],
     "includePlatforms": [],

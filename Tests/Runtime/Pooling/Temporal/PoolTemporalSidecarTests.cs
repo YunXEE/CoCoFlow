@@ -4,7 +4,6 @@ using System.Reflection;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -233,7 +232,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
         private static void PublishForward(
             PoolTemporalSidecar history,
             PoolTemporalRecord[] records,
-            TemporalFrameInfo frameInfo)
+            HostHistoryFrame frameInfo)
         {
             Assert.That(
                 history.TryPrepareForwardCapture(
@@ -252,7 +251,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             return id;
         }
 
-        private static TemporalFrameInfo FrameInfo(ulong value)
+        private static HostHistoryFrame FrameInfo(ulong value)
         {
             Assert.That(
                 GraphInstanceId.TryCreate(77UL, out GraphInstanceId graphId),
@@ -282,7 +281,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
                 Is.True,
                 tickDiagnostic.Message);
 
-            ConstructorInfo constructor = typeof(TemporalFrameInfo).GetConstructor(
+            ConstructorInfo constructor = typeof(HostHistoryFrame).GetConstructor(
                 BindingFlags.Instance | BindingFlags.NonPublic,
                 null,
                 new[]
@@ -298,7 +297,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal.Tests
             ContextFrameOrigin origin = ContextFrameOrigin.Commit();
             object boxed = constructor.Invoke(
                 new object[] { graphId, tickFrame, revision, origin });
-            var info = (TemporalFrameInfo)boxed;
+            var info = (HostHistoryFrame)boxed;
             Assert.That(info.IsValid, Is.True);
             return info;
         }

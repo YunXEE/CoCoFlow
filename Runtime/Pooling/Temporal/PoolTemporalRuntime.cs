@@ -1,13 +1,12 @@
 using System;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using CoCoFlow.Runtime.Pooling;
 using UnityEngine;
 
 namespace CoCoFlow.Runtime.Pooling.Temporal
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal sealed class PoolTemporalRecord
     {
@@ -32,8 +31,8 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         private readonly PoolTemporalSidecar _history;
         private PoolTemporalRecord[] _records = Array.Empty<PoolTemporalRecord>();
         private int _recordCount;
-        private ContextRestoreApplyKind _preparedApplyKind;
-        private TemporalFrameInfo _preparedSource;
+        private HostRestoreKind _preparedApplyKind;
+        private HostHistoryFrame _preparedSource;
         private TickFrame _preparedTargetTickFrame;
         private int _preparedDepth;
         private bool _projectionPrepared;
@@ -299,7 +298,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareForwardCapture(
-            in TemporalFrameInfo candidate,
+            in HostHistoryFrame candidate,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -374,7 +373,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareAuthorityReset(
-            in TemporalFrameInfo targetAuthority,
+            in HostHistoryFrame targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -501,15 +500,15 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal bool TryPrepareProjection(
-            ContextRestoreApplyKind applyKind,
+            HostRestoreKind applyKind,
             int historyDepth,
-            in TemporalFrameInfo source,
+            in HostHistoryFrame source,
             in TickFrame targetTickFrame,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
                 (!_isPreviewing &&
-                 applyKind != ContextRestoreApplyKind.Correction) ||
+                 applyKind != HostRestoreKind.Correction) ||
                 _projectionPrepared ||
                 _authorityResetPrepared ||
                 !source.IsValid ||
@@ -751,7 +750,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
 
         internal bool TryPrepareBranchCapture(
             int historyDepth,
-            in TemporalFrameInfo branchHead,
+            in HostHistoryFrame branchHead,
             out CoCoDiagnostic diagnostic)
         {
             if (_isDisposed ||
@@ -810,7 +809,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         internal void CompletePreviewNoFail(
-            ContextRestoreApplyKind applyKind)
+            HostRestoreKind applyKind)
         {
             if (_isDisposed)
             {
@@ -828,7 +827,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                 record.ProjectedPresent = record.AuthorityPresent;
                 record.BaselinePresent = record.AuthorityPresent;
                 record.PreparedInactive = false;
-                if (applyKind == ContextRestoreApplyKind.Confirm &&
+                if (applyKind == HostRestoreKind.Confirm &&
                     !record.AuthorityPresent)
                 {
                     record.PendingActivation = false;
@@ -962,15 +961,15 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
         }
 
         private bool TryValidateProjectionDepth(
-            ContextRestoreApplyKind applyKind,
+            HostRestoreKind applyKind,
             int historyDepth)
         {
-            if (applyKind == ContextRestoreApplyKind.Preview)
+            if (applyKind == HostRestoreKind.Preview)
             {
                 return historyDepth >= 0 && historyDepth < _history.Count;
             }
 
-            if (applyKind == ContextRestoreApplyKind.Confirm)
+            if (applyKind == HostRestoreKind.Confirm)
             {
                 return historyDepth > 0 && historyDepth < _history.Count;
             }
@@ -1119,7 +1118,7 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
                     record.EntityId);
             }
 
-            return _preparedApplyKind == ContextRestoreApplyKind.Cancel
+            return _preparedApplyKind == HostRestoreKind.Cancel
                 ? record.BaselinePresent
                 : record.AuthorityPresent;
         }
@@ -1137,12 +1136,12 @@ namespace CoCoFlow.Runtime.Pooling.Temporal
             record != null &&
             !desiredPresent &&
             !record.AuthorityPresent &&
-            (_preparedApplyKind == ContextRestoreApplyKind.Cancel ||
-             _preparedApplyKind == ContextRestoreApplyKind.Correction);
+            (_preparedApplyKind == HostRestoreKind.Cancel ||
+             _preparedApplyKind == HostRestoreKind.Correction);
 
         private bool UsesHistoryFrame =>
-            (_preparedApplyKind == ContextRestoreApplyKind.Preview ||
-             _preparedApplyKind == ContextRestoreApplyKind.Confirm) &&
+            (_preparedApplyKind == HostRestoreKind.Preview ||
+             _preparedApplyKind == HostRestoreKind.Confirm) &&
             _preparedDepth > 0;
 
         private bool TryInvokeApplyCallbacks(

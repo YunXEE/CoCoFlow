@@ -2,23 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CoCoFlow.Editor.Core;
-using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
+// 图编辑器用当前选择展示节点、转换和图的细节，提交编辑后刷新对应视图。
 namespace CoCoFlow.Editor.StateGraph
 {
-    /// <summary>
-    /// StateGraph 主编辑器窗口的右栏详情面板（P03 重做，partial）。
-    /// 按上下文分区卡片化：Layer / Add State / Selected State / Transitions /
-    /// Requirements / Diagnostics(反馈区)。
-    /// </summary>
+    /// <summary>连接当前图资产、画布和详情，在编辑与撤销后刷新受影响的视图。</summary>
     internal sealed partial class StateGraphEditorWindow
     {
+        #region Internal Logic
+
         private Label _stateDraftStatus;
         private Button _stateSaveButton;
         private Button _stateDiscardButton;
@@ -444,8 +441,7 @@ namespace CoCoFlow.Editor.StateGraph
             SerializedProperty property = FindStateConfigProperty(controller.Session.SelectedLayerId,
                 ToStateId(draft.StateId));
             if (property == null) return;
-            // Draw the Config's fields directly: no root foldout or delayed
-            // attempt to reopen Unity's generated managed-reference foldout.
+
             var field = new VisualElement { name = "state-graph-state-config" };
             SerializedProperty child = property.Copy();
             SerializedProperty end = property.GetEndProperty();
@@ -641,46 +637,6 @@ namespace CoCoFlow.Editor.StateGraph
             texts.Register(deleteTransition, "Delete Transition", "删除 Transition");
             card.Add(deleteTransition);
 
-            var conditionsHeading = CoCoEditorElements.CreateHeading(L("Conditions", "条件"));
-            texts.Register(conditionsHeading, "Conditions", "条件");
-            card.Add(conditionsHeading);
-            for (int index = 0; index < selected.Conditions.Count; index++)
-            {
-                int capturedIndex = index;
-                StateGraphConditionRecord condition = selected.Conditions[index];
-                var conditionRow = new VisualElement();
-                conditionRow.AddToClassList("sg-condition-row");
-                var label = new Label(controller.ConditionDescriptorLabel(condition));
-                label.AddToClassList("sg-condition-row__label");
-                conditionRow.Add(label);
-                conditionRow.Add(new Button(() => controller.MoveCondition(
-                    capturedIndex,
-                    Mathf.Max(0, capturedIndex - 1))) { text = "↑" });
-                conditionRow.Add(new Button(() => controller.MoveCondition(
-                    capturedIndex,
-                    Mathf.Min(selected.Conditions.Count - 1, capturedIndex + 1))) { text = "↓" });
-                conditionRow.Add(new Button(() => controller.DeleteCondition(capturedIndex)) { text = "×" });
-                card.Add(conditionRow);
-                DrawConfigProperty(
-                    card,
-                    FindConditionConfigProperty(
-                        controller.Session.SelectedLayerId,
-                        controller.Session.SelectedTransitionId,
-                        capturedIndex),
-                    L($"Condition {capturedIndex + 1} Config", $"条件 {capturedIndex + 1} 配置"),
-                    "state-graph-condition-config");
-            }
-
-            IReadOnlyList<ConditionDescriptor> conditionDescriptors =
-                controller.Catalog?.ConditionDescriptors ?? Array.Empty<ConditionDescriptor>();
-            ConditionDescriptor conditionDescriptor = AddConditionDescriptorPopup(conditionDescriptors, card);
-            var addCondition = new Button(() => controller.AddCondition(
-                    ResolveConditionDescriptor(conditionDescriptor)))
-            {
-                text = L("Add Condition", "添加条件")
-            };
-            texts.Register(addCondition, "Add Condition", "添加条件");
-            card.Add(addCondition);
             card.Add(transitionList);
 
             details.Add(card);
@@ -694,131 +650,6 @@ namespace CoCoFlow.Editor.StateGraph
             {
                 details.Q<VisualElement>("state-graph-all-transitions").style.maxHeight = height * 0.5f;
                 list.style.maxHeight = height * 0.5f;
-            }
-        }
-
-        private void DrawRequirements()
-        {
-            var requirements = new VisualElement { name = "state-graph-requirements" };
-            var heading = CoCoEditorElements.CreateHeading(L("Requirements / Host Suggestions", "需求 / Host 建议"));
-            texts.Register(heading, "Requirements / Host Suggestions", "需求 / Host 建议");
-            requirements.Add(heading);
-            StateGraphRequirementPresenter.FillCard(
-                requirements,
-                controller.BuildRequirementSections(),
-                controller.AnalysisResult?.Succeeded == true);
-            feedbackHost.Add(requirements);
-        }
-
-        private void RefreshFeedback()
-        {
-            if (feedbackHost == null || controller == null)
-            {
-                return;
-            }
-
-            feedbackHost.Clear();
-            DrawDiagnostics(feedbackHost);
-            if (!string.IsNullOrEmpty(controller.CatalogStatus))
-            {
-                feedbackHost.Add(new HelpBox(controller.CatalogStatus, HelpBoxMessageType.Warning));
-            }
-
-            if (!string.IsNullOrEmpty(controller.CommandFailure))
-            {
-                feedbackHost.Add(new HelpBox(controller.CommandFailure, HelpBoxMessageType.Warning));
-            }
-
-            DrawRequirements();
-        }
-
-        private void DrawDiagnostics(VisualElement parent)
-        {
-            var heading = CoCoEditorElements.CreateHeading(L("Diagnostics", "诊断"));
-            texts.Register(heading, "Diagnostics", "诊断");
-            parent.Add(heading);
-            if (controller.AnalysisResult == null)
-            {
-                var hint = new Label(L("Run Analyze to recompute diagnostics.", "运行 Analyze 重新计算诊断。"));
-                hint.AddToClassList("sg-muted");
-                texts.Register(hint, "Run Analyze to recompute diagnostics.", "运行 Analyze 重新计算诊断。");
-                parent.Add(hint);
-                return;
-            }
-
-            // 精确文案锚点：英文态必须是 "Compilation succeeded."（交互测试断言）。
-            var status = new Label(controller.AnalysisResult.Succeeded
-                ? L("Compilation succeeded.", "编译成功。")
-                : L("Compilation blocked.", "编译阻断。"));
-            parent.Add(status);
-
-            int errorCount = 0;
-            int warningCount = 0;
-            int infoCount = 0;
-            foreach (GraphDiagnostic diagnostic in controller.AnalysisResult.Diagnostics)
-            {
-                switch (diagnostic.Diagnostic.Severity)
-                {
-                    case CoCoDiagnosticSeverity.Error:
-                        errorCount++;
-                        break;
-                    case CoCoDiagnosticSeverity.Warning:
-                        warningCount++;
-                        break;
-                    case CoCoDiagnosticSeverity.Information:
-                        infoCount++;
-                        break;
-                }
-            }
-
-            if (controller.AnalysisResult.Diagnostics.Count > 0)
-            {
-                var counts = new VisualElement();
-                counts.style.flexDirection = FlexDirection.Row;
-                if (errorCount > 0)
-                {
-                    counts.Add(CoCoEditorElements.CreateBadge(
-                        L($"Error {errorCount}", $"错误 {errorCount}"), CoCoEditorBadgeKind.Error));
-                }
-
-                if (warningCount > 0)
-                {
-                    counts.Add(CoCoEditorElements.CreateBadge(
-                        L($"Warn {warningCount}", $"警告 {warningCount}"), CoCoEditorBadgeKind.Warning));
-                }
-
-                if (infoCount > 0)
-                {
-                    counts.Add(CoCoEditorElements.CreateBadge(
-                        L($"Info {infoCount}", $"信息 {infoCount}"), CoCoEditorBadgeKind.Info));
-                }
-
-                parent.Add(counts);
-            }
-
-            foreach (GraphDiagnostic diagnostic in controller.AnalysisResult.Diagnostics)
-            {
-                GraphDiagnostic captured = diagnostic;
-                parent.Add(CoCoEditorElements.CreateDiagnosticRow(
-                    captured.Diagnostic.Message,
-                    SeverityToBadgeKind(captured.Diagnostic.Severity),
-                    () => controller.Locate(captured.Location)));
-            }
-        }
-
-        /// <summary>severity→kind 映射（P02 §2.4 委托 P03 实现的唯一映射表）。</summary>
-        internal static CoCoEditorBadgeKind SeverityToBadgeKind(CoCoDiagnosticSeverity severity)
-        {
-            switch (severity)
-            {
-                case CoCoDiagnosticSeverity.Error:
-                    return CoCoEditorBadgeKind.Error;
-                case CoCoDiagnosticSeverity.Warning:
-                    return CoCoEditorBadgeKind.Warning;
-                case CoCoDiagnosticSeverity.Information:
-                    return CoCoEditorBadgeKind.Info;
-                default:
-                    return CoCoEditorBadgeKind.Neutral;
             }
         }
 
@@ -845,25 +676,6 @@ namespace CoCoFlow.Editor.StateGraph
             details.Query<PropertyField>().ForEach(field => field.SetEnabled(false));
         }
 
-        private void DrawConfigProperty(
-            VisualElement parent,
-            SerializedProperty property,
-            string label,
-            string fieldName)
-        {
-            if (property == null || serializedAsset == null)
-            {
-                parent.Add(new HelpBox($"{label} " + L("is unavailable.", "不可用。"), HelpBoxMessageType.Warning));
-                return;
-            }
-
-            var field = new PropertyField(property.Copy(), label);
-            field.name = fieldName;
-            field.RegisterCallback<SerializedPropertyChangeEvent>(_ => controller.NotifyConfigChanged());
-            field.Bind(serializedAsset);
-            parent.Add(field);
-        }
-
         private SerializedProperty FindStateConfigProperty(
             LayerId layerId,
             StateId stateId)
@@ -884,35 +696,6 @@ namespace CoCoFlow.Editor.StateGraph
                    SerializedIdMatches(anyState.FindPropertyRelative("stateId"), stateId.High, stateId.Low)
                 ? anyState.FindPropertyRelative("config")
                 : null;
-        }
-
-        private SerializedProperty FindConditionConfigProperty(
-            LayerId layerId,
-            TransitionId transitionId,
-            int conditionIndex)
-        {
-            SerializedProperty layer = FindLayerProperty(layerId);
-            SerializedProperty transitions = layer?.FindPropertyRelative("transitions");
-            for (int index = 0; transitions != null && index < transitions.arraySize; index++)
-            {
-                SerializedProperty transition = transitions.GetArrayElementAtIndex(index);
-                if (!SerializedIdMatches(
-                        transition.FindPropertyRelative("transitionId"),
-                        transitionId.High,
-                        transitionId.Low))
-                {
-                    continue;
-                }
-
-                SerializedProperty conditions = transition.FindPropertyRelative("conditions");
-                return conditions != null &&
-                       conditionIndex >= 0 &&
-                       conditionIndex < conditions.arraySize
-                    ? conditions.GetArrayElementAtIndex(conditionIndex).FindPropertyRelative("config")
-                    : null;
-            }
-
-            return null;
         }
 
         private SerializedProperty FindLayerProperty(LayerId layerId)
@@ -1010,44 +793,6 @@ namespace CoCoFlow.Editor.StateGraph
             return choice;
         }
 
-        private ConditionDescriptor AddConditionDescriptorPopup(
-            IReadOnlyList<ConditionDescriptor> descriptors,
-            VisualElement parent)
-        {
-            if (descriptors.Count == 0)
-            {
-                parent.Add(new HelpBox(
-                    L("No Condition descriptors are available.", "没有可用的 Condition 描述符。"),
-                    HelpBoxMessageType.Info));
-                return null;
-            }
-
-            int selectedIndex = 0;
-            var labels = new List<string>(descriptors.Count);
-            for (int index = 0; index < descriptors.Count; index++)
-            {
-                ConditionDescriptor descriptor = descriptors[index];
-                labels.Add($"{descriptor.ConditionType.Name}  [{ShortId(descriptor.DescriptorId.ToString())}]");
-                if (descriptor.DescriptorId == addConditionDescriptorId)
-                {
-                    selectedIndex = index;
-                }
-            }
-
-            addConditionDescriptorId = descriptors[selectedIndex].DescriptorId;
-            var popup = new PopupField<string>(L("Descriptor", "描述符"), labels, selectedIndex);
-            popup.RegisterValueChangedCallback(evt =>
-            {
-                int index = labels.IndexOf(evt.newValue);
-                if (index >= 0)
-                {
-                    addConditionDescriptorId = descriptors[index].DescriptorId;
-                }
-            });
-            parent.Add(popup);
-            return descriptors[selectedIndex];
-        }
-
         private StateIdChoice AddStateIdPopup(
             string label,
             IReadOnlyList<StateId> ids,
@@ -1124,5 +869,7 @@ namespace CoCoFlow.Editor.StateGraph
             parent.Add(popup);
             return choice;
         }
+
+        #endregion
     }
 }

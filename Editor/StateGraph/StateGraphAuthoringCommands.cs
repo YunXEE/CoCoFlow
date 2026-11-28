@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
+// 图编辑器根据当前选择复制、粘贴或删除子树，以稳定 ID 重连需要保留的父子关系和边。
 namespace CoCoFlow.Editor.StateGraph
 {
+    /// <summary>记录删除所选图元素时涉及的子节点与转换，供编辑器预览。</summary>
     internal readonly struct StateGraphDeleteImpact
     {
         internal StateGraphDeleteImpact(int stateCount, int transitionCount)
@@ -19,6 +20,7 @@ namespace CoCoFlow.Editor.StateGraph
         internal int TransitionCount { get; }
     }
 
+    /// <summary>保存可在图编辑器粘贴的子树数据及其内部连接。</summary>
     internal sealed class StateGraphSubtreeClipboard : IDisposable
     {
         internal StateGraphSubtreeClipboard(
@@ -54,6 +56,7 @@ namespace CoCoFlow.Editor.StateGraph
         }
     }
 
+    /// <summary>通过稳定 ID 修改图资产，并为编辑器维护 Undo 和拓扑一致性。</summary>
     public static partial class StateGraphAuthoringOperations
     {
         internal static bool CanEdit(out string failure)
@@ -902,136 +905,6 @@ namespace CoCoFlow.Editor.StateGraph
             return true;
         }
 
-        internal static bool TryAddCondition(
-            StateGraphAsset asset,
-            LayerId layerId,
-            TransitionId transitionId,
-            ConditionDescriptorId descriptorId,
-            ConditionConfig config,
-            out int conditionIndex,
-            out string failure)
-        {
-            RequireAsset(asset);
-            conditionIndex = -1;
-            if (!descriptorId.IsValid)
-            {
-                return Fail("A valid Condition descriptor ID is required.", out failure);
-            }
-
-            StateGraphLayerRecord layer = FindLayer(asset, layerId);
-            StateGraphTransitionRecord transition =
-                layer == null ? null : FindTransition(layer, transitionId);
-            if (transition == null)
-            {
-                return Fail("The Transition ID does not belong to the target Layer.", out failure);
-            }
-
-            Record(asset, "Add State Graph Condition");
-            transition.Conditions.Add(new StateGraphConditionRecord(Serialize(descriptorId), config));
-            conditionIndex = transition.Conditions.Count - 1;
-            Dirty(asset);
-            failure = string.Empty;
-            return true;
-        }
-
-        internal static bool TrySetCondition(
-            StateGraphAsset asset,
-            LayerId layerId,
-            TransitionId transitionId,
-            int conditionIndex,
-            ConditionDescriptorId descriptorId,
-            ConditionConfig config,
-            out string failure)
-        {
-            RequireAsset(asset);
-            if (!descriptorId.IsValid)
-            {
-                return Fail("A valid Condition descriptor ID is required.", out failure);
-            }
-
-            if (!TryGetCondition(
-                    asset,
-                    layerId,
-                    transitionId,
-                    conditionIndex,
-                    out StateGraphConditionRecord condition,
-                    out failure))
-            {
-                return false;
-            }
-
-            Record(asset, "Update State Graph Condition");
-            condition.ConditionDescriptorId = Serialize(descriptorId);
-            condition.Config = config;
-            Dirty(asset);
-            failure = string.Empty;
-            return true;
-        }
-
-        internal static bool TryMoveCondition(
-            StateGraphAsset asset,
-            LayerId layerId,
-            TransitionId transitionId,
-            int sourceIndex,
-            int targetIndex,
-            out string failure)
-        {
-            RequireAsset(asset);
-            StateGraphLayerRecord layer = FindLayer(asset, layerId);
-            StateGraphTransitionRecord transition =
-                layer == null ? null : FindTransition(layer, transitionId);
-            if (transition == null ||
-                sourceIndex < 0 ||
-                sourceIndex >= transition.Conditions.Count ||
-                targetIndex < 0 ||
-                targetIndex >= transition.Conditions.Count)
-            {
-                return Fail("The Condition reorder indices are invalid.", out failure);
-            }
-
-            if (sourceIndex == targetIndex)
-            {
-                failure = string.Empty;
-                return true;
-            }
-
-            StateGraphConditionRecord condition = transition.Conditions[sourceIndex];
-            Record(asset, "Reorder State Graph Condition");
-            transition.Conditions.RemoveAt(sourceIndex);
-            transition.Conditions.Insert(targetIndex, condition);
-            Dirty(asset);
-            failure = string.Empty;
-            return true;
-        }
-
-        internal static bool TryDeleteCondition(
-            StateGraphAsset asset,
-            LayerId layerId,
-            TransitionId transitionId,
-            int conditionIndex,
-            out string failure)
-        {
-            RequireAsset(asset);
-            if (!TryGetCondition(
-                    asset,
-                    layerId,
-                    transitionId,
-                    conditionIndex,
-                    out _,
-                    out failure))
-            {
-                return false;
-            }
-
-            StateGraphLayerRecord layer = FindLayer(asset, layerId);
-            StateGraphTransitionRecord transition = FindTransition(layer, transitionId);
-            Record(asset, "Delete State Graph Condition");
-            transition.Conditions.RemoveAt(conditionIndex);
-            Dirty(asset);
-            failure = string.Empty;
-            return true;
-        }
-
         internal static bool TryCaptureSubtree(
             StateGraphAsset asset,
             LayerId layerId,
@@ -1333,35 +1206,6 @@ namespace CoCoFlow.Editor.StateGraph
             return true;
         }
 
-        private static bool TryGetCondition(
-            StateGraphAsset asset,
-            LayerId layerId,
-            TransitionId transitionId,
-            int conditionIndex,
-            out StateGraphConditionRecord condition,
-            out string failure)
-        {
-            StateGraphLayerRecord layer = FindLayer(asset, layerId);
-            StateGraphTransitionRecord transition =
-                layer == null ? null : FindTransition(layer, transitionId);
-            if (transition == null ||
-                conditionIndex < 0 ||
-                conditionIndex >= transition.Conditions.Count)
-            {
-                condition = null;
-                return Fail("The Condition index does not belong to the target Transition.", out failure);
-            }
-
-            condition = transition.Conditions[conditionIndex];
-            if (condition == null)
-            {
-                return Fail("The selected Condition record is null.", out failure);
-            }
-
-            failure = string.Empty;
-            return true;
-        }
-
         private static StateGraphTransitionRecord FindTransition(
             StateGraphLayerRecord layer,
             TransitionId transitionId)
@@ -1434,9 +1278,6 @@ namespace CoCoFlow.Editor.StateGraph
         }
 
         private static SerializedId128 Serialize(TransitionId id) =>
-            new SerializedId128(id.High, id.Low);
-
-        private static SerializedId128 Serialize(ConditionDescriptorId id) =>
             new SerializedId128(id.High, id.Low);
 
         private static Vector2 DefaultPosition(int index) =>

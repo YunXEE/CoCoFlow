@@ -15,12 +15,12 @@ namespace CoCoFlow.Editor.StateGraph
         private static readonly string[] AllowedFrameworkAssemblies =
         {
             "CoCoFlow.Runtime.Core",
-            "CoCoFlow.Runtime.StateGraph"
+            "CoCoFlow.Runtime.StateGraph.Contracts"
         };
 
         private static readonly string[] ForbiddenExactAssemblies =
         {
-            "CoCoFlow.Runtime.StateGraphHost"
+            "CoCoFlow.Runtime.StateGraph"
         };
 
         private static readonly string[] ForbiddenAssemblyPrefixes =

@@ -35,18 +35,15 @@
 
 ## PR 测试要求
 
-- 以 PR 目标分支判断测试强度，与来源分支名称无关。
-- 进入 `dev/*`：静态检查与完整包体 Editor EditMode + PlayMode 测试。
-- 进入 `master`：上述检查，加完整 Windows Mono Player 与 IL2CPP Player 测试；
-  包括 `dev/* → master` 以及任何其他指向 `master` 的 PR。
-- 文档或版本号修改不豁免上述目标分支的测试要求。`master` push 同样跑全部测试。
-- `CI / gate` 必须等待本次所有必需测试成功；失败、取消、缺结果或必需测试跳过均不得通过。
-  手动小探针与诊断性保留实验不作为合并门禁证据。
+- 每个 PR 跑包身份与静态检查。进入 `dev/*` 的任务 PR 另须通过 API、API 文档和完整 Windows Editor EditMode + PlayMode。
+- 进入 `master` 的版本 PR 来源须为同仓库 `dev/*`。这条路线要求 API、API 文档、完整 Windows Mono Player 与 IL2CPP Player，省略 Editor 行为测试。
+- `master` push 只核验实际合入 PR 的成功凭证和受测 tree。成功后 CI 按该提交的包版本自动打 Tag，GitHub Release 由维护者手动发布。
+- `gate` 必须等待全部适用检查成功。失败、取消、缺结果或必需测试跳过均不得通过。手动探针只提供诊断证据。
 
 ## Z/Y 发布策略（003 新门禁启用后生效）
 
 - 启用前提：固定环境完整 Unity CI 已取得真实红/绿证据，维护者已授权
-  master/dev required check 从 `CI Static / gate` 切到 `CI / gate`。
+  master/dev required check 从 `CI Static / gate` 切到 `gate`。
 - Z（X.Y.Z 增加 Z）保留代码任务本人验收和独立 PR；版本层只做一个收口提交，
   更新版本、短 Changelog、当前安装引用及既有例外版本字段，不另建 Release
   四阶段任务或 release 分支。本节覆盖通用分支规则中的 Z 级 release 层。
@@ -54,11 +51,11 @@
   已合完任务时使用单提交小 PR，不绕过 dev/master 保护。
 - Y（X.Y.0 增加 Y）保留独立 Release 任务、声明的完整组合/迁移/外部验证和
   维护者版本验收签名。契约、迁移或支持边界变化由维护者裁决验收强度。
-- `CI / gate` 对实际必需检查负责；缺 XML、零测试、目标测试程序集未发现、
+- `gate` 对实际必需检查负责；缺 XML、零测试、目标测试程序集未发现、
   失败/取消/必需 Unity 未跑都不能通过。Windows Editor 不证明 Player/其他平台。
 - 受测 SHA 和候选 SHA 分列；输入变化就重验受影响部分，不声称新 SHA 实跑过。
   最终集成候选跑完整 CI，Tag 仅核对身份与该提交的 gate，不重跑整套。
-- CI 通过不自动授权提交、推送、PR、合并、Tag、Release 或删分支。
+- CI 通过不自动授权提交、推送、PR、合并、Release 或删分支。
 - 细则见 `.github/ci/README.md`；新门禁启用前沿用现有有效发布规则。
 
 ## 命名与边界

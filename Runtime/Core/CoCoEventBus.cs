@@ -1,119 +1,30 @@
 using System;
 using System.Collections.Generic;
 
+// 这个文件是 CoCoFlow 各模块发布和订阅本地事件的入口。
+// 日志入口和 Host 用它发布事件，Logger Console 等监听者接收事件。
+// 总线在主线程按事件类型同步派发，并按订阅优先级决定回调顺序。
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>同步处理按引用传递的事件值。</summary>
     public delegate void CoCoEventCallback<T>(ref T eventData);
 
+    /// <summary>接收指定类型的事件。</summary>
     public interface ICoCoEventListener<T>
     {
+        /// <summary>同步处理事件。对事件值的修改对后续监听者可见。</summary>
         void OnEvent(ref T eventData);
     }
 
-    [Serializable]
-    public struct CoCoEventEnvelope
-    {
-        public string eventTypeId;
-        public string sourceEntityId;
-        public string targetEntityId;
-        public int sequence;
-        public int tick;
-        public bool reliable;
-        public string payloadTypeId;
-        public string payload;
-
-        public bool IsValid => !string.IsNullOrEmpty(eventTypeId) &&
-                               !string.IsNullOrEmpty(sourceEntityId) &&
-                               sequence > 0;
-
-        public bool HasTarget => !string.IsNullOrEmpty(targetEntityId);
-        public bool HasPayload => !string.IsNullOrEmpty(payload);
-
-        public static CoCoEventEnvelope Create(
-            string eventTypeId,
-            string sourceEntityId,
-            int sequence,
-            int tick,
-            bool reliable,
-            string targetEntityId = "",
-            string payloadTypeId = "",
-            string payload = "")
-        {
-            return new CoCoEventEnvelope
-            {
-                eventTypeId = eventTypeId,
-                sourceEntityId = sourceEntityId,
-                targetEntityId = targetEntityId,
-                sequence = sequence,
-                tick = tick,
-                reliable = reliable,
-                payloadTypeId = payloadTypeId,
-                payload = payload
-            };
-        }
-    }
-
-    public sealed class CoCoEventAgent
-    {
-        private interface IAgentWrapper
-        {
-            void Unsubscribe();
-        }
-
-        private class Wrapper<T> : ICoCoEventListener<T>, IAgentWrapper
-        {
-            private CoCoEventCallback<T> _callback;
-
-            public Wrapper(CoCoEventCallback<T> callback)
-            {
-                this._callback = callback;
-            }
-
-            public void OnEvent(ref T eventData)
-            {
-                _callback?.Invoke(ref eventData);
-            }
-
-            public void Unsubscribe()
-            {
-                CoCoEventBus.Unsubscribe(this);
-                _callback = null;
-            }
-        }
-
-        private readonly List<IAgentWrapper> _wrappers = new List<IAgentWrapper>();
-
-        /// <summary>
-        /// 代理订阅事件
-        /// </summary>
-        public void Subscribe<T>(CoCoEventCallback<T> callback, int priority = 0)
-        {
-            if (callback == null) return;
-            var wrapper = new Wrapper<T>(callback);
-            _wrappers.Add(wrapper);
-            CoCoEventBus.Subscribe(wrapper, priority);
-        }
-
-        /// <summary>
-        /// 一键退订所有由该 Agent 订阅的事件（通常在 OnDestroy 中调用）
-        /// </summary>
-        public void UnsubscribeAll()
-        {
-            foreach (var wrapper in _wrappers)
-            {
-                wrapper.Unsubscribe();
-            }
-            _wrappers.Clear();
-        }
-    }
-
-    // Non-thread-safe. Do not call from jobs or background threads.
+    /// <summary>在主线程同步派发事件，以弱引用持有监听者。</summary>
     public static class CoCoEventBus
     {
         internal static Predicate<object> IsDestroyedListener { get; set; }
 
         #region Public API
 
+        /// <summary>以弱引用订阅事件，调用方须持有监听者。优先级高的先执行，同级按订阅顺序执行。</summary>
+        /// <remarks>派发期间新增的订阅在最外层派发结束后生效。</remarks>
         public static void Subscribe<T>(ICoCoEventListener<T> listener, int priority = 0)
         {
             if (listener == null) return;
@@ -146,6 +57,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        /// <summary>取消已生效的订阅，后续派发会跳过该监听者。</summary>
         public static void Unsubscribe<T>(ICoCoEventListener<T> listener)
         {
             if (listener == null) return;
@@ -167,9 +79,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>
-        /// 发布普通事件
-        /// </summary>
+        /// <summary>按确切类型同步派发事件。跳过已回收或销毁的监听者，监听回调抛出的异常会记录为错误日志。</summary>
         public static void Publish<T>(ref T eventData)
         {
             EventContext<T>.BroadcastDepth++;
@@ -217,18 +127,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        public static void PublishWithEnvelope<T>(
-            ref T eventData,
-            ref CoCoEventEnvelope envelope)
-        {
-            Publish(ref eventData);
-            Publish(ref envelope);
-        }
-
-        /// <summary>
-        /// 针对普通事件的非 ref 快捷调用。
-        /// 注意：如果事件是结构体，此方法会发生值拷贝。
-        /// </summary>
+        /// <summary>同步派发事件。监听者收到的是参数的局部副本。</summary>
         public static void Publish<T>(T eventData)
         {
             Publish(ref eventData);
@@ -238,8 +137,10 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
+        /// <summary>保存单种事件的订阅及派发期间的待处理变更。</summary>
         private static class EventContext<T>
         {
+            /// <summary>保存一条弱引用订阅及其派发顺序。</summary>
             public struct SubNode
             {
                 public int Priority;

@@ -1,12 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
 
+// Setup 窗口从这里读取已随包提供的模块、程序集名称和双语说明。
 namespace CoCoFlow.Editor.Core
 {
-    /// <summary>
-    /// 单个 CoCoFlow 模块的启用条件目录条目（自窗口私有嵌套迁出；
-    /// 实例属性名与可见性保持，测试反射绑定——方案 v4 §2.1/§2.4）。
-    /// </summary>
+    /// <summary>将一个可安装模块与其程序集、依赖和 Setup 窗口说明关联。</summary>
     internal sealed class ModuleDefinition
     {
         public ModuleDefinition(
@@ -27,18 +25,16 @@ namespace CoCoFlow.Editor.Core
         public string[] RequiredSupportDefines { get; }
         public string[] RequiredAssemblies { get; }
 
-        /// <summary>英文描述（测试断言绑定的原始值，不变）。</summary>
         public string Description { get; }
 
-        /// <summary>中文描述（渲染投影侧；不参与任何英文断言）。</summary>
         public string DescriptionZh { get; }
     }
 
-    /// <summary>
-    /// 17 模块目录与模块状态计算（数据层；窗口只做投影）。
-    /// </summary>
+    /// <summary>为 Setup 窗口提供随包模块的固定目录。</summary>
     internal static class CoCoSetupModuleCatalog
     {
+        #region Module Definitions
+
         internal static readonly ModuleDefinition[] Modules =
         {
             new ModuleDefinition(
@@ -130,7 +126,7 @@ namespace CoCoFlow.Editor.Core
                     "UniTask",
                     "CoCoFlow.Runtime.Pooling",
                     "CoCoFlow.Runtime.Pooling.Temporal",
-                    "CoCoFlow.Runtime.StateGraphHost"
+                    "CoCoFlow.Runtime.StateGraph"
                 },
                 "Optional Host-scoped temporal retention sidecar; not world rollback.",
                 "可选的 Host 作用域时序保留挂件；非世界回滚。"),
@@ -164,43 +160,11 @@ namespace CoCoFlow.Editor.Core
                 {
                     "UniTask",
                     "CoCoFlow.Runtime.Modules.Map",
-                    "CoCoFlow.Runtime.StateGraphHost",
+                    "CoCoFlow.Runtime.StateGraph",
                     "CoCoFlow.Runtime.Modules.Map.Temporal"
                 },
                 "Map-first availability and retention decorator; it does not replay Map state.",
                 "Map 优先的可用性与保留装饰器；不重放 Map 状态。"),
-            new ModuleDefinition(
-                "Animation",
-                new string[0],
-                new[]
-                {
-                    "CoCoFlow.Runtime.Animation.Contracts",
-                    "CoCoFlow.Runtime.Modules.Animation"
-                },
-                "Animator Controller parameter/trigger and manual Playable Operators.",
-                "Animator Controller 参数/触发器与手动 Playable Operator。"),
-            new ModuleDefinition(
-                "Animation (DOTween)",
-                new[] { CoCoFlowUtility.DotweenDefine },
-                new[]
-                {
-                    "DOTween",
-                    "CoCoFlow.Runtime.Modules.Animation",
-                    "CoCoFlow.Runtime.Modules.Animation.DOTween"
-                },
-                "Optional Operator-owned manual modulation; never advances global tweens.",
-                "可选的 Operator 持有的手动调制；从不推进全局 tween。"),
-            new ModuleDefinition(
-                "Animation (UniTask)",
-                new[] { CoCoFlowUtility.UniTaskDefine },
-                new[]
-                {
-                    "UniTask",
-                    "CoCoFlow.Runtime.Modules.Animation",
-                    "CoCoFlow.Runtime.Modules.Animation.UniTask"
-                },
-                "Optional playback-token waiter; cancellation does not stop playback.",
-                "可选的播放令牌等待器；取消不停止播放。"),
             new ModuleDefinition(
                 "UI",
                 new[] { CoCoFlowUtility.UniTaskDefine, CoCoFlowUtility.DotweenDefine, CoCoFlowUtility.UniTaskDotweenDefine },
@@ -209,7 +173,10 @@ namespace CoCoFlow.Editor.Core
                 "基于 DOTween 动画的 UI 模块。")
         };
 
-        /// <summary>双语文本对（原始数据侧；渲染层按语言取一侧）。</summary>
+        /// <summary>保存一组中英界面文字，供 Setup 按语言显示。</summary>
+
+        #endregion
+
         internal readonly struct BilingualText
         {
             public BilingualText(string english, string simplifiedChinese)
@@ -222,7 +189,9 @@ namespace CoCoFlow.Editor.Core
             public string SimplifiedChinese { get; }
         }
 
-        /// <summary>单模块状态快照（数据层计算，视图只投影）。</summary>
+        /// <summary>记录当前模块在 Setup 中的检查结果。</summary>
+        #region Module Status Evaluation
+
         internal sealed class ModuleStatus
         {
             public ModuleDefinition Definition { get; set; }
@@ -250,7 +219,7 @@ namespace CoCoFlow.Editor.Core
 
                 if (MissingDefines.Length > 0)
                 {
-                    // 旧格式保留：每个缺失 define 携带状态后缀（单目标下缺失即 off）。
+
                     partsEn.Add("Defines: " + string.Join("; ", MissingDefines.Select(d => d + " off")));
                     partsZh.Add("宏：" + string.Join("；", MissingDefines.Select(d => d + " 未启用")));
                 }
@@ -261,10 +230,6 @@ namespace CoCoFlow.Editor.Core
             }
         }
 
-        /// <summary>
-        /// 计算 17 模块状态（define 缺失按 active target 的 MissingDefineTargets 判定，
-        /// 与旧实现的逐模块计算口径一致——invariant #11/#13）。
-        /// </summary>
         internal static List<ModuleStatus> EvaluateModules(CoCoSetupDependencyStatus status)
         {
             var result = new List<ModuleStatus>(Modules.Length);
@@ -286,5 +251,7 @@ namespace CoCoFlow.Editor.Core
 
             return result;
         }
+
+        #endregion
     }
 }

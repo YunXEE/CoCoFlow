@@ -6,8 +6,8 @@
         "CoCoFlow.Runtime.Core",
         "CoCoFlow.Runtime.Modules.Input",
         "Unity.InputSystem",
+        "CoCoFlow.Runtime.StateGraph.Contracts",
         "CoCoFlow.Runtime.StateGraph",
-        "CoCoFlow.Runtime.StateGraphHost",
         "CoCoFlow.Runtime.Camera.Contracts"
     ],
     "includePlatforms": [],

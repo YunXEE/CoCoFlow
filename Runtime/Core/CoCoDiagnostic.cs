@@ -1,7 +1,11 @@
 using System;
 
+// 这个文件定义 CoCoFlow 各模块共用的诊断结果，包括领域、代码、严重级别和消息。
+// StateGraph、Host、Content、Pooling 和 Map 用它返回操作结果，Editor 读取这些结果用于展示。
+// 构造诊断只生成结果值。调用方需要记录日志时，由调用方决定何时输出。
 namespace CoCoFlow.Runtime.Core
 {
+    /// <summary>诊断所属的领域。</summary>
     public enum CoCoDiagnosticDomain
     {
         None = 0,
@@ -26,6 +30,7 @@ namespace CoCoFlow.Runtime.Core
         Map = 19
     }
 
+    /// <summary>标识诊断原因，枚举数值保持稳定。</summary>
     public enum CoCoDiagnosticCode
     {
         None = 0,
@@ -46,8 +51,8 @@ namespace CoCoFlow.Runtime.Core
         InvalidStateSlot = 15,
         RegistryFrozen = 16,
         RegistryNotFrozen = 17,
-        InvalidOperationSection = 18,
-        MissingOperationSection = 19,
+        InvalidOperationContract = 18,
+        MissingOperationContract = 19,
         InvalidIntentDescriptor = 20,
         MissingIntentReducer = 21,
         InvalidIntentContribution = 22,
@@ -95,7 +100,7 @@ namespace CoCoFlow.Runtime.Core
         ContextCaptureFailed = 65,
         InvalidGraphRestore = 66,
         InvalidClaimRestore = 67,
-        InvalidActorBinding = 68,
+        InvalidHostConfiguration = 68,
         InvalidContentId = 69,
         InvalidContentReference = 70,
         MissingContentBackend = 71,
@@ -154,6 +159,7 @@ namespace CoCoFlow.Runtime.Core
         RegionTemporalCleanupFailed = 124
     }
 
+    /// <summary>诊断的严重级别。</summary>
     public enum CoCoDiagnosticSeverity
     {
         None = 0,
@@ -162,21 +168,10 @@ namespace CoCoFlow.Runtime.Core
         Error = 3
     }
 
+    /// <summary>记录操作的诊断结果，构造时不会写日志。</summary>
     public readonly struct CoCoDiagnostic : IEquatable<CoCoDiagnostic>
     {
-        private readonly string _message;
-
-        private CoCoDiagnostic(
-            CoCoDiagnosticDomain domain,
-            CoCoDiagnosticCode code,
-            CoCoDiagnosticSeverity severity,
-            string message)
-        {
-            Domain = domain;
-            Code = code;
-            Severity = severity;
-            _message = message ?? string.Empty;
-        }
+        #region Public API
 
         public static CoCoDiagnostic None => default;
 
@@ -190,32 +185,25 @@ namespace CoCoFlow.Runtime.Core
         public bool IsError => Severity == CoCoDiagnosticSeverity.Error;
         public bool IsWarning => Severity == CoCoDiagnosticSeverity.Warning;
 
+        /// <summary>创建错误诊断。</summary>
+        /// <param name="domain">已定义且非 None 的领域。</param>
+        /// <param name="code">已定义且非 None 的诊断代码。</param>
+        /// <param name="message">诊断消息。传入 null 时使用空字符串。</param>
+        /// <exception cref="ArgumentOutOfRangeException">领域或代码为 None，或者超出已定义的枚举值。</exception>
         public static CoCoDiagnostic Error(
             CoCoDiagnosticDomain domain,
             CoCoDiagnosticCode code,
             string message)
         {
-            if (domain == CoCoDiagnosticDomain.None ||
-                !Enum.IsDefined(typeof(CoCoDiagnosticDomain), domain))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(domain),
-                    domain,
-                    "An error diagnostic requires a defined, non-None domain.");
-            }
-
-            if (code == CoCoDiagnosticCode.None ||
-                !Enum.IsDefined(typeof(CoCoDiagnosticCode), code))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(code),
-                    code,
-                    "An error diagnostic requires a defined, non-None code.");
-            }
-
+            Validate(domain, code, "An error diagnostic");
             return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Error, message);
         }
 
+        /// <summary>创建警告诊断。</summary>
+        /// <param name="domain">已定义且非 None 的领域。</param>
+        /// <param name="code">已定义且非 None 的诊断代码。</param>
+        /// <param name="message">诊断消息。传入 null 时使用空字符串。</param>
+        /// <exception cref="ArgumentOutOfRangeException">领域或代码为 None，或者超出已定义的枚举值。</exception>
         public static CoCoDiagnostic Warning(
             CoCoDiagnosticDomain domain,
             CoCoDiagnosticCode code,
@@ -225,6 +213,11 @@ namespace CoCoFlow.Runtime.Core
             return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Warning, message);
         }
 
+        /// <summary>创建信息诊断。</summary>
+        /// <param name="domain">已定义且非 None 的领域。</param>
+        /// <param name="code">已定义且非 None 的诊断代码。</param>
+        /// <param name="message">诊断消息。传入 null 时使用空字符串。</param>
+        /// <exception cref="ArgumentOutOfRangeException">领域或代码为 None，或者超出已定义的枚举值。</exception>
         public static CoCoDiagnostic Info(
             CoCoDiagnosticDomain domain,
             CoCoDiagnosticCode code,
@@ -232,6 +225,54 @@ namespace CoCoFlow.Runtime.Core
         {
             Validate(domain, code, "An information diagnostic");
             return new CoCoDiagnostic(domain, code, CoCoDiagnosticSeverity.Information, message);
+        }
+
+        /// <summary>比较诊断的领域、代码、级别和消息。消息按序号比较。</summary>
+        public bool Equals(CoCoDiagnostic other)
+        {
+            return Domain == other.Domain &&
+                   Code == other.Code &&
+                   Severity == other.Severity &&
+                   string.Equals(Message, other.Message, StringComparison.Ordinal);
+        }
+
+        /// <summary>比较诊断的领域、代码、级别和消息。消息按序号比较。</summary>
+        public override bool Equals(object obj) => obj is CoCoDiagnostic other && Equals(other);
+
+        /// <summary>返回与值相等规则一致的哈希值。</summary>
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hashCode = (int)Domain;
+                hashCode = (hashCode * 397) ^ (int)Code;
+                hashCode = (hashCode * 397) ^ (int)Severity;
+                hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(Message);
+                return hashCode;
+            }
+        }
+
+        /// <summary>判断两个诊断的值是否相等。</summary>
+        public static bool operator ==(CoCoDiagnostic left, CoCoDiagnostic right) => left.Equals(right);
+        /// <summary>判断两个诊断的值是否不同。</summary>
+        public static bool operator !=(CoCoDiagnostic left, CoCoDiagnostic right) => !left.Equals(right);
+
+        #endregion
+
+        #region Internal Logic
+
+        private readonly string _message;
+
+        private CoCoDiagnostic(
+            CoCoDiagnosticDomain domain,
+            CoCoDiagnosticCode code,
+            CoCoDiagnosticSeverity severity,
+            string message)
+        {
+            Domain = domain;
+            Code = code;
+            Severity = severity;
+            _message = message ?? string.Empty;
         }
 
         private static void Validate(
@@ -258,29 +299,6 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        public bool Equals(CoCoDiagnostic other)
-        {
-            return Domain == other.Domain &&
-                   Code == other.Code &&
-                   Severity == other.Severity &&
-                   string.Equals(Message, other.Message, StringComparison.Ordinal);
-        }
-
-        public override bool Equals(object obj) => obj is CoCoDiagnostic other && Equals(other);
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hashCode = (int)Domain;
-                hashCode = (hashCode * 397) ^ (int)Code;
-                hashCode = (hashCode * 397) ^ (int)Severity;
-                hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(Message);
-                return hashCode;
-            }
-        }
-
-        public static bool operator ==(CoCoDiagnostic left, CoCoDiagnostic right) => left.Equals(right);
-        public static bool operator !=(CoCoDiagnostic left, CoCoDiagnostic right) => !left.Equals(right);
+        #endregion
     }
 }

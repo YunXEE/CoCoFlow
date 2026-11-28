@@ -7,6 +7,8 @@ namespace CoCoFlow.Editor.Core
 {
     internal static class CoCoAtomicFileTransaction
     {
+        #region Validated File Replacement
+
         internal static bool TryReplaceUtf8(
             string path,
             string content,
@@ -80,6 +82,8 @@ namespace CoCoFlow.Editor.Core
                 }
             }
         }
+
+        #endregion
     }
 }
 #endif

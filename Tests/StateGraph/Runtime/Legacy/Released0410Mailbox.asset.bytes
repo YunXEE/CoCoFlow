@@ -1,0 +1,91 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4123cdeecc154cdca56d605fc6bfaad8, type: 3}
+  m_Name: P002MailboxOpen
+  m_EditorClassIdentifier: CoCoFlow.Runtime.StateGraphHost::CoCoFlow.Runtime.StateGraphHost.StateGraphAsset
+  schemaVersion: 1
+  graphId:
+    high: 16353670761486250541
+    low: 15251891896660661667
+  assetGuidStamp: 5bc4ff4a71ed34d7a91be41c151d9371
+  layers:
+  - layerId:
+      high: 338704521453568144
+      low: 7151484880017378054
+    displayName: Mailbox
+    initialStateId:
+      high: 12496755313371451335
+      low: 11156995261618501841
+    states:
+    - stateId:
+        high: 12496755313371451335
+        low: 11156995261618501841
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: MailboxProbeLogic
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 14602003295389615965
+      config:
+        rid: 7613975711569674242
+      initialChildStateId:
+        high: 0
+        low: 0
+    - stateId:
+        high: 5799809092468683108
+        low: 1090089890448115314
+      parentStateId:
+        high: 0
+        low: 0
+      displayName: MailboxPlainLogic
+      stateDescriptorId:
+        high: 4850169331680821588
+        low: 2799806515543956587
+      config:
+        rid: 7613975711569674243
+      initialChildStateId:
+        high: 0
+        low: 0
+    anyState:
+      rid: -2
+    transitions:
+    - transitionId:
+        high: 14902144684847434833
+        low: 16182138478999792647
+      sourceStateId:
+        high: 12496755313371451335
+        low: 11156995261618501841
+      targetStateId:
+        high: 5799809092468683108
+        low: 1090089890448115314
+      priority: 1
+      conditions: []
+      windowMode: 3
+      windowStartInclusive: 0.75
+      windowEndExclusive: 1
+  eventAdapterDeclarations: []
+  editorLayout:
+    version: 1
+    statePositions: []
+  references:
+    version: 2
+    RefIds:
+    - rid: -2
+      type: {class: , ns: , asm: }
+    - rid: 7613975711569674242
+      type: {class: FieldConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data:
+        Values: []
+    - rid: 7613975711569674243
+      type: {class: EmptyStateConfig, ns: CoCoFlow.Runtime.StateGraph, asm: CoCoFlow.Runtime.StateGraph}
+      data: 

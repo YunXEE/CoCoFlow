@@ -3,10 +3,10 @@
 The Input module owns the Unity Input System boundary. `PlayerInput`, its
 runtime `InputActionAsset`, actions, devices, control scheme, bindings, and
 rebind overrides remain the physical-input authority. StateGraph consumes the
-typed `InputIntentData`; it never reads an `InputAction`, device callback, or
+typed `InputIntentContract`; it never reads an `InputAction`, device callback, or
 binding path.
 
-## InputIntentData broadcast
+## InputIntentContract broadcast
 
 Keep PlayerInput and InputReader on a persistent object. On each Host, add an
 InputIntent, assign its Reader, and put InputIntent in the Host Intent Sources.
@@ -23,9 +23,9 @@ as Held records, including on Ticks without changes. A retry of an unresolved
 Tick uses its frozen data. Successful commit advances only that Host's cursor.
 A fence clears pending changes and increments `FenceGeneration`.
 
-StateLogic declares `[Intent] public InputIntentData Input { get; set; }`.
+StateLogic declares `[Intent] public InputIntentContract Input { get; set; }`.
 `Count`, `TryGet` and `TryFind` read changes followed by current state.
-Producers constructing their own `InputIntentData` supply read-only views of
+Producers constructing their own `InputIntentContract` supply read-only views of
 arrays they keep immutable after delivery. Code that used the slot setters
 must migrate to the constructor. With managed array references, the payload
 can no longer be used as an argument to an `unmanaged`-constrained generic.
@@ -36,7 +36,7 @@ Use direct Reader queries or Action events in place of `TryReadLatest`.
 `InputReader` also exposes current `MoveInput`, `LookInput`, and `ZoomInput`,
 typed `TryReadValue`, button `TryReadPressed`, performed/canceled `ActionChanged`,
 action-name events, prompt changes, and a short optional one-action input buffer. These are local
-Unity-facing conveniences; only `InputIntentData` crosses into StateFlow.
+Unity-facing conveniences; only `InputIntentContract` crosses into StateFlow.
 
 Both direct queries respect action enablement and neutral gating. Direct
 queries and Action subscriptions leave all Host cursors untouched. `FenceInput`

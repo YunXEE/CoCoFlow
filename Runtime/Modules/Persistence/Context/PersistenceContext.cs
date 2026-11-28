@@ -1,9 +1,7 @@
 using System;
 using System.Collections;
-using System.Reflection;
 using CoCoFlow.Runtime.Core;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -14,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace CoCoFlow.Runtime.Modules.Persistence.Context
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     internal enum PersistenceContextOperationResult
     {
@@ -27,8 +25,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
     [ExecuteAlways]
     public sealed class PersistenceContext :
         MonoBehaviour,
-        ISerializationCallbackReceiver,
-        ICoCoStableEntityIdProvider
+        ISerializationCallbackReceiver
     {
         [Header("Persistence")]
         [SerializeField] private string stableEntityId = string.Empty;
@@ -106,64 +103,47 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             failure = string.Empty;
 
             var host = GetComponent<StateGraphHost>();
-            if (host != null)
-            {
-                if (string.IsNullOrEmpty(stableEntityId))
-                {
-                    failure = "StateGraph capture requires a stable entity id.";
-                    return PersistenceContextOperationResult.Failed;
-                }
-
-                try
-                {
-                    bool stateGraphCaptured = host.TryCapturePersistencePayload(
-                        out byte[] payload,
-                        out CoCoDiagnostic diagnostic);
-                    if (!stateGraphCaptured || diagnostic.IsError)
-                    {
-                        failure = FormatDiagnostic(
-                            "StateGraph ContextFrame capture was rejected.",
-                            diagnostic);
-                        return PersistenceContextOperationResult.Failed;
-                    }
-
-                    if (payload == null || payload.Length == 0)
-                    {
-                        failure = "StateGraph ContextFrame capture returned an empty payload.";
-                        return PersistenceContextOperationResult.Failed;
-                    }
-
-                    record = PersistenceContextRecord.CreateStateGraphContextRecord(
-                        stableEntityId,
-                        prefabKey,
-                        payload);
-                    return PersistenceContextOperationResult.Applied;
-                }
-                catch (Exception exception)
-                {
-                    failure = "StateGraph ContextFrame capture threw: " + exception.Message;
-                    return PersistenceContextOperationResult.Failed;
-                }
-            }
-
-            if (!TryResolveContext(out var context))
+            if (host == null)
             {
                 return PersistenceContextOperationResult.Unsupported;
             }
 
-            bool captured = PersistenceContextAdapterRegistry.TryCapture(
-                stableEntityId,
-                context,
-                out record);
-            if (!captured || record == null)
+            if (string.IsNullOrEmpty(stableEntityId))
             {
-                return PersistenceContextOperationResult.Unsupported;
+                failure = "StateGraph capture requires a stable entity id.";
+                return PersistenceContextOperationResult.Failed;
             }
 
-            record.prefabKey = string.IsNullOrEmpty(record.prefabKey)
-                ? prefabKey
-                : record.prefabKey;
-            return PersistenceContextOperationResult.Applied;
+            try
+            {
+                bool stateGraphCaptured = host.TryCapturePersistencePayload(
+                    out byte[] payload,
+                    out CoCoDiagnostic diagnostic);
+                if (!stateGraphCaptured || diagnostic.IsError)
+                {
+                    failure = FormatDiagnostic(
+                        "StateGraph ContextFrame capture was rejected.",
+                        diagnostic);
+                    return PersistenceContextOperationResult.Failed;
+                }
+
+                if (payload == null || payload.Length == 0)
+                {
+                    failure = "StateGraph ContextFrame capture returned an empty payload.";
+                    return PersistenceContextOperationResult.Failed;
+                }
+
+                record = PersistenceContextRecord.CreateStateGraphContextRecord(
+                    stableEntityId,
+                    prefabKey,
+                    payload);
+                return PersistenceContextOperationResult.Applied;
+            }
+            catch (Exception exception)
+            {
+                failure = "StateGraph ContextFrame capture threw: " + exception.Message;
+                return PersistenceContextOperationResult.Failed;
+            }
         }
 
         internal PersistenceContextOperationResult TryApplyDetailed(
@@ -188,14 +168,7 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
                 return PersistenceContextOperationResult.Failed;
             }
 
-            if (!TryResolveContext(out var context))
-            {
-                return PersistenceContextOperationResult.Unsupported;
-            }
-
-            return PersistenceContextAdapterRegistry.TryApply(record, context)
-                ? PersistenceContextOperationResult.Applied
-                : PersistenceContextOperationResult.Unsupported;
+            return PersistenceContextOperationResult.Unsupported;
         }
 
         internal bool TryScheduleDeferredApply(
@@ -383,48 +356,6 @@ namespace CoCoFlow.Runtime.Modules.Persistence.Context
             return string.IsNullOrEmpty(diagnostic.Message)
                 ? fallback
                 : diagnostic.Message;
-        }
-
-        private bool TryResolveContext(out ICoCoContext context)
-        {
-            var behaviours = GetComponents<MonoBehaviour>();
-            foreach (var behaviour in behaviours)
-            {
-                if (behaviour == null ||
-                    ReferenceEquals(behaviour, this) ||
-                    behaviour is StateGraphHost)
-                {
-                    continue;
-                }
-
-                var interfaces = behaviour.GetType().GetInterfaces();
-                for (int i = 0; i < interfaces.Length; i++)
-                {
-                    var contract = interfaces[i];
-                    if (!contract.IsGenericType ||
-                        contract.GetGenericTypeDefinition() != typeof(ICoCoContextProvider<>))
-                    {
-                        continue;
-                    }
-
-                    var property = contract.GetProperty(
-                        "Context",
-                        BindingFlags.Instance | BindingFlags.Public);
-                    context = property?.GetValue(behaviour) as ICoCoContext;
-                    if (context != null)
-                    {
-                        if (context is EntityContext entityContext)
-                        {
-                            entityContext.Identity.StableEntityId = stableEntityId;
-                        }
-
-                        return true;
-                    }
-                }
-            }
-
-            context = null;
-            return false;
         }
 
 #if UNITY_EDITOR

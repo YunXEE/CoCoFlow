@@ -1,13 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
+// 这个文件负责按类型注册和查找当前服务，并让依赖方等待服务就绪。
+// CameraDirector 启用时注册、停用时注销，CameraRig 可以立即取到服务，也可以等待注册并取消等待。
+// Host 开始新的 Play 会话时清空服务和等待队列。
 namespace CoCoFlow.Runtime.Core
 {
-    /// <summary>
-    /// 极简服务定位器：按类型注册 / 获取 / 等待。
-    /// ⚠️ 非线程安全；只在主线程使用。
-    /// ⚠️ 同类型多次 Register 会覆盖前一次（适合用 MonoBehaviour 单例）。
-    /// </summary>
+    /// <summary>在主线程按确切类型管理服务实例及一次性就绪回调。</summary>
     public static class CoCoServices
     {
         private static readonly Dictionary<Type, object> Services = new Dictionary<Type, object>();
@@ -15,9 +14,9 @@ namespace CoCoFlow.Runtime.Core
 
         #region Public API
 
-        /// <summary>
-        /// 注册一个服务实现。后注册会覆盖前注册。
-        /// </summary>
+        /// <summary>按确切类型注册服务，覆盖同类型旧实例，同步唤醒当前批等待者。</summary>
+        /// <remarks>排队回调抛出异常时会记录错误日志，随后继续通知同批的其他等待者。</remarks>
+        /// <exception cref="ArgumentNullException">服务实例为 null。</exception>
         public static void Register<T>(T impl) where T : class
         {
             if (impl == null) throw new ArgumentNullException(nameof(impl));
@@ -28,24 +27,20 @@ namespace CoCoFlow.Runtime.Core
             }
             Services[t] = impl;
 
-            // 通知所有正在等待该服务的对象
             if (Waiters.Remove(t, out var entries))
             {
-                var snapshot = entries.ToArray();
-                foreach (var entry in snapshot)
+                foreach (var entry in entries)
                 {
-                    if (entry == null || entry.IsDisposed) continue;
+                    if (entry.IsDisposed) continue;
 
                     entry.IsDisposed = true;
-                    try { entry.Callback?.Invoke(impl); }
+                    try { entry.Callback(impl); }
                     catch (Exception ex) { CoCoLog.Error($"[CoCoServices] WaitFor 回调异常: {ex}"); }
                 }
             }
         }
 
-        /// <summary>
-        /// 注销服务。仅当当前注册者就是 impl 时才会真的移除（防止误注销）。
-        /// </summary>
+        /// <summary>仅当当前注册的服务与传入实例是同一个对象时，移除注册。</summary>
         public static void Unregister<T>(T impl) where T : class
         {
             var t = typeof(T);
@@ -55,13 +50,13 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
-        /// <summary>立即获取服务。未注册则返回 null。</summary>
+        /// <summary>按确切类型获取服务，未注册时返回 null。</summary>
         public static T Get<T>() where T : class
         {
             return Services.TryGetValue(typeof(T), out var s) ? (T)s : null;
         }
 
-        /// <summary>尝试获取服务。</summary>
+        /// <summary>按确切类型查找服务。未注册时返回 false，输出 null。</summary>
         public static bool TryGet<T>(out T service) where T : class
         {
             if (Services.TryGetValue(typeof(T), out var s))
@@ -73,10 +68,8 @@ namespace CoCoFlow.Runtime.Core
             return false;
         }
 
-        /// <summary>
-        /// 注册时回调；若已注册则立刻同步回调。
-        /// 适合解决 Awake 顺序无法保证或跨模块解耦的初始化场景。
-        /// </summary>
+        /// <summary>服务已注册时同步调用回调，否则等待下一次注册。</summary>
+        /// <remarks>释放返回的凭证可取消尚未执行的等待。同步调用的异常会直接传给调用方。</remarks>
         public static IDisposable WaitFor<T>(Action<T> onReady) where T : class
         {
             if (onReady == null) return EmptyDisposable.Instance;
@@ -100,10 +93,7 @@ namespace CoCoFlow.Runtime.Core
             return new CoCoServiceWaitSubscription(t, entry);
         }
 
-        /// <summary>
-        /// 清空所有已注册的服务和等待者。
-        /// 通常用于场景切换、单元测试或 Domain Reload 关闭时的清理。
-        /// </summary>
+        /// <summary>清空服务注册和等待队列。已经开始派发的回调批次会继续执行。</summary>
         public static void ClearAll()
         {
             Services.Clear();
@@ -114,6 +104,7 @@ namespace CoCoFlow.Runtime.Core
 
         #region Internal Logic
 
+        /// <summary>保存等待中的回调及其取消状态。</summary>
         private sealed class WaiterEntry
         {
             public WaiterEntry(Action<object> callback)
@@ -125,6 +116,7 @@ namespace CoCoFlow.Runtime.Core
             public bool IsDisposed { get; set; }
         }
 
+        /// <summary>用于取消等待中的服务回调。</summary>
         private sealed class CoCoServiceWaitSubscription : IDisposable
         {
             private Type _serviceType;
@@ -146,6 +138,7 @@ namespace CoCoFlow.Runtime.Core
             }
         }
 
+        /// <summary>用于没有进入等待队列的服务请求。</summary>
         private sealed class EmptyDisposable : IDisposable
         {
             public static readonly EmptyDisposable Instance = new EmptyDisposable();

@@ -1,7 +1,7 @@
 # CoCoFlow Documentation
 
 This is the Unity Package Manager documentation entry point for CoCoFlow
-`0.4.10`.
+`0.4.11`.
 
 The mature Runtime surfaces are the Core Engine, Camera, Persistence, and UI.
 Here, mature means stable public Runtime APIs, proven project use, and documented
@@ -18,6 +18,14 @@ breaking changes and compatibility boundaries.
 - [Changelog](../CHANGELOG.md)
 - [Dependency matrix](../Docs/DependencyMatrix.md)
 
+## Animation in 0.4.11
+
+The legacy Animation module has been removed. Projects own animation playback,
+progress and root motion in this version. If a scene or prefab used the old
+Animation Operator, follow the [StateGraph Host migration
+steps](../Docs/StateGraphRuntime.md#migrating-a-0410-scene). A new Animation
+module is planned for 0.5.0.
+
 ## Windows Player validation for 0.4.8
 
 Recorded Windows x64 implementation runs on Unity 6000.3.27f2 passed 456/456
@@ -33,6 +41,24 @@ game would otherwise strip, so these results do not certify every game or build
 configuration.
 
 ## Core Engine
+
+### Runtime Core API migration for 0.4.11
+
+- Use `CoCoLog.Log(string)` for ordinary diagnostics and `CoCoLog.Warning(string)`
+  for output that previously appeared as a Unity warning through
+  `CoCoStateLog.Print`. Convert objects to text at the call site. The public
+  `CoCoStateLog.Install` custom sink has been removed. Ordinary calls and their
+  arguments are compiled out when the calling assembly lacks `COCOFLOW_LOG`.
+- Use the typed `CoCoEventBus.Publish` overloads for local events and
+  `EventPacket<TEvent>` for cross-Actor routing. The legacy
+  `CoCoEventEnvelope` and `PublishWithEnvelope` APIs have been removed.
+- Put `PersistenceContext` and `StateGraphHost` on the same GameObject.
+  Entity saves use the Host's durable context frame. Legacy provider/adapter
+  records are unsupported. `PersistenceContext.StableEntityId` and the
+  separate container save section remain available.
+- Rebuild callers of `LifecycleContext` against
+  `CoCoFlow.Runtime.StateGraph.EntityLifecycleState`. Existing serialized
+  state values retain their numeric mapping from 0 through 6.
 
 - [StateGraph Asset and Compiler](../Docs/StateGraphCompiler.md)
 - [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md)
@@ -68,7 +94,6 @@ transition. This Editor session preference preserves graph data and Runtime inpu
 - [Content acquisition and ownership](../Docs/ContentOwnership.md)
 - [Input](../Docs/Module-Input.md)
 - [Localization](../Docs/Module-Localization.md)
-- [Animation](../Docs/Module-Animation.md)
 
 ## Typed Persistence Containers
 
@@ -103,24 +128,19 @@ Inspector keeps its minimum of 1. Failed Temporal calls preserve pending mail.
 
 Mark a State with `[State("Attack", ProvidesActionProgress = true)]` and call
 `context.TrySetActionProgress(value)` to supply its normalized progress.
-Each `[Condition]` class must be concrete and non-generic, derive from
-`StateCondition`, implement `IStateConditionEvaluator`, and have a public
-parameterless constructor. An implicit default constructor already satisfies
-that requirement; several classes may share one file. Add the desired condition
-in the Graph. It evaluates a requested transition and does not request one itself.
-
-See [StateGraph Runtime and Host](../Docs/StateGraphRuntime.md#direct-state-mailbox-d043-040711121415)
-for a compilable Condition example and the existing legacy Event-to-Intent boundary.
+Evaluate project-specific rules in the source State's Update before calling
+`TryRequestTransitionTo<TTargetLogic>()`. The frame evaluates the requested
+edge's window and priority. Empty requests leave the active leaf in place.
 
 ## Operator recovery
 
 In the Host's Operators list, each component exposes only the recovery switches
-supported by its interfaces: `IPersistenceRestoreOperator` for save/load and
-`ITemporalRestoreOperator` for history. Both switches start off and are independent.
+supported by its interfaces: `IHostPersistenceRestoreOperator` for save/load and
+`IHostTemporalRestoreOperator` for history. Both switches start off and are independent.
 Configure them before starting the Host; running Hosts keep their startup settings.
 Reordering the list keeps settings with the component, not the row number.
 
-Implement `TryRestore(in ContextRestoreBindingContext, out CoCoDiagnostic)`
+Implement `TryRestore(in HostRestoreContext, out CoCoDiagnostic)`
 and read committed state through `context.Reader` during that callback only.
 The Host dispatches enabled Operators in binding order. Normal execution and
 Context capture continue whether recovery is enabled or disabled.
@@ -137,7 +157,7 @@ Map and Pooling behavior is unchanged.
 History capacity remains zero or at least two; zero still permits save/load.
 A failed recovery keeps its original recovery purpose for world correction.
 Correcting a normal Tick fault requires enabled recovery for every bound Operator.
-Recovery does not expand Animator snapshot fidelity or add world rollback.
+Scene recovery uses the components configured on the Host.
 
 Locomotion sources now live under `Runtime/Modules/Locomotion`. Its pure C#
 contracts remain in the separate `CoCoFlow.Runtime.Locomotion.Contracts` assembly,
@@ -145,10 +165,10 @@ in `Contracts/LocomotionContract.cs`; existing type names remain unchanged.
 
 ## StateLogic properties
 
-Declare reads with `[Intent] public InputIntentData Input { get; set; }` and writes with
-`[Operation] public ILocomotionSection Movement { get; set; }`.
+Declare reads with `[Intent] public InputIntentContract Input { get; set; }` and writes with
+`[Operation] public ILocomotionOperation Movement { get; set; }`.
 Use `Movement.MoveZ = speed;` or `Movement.Jump(impulse);` inside the normal callback.
-The framework refreshes Intent using the existing TryFirst rule and routes Section writes
+The framework refreshes Intent using the existing TryFirst rule and routes Operation writes
 through the existing composition and Operator execution. Bind the corresponding
 Intent source and Operator on the Host. Module sources can provide their own
 standard registration; see [Host startup](../Docs/StateGraphRuntime.md#standard-binding-startup).

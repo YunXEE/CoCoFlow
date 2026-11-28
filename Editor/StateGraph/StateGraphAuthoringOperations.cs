@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using CoCoFlow.Runtime.StateGraph;
-using CoCoFlow.Runtime.StateGraphHost;
 using UnityEditor;
 using UnityEngine;
 
@@ -9,6 +8,7 @@ namespace CoCoFlow.Editor.StateGraph
 {
     public static partial class StateGraphAuthoringOperations
     {
+        /// <summary>向图资产添加一个使用新标识的层，记录撤销并返回该层标识。</summary>
         public static LayerId AddLayer(StateGraphAsset asset, string displayName = null)
         {
             RequireAsset(asset);
@@ -27,6 +27,7 @@ namespace CoCoFlow.Editor.StateGraph
             return layerId;
         }
 
+        /// <summary>向指定层和父状态添加状态，返回新状态标识；不合法的添加请求会抛出异常。</summary>
         public static StateId AddState(
             StateGraphAsset asset,
             LayerId layerId,
@@ -54,6 +55,7 @@ namespace CoCoFlow.Editor.StateGraph
             return stateId;
         }
 
+        /// <summary>按指定优先级添加一个无时间窗口限制的转换，返回新转换标识；无效的请求会抛出异常。</summary>
         public static TransitionId AddTransition(
             StateGraphAsset asset,
             LayerId layerId,
@@ -80,6 +82,7 @@ namespace CoCoFlow.Editor.StateGraph
             return transitionId;
         }
 
+        /// <summary>在同一层复制状态子树及其内部转换，并返回复制后的根标识；布局不受支持或根不存在时返回 false。</summary>
         public static bool DuplicateStateSubtree(
             StateGraphAsset asset,
             LayerId layerId,
@@ -188,6 +191,7 @@ namespace CoCoFlow.Editor.StateGraph
             }
         }
 
+        /// <summary>复制指定层及其状态、转换和布局，返回新层标识；源层或布局无法复制时返回 false。</summary>
         public static bool DuplicateLayer(
             StateGraphAsset asset,
             LayerId sourceLayerId,

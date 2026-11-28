@@ -2,6 +2,7 @@
     "name": "CoCoFlow.Tests.Editor.Input",
     "rootNamespace": "CoCoFlow.Tests.Editor.Input",
     "references": [
+        "CoCoFlow.Runtime.Input.Contracts",
         "CoCoFlow.Runtime.Modules.Input",
         "Unity.InputSystem"
     ],

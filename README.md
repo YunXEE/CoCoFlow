@@ -1,6 +1,6 @@
 ![CoCoFlow](.github/assets/cocoflow-banner.svg)
 
-> **Version**: 0.4.10 · **Unity**: 6000+
+> **Version**: 0.4.11 · **Unity**: 6000+
 >
 > [简体中文](README.zh-CN.md)
 
@@ -20,7 +20,7 @@ runtime ownership.
 
 - Preserve short presses as ordered changes in Player Intent. Each StateGraph
   Tick also receives current held actions and axis values.
-- Input producers using the old eight-slot API now construct `InputIntentData`
+- Input producers using the old eight-slot API now construct `InputIntentContract`
   from read-only array views. See the [Input module](Docs/Module-Input.md).
 
 ## New in 0.4.8
@@ -76,7 +76,7 @@ marketplace certification.
 
 | Module | Status | Accurate scope |
 |---|---|---|
-| Core Engine | **Mature** | Core, StateGraph, and StateGraphHost; the native 0.4 core. |
+| Core Engine | **Mature** | Core, StateGraph.Contracts, and StateGraph; the native 0.4 core. |
 | Camera | **Mature** | Originated in 0.3.9; the current Rig, priority, and mode APIs are stable and usable. |
 | Persistence | **Mature** | Originated in 0.3.9; supports schema v2, Containers, and StateGraph ContextFrame persistence. |
 | UI | **Mature** | Originated in 0.3.9; Panel, Widget, Input, and Content-ownership APIs are stable and usable, but this is not a high-performance UI framework. |
@@ -107,7 +107,7 @@ Host-local Intent sources       External struct events
 ```
 
 Each actor owns its runtime state. StateLogic reads immutable Tick input,
-updates activation Memory, writes declared Operation Sections, and stages
+updates activation Memory, writes declared Operations, and stages
 outgoing events. The Host validates bindings before
 start, stages one candidate tick, and either commits the full actor transaction
 or keeps the previous authority unchanged. Cross-object effects leave through
@@ -122,7 +122,7 @@ format.
 Add the package from Unity Package Manager with the Git URL:
 
 ```text
-https://github.com/YunXEE/CoCoFlow.git#v0.4.10
+https://github.com/YunXEE/CoCoFlow.git#v0.4.11
 ```
 
 Or add this entry to `Packages/manifest.json`:
@@ -130,7 +130,7 @@ Or add this entry to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.10"
+    "com.yunxee.cocoflow": "https://github.com/YunXEE/CoCoFlow.git#v0.4.11"
   }
 }
 ```

@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text;
 using CoCoFlow.Runtime.Content;
 using CoCoFlow.Runtime.Core;
-using CoCoFlow.Runtime.StateGraphHost;
+using CoCoFlow.Runtime.StateGraph;
 using CoCoFlow.Runtime.Pooling;
 using CoCoFlow.Runtime.Pooling.Temporal;
 using Cysharp.Threading.Tasks;
@@ -17,7 +17,7 @@ using Object = UnityEngine.Object;
 
 namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 {
-    using StateGraphHost = global::CoCoFlow.Runtime.StateGraphHost.StateGraphHost;
+    using StateGraphHost = global::CoCoFlow.Runtime.StateGraph.StateGraphHost;
 
     public sealed class MapTemporalBindingPlayModeTests
     {
@@ -73,7 +73,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             try
             {
                 Type participantType = Type.GetType(
-                    "CoCoFlow.Tests.Runtime.StateGraphHost.StateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
+                    "CoCoFlow.Tests.StateGraph.StateGraphHostPersistencePlayModeTests+RejectingTemporalParticipant, CoCoFlow.Tests.Runtime.StateGraphHost",
                     true);
                 var downstream =
                     (MonoBehaviour)fixture.Scenario.Root.AddComponent(
@@ -183,7 +183,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     Is.EqualTo(
                         new[]
                         {
-                            ContextRestoreApplyKind.Confirm
+                            HostRestoreKind.Confirm
                         }));
                 Assert.That(
                     fixture.ProjectProbe.MapProjectionPreparedDuringApply[0],
@@ -215,7 +215,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                         "_runtime"),
                     Is.Null);
 
-                TemporalFrameInfo authority =
+                HostHistoryFrame authority =
                     fixture.Host.TemporalState.Current;
                 Assert.That(authority.IsValid, Is.True);
                 Assert.That(
@@ -342,7 +342,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 Assert.That(mapCountBefore, Is.GreaterThan(1));
                 Assert.That(poolCountBefore, Is.EqualTo(mapCountBefore));
 
-                TemporalFrameInfo imported =
+                HostHistoryFrame imported =
                     fixture.Host.TemporalState.Current;
                 Assert.That(
                     TryPrepareAuthorityReset(
@@ -438,7 +438,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 Assert.That(fixture.ProjectProbe.ApplyCount, Is.EqualTo(1));
                 Assert.That(
                     fixture.ProjectProbe.ApplyKinds[0],
-                    Is.EqualTo(ContextRestoreApplyKind.Preview));
+                    Is.EqualTo(HostRestoreKind.Preview));
                 Assert.That(
                     fixture.ProjectProbe.MapProjectionPreparedDuringApply[0],
                     Is.True,
@@ -468,7 +468,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                 Assert.That(fixture.ProjectProbe.ApplyCount, Is.EqualTo(2));
                 Assert.That(
                     fixture.ProjectProbe.ApplyKinds[1],
-                    Is.EqualTo(ContextRestoreApplyKind.Cancel));
+                    Is.EqualTo(HostRestoreKind.Cancel));
                 Assert.That(
                     fixture.ProjectProbe.MapProjectionPreparedDuringApply[1],
                     Is.True);
@@ -510,7 +510,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
                     Is.False);
                 Assert.That(
                     diagnostic.Code,
-                    Is.EqualTo(CoCoDiagnosticCode.InvalidActorBinding));
+                    Is.EqualTo(CoCoDiagnosticCode.InvalidHostConfiguration));
                 Assert.That(
                     ReadPrivateField(
                         fixture.MapTemporalBinding,
@@ -740,7 +740,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
             bool withDurableProjection = false)
         {
             Type harnessType = Type.GetType(
-                "CoCoFlow.Tests.Runtime.StateGraphHost.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
+                "CoCoFlow.Tests.StateGraph.TemporalHostTestHarness, CoCoFlow.Tests.Runtime.StateGraphHost",
                 true);
             MethodInfo create = harnessType.GetMethod(
                 "Create",
@@ -767,7 +767,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         private static void ResetStateGraphProjectBindings()
         {
             Type bridgeType = Type.GetType(
-                "CoCoFlow.Tests.Runtime.StateGraphHost.StateGraphHostPoolingTestBridge, CoCoFlow.Tests.Runtime.StateGraphHost",
+                "CoCoFlow.Tests.StateGraph.StateGraphHostPoolingTestBridge, CoCoFlow.Tests.Runtime.StateGraphHost",
                 false);
             MethodInfo reset = bridgeType?.GetMethod(
                 "ResetProjectBindings",
@@ -859,7 +859,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
         private static bool TryPrepareAuthorityReset(
             object participant,
-            in TemporalFrameInfo targetAuthority,
+            in HostHistoryFrame targetAuthority,
             out CoCoDiagnostic diagnostic)
         {
             MethodInfo method = FindTemporalParticipantMethod(
@@ -923,7 +923,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
         private static bool TryPrepareForwardCapture(
             object participant,
-            in TemporalFrameInfo candidate,
+            in HostHistoryFrame candidate,
             out CoCoDiagnostic diagnostic)
         {
             MethodInfo method = FindTemporalParticipantMethod(
@@ -1210,7 +1210,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
 
     internal sealed class DecoratorProjectRestoreProbe :
         MonoBehaviour,
-        IContextRestoreBinding
+        IHostRestoreBinding
     {
         private RegionRuntime region;
         private MapTemporalBinding mapBinding;
@@ -1218,8 +1218,8 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         private RegionId regionId;
 
         internal int ApplyCount { get; private set; }
-        internal List<ContextRestoreApplyKind> ApplyKinds { get; } =
-            new List<ContextRestoreApplyKind>();
+        internal List<HostRestoreKind> ApplyKinds { get; } =
+            new List<HostRestoreKind>();
         internal List<bool> MapProjectionPreparedDuringApply { get; } =
             new List<bool>();
         internal List<bool> PoolProjectionPreparedDuringApply { get; } =
@@ -1240,7 +1240,7 @@ namespace CoCoFlow.Runtime.Modules.Map.Temporal.Tests
         }
 
         public bool TryApply(
-            in ContextRestoreBindingContext context,
+            in HostRestoreContext context,
             out CoCoDiagnostic diagnostic)
         {
             ApplyCount++;
